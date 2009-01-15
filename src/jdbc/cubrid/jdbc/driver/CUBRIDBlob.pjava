@@ -49,9 +49,9 @@ public class CUBRIDBlob extends CUBRIDOID implements Blob
    * =======================================================================
    */
 
-  public CUBRIDBlob(CUBRIDOID o)
+  public CUBRIDBlob (CUBRIDOID o)
   {
-    super(o);
+    super (o);
   }
 
   /*
@@ -60,60 +60,76 @@ public class CUBRIDBlob extends CUBRIDOID implements Blob
    * =======================================================================
    */
 
-  public long length() throws SQLException
+  public long length () throws SQLException
   {
-    return (gloSize());
+    return (gloSize ());
   }
 
-  public byte[] getBytes(long pos, int length) throws SQLException
+  public byte[] getBytes (long pos, int length) throws SQLException
   {
     byte[] b = new byte[length];
 
-    int read_len = gloRead(pos, length, b, 0);
+    int read_len = gloRead (pos, length, b, 0);
 
     if (read_len < length)
-    {
-      byte[] cpbuf = new byte[read_len];
-      System.arraycopy(b, 0, cpbuf, 0, read_len);
-      b = cpbuf;
-    }
+      {
+	byte[]cpbuf = new byte[read_len];
+	System.arraycopy (b, 0, cpbuf, 0, read_len);
+	b = cpbuf;
+      }
 
     return b;
   }
 
-  public InputStream getBinaryStream() throws SQLException
+  public InputStream getBinaryStream () throws SQLException
   {
-    return (new CUBRIDGloInputStream(this));
+    return (new CUBRIDGloInputStream (this));
   }
 
-  public long position(byte[] pattern, long start) throws SQLException
+  public long position (byte[]pattern, long start) throws SQLException
   {
-    return (gloBinarySearch(start, pattern, 0, pattern.length));
+    return (gloBinarySearch (start, pattern, 0, pattern.length));
   }
 
-  public long position(Blob pattern, long start) throws SQLException
+  public long position (Blob pattern, long start) throws SQLException
   {
-    return (position(pattern.getBytes(1, GLO_MAX_SEARCH_LEN), start));
+    return (position (pattern.getBytes (1, GLO_MAX_SEARCH_LEN), start));
   }
 
-  public int setBytes(long pos, byte[] bytes) throws SQLException
+  public int setBytes (long pos, byte[]bytes) throws SQLException
   {
-    return (setBytes(pos, bytes, 0, bytes.length));
+    return (setBytes (pos, bytes, 0, bytes.length));
   }
 
-  public int setBytes(long pos, byte[] bytes, int offset, int len)
-      throws SQLException
+  public int setBytes (long pos, byte[]bytes, int offset, int len)
+    throws SQLException
   {
-    return (gloWrite(pos, bytes, offset, len));
+    return (gloWrite (pos, bytes, offset, len));
   }
 
-  public OutputStream setBinaryStream(long pos) throws SQLException
+  public OutputStream setBinaryStream (long pos) throws SQLException
   {
-    return (new CUBRIDGloOutputStream(this, (int) pos));
+    return (new CUBRIDGloOutputStream (this, (int) pos));
   }
 
-  public void truncate(long len) throws SQLException
+  public void truncate (long len) throws SQLException
   {
-    gloTruncate(len);
+    gloTruncate (len);
   }
+
+#ifdef JDK6
+/* JDK 1.6 */
+  public void free () throws SQLException
+  {
+    throw new java.lang.UnsupportedOperationException ();
+
+  }
+
+/* JDK 1.6 */
+  public InputStream getBinaryStream (long pos,
+				      long length) throws SQLException
+  {
+    throw new java.lang.UnsupportedOperationException ();
+  }
+#endif
 }

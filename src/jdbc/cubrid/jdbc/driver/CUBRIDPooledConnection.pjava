@@ -49,16 +49,16 @@ public class CUBRIDPooledConnection implements PooledConnection
 
   private Vector eventListeners;
 
-  protected CUBRIDPooledConnection()
+  protected CUBRIDPooledConnection ()
   {
     curConnection = null;
-    eventListeners = new Vector();
+    eventListeners = new Vector ();
     isClosed = false;
   }
 
-  protected CUBRIDPooledConnection(UConnection c)
+  protected CUBRIDPooledConnection (UConnection c)
   {
-    this();
+    this ();
     u_con = c;
   }
 
@@ -66,79 +66,96 @@ public class CUBRIDPooledConnection implements PooledConnection
    * javax.sql.PooledConnection interface
    */
 
-  synchronized public Connection getConnection() throws SQLException
+  synchronized public Connection getConnection () throws SQLException
   {
     if (isClosed)
-    {
-      throw new CUBRIDException(CUBRIDJDBCErrorCode.pooled_connection_closed);
-    }
+      {
+	throw new CUBRIDException (CUBRIDJDBCErrorCode.
+				   pooled_connection_closed);
+      }
 
     if (curConnection != null)
-      curConnection.closeConnection();
+        curConnection.closeConnection ();
 
-    if (u_con.check_cas() == false)
-    {
-      u_con.reset_connection();
-    }
+    if (u_con.check_cas () == false)
+      {
+	u_con.reset_connection ();
+      }
 
-    curConnection = new CUBRIDConnectionWrapperPooling(u_con, null, null, this);
+    curConnection =
+      new CUBRIDConnectionWrapperPooling (u_con, null, null, this);
     return curConnection;
   }
 
-  synchronized public void close() throws SQLException
+  synchronized public void close () throws SQLException
   {
     if (isClosed)
       return;
     isClosed = true;
     if (curConnection != null)
-      curConnection.closeConnection();
-    u_con.close();
-    eventListeners.clear();
+      curConnection.closeConnection ();
+    u_con.close ();
+    eventListeners.clear ();
   }
 
-  synchronized public void addConnectionEventListener(
-      ConnectionEventListener listener)
+  synchronized public void addConnectionEventListener (ConnectionEventListener
+						       listener)
   {
     if (isClosed)
-    {
-      return;
-    }
+      {
+	return;
+      }
 
-    eventListeners.addElement(listener);
+    eventListeners.addElement (listener);
   }
 
-  synchronized public void removeConnectionEventListener(
-      ConnectionEventListener listener)
+  synchronized public void
+    removeConnectionEventListener (ConnectionEventListener listener)
   {
     if (isClosed)
-    {
-      return;
-    }
+      {
+	return;
+      }
 
-    eventListeners.removeElement(listener);
+    eventListeners.removeElement (listener);
   }
 
-  synchronized void notifyConnectionClosed()
+  synchronized void notifyConnectionClosed ()
   {
     curConnection = null;
-    ConnectionEvent e = new ConnectionEvent(this);
+    ConnectionEvent e = new ConnectionEvent (this);
 
-    for (int i = 0; i < eventListeners.size(); i++)
-    {
-      ((ConnectionEventListener) eventListeners.elementAt(i))
-          .connectionClosed(e);
-    }
+    for (int i = 0; i < eventListeners.size (); i++)
+      {
+	((ConnectionEventListener) eventListeners.elementAt (i)).
+	  connectionClosed (e);
+      }
   }
 
-  synchronized void notifyConnectionErrorOccurred(SQLException ex)
+  synchronized void notifyConnectionErrorOccurred (SQLException ex)
   {
     curConnection = null;
-    ConnectionEvent e = new ConnectionEvent(this, ex);
+    ConnectionEvent e = new ConnectionEvent (this, ex);
 
-    for (int i = 0; i < eventListeners.size(); i++)
-    {
-      ((ConnectionEventListener) eventListeners.elementAt(i))
-          .connectionErrorOccurred(e);
-    }
+    for (int i = 0; i < eventListeners.size (); i++)
+      {
+	((ConnectionEventListener) eventListeners.elementAt (i)).
+	  connectionErrorOccurred (e);
+      }
   }
+
+#ifdef JDK6
+/* JDK 1.6 */
+  public void addStatementEventListener (StatementEventListener listener)
+  {
+    throw new java.lang.UnsupportedOperationException ();
+  }
+
+/* JDK 1.6 */
+  public void removeStatementEventListener (StatementEventListener listener)
+  {
+    throw new java.lang.UnsupportedOperationException ();
+  }
+#endif
+
 }

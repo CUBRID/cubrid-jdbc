@@ -49,59 +49,62 @@ import cubrid.jdbc.driver.*;
  */
 
 public class CUBRIDDataSource extends CUBRIDDataSourceBase implements
-    javax.sql.DataSource, javax.naming.Referenceable, java.io.Serializable
+  javax.sql.DataSource, javax.naming.Referenceable, java.io.Serializable
 {
-  public CUBRIDDataSource()
+  public CUBRIDDataSource ()
   {
-    super();
+    super ();
   }
 
-  protected CUBRIDDataSource(Reference ref)
+  protected CUBRIDDataSource (Reference ref)
   {
-    super();
-    setProperties(ref);
+    super ();
+    setProperties (ref);
   }
 
   /*
    * javax.sql.DataSource interface
    */
 
-  public Connection getConnection() throws SQLException
+  public Connection getConnection () throws SQLException
   {
-    return getConnection(null, null);
+    return getConnection (null, null);
   }
 
-  public Connection getConnection(String username, String passwd)
-      throws SQLException
+  public Connection getConnection (String username, String passwd)
+    throws SQLException
   {
-    String dataSourceName = getDataSourceName();
+    String dataSourceName = getDataSourceName ();
     Connection con;
 
-    if (dataSourceName == null || dataSourceName.length() == 0)
-    {
-      if (username == null)
-        username = getUser();
-      if (passwd == null)
-        passwd = getPassword();
+    if (dataSourceName == null || dataSourceName.length () == 0)
+      {
+	if (username == null)
+	  username = getUser ();
+	if (passwd == null)
+	  passwd = getPassword ();
 
-      UConnection u_con = UJCIManager.connect(getServerName(), getPortNumber(),
-          getDatabaseName(), username, passwd);
+	UConnection u_con =
+	  UJCIManager.connect (getServerName (), getPortNumber (),
+			       getDatabaseName (), username, passwd);
 
-      writeLog("getConnection(" + username + ")");
-      con = new CUBRIDConnection(u_con, null, username);
-    }
+	  writeLog ("getConnection(" + username + ")");
+	  con = new CUBRIDConnection (u_con, null, username);
+      }
     else
-    {
-      CUBRIDConnectionPoolDataSource cpds;
+      {
+	CUBRIDConnectionPoolDataSource cpds;
 
-      cpds = CUBRIDConnectionPoolManager
-          .getConnectionPoolDataSource(dataSourceName);
-      if (username == null)
-        username = cpds.getUser();
-      if (passwd == null)
-        passwd = cpds.getPassword();
-      con = CUBRIDConnectionPoolManager.getConnection(cpds, username, passwd);
-    }
+	cpds =
+	  CUBRIDConnectionPoolManager.
+	  getConnectionPoolDataSource (dataSourceName);
+	if (username == null)
+	  username = cpds.getUser ();
+	if (passwd == null)
+	  passwd = cpds.getPassword ();
+	con =
+	  CUBRIDConnectionPoolManager.getConnection (cpds, username, passwd);
+      }
 
     return con;
   }
@@ -110,14 +113,28 @@ public class CUBRIDDataSource extends CUBRIDDataSourceBase implements
    * javax.naming.Referenceable interface
    */
 
-  public synchronized Reference getReference() throws NamingException
+  public synchronized Reference getReference () throws NamingException
   {
-    Reference ref = new Reference(this.getClass().getName(),
-        "cubrid.jdbc.driver.CUBRIDDataSourceObjectFactory", null);
+    Reference ref = new Reference (this.getClass ().getName (),
+				   "cubrid.jdbc.driver.CUBRIDDataSourceObjectFactory",
+				   null);
 
-    ref = getProperties(ref);
-    writeLog("Bind DataSource");
-    return ref;
+      ref = getProperties (ref);
+      writeLog ("Bind DataSource");
+      return ref;
   }
 
+#ifdef JDK6
+/* JDK 1.6 */
+  public boolean isWrapperFor (Class < ? >iface) throws SQLException
+  {
+    throw new java.lang.UnsupportedOperationException ();
+  }
+
+/* JDK 1.6 */
+  public < T > T unwrap (Class < T > iface) throws SQLException
+  {
+    throw new java.lang.UnsupportedOperationException ();
+  }
+#endif
 }

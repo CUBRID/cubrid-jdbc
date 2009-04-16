@@ -28,52 +28,53 @@
  *
  */
 
+/**
+ * Title:        CUBRID Java Client Interface<p>
+ * Description:  CUBRID Java Client Interface<p>
+ * @version 2.0
+ */
+
 package cubrid.jdbc.jci;
 
-class UJciException extends Exception
+import java.lang.String;
+import java.io.InputStream;
+import java.io.DataInputStream;
+import java.io.IOException;
+import java.net.InetAddress;
+import java.net.SocketTimeoutException;
+
+class UTimedDataInputStream
 {
-  private int jciErrCode;
-  private int serverErrCode;
+  public final static int PING_TIMEOUT = 5000;
+  private DataInputStream stream = null;
+  private String ip = null;
 
-  UJciException(int err)
+  UTimedDataInputStream()
   {
-    super();
-    jciErrCode = err;
   }
 
-  UJciException(int err, int srv_err, String msg)
+  public UTimedDataInputStream (InputStream stream, String ip)
   {
-    super(msg);
-    jciErrCode = err;
-    serverErrCode = srv_err;
-    if (serverErrCode <= UError.METHOD_USER_ERROR_BASE)
-      serverErrCode = UError.METHOD_USER_ERROR_BASE - serverErrCode;
+    this.stream = new DataInputStream(stream);
+    this.ip = ip;
   }
 
-  void toUError(UError error)
+  public int readInt() throws IOException
   {
-    if (jciErrCode == UErrorCode.ER_DBMS)
+    while (true)
     {
-      String msg;
-      if (serverErrCode > -1000)
-        msg = getMessage();
-      else
-        msg = UErrorCode.codeToCASMessage(serverErrCode);
-
-      error.setDBError(serverErrCode, msg);
-    }
-    else if (jciErrCode == UErrorCode.ER_UNKNOWN)
-    {
-      error.setErrorMessage(jciErrCode, getMessage());
-    }
-    else
-    {
-      error.setErrorCode(jciErrCode);
+      try
+      {
+        return stream.readInt();
+      }
+      catch (SocketTimeoutException e)
+      {
+        if (InetAddress.getByName(ip).isReachable(PING_TIMEOUT) == false)
+        {
+          throw new IOException(e.getMessage());
+        }
+      }
     }
   }
 
-  public int getJciError()
-  {
-    return this.jciErrCode;
-  }
 }

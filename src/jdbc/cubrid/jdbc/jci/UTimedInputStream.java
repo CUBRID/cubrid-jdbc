@@ -28,52 +28,88 @@
  *
  */
 
+/**
+ * Title:        CUBRID Java Client Interface<p>
+ * Description:  CUBRID Java Client Interface<p>
+ * @version 2.0
+ */
+
 package cubrid.jdbc.jci;
 
-class UJciException extends Exception
+import java.lang.String;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.InetAddress;
+import java.net.SocketTimeoutException;
+
+public class UTimedInputStream
 {
-  private int jciErrCode;
-  private int serverErrCode;
+  public final static int PING_TIMEOUT = 5000;
+  private InputStream stream = null;
+  private String ip = null;
 
-  UJciException(int err)
+  UTimedInputStream()
   {
-    super();
-    jciErrCode = err;
   }
 
-  UJciException(int err, int srv_err, String msg)
+  public UTimedInputStream(InputStream stream, String ip)
   {
-    super(msg);
-    jciErrCode = err;
-    serverErrCode = srv_err;
-    if (serverErrCode <= UError.METHOD_USER_ERROR_BASE)
-      serverErrCode = UError.METHOD_USER_ERROR_BASE - serverErrCode;
+	this.stream = stream;
+	this.ip = ip;
   }
 
-  void toUError(UError error)
+  public int read() throws IOException
   {
-    if (jciErrCode == UErrorCode.ER_DBMS)
-    {
-      String msg;
-      if (serverErrCode > -1000)
-        msg = getMessage();
-      else
-        msg = UErrorCode.codeToCASMessage(serverErrCode);
-
-      error.setDBError(serverErrCode, msg);
-    }
-    else if (jciErrCode == UErrorCode.ER_UNKNOWN)
-    {
-      error.setErrorMessage(jciErrCode, getMessage());
-    }
-    else
-    {
-      error.setErrorCode(jciErrCode);
-    }
+	while (true)
+	{
+	  try
+	  {
+		return stream.read();
+	  }
+	  catch (SocketTimeoutException e)
+	  {
+		if (InetAddress.getByName(ip).isReachable(PING_TIMEOUT) == false)
+		{
+		  throw new IOException(e.getMessage());
+		}
+	  }
+	}
   }
 
-  public int getJciError()
+  public int read(byte[] b) throws IOException
   {
-    return this.jciErrCode;
+	while (true)
+	{
+	  try
+	  {
+		return stream.read(b);
+	  }
+	  catch (SocketTimeoutException e)
+	  {
+		if (InetAddress.getByName(ip).isReachable(PING_TIMEOUT) == false)
+		{
+		  throw new IOException(e.getMessage());
+		}
+	  }
+	}
   }
+
+  public int read(byte[] b, int off, int len) throws IOException
+  {
+	while (true)
+	{
+	  try
+	  {
+		return stream.read(b, off, len);
+	  }
+	  catch (SocketTimeoutException e)
+	  {
+		if (InetAddress.getByName(ip).isReachable(PING_TIMEOUT) == false)
+		{
+		  throw new IOException(e.getMessage());
+		}
+	  }
+	}
+  }
+
 }

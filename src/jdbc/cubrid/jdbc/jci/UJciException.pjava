@@ -34,6 +34,9 @@ class UJciException extends Exception
 {
   private int jciErrCode;
   private int serverErrCode;
+#ifdef CAS_FOR_DBMS
+  private int serverErrIndicator;
+#endif
 
   UJciException(int err)
   {
@@ -41,13 +44,20 @@ class UJciException extends Exception
     jciErrCode = err;
   }
 
+#ifdef CAS_FOR_DBMS
+  UJciException(int err, int indicator, int srv_err, String msg)
+#else 
   UJciException(int err, int srv_err, String msg)
+#endif 
   {
     super(msg);
     jciErrCode = err;
     serverErrCode = srv_err;
     if (serverErrCode <= UError.METHOD_USER_ERROR_BASE)
       serverErrCode = UError.METHOD_USER_ERROR_BASE - serverErrCode;
+#ifdef CAS_FOR_DBMS
+	serverErrIndicator = indicator;
+#endif 
   }
 
   void toUError(UError error)
@@ -55,9 +65,13 @@ class UJciException extends Exception
     if (jciErrCode == UErrorCode.ER_DBMS)
     {
       String msg;
-      if (serverErrCode > -1000)
-        msg = getMessage();
-      else
+#ifdef CAS_FOR_DBMS
+	  if (serverErrIndicator == UErrorCode.DBMS_ERROR_INDICATOR)
+#else 
+	  if (serverErrCode > -1000)
+#endif
+	      msg = getMessage();
+	  else
         msg = UErrorCode.codeToCASMessage(serverErrCode);
 
       error.setDBError(serverErrCode, msg);

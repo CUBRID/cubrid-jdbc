@@ -99,10 +99,18 @@ class UInputBuffer
 
     resCode = readInt();
     con.setCASInfo(casinfo);
+	
     if (resCode < 0)
     {
+#ifdef CAS_FOR_DBMS
+	  int eCode = readInt();
+#endif 
       String msg = readString(remainedCapacity(), UJCIManager.sysCharsetName);
+#ifdef CAS_FOR_DBMS
+      throw new UJciException(UErrorCode.ER_DBMS, resCode, eCode, msg);
+#else 
       throw new UJciException(UErrorCode.ER_DBMS, resCode, msg);
+#endif 
     }
   }
 

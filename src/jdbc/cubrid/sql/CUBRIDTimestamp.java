@@ -28,62 +28,39 @@
  *
  */
 
-package @CUBRID_DRIVER@;
+package @CUBRID_SQL@;
 
-import java.sql.*;
-import javax.sql.*;
-import java.io.*;
-import javax.naming.*;
+import java.sql.Timestamp;
 
-import @CUBRID_DRIVER@.CUBRIDPooledConnection;
-
-import @CUBRID_SQL@.*;
-import @CUBRID_JCI@.*;
-
-public class CUBRIDConnectionPoolDataSource extends CUBRIDPoolDataSourceBase
-    implements ConnectionPoolDataSource, Referenceable, Serializable
+public class CUBRIDTimestamp extends Timestamp
 {
-  public CUBRIDConnectionPoolDataSource()
-  {
-    super();
-  }
+  public static final boolean TIMESTAMP = false;
+  public static final boolean DATETIME = true;
 
-  protected CUBRIDConnectionPoolDataSource(Reference ref)
-  {
-    super();
-    setProperties(ref);
-  }
+  boolean isDatetime = true;
 
-  /*
-   * javax.sql.ConnectionPoolDataSource interface
-   */
+  public CUBRIDTimestamp (long time, boolean isDatetime)
+    {
+      super(time);
+      this.isDatetime = isDatetime;
+    }
+  
+  public static CUBRIDTimestamp valueOf (String s, boolean isdt)
+    {
+      Timestamp tmptime = Timestamp.valueOf (s);
+      CUBRIDTimestamp cub_tmptime = new CUBRIDTimestamp(tmptime.getTime (), isdt);
+      return cub_tmptime;
+    }
 
-  public synchronized PooledConnection getPooledConnection()
-      throws SQLException
-  {
-    return getPooledConnection(getUser(), getPassword());
-  }
-
-  public synchronized PooledConnection getPooledConnection(String username,
-      String passwd) throws SQLException
-  {
-    UConnection u_con = UJCIManager.connect(getServerName(), getPortNumber(),
-        getDatabaseName(), username, passwd, getDataSourceID(username));
-
-    return (new CUBRIDPooledConnection(u_con));
-  }
-
-  /*
-   * javax.naming.Referenceable interface
-   */
-
-  public synchronized Reference getReference() throws NamingException
-  {
-    Reference ref = new Reference(this.getClass().getName(),
-        "@CUBRID_DRIVER@.CUBRIDDataSourceObjectFactory", null);
-
-    ref = getProperties(ref);
-    return ref;
-  }
-
+  public static boolean isTimestampType (Timestamp o)
+    {
+      if (o instanceof CUBRIDTimestamp) 
+        {
+          if (!((CUBRIDTimestamp) o).isDatetime)
+            {
+              return true;
+            }
+        }
+      return false;
+    }
 }

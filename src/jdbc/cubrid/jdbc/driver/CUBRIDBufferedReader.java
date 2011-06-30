@@ -28,54 +28,50 @@
  *
  */
 
-package @CUBRID_JCI@;
+package cubrid.jdbc.driver;
 
-class UJciException extends Exception
-{
-  private int jciErrCode;
-  private int serverErrCode;
-  private int serverErrIndicator;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.Reader;
+import java.io.Writer;
 
-  UJciException(int err)
-  {
-    super();
-    jciErrCode = err;
-  }
+class CUBRIDBufferedReader extends BufferedReader {
+	private int bufSize;
 
-  UJciException(int err, int indicator, int srv_err, String msg)
-  {
-    super(msg);
-    jciErrCode = err;
-    serverErrCode = srv_err;
-    if (serverErrCode <= UError.METHOD_USER_ERROR_BASE)
-      serverErrCode = UError.METHOD_USER_ERROR_BASE - serverErrCode;
-	serverErrIndicator = indicator;
-  }
+	public CUBRIDBufferedReader(Reader in, int bufferSize) {
+		super(in, bufferSize);
+		bufSize = bufferSize;
+	}
 
-  void toUError(UError error)
-  {
-    if (jciErrCode == UErrorCode.ER_DBMS)
-    {
-      String msg;
-	  if (serverErrIndicator == UErrorCode.DBMS_ERROR_INDICATOR)
-	      msg = getMessage();
-	  else
-        msg = UErrorCode.codeToCASMessage(serverErrCode);
+	public void mark(int arg0) {
+	}
 
-      error.setDBError(serverErrCode, msg);
-    }
-    else if (jciErrCode == UErrorCode.ER_UNKNOWN)
-    {
-      error.setErrorMessage(jciErrCode, getMessage());
-    }
-    else
-    {
-      error.setErrorCode(jciErrCode);
-    }
-  }
+	public boolean markSupported() {
+		return false;
+	}
 
-  public int getJciError()
-  {
-    return this.jciErrCode;
-  }
+	public void reset() throws IOException {
+		throw new IOException("Not supported mark and reset operation");
+	}
+
+	public synchronized void streamCopyToWriter(Writer out, long length)
+			throws IOException {
+		Reader in = this;
+		char[] buf = new char[bufSize];
+		int read_len;
+
+		try {
+			while (length > 0) {
+				read_len = (int) Math.min(length, (long) bufSize);
+				read_len = in.read(buf, 0, read_len);
+				if (read_len <= 0) {
+					break;
+				}
+				out.write(buf, 0, read_len);
+				length -= read_len;
+			}
+		} finally {
+			out.flush();
+		}
+	}
 }

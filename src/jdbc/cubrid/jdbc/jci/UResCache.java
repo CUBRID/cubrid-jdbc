@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -32,57 +32,55 @@
 package cubrid.jdbc.jci;
 
 public class UResCache {
-	UBindKey key;
+    UBindKey key;
 
-	private boolean inUse;
-	private UStatementCacheData cache_data;
+    private boolean inUse;
+    private UStatementCacheData cache_data;
 
-	public UResCache(UBindKey key) {
-		this.key = key;
+    public UResCache(UBindKey key) {
+        this.key = key;
 
-		cache_data = null;
-		inUse = true;
-	}
+        cache_data = null;
+        inUse = true;
+    }
 
-	public UStatementCacheData getCacheData() {
-		inUse = true;
+    public UStatementCacheData getCacheData() {
+        inUse = true;
 
-		return (new UStatementCacheData(cache_data));
-	}
+        return (new UStatementCacheData(cache_data));
+    }
 
-	public long getCacheTime() {
-		return cache_data.srvCacheTime;
-	}
+    public long getCacheTime() {
+        return cache_data.srvCacheTime;
+    }
 
-	public int getCacheSize() {
-		return cache_data.size;
-	}
-	
-	public void saveCacheData(UStatementCacheData cd) {
-		if (cd.srvCacheTime <= 0)
-			return;
+    public int getCacheSize() {
+        return cache_data.size;
+    }
 
-		synchronized (this) {
-			if (cache_data == null || cd.srvCacheTime > cache_data.srvCacheTime) {
-				cache_data = cd;
-			}
-		}
-	}
+    public void saveCacheData(UStatementCacheData cd) {
+        if (cd.srvCacheTime <= 0) return;
 
-	public void setExpire() {
-		inUse = false;
-	}
-	
-	boolean isExpired(long checkTime) {
-		if (cache_data != null && !inUse) {
-			if (checkTime > cache_data.srvCacheTime) {
-				return true;
-			}
-			else {
-				return false;
-			}
-		} else {
-			return false;
-		}
-	}
+        synchronized (this) {
+            if (cache_data == null || cd.srvCacheTime > cache_data.srvCacheTime) {
+                cache_data = cd;
+            }
+        }
+    }
+
+    public void setExpire() {
+        inUse = false;
+    }
+
+    boolean isExpired(long checkTime) {
+        if (cache_data != null && !inUse) {
+            if (checkTime > cache_data.srvCacheTime) {
+                return true;
+            } else {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -36,56 +36,53 @@ import java.io.OutputStream;
 import java.sql.SQLException;
 
 class CUBRIDClobOutputStream extends OutputStream {
-	private CUBRIDClob clob;
-	private long lob_pos;
+    private CUBRIDClob clob;
+    private long lob_pos;
 
-	CUBRIDClobOutputStream(CUBRIDClob clob, long pos) {
-		this.clob = clob;
-		lob_pos = pos;
-	}
+    CUBRIDClobOutputStream(CUBRIDClob clob, long pos) {
+        this.clob = clob;
+        lob_pos = pos;
+    }
 
-	/*
-	 * java.io.OutputStream interface
-	 */
+    /*
+     * java.io.OutputStream interface
+     */
 
-	public synchronized void write(int b) throws IOException {
-		byte[] buf = new byte[1];
-		buf[0] = (byte) b;
-		write(buf, 0, 1);
-	}
+    public synchronized void write(int b) throws IOException {
+        byte[] buf = new byte[1];
+        buf[0] = (byte) b;
+        write(buf, 0, 1);
+    }
 
-	/*
-	public synchronized void write(byte[] b) throws IOException {
-		write(b, 0, b.length);
-	}
-	*/
+    /*
+    public synchronized void write(byte[] b) throws IOException {
+    	write(b, 0, b.length);
+    }
+    */
 
-	public synchronized void write(byte[] b, int off, int len)
-			throws IOException {
-		if (clob == null) {
-			throw new IOException();
-		}
+    public synchronized void write(byte[] b, int off, int len) throws IOException {
+        if (clob == null) {
+            throw new IOException();
+        }
 
-		if (b == null)
-			throw new NullPointerException();
-		if (off < 0 || len < 0 || off + len > b.length)
-			throw new IndexOutOfBoundsException();
+        if (b == null) throw new NullPointerException();
+        if (off < 0 || len < 0 || off + len > b.length) throw new IndexOutOfBoundsException();
 
-		try {
-			lob_pos += clob.setBytes(lob_pos, b, off, len);
-		} catch (SQLException e) {
-			throw new IOException(e.getMessage());
-		}
-	}
+        try {
+            lob_pos += clob.setBytes(lob_pos, b, off, len);
+        } catch (SQLException e) {
+            throw new IOException(e.getMessage());
+        }
+    }
 
-	/*
-	public synchronized void flush() throws IOException {
-	}
-	*/
+    /*
+    public synchronized void flush() throws IOException {
+    }
+    */
 
-	public synchronized void close() throws IOException {
-		flush();
-		clob.removeFlushableStream(this);
-		clob = null;
-	}
+    public synchronized void close() throws IOException {
+        flush();
+        clob.removeFlushableStream(this);
+        clob = null;
+    }
 }

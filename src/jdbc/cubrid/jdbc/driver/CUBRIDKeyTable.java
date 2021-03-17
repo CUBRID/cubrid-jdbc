@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -33,42 +33,42 @@ package cubrid.jdbc.driver;
 
 import java.util.Hashtable;
 
-abstract public class CUBRIDKeyTable {
-	public static final String sessionKeyName = "CUBRIDConnectionKey";
+public abstract class CUBRIDKeyTable {
+    public static final String sessionKeyName = "CUBRIDConnectionKey";
 
-	static private Hashtable<String, CUBRIDConnectionKey> ht;
+    private static Hashtable<String, CUBRIDConnectionKey> ht;
 
-	static {
-		ht = new Hashtable<String, CUBRIDConnectionKey>();
-	}
+    static {
+        ht = new Hashtable<String, CUBRIDConnectionKey>();
+    }
 
-	public static void putValue(String key, CUBRIDConnectionKey value) {
-		synchronized (ht) {
-			ht.put(key, value);
-		}
-	}
+    public static void putValue(String key, CUBRIDConnectionKey value) {
+        synchronized (ht) {
+            ht.put(key, value);
+        }
+    }
 
-	public static void putValue(CUBRIDConnectionKey value) {
-		putValue(Thread.currentThread().getName(), value);
-	}
+    public static void putValue(CUBRIDConnectionKey value) {
+        putValue(Thread.currentThread().getName(), value);
+    }
 
-	public static CUBRIDConnectionKey getValue() {
-		return (getValue(Thread.currentThread().getName()));
-	}
+    public static CUBRIDConnectionKey getValue() {
+        return (getValue(Thread.currentThread().getName()));
+    }
 
-	public static CUBRIDConnectionKey getValue(String key) {
-		synchronized (ht) {
-			return ht.get(key);
-		}
-	}
+    public static CUBRIDConnectionKey getValue(String key) {
+        synchronized (ht) {
+            return ht.get(key);
+        }
+    }
 
-	public static void removeValue(String key) {
-		synchronized (ht) {
-			ht.remove(key);
-		}
-	}
+    public static void removeValue(String key) {
+        synchronized (ht) {
+            ht.remove(key);
+        }
+    }
 
-	public static void removeValue() {
-		removeValue(Thread.currentThread().getName());
-	}
+    public static void removeValue() {
+        removeValue(Thread.currentThread().getName());
+    }
 }

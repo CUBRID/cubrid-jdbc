@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -36,99 +36,91 @@ import java.io.Reader;
 import java.sql.SQLException;
 
 class CUBRIDClobReader extends Reader {
-	private CUBRIDClob clob;
-	private long char_pos;
-	private long char_length;
+    private CUBRIDClob clob;
+    private long char_pos;
+    private long char_length;
 
-	CUBRIDClobReader(CUBRIDClob clob, long pos, long length) {
-		this.clob = clob;
-		char_pos = pos;
-		char_length = pos - 1 + length;
-		if (char_length < 0) // overflowed
-		{
-			char_length = Long.MAX_VALUE;
-		}
-	}
+    CUBRIDClobReader(CUBRIDClob clob, long pos, long length) {
+        this.clob = clob;
+        char_pos = pos;
+        char_length = pos - 1 + length;
+        if (char_length < 0) // overflowed
+        {
+            char_length = Long.MAX_VALUE;
+        }
+    }
 
-	/*
-	public synchronized int read(CharBuffer target) throws IOException {
-		char[] cbuf = target.array();
-		return read(cbuf, 0, cbuf.length);
-	}
-	*/
+    /*
+    public synchronized int read(CharBuffer target) throws IOException {
+    	char[] cbuf = target.array();
+    	return read(cbuf, 0, cbuf.length);
+    }
+    */
 
-	public synchronized int read() throws IOException {
-		char[] c = new char[1];
-		if (read(c, 0, 1) == 1)
-			return (0xffff & c[0]);
-		else
-			return -1;
-	}
+    public synchronized int read() throws IOException {
+        char[] c = new char[1];
+        if (read(c, 0, 1) == 1) return (0xffff & c[0]);
+        else return -1;
+    }
 
-	public synchronized int read(char[] cbuf) throws IOException {
-		return read(cbuf, 0, cbuf.length);
-	}
+    public synchronized int read(char[] cbuf) throws IOException {
+        return read(cbuf, 0, cbuf.length);
+    }
 
-	public synchronized int read(char[] cbuf, int off, int len)
-			throws IOException {
-		if (clob == null)
-			return -1;
+    public synchronized int read(char[] cbuf, int off, int len) throws IOException {
+        if (clob == null) return -1;
 
-		if (cbuf == null)
-			throw new NullPointerException();
-		if (off < 0 || len < 0 || off + len > cbuf.length)
-			throw new IndexOutOfBoundsException();
+        if (cbuf == null) throw new NullPointerException();
+        if (off < 0 || len < 0 || off + len > cbuf.length) throw new IndexOutOfBoundsException();
 
-		int read_chars;
+        int read_chars;
 
-		try {
-			if (char_pos - 1 + len > char_length) {
-				len = (int) (char_length - char_pos + 1);
-				if (len < 0)
-					len = 0;
-			}
+        try {
+            if (char_pos - 1 + len > char_length) {
+                len = (int) (char_length - char_pos + 1);
+                if (len < 0) len = 0;
+            }
 
-			String str = clob.getSubString(char_pos, len);
-			str.getChars(0, str.length(), cbuf, off);
-			read_chars = str.length();
-		} catch (SQLException e) {
-			throw new IOException(e.getMessage());
-		}
+            String str = clob.getSubString(char_pos, len);
+            str.getChars(0, str.length(), cbuf, off);
+            read_chars = str.length();
+        } catch (SQLException e) {
+            throw new IOException(e.getMessage());
+        }
 
-		char_pos += read_chars;
-		if (read_chars < len || char_pos > char_length) {
-			clob = null;
-		}
+        char_pos += read_chars;
+        if (read_chars < len || char_pos > char_length) {
+            clob = null;
+        }
 
-		return read_chars;
+        return read_chars;
+    }
 
-	}
+    public synchronized void close() throws IOException {
+        clob = null;
+    }
 
-	public synchronized void close() throws IOException {
-		clob = null;
-	}
+    /*
+    public boolean ready() {
+    	return false;
+    }
+    */
 
-	/*
-	public boolean ready() {
-		return false;
-	}
-	*/
+    /*
+    public boolean markSupported() {
+    	return false;
+    }
+    */
 
-	/*
-	public boolean markSupported() {
-		return false;
-	}
-	*/
+    /*
+    public void mark(int readAheadLimit) throws IOException {
+    	throw new IOException("Not supported mark and reset operation");
+    }
+    */
 
-	/*
-	public void mark(int readAheadLimit) throws IOException {
-		throw new IOException("Not supported mark and reset operation");
-	}
-	*/
-
-	/*
-	public void reset() throws IOException {
-		throw new IOException("Not supported mark and reset operation");
-	}
-	*/
+    /*
+    public void reset() throws IOException {
+    	throw new IOException("Not supported mark and reset operation");
+    }
+    */
 }

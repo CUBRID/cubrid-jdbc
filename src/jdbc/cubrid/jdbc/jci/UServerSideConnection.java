@@ -29,191 +29,206 @@
  */
 
 /**
- * Title:        CUBRID Java Client Interface<p>
- * Description:  CUBRID Java Client Interface<p>
+ * Title: CUBRID Java Client Interface
+ *
+ * <p>Description: CUBRID Java Client Interface
+ *
+ * <p>
+ *
  * @version 2.0
  */
-
 package cubrid.jdbc.jci;
 
+import cubrid.jdbc.driver.CUBRIDException;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.Socket;
 import java.util.List;
 
-import cubrid.jdbc.driver.CUBRIDException;
-
 public class UServerSideConnection extends UConnection {
-	public final static int INVOKE = 2;
-	
-	private final static byte CAS_CLIENT_SERVER_SIDE_JDBC = 6;
-	
-	private Thread curThread;
-	private UStatementHandlerCache stmtHandlerCache;
-	
-	public UServerSideConnection(Socket socket, Thread curThread) throws CUBRIDException {
-		errorHandler = new UError(this);
-		try {
-			client = socket;
-			client.setTcpNoDelay(true);
+    public static final int INVOKE = 2;
 
-			output = new DataOutputStream(client.getOutputStream());
-			input = new UTimedDataInputStream(client.getInputStream(), casIp, casPort);
+    private static final byte CAS_CLIENT_SERVER_SIDE_JDBC = 6;
 
-			needReconnection = false;
-			lastAutoCommit = false;
-			
-			/* initialize default info */
-			driverInfo[5] = CAS_CLIENT_SERVER_SIDE_JDBC;
-			initBrokerInfo ();
-			initCasInfo ();
+    private Thread curThread;
+    private UStatementHandlerCache stmtHandlerCache;
 
-			this.curThread = curThread;
-			UJCIUtil.invoke("com.cubrid.jsp.ExecuteThread", "setCharSet",
-					new Class[] { String.class }, this.curThread,
-					new Object[] { connectionProperties.getCharSet() });
-			
-			stmtHandlerCache = new UStatementHandlerCache ();
-		} catch (IOException e) {
-			UJciException je = new UJciException(UErrorCode.ER_CONNECTION);
-			je.toUError(errorHandler);
-			throw new CUBRIDException(errorHandler, e);
-		}
-	}
-	
-	private void initBrokerInfo () {
-		brokerInfo = new byte[BROKER_INFO_SIZE];
-		brokerInfo[BROKER_INFO_DBMS_TYPE] = DBMS_CUBRID;
-		brokerInfo[BROKER_INFO_RESERVED4] = 0;
-		brokerInfo[BROKER_INFO_STATEMENT_POOLING] = 1;
-		brokerInfo[BROKER_INFO_CCI_PCONNECT] = 0;
-		brokerInfo[BROKER_INFO_PROTO_VERSION] 
-				= CAS_PROTO_INDICATOR | CAS_PROTOCOL_VERSION;
-		brokerInfo[BROKER_INFO_FUNCTION_FLAG] 
-				= CAS_RENEWED_ERROR_CODE | CAS_SUPPORT_HOLDABLE_RESULT;
-		brokerInfo[BROKER_INFO_RESERVED2] = 0;
-		brokerInfo[BROKER_INFO_RESERVED3] = 0;
+    public UServerSideConnection(Socket socket, Thread curThread) throws CUBRIDException {
+        errorHandler = new UError(this);
+        try {
+            client = socket;
+            client.setTcpNoDelay(true);
 
-		brokerVersion = makeProtoVersion(CAS_PROTOCOL_VERSION);
-	}
-	
-	private void initCasInfo () {
-		casInfo = new byte[CAS_INFO_SIZE];
-		casInfo[CAS_INFO_STATUS] = CAS_INFO_STATUS_ACTIVE;
-		casInfo[CAS_INFO_RESERVED_1] = 0;
-		casInfo[CAS_INFO_RESERVED_2] = 0;
-		casInfo[CAS_INFO_ADDITIONAL_FLAG] = 0;
-	}
-	
-	@Override
-	public void setCharset(String newCharsetName) {
-		if (UJCIUtil.isServerSide()) {
-			UJCIUtil.invoke("com.cubrid.jsp.ExecuteThread", "setCharSet",
-					new Class[] { String.class }, this.curThread,
-					new Object[] { newCharsetName });
-		}
-	}
+            output = new DataOutputStream(client.getOutputStream());
+            input = new UTimedDataInputStream(client.getInputStream(), casIp, casPort);
 
-	@Override
-	public void setZeroDateTimeBehavior(String behavior) {
-		if (UJCIUtil.isServerSide()) {
-			UJCIUtil.invoke("com.cubrid.jsp.ExecuteThread",
-					"setZeroDateTimeBehavior", new Class[] { String.class },
-					this.curThread, new Object[] { behavior });
-		}
-	}
+            needReconnection = false;
+            lastAutoCommit = false;
 
-	@Override
-	public void setResultWithCUBRIDTypes(String support) {
-		if (UJCIUtil.isServerSide()) {
-			UJCIUtil.invoke("com.cubrid.jsp.ExecuteThread",
-					"setResultWithCUBRIDTypes", new Class[] { String.class },
-					this.curThread, new Object[] { support });
-		}
-	}
+            /* initialize default info */
+            driverInfo[5] = CAS_CLIENT_SERVER_SIDE_JDBC;
+            initBrokerInfo();
+            initCasInfo();
 
-	@Override
-	public void setAutoCommit(boolean autoCommit) {
-		/* do nothing */
-	}
+            this.curThread = curThread;
+            UJCIUtil.invoke(
+                    "com.cubrid.jsp.ExecuteThread",
+                    "setCharSet",
+                    new Class[] {String.class},
+                    this.curThread,
+                    new Object[] {connectionProperties.getCharSet()});
 
-	@Override
-	public boolean getAutoCommit() {
-		return false;
-	}
+            stmtHandlerCache = new UStatementHandlerCache();
+        } catch (IOException e) {
+            UJciException je = new UJciException(UErrorCode.ER_CONNECTION);
+            je.toUError(errorHandler);
+            throw new CUBRIDException(errorHandler, e);
+        }
+    }
 
-	@Override
-	public void endTransaction(boolean type) {
-		/* do nothing */
-	}
+    private void initBrokerInfo() {
+        brokerInfo = new byte[BROKER_INFO_SIZE];
+        brokerInfo[BROKER_INFO_DBMS_TYPE] = DBMS_CUBRID;
+        brokerInfo[BROKER_INFO_RESERVED4] = 0;
+        brokerInfo[BROKER_INFO_STATEMENT_POOLING] = 1;
+        brokerInfo[BROKER_INFO_CCI_PCONNECT] = 0;
+        brokerInfo[BROKER_INFO_PROTO_VERSION] = CAS_PROTO_INDICATOR | CAS_PROTOCOL_VERSION;
+        brokerInfo[BROKER_INFO_FUNCTION_FLAG] =
+                CAS_RENEWED_ERROR_CODE | CAS_SUPPORT_HOLDABLE_RESULT;
+        brokerInfo[BROKER_INFO_RESERVED2] = 0;
+        brokerInfo[BROKER_INFO_RESERVED3] = 0;
 
-	@Override
-	public boolean protoVersionIsAbove(int ver) {
-		/* do not need to check protocol version for internal JDBC */
-		return true;
-	}
+        brokerVersion = makeProtoVersion(CAS_PROTOCOL_VERSION);
+    }
 
-	@Override
-	public boolean protoVersionIsUnder(int ver) {
-		/* do not need to check protocol version for internal JDBC */
-		return true;
-	}
+    private void initCasInfo() {
+        casInfo = new byte[CAS_INFO_SIZE];
+        casInfo[CAS_INFO_STATUS] = CAS_INFO_STATUS_ACTIVE;
+        casInfo[CAS_INFO_RESERVED_1] = 0;
+        casInfo[CAS_INFO_RESERVED_2] = 0;
+        casInfo[CAS_INFO_ADDITIONAL_FLAG] = 0;
+    }
 
-	@Override
-	protected void disconnect() {
-		try {
-			setBeginTime();
-			checkReconnect();
-			if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR)
-				return;
+    @Override
+    public void setCharset(String newCharsetName) {
+        if (UJCIUtil.isServerSide()) {
+            UJCIUtil.invoke(
+                    "com.cubrid.jsp.ExecuteThread",
+                    "setCharSet",
+                    new Class[] {String.class},
+                    this.curThread,
+                    new Object[] {newCharsetName});
+        }
+    }
 
-			outBuffer.newRequest(output, UFunctionCode.CON_CLOSE);
-			UInputBuffer in = send_recv_msg();
-			in.readInt(); // consume result code(0) from fn_con_close
-		} catch (Exception e) {
-		}
-	}
-	
-	@Override
-	protected void closeInternal() {
-		if (client != null) {
-			stmtHandlerCache.clearStatus();
-			disconnect();
-			UJCIUtil.invoke("com.cubrid.jsp.ExecuteThread", "setStatus",
-					new Class[] { Integer.class }, this.curThread,
-					new Object[] { INVOKE });
-		}
-	}
-	
-	@Override
-	protected UStatement prepareInternal(String sql, byte flag, boolean recompile)
-			throws IOException, UJciException {
-		UStatement preparedStmt = null;
-		
-		List<UStatementHandlerCacheEntry> entries = stmtHandlerCache.getEntry(sql);	
-		/* try to find cached UStatement */
-	
-		for (UStatementHandlerCacheEntry e: entries) {
-			if (e.isAvailable()) {
-				preparedStmt = e.getStatement();
-				preparedStmt.initToReuse();
-				preparedStmt.moveCursor(0, UStatement.CURSOR_SET);
-				e.setAvailable(false);
-				return preparedStmt;
-			}
-		}
-		
-		/* if entry not found, create new UStatement */
-		if (preparedStmt == null) {
-			UStatement newStmt = super.prepareInternal(sql, flag, recompile);
-			entries.add(new UStatementHandlerCacheEntry (newStmt));
-			preparedStmt = newStmt;
-		}
-		
-		return preparedStmt;
-	}
-	
-	public void destroy () {
-		stmtHandlerCache.destroy();
-	}
+    @Override
+    public void setZeroDateTimeBehavior(String behavior) {
+        if (UJCIUtil.isServerSide()) {
+            UJCIUtil.invoke(
+                    "com.cubrid.jsp.ExecuteThread",
+                    "setZeroDateTimeBehavior",
+                    new Class[] {String.class},
+                    this.curThread,
+                    new Object[] {behavior});
+        }
+    }
+
+    @Override
+    public void setResultWithCUBRIDTypes(String support) {
+        if (UJCIUtil.isServerSide()) {
+            UJCIUtil.invoke(
+                    "com.cubrid.jsp.ExecuteThread",
+                    "setResultWithCUBRIDTypes",
+                    new Class[] {String.class},
+                    this.curThread,
+                    new Object[] {support});
+        }
+    }
+
+    @Override
+    public void setAutoCommit(boolean autoCommit) {
+        /* do nothing */
+    }
+
+    @Override
+    public boolean getAutoCommit() {
+        return false;
+    }
+
+    @Override
+    public void endTransaction(boolean type) {
+        /* do nothing */
+    }
+
+    @Override
+    public boolean protoVersionIsAbove(int ver) {
+        /* do not need to check protocol version for internal JDBC */
+        return true;
+    }
+
+    @Override
+    public boolean protoVersionIsUnder(int ver) {
+        /* do not need to check protocol version for internal JDBC */
+        return true;
+    }
+
+    @Override
+    protected void disconnect() {
+        try {
+            setBeginTime();
+            checkReconnect();
+            if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR) return;
+
+            outBuffer.newRequest(output, UFunctionCode.CON_CLOSE);
+            UInputBuffer in = send_recv_msg();
+            in.readInt(); // consume result code(0) from fn_con_close
+        } catch (Exception e) {
+        }
+    }
+
+    @Override
+    protected void closeInternal() {
+        if (client != null) {
+            stmtHandlerCache.clearStatus();
+            disconnect();
+            UJCIUtil.invoke(
+                    "com.cubrid.jsp.ExecuteThread",
+                    "setStatus",
+                    new Class[] {Integer.class},
+                    this.curThread,
+                    new Object[] {INVOKE});
+        }
+    }
+
+    @Override
+    protected UStatement prepareInternal(String sql, byte flag, boolean recompile)
+            throws IOException, UJciException {
+        UStatement preparedStmt = null;
+
+        List<UStatementHandlerCacheEntry> entries = stmtHandlerCache.getEntry(sql);
+        /* try to find cached UStatement */
+
+        for (UStatementHandlerCacheEntry e : entries) {
+            if (e.isAvailable()) {
+                preparedStmt = e.getStatement();
+                preparedStmt.initToReuse();
+                preparedStmt.moveCursor(0, UStatement.CURSOR_SET);
+                e.setAvailable(false);
+                return preparedStmt;
+            }
+        }
+
+        /* if entry not found, create new UStatement */
+        if (preparedStmt == null) {
+            UStatement newStmt = super.prepareInternal(sql, flag, recompile);
+            entries.add(new UStatementHandlerCacheEntry(newStmt));
+            preparedStmt = newStmt;
+        }
+
+        return preparedStmt;
+    }
+
+    public void destroy() {
+        stmtHandlerCache.destroy();
+    }
 }

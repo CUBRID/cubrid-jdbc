@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -32,85 +32,85 @@
 package cubrid.jdbc.driver;
 
 public class CUBRIDLobHandle {
-	private int lobType; // U_TYPE_BLOB or U_TYPE_CLOB
-	private long lobSize;
-	private byte[] packedLobHandle;
-	private String locator;
+    private int lobType; // U_TYPE_BLOB or U_TYPE_CLOB
+    private long lobSize;
+    private byte[] packedLobHandle;
+    private String locator;
 
-	public CUBRIDLobHandle(int lobType, byte[] packedLobHandle, boolean isLobLocator) {
-		this.lobType = lobType;
-		this.packedLobHandle = packedLobHandle;
-		initLob(isLobLocator);
-	}
+    public CUBRIDLobHandle(int lobType, byte[] packedLobHandle, boolean isLobLocator) {
+        this.lobType = lobType;
+        this.packedLobHandle = packedLobHandle;
+        initLob(isLobLocator);
+    }
 
-	private void initLob(boolean isLobLocator) {
-		int pos = 0;
+    private void initLob(boolean isLobLocator) {
+        int pos = 0;
 
-		if (packedLobHandle == null) {
-			throw new NullPointerException();
-		}
+        if (packedLobHandle == null) {
+            throw new NullPointerException();
+        }
 
-		if (isLobLocator == true) {
-			pos += 4; // skip db_type
+        if (isLobLocator == true) {
+            pos += 4; // skip db_type
 
-			lobSize = 0;
-			for (int i = pos; i < pos + 8; i++) {
-				lobSize <<= 8;
-				lobSize |= (packedLobHandle[i] & 0xff);
-			}
-			pos += 8; // lob_size
+            lobSize = 0;
+            for (int i = pos; i < pos + 8; i++) {
+                lobSize <<= 8;
+                lobSize |= (packedLobHandle[i] & 0xff);
+            }
+            pos += 8; // lob_size
 
-			int locatorSize = 0;
-			for (int i = pos; i < pos + 4; i++) {
-				locatorSize <<= 8;
-				locatorSize |= (packedLobHandle[i] & 0xff);
-			}
-			pos += 4; // locator_size
+            int locatorSize = 0;
+            for (int i = pos; i < pos + 4; i++) {
+                locatorSize <<= 8;
+                locatorSize |= (packedLobHandle[i] & 0xff);
+            }
+            pos += 4; // locator_size
 
-			locator = new String(packedLobHandle, pos, locatorSize - 1);
-			// remove terminating null character
-		} else
-		{
-			lobSize = packedLobHandle.length;
-			locator = packedLobHandle.toString();
-		}
-	}
+            locator = new String(packedLobHandle, pos, locatorSize - 1);
+            // remove terminating null character
+        } else {
+            lobSize = packedLobHandle.length;
+            locator = packedLobHandle.toString();
+        }
+    }
 
-	public void setLobSize(long size) {
-		int pos = 0;
+    public void setLobSize(long size) {
+        int pos = 0;
 
-		if (packedLobHandle == null) {
-			throw new NullPointerException();
-		}
+        if (packedLobHandle == null) {
+            throw new NullPointerException();
+        }
 
-		pos += 4; // skip db_type
+        pos += 4; // skip db_type
 
-		lobSize = size;
-		int bitpos = 64;
-		for (int i = pos; i < pos + 8; i++) {
-			bitpos -= 8;
-			packedLobHandle[i] = (byte) ((lobSize >>> bitpos) & 0xFF);
-		}
-	}
+        lobSize = size;
+        int bitpos = 64;
+        for (int i = pos; i < pos + 8; i++) {
+            bitpos -= 8;
+            packedLobHandle[i] = (byte) ((lobSize >>> bitpos) & 0xFF);
+        }
+    }
 
-	public long getLobSize() {
-		return lobSize;
-	}
+    public long getLobSize() {
+        return lobSize;
+    }
 
-	public byte[] getPackedLobHandle() {
-		return packedLobHandle;
-	}
+    public byte[] getPackedLobHandle() {
+        return packedLobHandle;
+    }
 
-	public String toString() {
-		return locator;
-	}
+    public String toString() {
+        return locator;
+    }
 
-	public boolean equals(Object obj) {
-		if (obj instanceof CUBRIDLobHandle) {
-			CUBRIDLobHandle that = (CUBRIDLobHandle) obj;
-			return lobType == that.lobType && lobSize == that.lobSize
-					&& locator.equals(that.locator);
-		}
-		return false;
-	}
+    public boolean equals(Object obj) {
+        if (obj instanceof CUBRIDLobHandle) {
+            CUBRIDLobHandle that = (CUBRIDLobHandle) obj;
+            return lobType == that.lobType
+                    && lobSize == that.lobSize
+                    && locator.equals(that.locator);
+        }
+        return false;
+    }
 }

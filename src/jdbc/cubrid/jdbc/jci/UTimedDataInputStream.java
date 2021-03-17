@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -30,22 +30,24 @@
  */
 
 /**
- * Title:        CUBRID Java Client Interface<p>
- * Description:  CUBRID Java Client Interface<p>
+ * Title: CUBRID Java Client Interface
+ *
+ * <p>Description: CUBRID Java Client Interface
+ *
+ * <p>
+ *
  * @version 2.0
  */
-
 package cubrid.jdbc.jci;
 
+import cubrid.jdbc.net.BrokerHandler;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.SocketTimeoutException;
 
-import cubrid.jdbc.net.BrokerHandler;
-
 public class UTimedDataInputStream {
-    public final static int PING_TIMEOUT = 5000;
+    public static final int PING_TIMEOUT = 5000;
     private DataInputStream stream = null;
     private String ip = null;
     private int port = 0;
@@ -57,7 +59,8 @@ public class UTimedDataInputStream {
         this(stream, ip, port, 0);
     }
 
-    public UTimedDataInputStream(InputStream stream, String ip, int port, int pid, byte session[], int timeout) {
+    public UTimedDataInputStream(
+            InputStream stream, String ip, int port, int pid, byte session[], int timeout) {
         this.stream = new DataInputStream(stream);
         this.ip = ip;
         this.port = port;
@@ -77,15 +80,15 @@ public class UTimedDataInputStream {
         long begin = System.currentTimeMillis();
 
         while (true) {
-          try {
-            return stream.readInt();
-          } catch (SocketTimeoutException e) {
-            if (timeout > 0 && timeout - (System.currentTimeMillis() - begin) <= 0) {
-              String msg = UErrorCode.codeToMessage(UErrorCode.ER_TIMEOUT);
-              throw new SocketTimeoutException(msg);
+            try {
+                return stream.readInt();
+            } catch (SocketTimeoutException e) {
+                if (timeout > 0 && timeout - (System.currentTimeMillis() - begin) <= 0) {
+                    String msg = UErrorCode.codeToMessage(UErrorCode.ER_TIMEOUT);
+                    throw new SocketTimeoutException(msg);
+                }
+                BrokerHandler.pingBroker(ip, port, PING_TIMEOUT);
             }
-            BrokerHandler.pingBroker(ip, port, PING_TIMEOUT);
-          }
         }
     }
 
@@ -101,16 +104,16 @@ public class UTimedDataInputStream {
         long begin = System.currentTimeMillis();
 
         while (true) {
-          try {
-            stream.readFully(b);
-            return;
-          } catch (SocketTimeoutException e) {
-            if (timeout > 0 && timeout - (System.currentTimeMillis() - begin) <= 0) {
-              String msg = UErrorCode.codeToMessage(UErrorCode.ER_TIMEOUT);
-              throw new SocketTimeoutException(msg);
+            try {
+                stream.readFully(b);
+                return;
+            } catch (SocketTimeoutException e) {
+                if (timeout > 0 && timeout - (System.currentTimeMillis() - begin) <= 0) {
+                    String msg = UErrorCode.codeToMessage(UErrorCode.ER_TIMEOUT);
+                    throw new SocketTimeoutException(msg);
+                }
+                BrokerHandler.pingBroker(ip, port, PING_TIMEOUT);
             }
-            BrokerHandler.pingBroker(ip, port, PING_TIMEOUT);
-          }
         }
     }
 
@@ -118,15 +121,15 @@ public class UTimedDataInputStream {
         long begin = System.currentTimeMillis();
 
         while (true) {
-          try {
-            return stream.read(b);
-          } catch (SocketTimeoutException e) {
-            if (timeout > 0 && timeout - (System.currentTimeMillis() - begin) <= 0) {
-              String msg = UErrorCode.codeToMessage(UErrorCode.ER_TIMEOUT);
-              throw new SocketTimeoutException(msg);
+            try {
+                return stream.read(b);
+            } catch (SocketTimeoutException e) {
+                if (timeout > 0 && timeout - (System.currentTimeMillis() - begin) <= 0) {
+                    String msg = UErrorCode.codeToMessage(UErrorCode.ER_TIMEOUT);
+                    throw new SocketTimeoutException(msg);
+                }
+                BrokerHandler.pingBroker(ip, port, PING_TIMEOUT);
             }
-            BrokerHandler.pingBroker(ip, port, PING_TIMEOUT);
-          }
         }
     }
 
@@ -139,33 +142,32 @@ public class UTimedDataInputStream {
         boolean retry = false;
 
         while (true) {
-          try {
-            return stream.read(b, off, len);
-          } catch (SocketTimeoutException e) {
-            if (timeout > 0 && timeout - (System.currentTimeMillis() - begin) <= 0) {
-              String msg = UErrorCode.codeToMessage(UErrorCode.ER_TIMEOUT);
-              throw new SocketTimeoutException(msg);
+            try {
+                return stream.read(b, off, len);
+            } catch (SocketTimeoutException e) {
+                if (timeout > 0 && timeout - (System.currentTimeMillis() - begin) <= 0) {
+                    String msg = UErrorCode.codeToMessage(UErrorCode.ER_TIMEOUT);
+                    throw new SocketTimeoutException(msg);
+                }
+                if (UConnection.protoVersionIsLower(UConnection.PROTOCOL_V9)) {
+                    BrokerHandler.pingBroker(ip, port, PING_TIMEOUT);
+                    continue;
+                }
+                if (BrokerHandler.statusBroker(ip, port, pid, session, PING_TIMEOUT) != 1) {
+                    if (retry) {
+                        throw new UJciException(UErrorCode.ER_COMMUNICATION);
+                    }
+                    retry = true;
+                }
             }
-            if (UConnection.protoVersionIsLower(UConnection.PROTOCOL_V9)) {
-              BrokerHandler.pingBroker(ip, port, PING_TIMEOUT);
-              continue;
-            }
-            if (BrokerHandler.statusBroker(ip, port, pid, session, PING_TIMEOUT) != 1) {
-              if (retry) {
-                throw new UJciException(UErrorCode.ER_COMMUNICATION);
-              }
-              retry = true;
-            }
-          }
         }
     }
 
     public int read(byte[] b, int off, int len) throws IOException, UJciException {
         return read(b, off, len, timeout);
     }
-    
+
     public void close() throws IOException {
         stream.close();
     }
-
 }

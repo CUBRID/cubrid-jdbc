@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -30,132 +30,126 @@
  */
 
 /**
- * Title:        CUBRID Java Client Interface<p>
- * Description:  CUBRID Java Client Interface<p>
+ * Title: CUBRID Java Client Interface
+ *
+ * <p>Description: CUBRID Java Client Interface
+ *
+ * <p>
+ *
  * @version 2.0
  */
-
 package cubrid.jdbc.jci;
-
-import java.io.IOException;
 
 import cubrid.jdbc.driver.CUBRIDBlob;
 import cubrid.jdbc.driver.CUBRIDClob;
+import java.io.IOException;
 
 public class UBindParameter extends UParameter {
-	private final static byte PARAM_MODE_UNKNOWN = 0;
-	private final static byte PARAM_MODE_IN = 1;
-	private final static byte PARAM_MODE_OUT = 2;
-	@SuppressWarnings("unused")
-	private final static byte PARAM_MODE_INOUT = 3;
+    private static final byte PARAM_MODE_UNKNOWN = 0;
+    private static final byte PARAM_MODE_IN = 1;
+    private static final byte PARAM_MODE_OUT = 2;
 
-	byte paramMode[];
+    @SuppressWarnings("unused")
+    private static final byte PARAM_MODE_INOUT = 3;
 
-	private boolean isBinded[];
-	private byte dbmsType;
+    byte paramMode[];
 
-	UBindParameter(int parameterNumber, byte dbmsType) {
-		super(parameterNumber);
+    private boolean isBinded[];
+    private byte dbmsType;
 
-		isBinded = new boolean[number];
-		this.dbmsType = dbmsType;
-		paramMode = new byte[number];
+    UBindParameter(int parameterNumber, byte dbmsType) {
+        super(parameterNumber);
 
-		clear();
-	}
+        isBinded = new boolean[number];
+        this.dbmsType = dbmsType;
+        paramMode = new byte[number];
 
-	/*
-	 * ======================================================================= |
-	 * PACKAGE ACCESS METHODS
-	 * =======================================================================
-	 */
+        clear();
+    }
 
-	boolean checkAllBinded() {
-		for (int i = 0; i < number; i++) {
-			if (isBinded[i] == false && paramMode[i] == PARAM_MODE_UNKNOWN)
-				return false;
-		}
-		return true;
-	}
+    /*
+     * ======================================================================= |
+     * PACKAGE ACCESS METHODS
+     * =======================================================================
+     */
 
-	void clear() {
-		for (int i = 0; i < number; i++) {
-			isBinded[i] = false;
-			paramMode[i] = PARAM_MODE_UNKNOWN;
-			values[i] = null;
-			types[i] = UUType.U_TYPE_NULL;
-		}
-	}
+    boolean checkAllBinded() {
+        for (int i = 0; i < number; i++) {
+            if (isBinded[i] == false && paramMode[i] == PARAM_MODE_UNKNOWN) return false;
+        }
+        return true;
+    }
 
-	synchronized void close() {
-		for (int i = 0; i < number; i++)
-			values[i] = null;
-		isBinded = null;
-		paramMode = null;
-		values = null;
-		types = null;
-	}
+    void clear() {
+        for (int i = 0; i < number; i++) {
+            isBinded[i] = false;
+            paramMode[i] = PARAM_MODE_UNKNOWN;
+            values[i] = null;
+            types[i] = UUType.U_TYPE_NULL;
+        }
+    }
 
-	synchronized void setParameter(int index, byte bType, Object bValue)
-			throws UJciException {
-		if (index < 0 || index >= number)
-			throw new UJciException(UErrorCode.ER_INVALID_ARGUMENT);
+    synchronized void close() {
+        for (int i = 0; i < number; i++) values[i] = null;
+        isBinded = null;
+        paramMode = null;
+        values = null;
+        types = null;
+    }
 
-		types[index] = bType;
-		values[index] = bValue;
+    synchronized void setParameter(int index, byte bType, Object bValue) throws UJciException {
+        if (index < 0 || index >= number) throw new UJciException(UErrorCode.ER_INVALID_ARGUMENT);
 
-		isBinded[index] = true;
-		paramMode[index] |= PARAM_MODE_IN;
-	}
+        types[index] = bType;
+        values[index] = bValue;
 
-	void setOutParam(int index, int sqlType) throws UJciException {
-		if (index < 0 || index >= number)
-			throw new UJciException(UErrorCode.ER_INVALID_ARGUMENT);
+        isBinded[index] = true;
+        paramMode[index] |= PARAM_MODE_IN;
+    }
 
-		if (dbmsType == UConnection.DBMS_ORACLE
-		        || dbmsType == UConnection.DBMS_PROXY_ORACLE) {
-			if (sqlType < UUType.U_TYPE_MIN || sqlType > UUType.U_TYPE_MAX) {
-				throw new UJciException(UErrorCode.ER_INVALID_ARGUMENT);
-			}
-			types[index] = (byte) sqlType;
-		}
-		
-		paramMode[index] |= PARAM_MODE_OUT;
-	}
+    void setOutParam(int index, int sqlType) throws UJciException {
+        if (index < 0 || index >= number) throw new UJciException(UErrorCode.ER_INVALID_ARGUMENT);
 
-	synchronized void writeParameter(UOutputBuffer outBuffer)
-			throws UJciException {
-		try {
-			for (int i = 0; i < number; i++) {
-				if (isSetDefaultValue(i) == false && values[i] == null) {
-					outBuffer.addByte(UUType.U_TYPE_NULL);
-					outBuffer.addNull();
-				} else {
-					outBuffer.addByte((byte) types[i]);
-					outBuffer.writeParameter(((byte) types[i]), values[i],
-							isSetDefaultValue(i));
-				}
-			}
-		} catch (IOException e) {
-			throw new UJciException(UErrorCode.ER_INVALID_ARGUMENT);
-		}
-	}
+        if (dbmsType == UConnection.DBMS_ORACLE || dbmsType == UConnection.DBMS_PROXY_ORACLE) {
+            if (sqlType < UUType.U_TYPE_MIN || sqlType > UUType.U_TYPE_MAX) {
+                throw new UJciException(UErrorCode.ER_INVALID_ARGUMENT);
+            }
+            types[index] = (byte) sqlType;
+        }
 
-	synchronized void flushLobStreams() {
-		for (int i = 0; i < number; i++) {
-			if (values[i] == null) {
-				continue;
-			} else if (values[i] instanceof CUBRIDBlob) {
-				((CUBRIDBlob) values[i]).flushFlushableStreams();
-			} else if (values[i] instanceof CUBRIDClob) {
-				((CUBRIDClob) values[i]).flushFlushableStreams();
-			}
-		}
-	}
+        paramMode[index] |= PARAM_MODE_OUT;
+    }
 
-	private boolean isSetDefaultValue(int index) {
-		return (dbmsType == UConnection.DBMS_ORACLE 
-				|| dbmsType == UConnection.DBMS_PROXY_ORACLE)
-				&& paramMode[index] == PARAM_MODE_OUT;
-	}
+    synchronized void writeParameter(UOutputBuffer outBuffer) throws UJciException {
+        try {
+            for (int i = 0; i < number; i++) {
+                if (isSetDefaultValue(i) == false && values[i] == null) {
+                    outBuffer.addByte(UUType.U_TYPE_NULL);
+                    outBuffer.addNull();
+                } else {
+                    outBuffer.addByte((byte) types[i]);
+                    outBuffer.writeParameter(((byte) types[i]), values[i], isSetDefaultValue(i));
+                }
+            }
+        } catch (IOException e) {
+            throw new UJciException(UErrorCode.ER_INVALID_ARGUMENT);
+        }
+    }
+
+    synchronized void flushLobStreams() {
+        for (int i = 0; i < number; i++) {
+            if (values[i] == null) {
+                continue;
+            } else if (values[i] instanceof CUBRIDBlob) {
+                ((CUBRIDBlob) values[i]).flushFlushableStreams();
+            } else if (values[i] instanceof CUBRIDClob) {
+                ((CUBRIDClob) values[i]).flushFlushableStreams();
+            }
+        }
+    }
+
+    private boolean isSetDefaultValue(int index) {
+        return (dbmsType == UConnection.DBMS_ORACLE || dbmsType == UConnection.DBMS_PROXY_ORACLE)
+                && paramMode[index] == PARAM_MODE_OUT;
+    }
 }

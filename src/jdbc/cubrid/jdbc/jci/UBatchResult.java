@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -32,66 +32,63 @@
 package cubrid.jdbc.jci;
 
 public class UBatchResult {
-	private boolean errorFlag;
-	private int resultNumber;
-	private int result[];
-	private int statementType[];
-	private int errorCode[];
-	private String errorMessage[];
+    private boolean errorFlag;
+    private int resultNumber;
+    private int result[];
+    private int statementType[];
+    private int errorCode[];
+    private String errorMessage[];
 
-	UBatchResult(int number) {
-		resultNumber = number;
-		result = new int[resultNumber];
-		statementType = new int[resultNumber];
-		errorCode = new int[resultNumber];
-		errorMessage = new String[resultNumber];
-		errorFlag = false;
-	}
+    UBatchResult(int number) {
+        resultNumber = number;
+        result = new int[resultNumber];
+        statementType = new int[resultNumber];
+        errorCode = new int[resultNumber];
+        errorMessage = new String[resultNumber];
+        errorFlag = false;
+    }
 
-	public int[] getErrorCode() {
-		return errorCode;
-	}
+    public int[] getErrorCode() {
+        return errorCode;
+    }
 
-	public String[] getErrorMessage() {
-		return errorMessage;
-	}
+    public String[] getErrorMessage() {
+        return errorMessage;
+    }
 
-	public int[] getResult() {
-		return result;
-	}
+    public int[] getResult() {
+        return result;
+    }
 
-	public int getResultNumber() {
-		return resultNumber;
-	}
+    public int getResultNumber() {
+        return resultNumber;
+    }
 
-	public int[] getStatementType() {
-		return statementType;
-	}
+    public int[] getStatementType() {
+        return statementType;
+    }
 
-	synchronized void setResult(int index, int count) {
-		if (index < 0 || index >= resultNumber)
-			return;
-		result[index] = count;
-		errorCode[index] = 0;
-		errorMessage[index] = null;
-	}
+    synchronized void setResult(int index, int count) {
+        if (index < 0 || index >= resultNumber) return;
+        result[index] = count;
+        errorCode[index] = 0;
+        errorMessage[index] = null;
+    }
 
-	synchronized void setResultError(int index, int code, String message) {
-		if (index < 0 || index >= resultNumber)
-			return;
-		result[index] = -3;
-		errorCode[index] = code;
-		errorMessage[index] = message;
-		errorFlag = true;
-	}
+    synchronized void setResultError(int index, int code, String message) {
+        if (index < 0 || index >= resultNumber) return;
+        result[index] = -3;
+        errorCode[index] = code;
+        errorMessage[index] = message;
+        errorFlag = true;
+    }
 
-	public boolean getErrorFlag() {
-		return errorFlag;
-	}
+    public boolean getErrorFlag() {
+        return errorFlag;
+    }
 
-	synchronized void setStatementType(int index, int type) {
-		if (index < 0 || index >= resultNumber)
-			return;
-		statementType[index] = type;
-	}
+    synchronized void setStatementType(int index, int type) {
+        if (index < 0 || index >= resultNumber) return;
+        statementType[index] = type;
+    }
 }

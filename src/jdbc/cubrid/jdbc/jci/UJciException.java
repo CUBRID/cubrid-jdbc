@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -31,73 +31,72 @@
 
 package cubrid.jdbc.jci;
 
-
 public class UJciException extends Exception {
-    	private static final long serialVersionUID = 4464106407657785825L;
+    private static final long serialVersionUID = 4464106407657785825L;
 
-	private int jciErrCode;
-	private int serverErrCode;
-	private int serverErrIndicator;
+    private int jciErrCode;
+    private int serverErrCode;
+    private int serverErrIndicator;
 
-	public UJciException(int err) {
-		super();
-		jciErrCode = err;
-	}
+    public UJciException(int err) {
+        super();
+        jciErrCode = err;
+    }
 
-	public UJciException(int err, Throwable t) {
-	    	super();
-		jciErrCode = err;
-		setStackTrace(t.getStackTrace());
-	}
+    public UJciException(int err, Throwable t) {
+        super();
+        jciErrCode = err;
+        setStackTrace(t.getStackTrace());
+    }
 
-	public UJciException(int err, int indicator, int srv_err, String msg) {
-		super(msg);
-		jciErrCode = err;
-		serverErrCode = srv_err;
-		if (serverErrCode <= UError.METHOD_USER_ERROR_BASE)
-			serverErrCode = UError.METHOD_USER_ERROR_BASE - serverErrCode;
-		serverErrIndicator = indicator;
-	}
+    public UJciException(int err, int indicator, int srv_err, String msg) {
+        super(msg);
+        jciErrCode = err;
+        serverErrCode = srv_err;
+        if (serverErrCode <= UError.METHOD_USER_ERROR_BASE)
+            serverErrCode = UError.METHOD_USER_ERROR_BASE - serverErrCode;
+        serverErrIndicator = indicator;
+    }
 
-	void toUError(UError error) {
-	    	error.setStackTrace(getStackTrace());
-		if (jciErrCode == UErrorCode.ER_DBMS) {
-			String msg;
-			if (serverErrIndicator == UErrorCode.DBMS_ERROR_INDICATOR) {
-				msg = getMessage();
-			} else {
-				msg = UErrorCode.codeToCASMessage(serverErrCode);
-			}
-			error.setDBError(serverErrCode, msg);
-		} else if (jciErrCode == UErrorCode.ER_UNKNOWN) {
-			error.setErrorMessage(jciErrCode, getMessage());
-		} else {
-			error.setErrorCode(jciErrCode);
-		}
-	}
+    void toUError(UError error) {
+        error.setStackTrace(getStackTrace());
+        if (jciErrCode == UErrorCode.ER_DBMS) {
+            String msg;
+            if (serverErrIndicator == UErrorCode.DBMS_ERROR_INDICATOR) {
+                msg = getMessage();
+            } else {
+                msg = UErrorCode.codeToCASMessage(serverErrCode);
+            }
+            error.setDBError(serverErrCode, msg);
+        } else if (jciErrCode == UErrorCode.ER_UNKNOWN) {
+            error.setErrorMessage(jciErrCode, getMessage());
+        } else {
+            error.setErrorCode(jciErrCode);
+        }
+    }
 
-	public int getJciError() {
-		return this.jciErrCode;
-	}
+    public int getJciError() {
+        return this.jciErrCode;
+    }
 
-	public String toString() {
-	    	String msg, indicator;
-		int errorCode;
-		if (jciErrCode == UErrorCode.ER_DBMS) {
-			if (serverErrIndicator == UErrorCode.DBMS_ERROR_INDICATOR) {
-				msg = getMessage();
-				indicator = "ER_DBMS";
-				errorCode = serverErrCode;
-			} else {
-				msg = UErrorCode.codeToCASMessage(serverErrCode);
-				indicator = "ER_BROKER";
-				errorCode = jciErrCode;
-			}
-		} else {
-		    	msg = getMessage();
-		    	indicator = "ER_DRIVER";
-		    	errorCode = jciErrCode;
-		}
-		return String.format("%s[%d,%s]", indicator, errorCode, msg);
-	}
+    public String toString() {
+        String msg, indicator;
+        int errorCode;
+        if (jciErrCode == UErrorCode.ER_DBMS) {
+            if (serverErrIndicator == UErrorCode.DBMS_ERROR_INDICATOR) {
+                msg = getMessage();
+                indicator = "ER_DBMS";
+                errorCode = serverErrCode;
+            } else {
+                msg = UErrorCode.codeToCASMessage(serverErrCode);
+                indicator = "ER_BROKER";
+                errorCode = jciErrCode;
+            }
+        } else {
+            msg = getMessage();
+            indicator = "ER_DRIVER";
+            errorCode = jciErrCode;
+        }
+        return String.format("%s[%d,%s]", indicator, errorCode, msg);
+    }
 }

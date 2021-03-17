@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -30,73 +30,74 @@
  */
 
 /**
- * Title:        CUBRID Java Client Interface<p>
- * Description:  CUBRID Java Client Interface<p>
+ * Title: CUBRID Java Client Interface
+ *
+ * <p>Description: CUBRID Java Client Interface
+ *
+ * <p>
+ *
  * @version 2.0
  */
-
 package cubrid.jdbc.jci;
 
 import cubrid.sql.CUBRIDOID;
 
 class UResultTuple {
-	private int index;
-	private CUBRIDOID oid;
-	// private boolean wasNull[] = {};
-	private Object attributes[];
+    private int index;
+    private CUBRIDOID oid;
+    // private boolean wasNull[] = {};
+    private Object attributes[];
 
-	UResultTuple(int tupleIndex, int attributeNumber) {
-		index = tupleIndex;
-		attributes = new Object[attributeNumber];
-		// wasNull = new boolean[attributeNumber];
-	}
+    UResultTuple(int tupleIndex, int attributeNumber) {
+        index = tupleIndex;
+        attributes = new Object[attributeNumber];
+        // wasNull = new boolean[attributeNumber];
+    }
 
-	void close() {
-		for (int i = 0; attributes != null && i < attributes.length; i++)
-			attributes[i] = null;
-		attributes = null;
-		// wasNull = null;
-		oid = null;
-	}
+    void close() {
+        for (int i = 0; attributes != null && i < attributes.length; i++) attributes[i] = null;
+        attributes = null;
+        // wasNull = null;
+        oid = null;
+    }
 
-	Object getAttribute(int tIndex) {
-		/*
-		 * if (tIndex < 0 || attributes == null || tIndex >= attributes.length)
-		 * return null;
-		 */
-		return attributes[tIndex];
-	}
+    Object getAttribute(int tIndex) {
+        /*
+         * if (tIndex < 0 || attributes == null || tIndex >= attributes.length)
+         * return null;
+         */
+        return attributes[tIndex];
+    }
 
-	CUBRIDOID getOid() {
-		return oid;
-	}
+    CUBRIDOID getOid() {
+        return oid;
+    }
 
-	boolean oidIsIncluded() {
-		if (oid == null)
-			return false;
-		return true;
-	}
+    boolean oidIsIncluded() {
+        if (oid == null) return false;
+        return true;
+    }
 
-	void setAttribute(int tIndex, Object data) {
-		/*
-		 * if (wasNull == null || attributes == null || tIndex < 0 || tIndex >
-		 * wasNull.length - 1 || tIndex > attributes.length - 1) { return; }
-		 * wasNull[tIndex] = (data == null) ? true : false;
-		 */
+    void setAttribute(int tIndex, Object data) {
+        /*
+         * if (wasNull == null || attributes == null || tIndex < 0 || tIndex >
+         * wasNull.length - 1 || tIndex > attributes.length - 1) { return; }
+         * wasNull[tIndex] = (data == null) ? true : false;
+         */
 
-		attributes[tIndex] = data;
-	}
+        attributes[tIndex] = data;
+    }
 
-	void setOid(CUBRIDOID o) {
-		oid = o;
-	}
+    void setOid(CUBRIDOID o) {
+        oid = o;
+    }
 
-	int tupleNumber() {
-		return index;
-	}
+    int tupleNumber() {
+        return index;
+    }
 
-	/*
-	 * boolean wasNull(int tIndex) { return ((wasNull != null) ? wasNull[tIndex]
-	 * : false); }
-	 */
+    /*
+     * boolean wasNull(int tIndex) { return ((wasNull != null) ? wasNull[tIndex]
+     * : false); }
+     */
 }

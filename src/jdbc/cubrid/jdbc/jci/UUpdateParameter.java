@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -30,58 +30,61 @@
  */
 
 /**
- * Title:        CUBRID Java Client Interface<p>
- * Description:  CUBRID Java Client Interface<p>
+ * Title: CUBRID Java Client Interface
+ *
+ * <p>Description: CUBRID Java Client Interface
+ *
+ * <p>
+ *
  * @version 2.0
  */
-
 package cubrid.jdbc.jci;
 
 import java.io.IOException;
 
 class UUpdateParameter extends UParameter {
-	private int indexes[]; /* parameter's column index */
+    private int indexes[]; /* parameter's column index */
 
-	public UUpdateParameter(UColumnInfo columnInfo[], int[] columnIndexes,
-	        Object[] columnValues) throws UJciException {
-		super(columnValues.length);
+    public UUpdateParameter(UColumnInfo columnInfo[], int[] columnIndexes, Object[] columnValues)
+            throws UJciException {
+        super(columnValues.length);
 
-		/* check acceptable argument */
-		if (columnIndexes == null || columnValues == null
-		        || columnIndexes.length != columnValues.length) {
-			throw new UJciException(UErrorCode.ER_INVALID_ARGUMENT);
-		}
+        /* check acceptable argument */
+        if (columnIndexes == null
+                || columnValues == null
+                || columnIndexes.length != columnValues.length) {
+            throw new UJciException(UErrorCode.ER_INVALID_ARGUMENT);
+        }
 
-		for (int i = 0; i < columnIndexes.length; i++) {
-			if (columnIndexes[i] < 0 || columnIndexes[i] > columnInfo.length)
-				throw new UJciException(UErrorCode.ER_INVALID_ARGUMENT);
-		}
+        for (int i = 0; i < columnIndexes.length; i++) {
+            if (columnIndexes[i] < 0 || columnIndexes[i] > columnInfo.length)
+                throw new UJciException(UErrorCode.ER_INVALID_ARGUMENT);
+        }
 
-		UColumnInfo info[] = columnInfo;
-		byte[] pTypes = new byte[number];
-		indexes = new int[number];
+        UColumnInfo info[] = columnInfo;
+        byte[] pTypes = new byte[number];
+        indexes = new int[number];
 
-		for (int i = 0; i < types.length; i++) {
-			pTypes[i] = info[columnIndexes[i]].getColumnType();
-		}
+        for (int i = 0; i < types.length; i++) {
+            pTypes[i] = info[columnIndexes[i]].getColumnType();
+        }
 
-		setParameters(pTypes, columnValues);
+        setParameters(pTypes, columnValues);
 
-		for (int i = 0; i < number; i++) {
-			indexes[i] = columnIndexes[i] + 1;
-		}
-	}
+        for (int i = 0; i < number; i++) {
+            indexes[i] = columnIndexes[i] + 1;
+        }
+    }
 
-	synchronized void writeParameter(UOutputBuffer outBuffer)
-	        throws UJciException {
-		try {
-			for (int i = 0; i < number; i++) {
-				outBuffer.addInt(indexes[i]);
-				outBuffer.addByte(types[i]);
-				outBuffer.writeParameter(types[i], values[i], false);
-			}
-		} catch (IOException e) {
-			throw new UJciException(UErrorCode.ER_INVALID_ARGUMENT);
-		}
-	}
+    synchronized void writeParameter(UOutputBuffer outBuffer) throws UJciException {
+        try {
+            for (int i = 0; i < number; i++) {
+                outBuffer.addInt(indexes[i]);
+                outBuffer.addByte(types[i]);
+                outBuffer.writeParameter(types[i], values[i], false);
+            }
+        } catch (IOException e) {
+            throw new UJciException(UErrorCode.ER_INVALID_ARGUMENT);
+        }
+    }
 }

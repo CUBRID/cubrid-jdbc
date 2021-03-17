@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -30,56 +30,55 @@
  */
 
 /**
- * Title:        CUBRID Java Client Interface<p>
- * Description:  CUBRID Java Client Interface<p>
+ * Title: CUBRID Java Client Interface
+ *
+ * <p>Description: CUBRID Java Client Interface
+ *
+ * <p>
+ *
  * @version 2.0
  */
-
 package cubrid.jdbc.jci;
 
 import java.io.IOException;
 
 class UPutByOIDParameter extends UParameter {
-	private String attributeNames[];
+    private String attributeNames[];
 
-	UPutByOIDParameter(String pNames[], Object pValues[]) throws UJciException {
-		super((pValues != null) ? pValues.length : 0);
+    UPutByOIDParameter(String pNames[], Object pValues[]) throws UJciException {
+        super((pValues != null) ? pValues.length : 0);
 
-		if (pNames == null || pValues == null
-				|| pNames.length != pValues.length) {
-			throw new UJciException(UErrorCode.ER_INVALID_ARGUMENT);
-		}
+        if (pNames == null || pValues == null || pNames.length != pValues.length) {
+            throw new UJciException(UErrorCode.ER_INVALID_ARGUMENT);
+        }
 
-		byte[] pTypes = new byte[number];
-		attributeNames = new String[number];
+        byte[] pTypes = new byte[number];
+        attributeNames = new String[number];
 
-		for (int i = 0; i < number; i++) {
-			attributeNames[i] = pNames[i];
+        for (int i = 0; i < number; i++) {
+            attributeNames[i] = pNames[i];
 
-			if (pValues[i] == null) {
-				pTypes[i] = UUType.U_TYPE_NULL;
-			} else {
-				pTypes[i] = UUType.getObjectDBtype(pValues[i]);
-				if (pTypes[i] == UUType.U_TYPE_NULL)
-					throw new UJciException(UErrorCode.ER_INVALID_ARGUMENT);
-			}
-		}
-		setParameters(pTypes, pValues);
-	}
+            if (pValues[i] == null) {
+                pTypes[i] = UUType.U_TYPE_NULL;
+            } else {
+                pTypes[i] = UUType.getObjectDBtype(pValues[i]);
+                if (pTypes[i] == UUType.U_TYPE_NULL)
+                    throw new UJciException(UErrorCode.ER_INVALID_ARGUMENT);
+            }
+        }
+        setParameters(pTypes, pValues);
+    }
 
-	synchronized void writeParameter(UOutputBuffer outBuffer)
-			throws UJciException {
-		try {
-			for (int i = 0; i < number; i++) {
-				if (attributeNames[i] != null)
-					outBuffer.addStringWithNull(attributeNames[i]);
-				else
-					outBuffer.addNull();
-				outBuffer.addByte(types[i]);
-				outBuffer.writeParameter(types[i], values[i], false);
-			}
-		} catch (IOException e) {
-			throw new UJciException(UErrorCode.ER_INVALID_ARGUMENT);
-		}
-	}
+    synchronized void writeParameter(UOutputBuffer outBuffer) throws UJciException {
+        try {
+            for (int i = 0; i < number; i++) {
+                if (attributeNames[i] != null) outBuffer.addStringWithNull(attributeNames[i]);
+                else outBuffer.addNull();
+                outBuffer.addByte(types[i]);
+                outBuffer.writeParameter(types[i], values[i], false);
+            }
+        } catch (IOException e) {
+            throw new UJciException(UErrorCode.ER_INVALID_ARGUMENT);
+        }
+    }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -30,25 +30,27 @@
  */
 
 /**
- * Title:        CUBRID Java Client Interface<p>
- * Description:  CUBRID Java Client Interface<p>
+ * Title: CUBRID Java Client Interface
+ *
+ * <p>Description: CUBRID Java Client Interface
+ *
+ * <p>
+ *
  * @version 2.0
  */
-
 package cubrid.jdbc.jci;
 
 /**
- * CUBRIDÀÇ Isolation levelÀ» Á¤ÀÇÇÑ classÀÌ´Ù.
- * 
- * since 1.0
+ * CUBRIDï¿½ï¿½ Isolation levelï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ classï¿½Ì´ï¿½.
+ *
+ * <p>since 1.0
  */
-
-abstract public class CUBRIDIsolationLevel {
-	public final static int TRAN_UNKNOWN_ISOLATION = 0;
-	public final static int TRAN_COMMIT_CLASS_UNCOMMIT_INSTANCE = 1;
-	public final static int TRAN_COMMIT_CLASS_COMMIT_INSTANCE = 2;
-	public final static int TRAN_REP_CLASS_UNCOMMIT_INSTANCE = 3;
-	public final static int TRAN_READ_COMMITTED = 4;
-	public final static int TRAN_REPEATABLE_READ = 5;
-	public final static int TRAN_SERIALIZABLE = 6;
+public abstract class CUBRIDIsolationLevel {
+    public static final int TRAN_UNKNOWN_ISOLATION = 0;
+    public static final int TRAN_COMMIT_CLASS_UNCOMMIT_INSTANCE = 1;
+    public static final int TRAN_COMMIT_CLASS_COMMIT_INSTANCE = 2;
+    public static final int TRAN_REP_CLASS_UNCOMMIT_INSTANCE = 3;
+    public static final int TRAN_READ_COMMITTED = 4;
+    public static final int TRAN_REPEATABLE_READ = 5;
+    public static final int TRAN_SERIALIZABLE = 6;
 }

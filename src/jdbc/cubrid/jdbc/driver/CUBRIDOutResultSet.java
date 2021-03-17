@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -31,53 +31,50 @@
 
 package cubrid.jdbc.driver;
 
-import java.sql.SQLException;
-
 import cubrid.jdbc.jci.UConnection;
 import cubrid.jdbc.jci.UStatement;
+import java.sql.SQLException;
 
 public class CUBRIDOutResultSet extends CUBRIDResultSet {
-	private boolean created;
+    private boolean created;
 
-	private int srv_handle;
+    private int srv_handle;
 
-	private UConnection ucon;
+    private UConnection ucon;
 
-	public CUBRIDOutResultSet(UConnection ucon, int srv_handle_id) {
-		super(null);
-		created = false;
-		this.srv_handle = srv_handle_id;
-		this.ucon = ucon;
-		ucon.getCUBRIDConnection().addOutResultSet(this);
-	}
+    public CUBRIDOutResultSet(UConnection ucon, int srv_handle_id) {
+        super(null);
+        created = false;
+        this.srv_handle = srv_handle_id;
+        this.ucon = ucon;
+        ucon.getCUBRIDConnection().addOutResultSet(this);
+    }
 
-	public void createInstance() throws Exception {
-		if (created)
-			return;
-		if (srv_handle <= 0)
-			throw new IllegalArgumentException();
+    public void createInstance() throws Exception {
+        if (created) return;
+        if (srv_handle <= 0) throw new IllegalArgumentException();
 
-		u_stmt = new UStatement(ucon, srv_handle);
-		column_info = u_stmt.getColumnInfo();
-		col_name_to_index = u_stmt.getColumnNameToIndexMap();
-		number_of_rows = u_stmt.getExecuteResult();
+        u_stmt = new UStatement(ucon, srv_handle);
+        column_info = u_stmt.getColumnInfo();
+        col_name_to_index = u_stmt.getColumnNameToIndexMap();
+        number_of_rows = u_stmt.getExecuteResult();
 
-		created = true;
-	}
+        created = true;
+    }
 
-	public void close() throws SQLException {
-		if (is_closed) {
-			return;
-		}
-		is_closed = true;
+    public void close() throws SQLException {
+        if (is_closed) {
+            return;
+        }
+        is_closed = true;
 
-		clearCurrentRow();
+        clearCurrentRow();
 
-		u_stmt.close();
+        u_stmt.close();
 
-		streams = null;
-		u_stmt = null;
-		column_info = null;
-		error = null;
-	}
+        streams = null;
+        u_stmt = null;
+        column_info = null;
+        error = null;
+    }
 }

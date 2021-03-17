@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -33,40 +33,40 @@ package cubrid.jdbc.driver;
 
 import java.util.Hashtable;
 
-abstract public class CUBRIDJdbcInfoTable {
-	static private Hashtable<String, String> ht;
+public abstract class CUBRIDJdbcInfoTable {
+    private static Hashtable<String, String> ht;
 
-	static {
-		ht = new Hashtable<String, String>();
-	}
+    static {
+        ht = new Hashtable<String, String>();
+    }
 
-	public static void putValue(String key, String value) {
-		synchronized (ht) {
-			ht.put(key, value);
-		}
-	}
+    public static void putValue(String key, String value) {
+        synchronized (ht) {
+            ht.put(key, value);
+        }
+    }
 
-	public static void putValue(String value) {
-		putValue(Thread.currentThread().getName(), value);
-	}
+    public static void putValue(String value) {
+        putValue(Thread.currentThread().getName(), value);
+    }
 
-	public static String getValue() {
-		return getValue(Thread.currentThread().getName());
-	}
+    public static String getValue() {
+        return getValue(Thread.currentThread().getName());
+    }
 
-	public static String getValue(String key) {
-		synchronized (ht) {
-			return ht.get(key);
-		}
-	}
+    public static String getValue(String key) {
+        synchronized (ht) {
+            return ht.get(key);
+        }
+    }
 
-	public static void removeValue(String key) {
-		synchronized (ht) {
-			ht.remove(key);
-		}
-	}
+    public static void removeValue(String key) {
+        synchronized (ht) {
+            ht.remove(key);
+        }
+    }
 
-	public static void removeValue() {
-		removeValue(Thread.currentThread().getName());
-	}
+    public static void removeValue() {
+        removeValue(Thread.currentThread().getName());
+    }
 }

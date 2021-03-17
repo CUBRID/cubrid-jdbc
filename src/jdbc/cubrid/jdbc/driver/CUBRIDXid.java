@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -32,35 +32,34 @@
 package cubrid.jdbc.driver;
 
 import java.io.Serializable;
-
 import javax.transaction.xa.Xid;
 
 public class CUBRIDXid implements Xid, Serializable {
-    	private static final long serialVersionUID = 641629560291850549L;
+    private static final long serialVersionUID = 641629560291850549L;
 
-    	private int formatId;
-	private byte[] globalTransactionId;
-	private byte[] branchQualifier;
+    private int formatId;
+    private byte[] globalTransactionId;
+    private byte[] branchQualifier;
 
-	public CUBRIDXid(int fid, byte[] gid, byte[] bid) {
-		formatId = fid;
-		globalTransactionId = gid;
-		branchQualifier = bid;
-	}
+    public CUBRIDXid(int fid, byte[] gid, byte[] bid) {
+        formatId = fid;
+        globalTransactionId = gid;
+        branchQualifier = bid;
+    }
 
-	/*
-	 * javax.transaction.xa.Xid interface
-	 */
+    /*
+     * javax.transaction.xa.Xid interface
+     */
 
-	public byte[] getBranchQualifier() {
-		return branchQualifier;
-	}
+    public byte[] getBranchQualifier() {
+        return branchQualifier;
+    }
 
-	public int getFormatId() {
-		return formatId;
-	}
+    public int getFormatId() {
+        return formatId;
+    }
 
-	public byte[] getGlobalTransactionId() {
-		return globalTransactionId;
-	}
+    public byte[] getGlobalTransactionId() {
+        return globalTransactionId;
+    }
 }

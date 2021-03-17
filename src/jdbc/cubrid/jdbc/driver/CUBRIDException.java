@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -31,44 +31,43 @@
 
 package cubrid.jdbc.driver;
 
+import cubrid.jdbc.jci.UError;
 import java.sql.SQLException;
 
-import cubrid.jdbc.jci.UError;
-
 public class CUBRIDException extends SQLException {
-    	private static final long serialVersionUID = -1902040094322313271L;
+    private static final long serialVersionUID = -1902040094322313271L;
 
-	protected CUBRIDException(String msg, int errCode) {
-		super(msg, null, errCode);
-	}
+    protected CUBRIDException(String msg, int errCode) {
+        super(msg, null, errCode);
+    }
 
-	public CUBRIDException(UError error) {
-		this(error.getErrorMsg(true), error.getJdbcErrorCode());
-		error.changeStackTrace(this);
-	}
+    public CUBRIDException(UError error) {
+        this(error.getErrorMsg(true), error.getJdbcErrorCode());
+        error.changeStackTrace(this);
+    }
 
-	public CUBRIDException(UError error, Throwable t) {
-		this(error.getErrorMsg(true), error.getJdbcErrorCode());
-		if (t != null) {
-		    setStackTrace(t.getStackTrace());
-		}
-	}
+    public CUBRIDException(UError error, Throwable t) {
+        this(error.getErrorMsg(true), error.getJdbcErrorCode());
+        if (t != null) {
+            setStackTrace(t.getStackTrace());
+        }
+    }
 
-	public CUBRIDException(int errCode, Throwable t) {
-		this(CUBRIDJDBCErrorCode.getMessage(errCode), errCode);
-		if (t != null) {
-		    setStackTrace(t.getStackTrace());
-		}
-	}
+    public CUBRIDException(int errCode, Throwable t) {
+        this(CUBRIDJDBCErrorCode.getMessage(errCode), errCode);
+        if (t != null) {
+            setStackTrace(t.getStackTrace());
+        }
+    }
 
-	public CUBRIDException(int errCode) {
- 		this(CUBRIDJDBCErrorCode.getMessage(errCode), errCode);
-	}
+    public CUBRIDException(int errCode) {
+        this(CUBRIDJDBCErrorCode.getMessage(errCode), errCode);
+    }
 
-	public CUBRIDException(int errCode, String msg, Throwable t) {
-		this(CUBRIDJDBCErrorCode.getMessage(errCode) + msg, errCode);
-		if (t != null) {
-		    setStackTrace(t.getStackTrace());
-		}
-	}
+    public CUBRIDException(int errCode, String msg, Throwable t) {
+        this(CUBRIDJDBCErrorCode.getMessage(errCode) + msg, errCode);
+        if (t != null) {
+            setStackTrace(t.getStackTrace());
+        }
+    }
 }

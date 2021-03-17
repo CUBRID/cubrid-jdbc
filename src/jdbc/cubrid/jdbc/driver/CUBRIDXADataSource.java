@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -34,7 +34,6 @@ package cubrid.jdbc.driver;
 import java.io.Serializable;
 import java.sql.SQLException;
 import java.util.logging.Logger;
-
 import javax.naming.NamingException;
 import javax.naming.Reference;
 import javax.naming.Referenceable;
@@ -43,51 +42,53 @@ import javax.sql.XADataSource;
 
 /**
  * Title: CUBRID JDBC Driver Description:
- * 
+ *
  * @version 3.0
  */
+public class CUBRIDXADataSource extends CUBRIDPoolDataSourceBase
+        implements XADataSource, Referenceable, Serializable {
+    private static final long serialVersionUID = -7015869630223848825L;
 
-public class CUBRIDXADataSource extends CUBRIDPoolDataSourceBase implements
-		XADataSource, Referenceable, Serializable {
-    	private static final long serialVersionUID = -7015869630223848825L;
+    public CUBRIDXADataSource() {
+        super();
+    }
 
-	public CUBRIDXADataSource() {
-		super();
-	}
+    protected CUBRIDXADataSource(Reference ref) {
+        super();
+        setProperties(ref);
+    }
 
-	protected CUBRIDXADataSource(Reference ref) {
-		super();
-		setProperties(ref);
-	}
+    /*
+     * javax.sql.XADataSource interface
+     */
 
-	/*
-	 * javax.sql.XADataSource interface
-	 */
+    public synchronized XAConnection getXAConnection() throws SQLException {
+        return getXAConnection(getUser(), getPassword());
+    }
 
-	public synchronized XAConnection getXAConnection() throws SQLException {
-		return getXAConnection(getUser(), getPassword());
-	}
+    public synchronized XAConnection getXAConnection(String username, String passwd)
+            throws SQLException {
+        return (new CUBRIDXAConnection(
+                this, getServerName(), getPortNumber(), getDatabaseName(), username, passwd));
+    }
 
-	public synchronized XAConnection getXAConnection(String username,
-			String passwd) throws SQLException {
-		return (new CUBRIDXAConnection(this, getServerName(), getPortNumber(),
-				getDatabaseName(), username, passwd));
-	}
+    /*
+     * javax.naming.Referenceable interface
+     */
 
-	/*
-	 * javax.naming.Referenceable interface
-	 */
+    public synchronized Reference getReference() throws NamingException {
+        Reference ref =
+                new Reference(
+                        this.getClass().getName(),
+                        "cubrid.jdbc.driver.CUBRIDDataSourceObjectFactory",
+                        null);
 
-	public synchronized Reference getReference() throws NamingException {
-		Reference ref = new Reference(this.getClass().getName(),
-				"cubrid.jdbc.driver.CUBRIDDataSourceObjectFactory", null);
+        ref = getProperties(ref);
+        return ref;
+    }
 
-		ref = getProperties(ref);
-		return ref;
-	}
-
-	/* JDK 1.7 */
-	public Logger getParentLogger() {
-		throw new java.lang.UnsupportedOperationException();
-	}
+    /* JDK 1.7 */
+    public Logger getParentLogger() {
+        throw new java.lang.UnsupportedOperationException();
+    }
 }

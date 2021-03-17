@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -34,31 +34,30 @@ package cubrid.sql;
 import java.sql.Timestamp;
 
 public class CUBRIDTimestamp extends Timestamp {
-    	private static final long serialVersionUID = 8413186757763082411L;
+    private static final long serialVersionUID = 8413186757763082411L;
 
-    	public static final boolean TIMESTAMP = false;
-	public static final boolean DATETIME = true;
+    public static final boolean TIMESTAMP = false;
+    public static final boolean DATETIME = true;
 
-	boolean isDatetime = true;
+    boolean isDatetime = true;
 
-	public CUBRIDTimestamp(long time, boolean isDatetime) {
-		super(time);
-		this.isDatetime = isDatetime;
-	}
+    public CUBRIDTimestamp(long time, boolean isDatetime) {
+        super(time);
+        this.isDatetime = isDatetime;
+    }
 
-	public static CUBRIDTimestamp valueOf(String s, boolean isdt) {
-		Timestamp tmptime = Timestamp.valueOf(s);
-		CUBRIDTimestamp cub_tmptime = new CUBRIDTimestamp(tmptime.getTime(),
-				isdt);
-		return cub_tmptime;
-	}
+    public static CUBRIDTimestamp valueOf(String s, boolean isdt) {
+        Timestamp tmptime = Timestamp.valueOf(s);
+        CUBRIDTimestamp cub_tmptime = new CUBRIDTimestamp(tmptime.getTime(), isdt);
+        return cub_tmptime;
+    }
 
-	public static boolean isTimestampType(Timestamp o) {
-		if (o instanceof CUBRIDTimestamp) {
-			if (!((CUBRIDTimestamp) o).isDatetime) {
-				return true;
-			}
-		}
-		return false;
-	}
+    public static boolean isTimestampType(Timestamp o) {
+        if (o instanceof CUBRIDTimestamp) {
+            if (!((CUBRIDTimestamp) o).isDatetime) {
+                return true;
+            }
+        }
+        return false;
+    }
 }

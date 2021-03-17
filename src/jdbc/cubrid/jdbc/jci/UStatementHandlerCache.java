@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -37,38 +37,38 @@ import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class UStatementHandlerCache {
-	private ConcurrentHashMap<String, List<UStatementHandlerCacheEntry>> stmtHandlerCache = null;
+    private ConcurrentHashMap<String, List<UStatementHandlerCacheEntry>> stmtHandlerCache = null;
 
-	public UStatementHandlerCache() {
-		stmtHandlerCache = new ConcurrentHashMap<String, List<UStatementHandlerCacheEntry>> ();
-	}
+    public UStatementHandlerCache() {
+        stmtHandlerCache = new ConcurrentHashMap<String, List<UStatementHandlerCacheEntry>>();
+    }
 
-	public List<UStatementHandlerCacheEntry> getEntry (String sql) {
-		if (!stmtHandlerCache.containsKey(sql)) {
-			List<UStatementHandlerCacheEntry> vec = new ArrayList<UStatementHandlerCacheEntry>();
-			stmtHandlerCache.putIfAbsent(sql, vec);
-		}
+    public List<UStatementHandlerCacheEntry> getEntry(String sql) {
+        if (!stmtHandlerCache.containsKey(sql)) {
+            List<UStatementHandlerCacheEntry> vec = new ArrayList<UStatementHandlerCacheEntry>();
+            stmtHandlerCache.putIfAbsent(sql, vec);
+        }
 
-		return stmtHandlerCache.get(sql);
-	}
+        return stmtHandlerCache.get(sql);
+    }
 
-	public void destroy () {
-		for (Entry<String, List<UStatementHandlerCacheEntry>> entry : stmtHandlerCache.entrySet()) {
-			List<UStatementHandlerCacheEntry> cacheEntries = entry.getValue();
-			for (UStatementHandlerCacheEntry e: cacheEntries) {
-				UStatement s = e.getStatement();
-				s.close();
-			}
-		}
-		stmtHandlerCache.clear();
-	}
+    public void destroy() {
+        for (Entry<String, List<UStatementHandlerCacheEntry>> entry : stmtHandlerCache.entrySet()) {
+            List<UStatementHandlerCacheEntry> cacheEntries = entry.getValue();
+            for (UStatementHandlerCacheEntry e : cacheEntries) {
+                UStatement s = e.getStatement();
+                s.close();
+            }
+        }
+        stmtHandlerCache.clear();
+    }
 
-	public void clearStatus () {
-		for (Entry<String, List<UStatementHandlerCacheEntry>> entry : stmtHandlerCache.entrySet()) {
-			List<UStatementHandlerCacheEntry> cacheEntries = entry.getValue();
-			for (UStatementHandlerCacheEntry e: cacheEntries) {
-				e.setAvailable(true);
-			}
-		}
-	}
+    public void clearStatus() {
+        for (Entry<String, List<UStatementHandlerCacheEntry>> entry : stmtHandlerCache.entrySet()) {
+            List<UStatementHandlerCacheEntry> cacheEntries = entry.getValue();
+            for (UStatementHandlerCacheEntry e : cacheEntries) {
+                e.setAvailable(true);
+            }
+        }
+    }
 }

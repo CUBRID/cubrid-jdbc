@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -37,42 +37,40 @@ import java.io.Reader;
 import java.io.Writer;
 
 class CUBRIDBufferedReader extends BufferedReader {
-	private int bufSize;
+    private int bufSize;
 
-	public CUBRIDBufferedReader(Reader in, int bufferSize) {
-		super(in, bufferSize);
-		bufSize = bufferSize;
-	}
+    public CUBRIDBufferedReader(Reader in, int bufferSize) {
+        super(in, bufferSize);
+        bufSize = bufferSize;
+    }
 
-	public void mark(int arg0) {
-	}
+    public void mark(int arg0) {}
 
-	public boolean markSupported() {
-		return false;
-	}
+    public boolean markSupported() {
+        return false;
+    }
 
-	public void reset() throws IOException {
-		throw new IOException("Not supported mark and reset operation");
-	}
+    public void reset() throws IOException {
+        throw new IOException("Not supported mark and reset operation");
+    }
 
-	public synchronized void streamCopyToWriter(Writer out, long length)
-			throws IOException {
-		Reader in = this;
-		char[] buf = new char[bufSize];
-		int read_len;
+    public synchronized void streamCopyToWriter(Writer out, long length) throws IOException {
+        Reader in = this;
+        char[] buf = new char[bufSize];
+        int read_len;
 
-		try {
-			while (length > 0) {
-				read_len = (int) Math.min(length, (long) bufSize);
-				read_len = in.read(buf, 0, read_len);
-				if (read_len <= 0) {
-					break;
-				}
-				out.write(buf, 0, read_len);
-				length -= read_len;
-			}
-		} finally {
-			out.flush();
-		}
-	}
+        try {
+            while (length > 0) {
+                read_len = (int) Math.min(length, (long) bufSize);
+                read_len = in.read(buf, 0, read_len);
+                if (read_len <= 0) {
+                    break;
+                }
+                out.write(buf, 0, read_len);
+                length -= read_len;
+            }
+        } finally {
+            out.flush();
+        }
+    }
 }

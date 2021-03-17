@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -30,43 +30,45 @@
  */
 
 /**
- * Title:        CUBRID Java Client Interface<p>
- * Description:  CUBRID Java Client Interface<p>
+ * Title: CUBRID Java Client Interface
+ *
+ * <p>Description: CUBRID Java Client Interface
+ *
+ * <p>
+ *
  * @version 2.0
  */
-
 package cubrid.jdbc.jci;
 
 public class UShardInfo {
-	public static final int SHARD_ID_INVALID = -1;
-	public static final int SHARD_ID_UNSUPPORTED = -2;
+    public static final int SHARD_ID_INVALID = -1;
+    public static final int SHARD_ID_UNSUPPORTED = -2;
 
-	private int shardId;
-	private String dbName;
-	private String dbServer;
+    private int shardId;
+    private String dbName;
+    private String dbServer;
 
-	UShardInfo(int shard_id) {
-		shardId = shard_id;
-	}
+    UShardInfo(int shard_id) {
+        shardId = shard_id;
+    }
 
-	public void setDBName(String db_name) {
-		dbName = db_name;
-	}
+    public void setDBName(String db_name) {
+        dbName = db_name;
+    }
 
-	public void setDBServer(String db_server) {
-		dbServer = db_server;
-	}
+    public void setDBServer(String db_server) {
+        dbServer = db_server;
+    }
 
-	public int getShardId() {
-		return shardId;
-	}
+    public int getShardId() {
+        return shardId;
+    }
 
-	public String getDBName() {
-		return dbName;
-	}
+    public String getDBName() {
+        return dbName;
+    }
 
-	public String getDBServer() {
-		return dbServer;
-	}
+    public String getDBServer() {
+        return dbServer;
+    }
 }
-

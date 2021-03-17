@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -35,56 +35,51 @@ import java.io.Reader;
 
 /**
  * Title: CUBRID JDBC Driver Description:
- * 
+ *
  * @version 2.0
  */
-
 class CUBRIDReader extends Reader {
-	private int position;
-	private String valueBuffer;
+    private int position;
+    private String valueBuffer;
 
-	CUBRIDReader(String v) {
-		valueBuffer = v;
-		position = 0;
-	}
+    CUBRIDReader(String v) {
+        valueBuffer = v;
+        position = 0;
+    }
 
-	public synchronized int available() throws java.io.IOException {
-		if (valueBuffer == null)
-			return 0;
-		return valueBuffer.length() - position;
-	}
+    public synchronized int available() throws java.io.IOException {
+        if (valueBuffer == null) return 0;
+        return valueBuffer.length() - position;
+    }
 
-	public synchronized int read(char[] cbuf, int off, int len)
-			throws java.io.IOException {
-		if (cbuf == null)
-			throw new NullPointerException();
-		else if (off < 0 || off > cbuf.length || len < 0
-				|| off + len > cbuf.length || off + len < 0)
-			throw new IndexOutOfBoundsException();
-		else if (len == 0)
-			return 0;
+    public synchronized int read(char[] cbuf, int off, int len) throws java.io.IOException {
+        if (cbuf == null) throw new NullPointerException();
+        else if (off < 0
+                || off > cbuf.length
+                || len < 0
+                || off + len > cbuf.length
+                || off + len < 0) throw new IndexOutOfBoundsException();
+        else if (len == 0) return 0;
 
-		if (valueBuffer == null)
-			return -1;
+        if (valueBuffer == null) return -1;
 
-		int i;
-		for (i = position; i < len + position && i < valueBuffer.length(); i++) {
-			cbuf[i - position + off] = valueBuffer.charAt(i);
-		}
+        int i;
+        for (i = position; i < len + position && i < valueBuffer.length(); i++) {
+            cbuf[i - position + off] = valueBuffer.charAt(i);
+        }
 
-		int temp = position;
-		position = i;
-		if (position == valueBuffer.length())
-			close();
+        int temp = position;
+        position = i;
+        if (position == valueBuffer.length()) close();
 
-		return i - temp;
-	}
+        return i - temp;
+    }
 
-	public synchronized void close() throws java.io.IOException {
-		valueBuffer = null;
-	}
+    public synchronized void close() throws java.io.IOException {
+        valueBuffer = null;
+    }
 
-	public boolean ready() {
-		return true;
-	}
+    public boolean ready() {
+        return true;
+    }
 }

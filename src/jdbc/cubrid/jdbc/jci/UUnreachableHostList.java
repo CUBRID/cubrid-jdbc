@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -31,121 +31,115 @@
 
 package cubrid.jdbc.jci;
 
+import cubrid.jdbc.net.BrokerHandler;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.Socket;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-import cubrid.jdbc.net.BrokerHandler;
-
 public class UUnreachableHostList {
-	private static final String HEALTH_CHECK_DUMMY_DB = "___health_check_dummy_db___";
-	private static final int CAS_INFO_SIZE = 4;
+    private static final String HEALTH_CHECK_DUMMY_DB = "___health_check_dummy_db___";
+    private static final int CAS_INFO_SIZE = 4;
 
-	private static UUnreachableHostList instance = null;
-	private List<String> unreachableHosts;
-	private boolean useSSL = false;
+    private static UUnreachableHostList instance = null;
+    private List<String> unreachableHosts;
+    private boolean useSSL = false;
 
-	private UUnreachableHostList() {
-		unreachableHosts = new CopyOnWriteArrayList<String>();
-	}
+    private UUnreachableHostList() {
+        unreachableHosts = new CopyOnWriteArrayList<String>();
+    }
 
-	public synchronized static UUnreachableHostList getInstance() {
-		if (instance == null) {
-			instance = new UUnreachableHostList();
-		}
+    public static synchronized UUnreachableHostList getInstance() {
+        if (instance == null) {
+            instance = new UUnreachableHostList();
+        }
 
-		return instance;
-	}
+        return instance;
+    }
 
-	public boolean contains(String host) {
-		return unreachableHosts.contains(host);
-	}
+    public boolean contains(String host) {
+        return unreachableHosts.contains(host);
+    }
 
-	public synchronized void add(String host) {
-		if (!unreachableHosts.contains(host)) {
-			unreachableHosts.add(host);
-		}
-	}
+    public synchronized void add(String host) {
+        if (!unreachableHosts.contains(host)) {
+            unreachableHosts.add(host);
+        }
+    }
 
-	public void remove(String host) {
-		unreachableHosts.remove(host);
-	}
+    public void remove(String host) {
+        unreachableHosts.remove(host);
+    }
 
-	public void checkReachability(int timeout) {
-		String ip;
-		int port;
+    public void checkReachability(int timeout) {
+        String ip;
+        int port;
 
-		if (unreachableHosts == null) {
-			return;
-		}
+        if (unreachableHosts == null) {
+            return;
+        }
 
-		for (String host : unreachableHosts) {
-			ip = host.split(":")[0];
-			port = Integer.parseInt(host.split(":")[1]);
+        for (String host : unreachableHosts) {
+            ip = host.split(":")[0];
+            port = Integer.parseInt(host.split(":")[1]);
 
-			try {
-				checkHostAlive(ip, port, timeout);
-				remove(host);
-			} catch (UJciException e) {
-				// do nothing
-			} catch (IOException e) {
-				// do nothing
-			}
-		}
-	}
+            try {
+                checkHostAlive(ip, port, timeout);
+                remove(host);
+            } catch (UJciException e) {
+                // do nothing
+            } catch (IOException e) {
+                // do nothing
+            }
+        }
+    }
 
-	private void checkHostAlive(String ip, int port, int timeout)
-			throws IOException, UJciException {
-		Socket toBroker = null;
-		byte[] serverInfo;
-		byte[] casInfo;
-		String dummyUrl = "jdbc:cubrid:" + ip + ":" + port + ":"
-				+ HEALTH_CHECK_DUMMY_DB + "::********:";
-		UTimedDataInputStream is = null;
-		DataOutputStream os = null;
+    private void checkHostAlive(String ip, int port, int timeout)
+            throws IOException, UJciException {
+        Socket toBroker = null;
+        byte[] serverInfo;
+        byte[] casInfo;
+        String dummyUrl =
+                "jdbc:cubrid:" + ip + ":" + port + ":" + HEALTH_CHECK_DUMMY_DB + "::********:";
+        UTimedDataInputStream is = null;
+        DataOutputStream os = null;
 
-		long startTime = System.currentTimeMillis();
+        long startTime = System.currentTimeMillis();
 
-		try {
-			toBroker = BrokerHandler.connectBroker(ip, port, useSSL, timeout);
-			if (timeout > 0) {
-				timeout -= (System.currentTimeMillis() - startTime);
-				if (timeout <= 0) {
-					throw new UJciException(UErrorCode.ER_TIMEOUT);
-				}
-			}
+        try {
+            toBroker = BrokerHandler.connectBroker(ip, port, useSSL, timeout);
+            if (timeout > 0) {
+                timeout -= (System.currentTimeMillis() - startTime);
+                if (timeout <= 0) {
+                    throw new UJciException(UErrorCode.ER_TIMEOUT);
+                }
+            }
 
-			is = new UTimedDataInputStream(toBroker.getInputStream(), ip, port,
-					timeout);
-			os = new DataOutputStream(toBroker.getOutputStream());
-			serverInfo = UConnection.createDBInfo(HEALTH_CHECK_DUMMY_DB, "",
-					"", dummyUrl);
+            is = new UTimedDataInputStream(toBroker.getInputStream(), ip, port, timeout);
+            os = new DataOutputStream(toBroker.getOutputStream());
+            serverInfo = UConnection.createDBInfo(HEALTH_CHECK_DUMMY_DB, "", "", dummyUrl);
 
-			// send db info
-			os.write(serverInfo);
-			os.flush();
+            // send db info
+            os.write(serverInfo);
+            os.flush();
 
-			// receive header
-			int dataLength = is.readInt();
-			casInfo = new byte[CAS_INFO_SIZE];
-			is.readFully(casInfo);
-			if (dataLength < 0) {
-				throw new UJciException(UErrorCode.ER_ILLEGAL_DATA_SIZE);
-			}
+            // receive header
+            int dataLength = is.readInt();
+            casInfo = new byte[CAS_INFO_SIZE];
+            is.readFully(casInfo);
+            if (dataLength < 0) {
+                throw new UJciException(UErrorCode.ER_ILLEGAL_DATA_SIZE);
+            }
 
-		} finally {
-			if (is != null)
-				is.close();
-			if (os != null)
-				os.close();
-			if (toBroker != null)
-				toBroker.close();
-		}
-	}
+        } finally {
+            if (is != null) is.close();
+            if (os != null) os.close();
+            if (toBroker != null) toBroker.close();
+        }
+    }
 
-	public void setUseSSL(boolean useSSL) {
-		this.useSSL = useSSL;
-	}
+    public void setUseSSL(boolean useSSL) {
+        this.useSSL = useSSL;
+    }
 }

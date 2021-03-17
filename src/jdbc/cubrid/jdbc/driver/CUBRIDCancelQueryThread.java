@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -32,43 +32,39 @@
 package cubrid.jdbc.driver;
 
 /**
- * Title:        CUBRID JDBC Driver
- * Description:
+ * Title: CUBRID JDBC Driver Description:
+ *
  * @version 2.0
  */
 
-/**
- * This class implements query timeout feature for CUBRIDStatement,
- * CUBRIDPreparedStatement
- */
+/** This class implements query timeout feature for CUBRIDStatement, CUBRIDPreparedStatement */
 class CUBRIDCancelQueryThread extends Thread {
 
-	private int timeout;
+    private int timeout;
 
-	private CUBRIDStatement stmt;
+    private CUBRIDStatement stmt;
 
-	private boolean end = false;
+    private boolean end = false;
 
-	CUBRIDCancelQueryThread(CUBRIDStatement cancel_stmt, int time) {
-		stmt = cancel_stmt;
-		timeout = time;
-	}
+    CUBRIDCancelQueryThread(CUBRIDStatement cancel_stmt, int time) {
+        stmt = cancel_stmt;
+        timeout = time;
+    }
 
-	public void run() {
-		try {
-			Thread.sleep(timeout * 1000);
-			synchronized (this) {
-				if (end == false) {
-					stmt.cancel();
-				}
-			}
-		} catch (Exception e) {
-		}
-	}
+    public void run() {
+        try {
+            Thread.sleep(timeout * 1000);
+            synchronized (this) {
+                if (end == false) {
+                    stmt.cancel();
+                }
+            }
+        } catch (Exception e) {
+        }
+    }
 
-	synchronized void queryended() {
-		end = true;
-		interrupt();
-	}
-
+    synchronized void queryended() {
+        end = true;
+        interrupt();
+    }
 }

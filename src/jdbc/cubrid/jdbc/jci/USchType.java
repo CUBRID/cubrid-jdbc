@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -30,40 +30,42 @@
  */
 
 /**
- * Title:        CUBRID Java Client Interface<p>
- * Description:  CUBRID Java Client Interface<p>
+ * Title: CUBRID Java Client Interface
+ *
+ * <p>Description: CUBRID Java Client Interface
+ *
+ * <p>
+ *
  * @version 2.0
  */
-
 package cubrid.jdbc.jci;
 
 /**
- * CUBRIDÀÇ Schema typeÀ» Á¤ÀÇÇÏ´Â classÀÌ´Ù.
- * 
- * since 1.0
+ * CUBRIDï¿½ï¿½ Schema typeï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï´ï¿½ classï¿½Ì´ï¿½.
+ *
+ * <p>since 1.0
  */
+public abstract class USchType {
+    public static final int SCH_MIN = 1;
+    public static final int SCH_MAX = 19;
 
-abstract public class USchType {
-	public static final int SCH_MIN = 1;
-	public static final int SCH_MAX = 19;
-
-	public static final int SCH_CLASS = 1;
-	public static final int SCH_VCLASS = 2;
-	public static final int SCH_QUERY_SPEC = 3;
-	public static final int SCH_ATTRIBUTE = 4;
-	public static final int SCH_CLASS_ATTRIBUTE = 5;
-	public static final int SCH_METHOD = 6;
-	public static final int SCH_CLASS_METHOD = 7;
-	public static final int SCH_METHOD_FILE = 8;
-	public static final int SCH_SUPERCLASS = 9;
-	public static final int SCH_SUBCLASS = 10;
-	public static final int SCH_CONSTRAIT = 11;
-	public static final int SCH_TRIGGER = 12;
-	public static final int SCH_CLASS_PRIVILEGE = 13;
-	public static final int SCH_ATTR_PRIVILEGE = 14;
-	public static final int SCH_DIRECT_SUPER_CLASS = 15;
-	public static final int SCH_PRIMARY_KEY = 16;
-	public static final int SCH_IMPORTED_KEYS = 17;
-	public static final int SCH_EXPORTED_KEYS = 18;
-	public static final int SCH_CROSS_REFERENCE = 19;
+    public static final int SCH_CLASS = 1;
+    public static final int SCH_VCLASS = 2;
+    public static final int SCH_QUERY_SPEC = 3;
+    public static final int SCH_ATTRIBUTE = 4;
+    public static final int SCH_CLASS_ATTRIBUTE = 5;
+    public static final int SCH_METHOD = 6;
+    public static final int SCH_CLASS_METHOD = 7;
+    public static final int SCH_METHOD_FILE = 8;
+    public static final int SCH_SUPERCLASS = 9;
+    public static final int SCH_SUBCLASS = 10;
+    public static final int SCH_CONSTRAIT = 11;
+    public static final int SCH_TRIGGER = 12;
+    public static final int SCH_CLASS_PRIVILEGE = 13;
+    public static final int SCH_ATTR_PRIVILEGE = 14;
+    public static final int SCH_DIRECT_SUPER_CLASS = 15;
+    public static final int SCH_PRIMARY_KEY = 16;
+    public static final int SCH_IMPORTED_KEYS = 17;
+    public static final int SCH_EXPORTED_KEYS = 18;
+    public static final int SCH_CROSS_REFERENCE = 19;
 }

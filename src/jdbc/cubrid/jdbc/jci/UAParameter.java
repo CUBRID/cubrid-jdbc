@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -30,49 +30,48 @@
  */
 
 /**
- * Title:        CUBRID Java Client Interface<p>
- * Description:  CUBRID Java Client Interface<p>
+ * Title: CUBRID Java Client Interface
+ *
+ * <p>Description: CUBRID Java Client Interface
+ *
+ * <p>
+ *
  * @version 2.0
  */
-
 package cubrid.jdbc.jci;
 
 import java.io.IOException;
 
 class UAParameter extends UParameter {
-	private String attributeName;
+    private String attributeName;
 
-	UAParameter(String pName, Object pValue) throws UJciException {
-		super(1);
+    UAParameter(String pName, Object pValue) throws UJciException {
+        super(1);
 
-		byte[] pTypes = new byte[1];
-		Object attributeValue[] = new Object[1];
+        byte[] pTypes = new byte[1];
+        Object attributeValue[] = new Object[1];
 
-		attributeName = pName;
-		attributeValue[0] = pValue;
-		if (pValue == null) {
-			pTypes[0] = UUType.U_TYPE_NULL;
-		} else {
-			pTypes[0] = UUType.getObjectDBtype(pValue);
-			if (pTypes[0] == UUType.U_TYPE_NULL
-					|| pTypes[0] == UUType.U_TYPE_SEQUENCE)
-				throw new UJciException(UErrorCode.ER_INVALID_ARGUMENT);
-		}
+        attributeName = pName;
+        attributeValue[0] = pValue;
+        if (pValue == null) {
+            pTypes[0] = UUType.U_TYPE_NULL;
+        } else {
+            pTypes[0] = UUType.getObjectDBtype(pValue);
+            if (pTypes[0] == UUType.U_TYPE_NULL || pTypes[0] == UUType.U_TYPE_SEQUENCE)
+                throw new UJciException(UErrorCode.ER_INVALID_ARGUMENT);
+        }
 
-		setParameters(pTypes, attributeValue);
-	}
+        setParameters(pTypes, attributeValue);
+    }
 
-	synchronized void writeParameter(UOutputBuffer outBuffer)
-			throws UJciException {
-		try {
-			if (attributeName != null)
-				outBuffer.addStringWithNull(attributeName);
-			else
-				outBuffer.addNull();
-			outBuffer.addByte(types[0]);
-			outBuffer.writeParameter(types[0], values[0], false);
-		} catch (IOException e) {
-			throw new UJciException(UErrorCode.ER_INVALID_ARGUMENT);
-		}
-	}
+    synchronized void writeParameter(UOutputBuffer outBuffer) throws UJciException {
+        try {
+            if (attributeName != null) outBuffer.addStringWithNull(attributeName);
+            else outBuffer.addNull();
+            outBuffer.addByte(types[0]);
+            outBuffer.writeParameter(types[0], values[0], false);
+        } catch (IOException e) {
+            throw new UJciException(UErrorCode.ER_INVALID_ARGUMENT);
+        }
+    }
 }

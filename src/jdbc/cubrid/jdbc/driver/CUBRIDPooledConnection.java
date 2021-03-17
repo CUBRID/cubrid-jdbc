@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -31,135 +31,127 @@
 
 package cubrid.jdbc.driver;
 
+import cubrid.jdbc.jci.UConnection;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.Vector;
-
 import javax.sql.ConnectionEvent;
 import javax.sql.ConnectionEventListener;
 import javax.sql.PooledConnection;
 import javax.sql.StatementEventListener;
 
-import cubrid.jdbc.jci.UConnection;
-
 public class CUBRIDPooledConnection implements PooledConnection {
-	protected UConnection u_con;
-	protected boolean isClosed;
-	protected CUBRIDConnection storedConnection;
-	protected CUBRIDConnection cubConnection;
-	private Vector<ConnectionEventListener> eventListeners;
+    protected UConnection u_con;
+    protected boolean isClosed;
+    protected CUBRIDConnection storedConnection;
+    protected CUBRIDConnection cubConnection;
+    private Vector<ConnectionEventListener> eventListeners;
 
-	protected CUBRIDPooledConnection() {
-		initConnection();
-	}
+    protected CUBRIDPooledConnection() {
+        initConnection();
+    }
 
-	protected CUBRIDPooledConnection(UConnection uCon) {
-		initConnection();
-		u_con = uCon;
-	}
+    protected CUBRIDPooledConnection(UConnection uCon) {
+        initConnection();
+        u_con = uCon;
+    }
 
-	protected CUBRIDPooledConnection(CUBRIDConnection cCon) {
-		initConnection();
-		storedConnection = cCon;
+    protected CUBRIDPooledConnection(CUBRIDConnection cCon) {
+        initConnection();
+        storedConnection = cCon;
+    }
 
-	}
+    private void initConnection() {
+        cubConnection = null;
+        storedConnection = null;
+        eventListeners = new Vector<ConnectionEventListener>();
+        isClosed = false;
+        u_con = null;
+    }
 
-	private void initConnection() {
-		cubConnection = null;
-		storedConnection = null;
-		eventListeners = new Vector<ConnectionEventListener>();
-		isClosed = false;
-		u_con = null;
-	}
+    /*
+     * javax.sql.PooledConnection interface
+     */
 
-	/*
-	 * javax.sql.PooledConnection interface
-	 */
+    public synchronized Connection getConnection() throws SQLException {
+        if (isClosed) {
+            throw new CUBRIDException(CUBRIDJDBCErrorCode.pooled_connection_closed);
+        }
 
-	synchronized public Connection getConnection() throws SQLException {
-		if (isClosed) {
-			throw new CUBRIDException(
-					CUBRIDJDBCErrorCode.pooled_connection_closed);
-		}
+        if (cubConnection != null) {
+            cubConnection.closeConnection();
+        }
 
-		if (cubConnection != null) {
-			cubConnection.closeConnection();
-		}
+        if (u_con == null && storedConnection != null) {
+            u_con = storedConnection.getUConnection();
+        }
 
-		if (u_con == null && storedConnection != null) {
-			u_con = storedConnection.getUConnection();
-		}
+        if (u_con.check_cas() == false) {
+            u_con.resetConnection();
+        }
 
-		if (u_con.check_cas() == false) {
-			u_con.resetConnection();
-		}
+        cubConnection = new CUBRIDConnectionWrapperPooling(u_con, null, null, this);
+        return cubConnection;
+    }
 
-		cubConnection = new CUBRIDConnectionWrapperPooling(u_con, null,
-				null, this);
-		return cubConnection;
-	}
+    public synchronized void close() throws SQLException {
+        if (isClosed) {
+            return;
+        }
+        isClosed = true;
+        if (cubConnection != null) {
+            cubConnection.closeConnection();
+        }
+        if (storedConnection != null) {
+            storedConnection.closeConnection();
+        }
+        if (u_con != null) {
+            u_con.close();
+        }
+        eventListeners.clear();
+    }
 
-	synchronized public void close() throws SQLException {
-		if (isClosed) {
-			return;
-		}
-		isClosed = true;
-		if (cubConnection != null) {
-			cubConnection.closeConnection();
-		}
-		if (storedConnection != null) {
-			storedConnection.closeConnection();
-		}
-		if (u_con != null) {
-			u_con.close();
-		}
-		eventListeners.clear();
-	}
+    public synchronized void addConnectionEventListener(ConnectionEventListener listener) {
+        if (isClosed) {
+            return;
+        }
 
-	synchronized public void addConnectionEventListener(
-			ConnectionEventListener listener) {
-		if (isClosed) {
-			return;
-		}
+        eventListeners.addElement(listener);
+    }
 
-		eventListeners.addElement(listener);
-	}
+    public synchronized void removeConnectionEventListener(ConnectionEventListener listener) {
+        if (isClosed) {
+            return;
+        }
 
-	synchronized public void removeConnectionEventListener(
-			ConnectionEventListener listener) {
-		if (isClosed) {
-			return;
-		}
+        eventListeners.removeElement(listener);
+    }
 
-		eventListeners.removeElement(listener);
-	}
+    synchronized void notifyConnectionClosed() {
+        cubConnection = null;
+        ConnectionEvent e = new ConnectionEvent(this);
 
-	synchronized void notifyConnectionClosed() {
-		cubConnection = null;
-		ConnectionEvent e = new ConnectionEvent(this);
+        for (int i = 0; i < eventListeners.size(); i++) {
+            eventListeners.elementAt(i).connectionClosed(e);
+        }
+    }
 
-		for (int i = 0; i < eventListeners.size(); i++) {
-			eventListeners.elementAt(i).connectionClosed(e);
-		}
-	}
+    synchronized void notifyConnectionErrorOccurred(SQLException ex) {
+        cubConnection = null;
+        ConnectionEvent e = new ConnectionEvent(this, ex);
 
-	synchronized void notifyConnectionErrorOccurred(SQLException ex) {
-		cubConnection = null;
-		ConnectionEvent e = new ConnectionEvent(this, ex);
+        for (int i = 0; i < eventListeners.size(); i++) {
+            eventListeners.elementAt(i).connectionErrorOccurred(e);
+        }
+    }
 
-		for (int i = 0; i < eventListeners.size(); i++) {
-			eventListeners.elementAt(i).connectionErrorOccurred(e);
-		}
-	}
+    /* JDK 1.6 */
+    public void addStatementEventListener(StatementEventListener listener) {
+        throw new java.lang.UnsupportedOperationException();
+    }
 
-	/* JDK 1.6 */
-	public void addStatementEventListener(StatementEventListener listener) {
-		throw new java.lang.UnsupportedOperationException();
-	}
-
-	/* JDK 1.6 */
-	public void removeStatementEventListener(StatementEventListener listener) {
-		throw new java.lang.UnsupportedOperationException();
-	}
-
+    /* JDK 1.6 */
+    public void removeStatementEventListener(StatementEventListener listener) {
+        throw new java.lang.UnsupportedOperationException();
+    }
 }

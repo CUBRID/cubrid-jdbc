@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -34,59 +34,55 @@ package cubrid.jdbc.driver;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.Vector;
-
 import javax.sql.ConnectionEvent;
 import javax.sql.ConnectionEventListener;
 import javax.sql.PooledConnection;
 
 class CUBRIDConnectionEventListener implements ConnectionEventListener {
-	private Vector<PooledConnection> availableConnections;
-	private CUBRIDConnectionPoolDataSource cpds;
+    private Vector<PooledConnection> availableConnections;
+    private CUBRIDConnectionPoolDataSource cpds;
 
-	CUBRIDConnectionEventListener(CUBRIDConnectionPoolDataSource ds) {
-		availableConnections = new Vector<PooledConnection>();
-		cpds = ds;
-	}
+    CUBRIDConnectionEventListener(CUBRIDConnectionPoolDataSource ds) {
+        availableConnections = new Vector<PooledConnection>();
+        cpds = ds;
+    }
 
-	/*
-	 * javax.sql.ConnectionEventListener interface
-	 */
+    /*
+     * javax.sql.ConnectionEventListener interface
+     */
 
-	synchronized public void connectionClosed(ConnectionEvent event) {
-		PooledConnection pc = (PooledConnection) event.getSource();
+    public synchronized void connectionClosed(ConnectionEvent event) {
+        PooledConnection pc = (PooledConnection) event.getSource();
 
-		if (pc == null) {
-			return;
-		}
+        if (pc == null) {
+            return;
+        }
 
-		availableConnections.add(pc);
-	}
+        availableConnections.add(pc);
+    }
 
-	public void connectionErrorOccurred(ConnectionEvent event) {
-		PooledConnection pc = (PooledConnection) event.getSource();
+    public void connectionErrorOccurred(ConnectionEvent event) {
+        PooledConnection pc = (PooledConnection) event.getSource();
 
-		if (pc == null)
-			return;
+        if (pc == null) return;
 
-		try {
-			pc.close();
-		} catch (Exception e) {
-		}
-	}
+        try {
+            pc.close();
+        } catch (Exception e) {
+        }
+    }
 
-	synchronized Connection getConnection(String user, String passwd)
-			throws SQLException {
-		PooledConnection pc;
+    synchronized Connection getConnection(String user, String passwd) throws SQLException {
+        PooledConnection pc;
 
-		if (availableConnections.size() <= 0) {
-			pc = cpds.getPooledConnection(user, passwd);
-			pc.addConnectionEventListener(this);
-			availableConnections.add(pc);
-		}
+        if (availableConnections.size() <= 0) {
+            pc = cpds.getPooledConnection(user, passwd);
+            pc.addConnectionEventListener(this);
+            availableConnections.add(pc);
+        }
 
-		pc = (PooledConnection) availableConnections.remove(0);
+        pc = (PooledConnection) availableConnections.remove(0);
 
-		return (pc.getConnection());
-	}
-
+        return (pc.getConnection());
+    }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -32,28 +32,26 @@
 package cubrid.jdbc.driver;
 
 public class CUBRIDBinaryString {
-	private byte[] bytes;
+    private byte[] bytes;
 
-	public int length;
-	
-	public CUBRIDBinaryString(byte[] b) {
-		bytes = b;
-		length = b.length;
-	}
+    public int length;
 
-	
-	public byte[] getBytes() {
-		return bytes;
-	}
+    public CUBRIDBinaryString(byte[] b) {
+        bytes = b;
+        length = b.length;
+    }
 
+    public byte[] getBytes() {
+        return bytes;
+    }
 
-	public String toString() {
-		String result = "";
+    public String toString() {
+        String result = "";
 
-		for (int i = 0; i < length; i++) {
-			result += String.format("%02X ", (byte) bytes[i]);
-		}
+        for (int i = 0; i < length; i++) {
+            result += String.format("%02X ", (byte) bytes[i]);
+        }
 
-		return result;
-	}
+        return result;
+    }
 }

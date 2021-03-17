@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -31,126 +31,123 @@
 
 package cubrid.sql;
 
-import java.sql.Timestamp;
-import cubrid.sql.CUBRIDTimestamp;
+import cubrid.jdbc.driver.*;
 import cubrid.jdbc.jci.UJCIUtil;
 import cubrid.jdbc.jci.UJCIUtil.TimeInfo;
-import cubrid.jdbc.driver.*;
-import java.text.SimpleDateFormat;
+import java.sql.Timestamp;
 import java.text.DateFormat;
-import java.util.TimeZone;
+import java.text.SimpleDateFormat;
 import java.util.Calendar;
+import java.util.TimeZone;
 
 public class CUBRIDTimestamptz extends CUBRIDTimestamp {
     private static final long serialVersionUID = 6217189754717078421L;
 
-	private String timezone;
+    private String timezone;
 
+    public CUBRIDTimestamptz(long time, boolean isDatetime, String str_timezone) {
+        super(time, isDatetime);
+        this.isDatetime = isDatetime;
+        this.timezone = str_timezone;
+    }
 
-	public CUBRIDTimestamptz(long time, boolean isDatetime, String str_timezone) {
-		super (time, isDatetime);
-		this.isDatetime = isDatetime;
-		this.timezone = str_timezone;
-	}
+    public CUBRIDTimestamptz(String str_CUBRIDTimestamptz) throws CUBRIDException {
+        super(0, false);
 
-	public CUBRIDTimestamptz(String str_CUBRIDTimestamptz) throws CUBRIDException{
-		super(0, false);
+        TimeInfo timeinfo = new TimeInfo();
+        long time = 0;
 
-		TimeInfo timeinfo = new TimeInfo();
-		long time = 0;
+        timeinfo = UJCIUtil.parseStringTime(str_CUBRIDTimestamptz);
+        Timestamp tmptime = Timestamp.valueOf(timeinfo.time);
+        time = tmptime.getTime();
+        if (timeinfo.isPM) {
+            time += 43200000; // 12 hours in milliseconds
+        }
 
-		timeinfo = UJCIUtil.parseStringTime(str_CUBRIDTimestamptz);
-		Timestamp tmptime = Timestamp.valueOf(timeinfo.time);
-		time = tmptime.getTime();
-		if (timeinfo.isPM){
-			time += 43200000; // 12 hours in milliseconds
-		}
-		
-		Calendar cal = Calendar.getInstance();
-		int utcOffset = (cal.get(Calendar.ZONE_OFFSET) + cal.get(Calendar.DST_OFFSET));
+        Calendar cal = Calendar.getInstance();
+        int utcOffset = (cal.get(Calendar.ZONE_OFFSET) + cal.get(Calendar.DST_OFFSET));
 
-		time = time + utcOffset;
-		
-		setTime(time);
-		this.timezone = timeinfo.timezone;		
-		this.isDatetime = timeinfo.isDatetime;
-	}
+        time = time + utcOffset;
 
-	public static CUBRIDTimestamptz valueOf (CUBRIDTimestamp t, String str_timezone) {
-		long tmp_time = t.getTime();
+        setTime(time);
+        this.timezone = timeinfo.timezone;
+        this.isDatetime = timeinfo.isDatetime;
+    }
 
-		CUBRIDTimestamptz cubrid_ts_tz = new CUBRIDTimestamptz (tmp_time, !CUBRIDTimestamp.isTimestampType (t), str_timezone);
+    public static CUBRIDTimestamptz valueOf(CUBRIDTimestamp t, String str_timezone) {
+        long tmp_time = t.getTime();
 
-		return cubrid_ts_tz;
-	}
-	
-	public static CUBRIDTimestamptz valueOf(String str_timestamp, boolean isdt, String str_timezone) {
-		Timestamp tmptime = Timestamp.valueOf(str_timestamp);
-		Calendar cal = Calendar.getInstance();
-		int utcOffset = (cal.get(Calendar.ZONE_OFFSET) + cal.get(Calendar.DST_OFFSET));
+        CUBRIDTimestamptz cubrid_ts_tz =
+                new CUBRIDTimestamptz(tmp_time, !CUBRIDTimestamp.isTimestampType(t), str_timezone);
 
-		CUBRIDTimestamptz cubrid_ts_tz = new CUBRIDTimestamptz(tmptime.getTime() + utcOffset, isdt, str_timezone);
-		return cubrid_ts_tz;
-	}
+        return cubrid_ts_tz;
+    }
 
+    public static CUBRIDTimestamptz valueOf(
+            String str_timestamp, boolean isdt, String str_timezone) {
+        Timestamp tmptime = Timestamp.valueOf(str_timestamp);
+        Calendar cal = Calendar.getInstance();
+        int utcOffset = (cal.get(Calendar.ZONE_OFFSET) + cal.get(Calendar.DST_OFFSET));
 
-	private String timestamptoString() {
-		SimpleDateFormat df;
-		int millis = this.getNanos() / 1000000;
-		String millisString ="";
+        CUBRIDTimestamptz cubrid_ts_tz =
+                new CUBRIDTimestamptz(tmptime.getTime() + utcOffset, isdt, str_timezone);
+        return cubrid_ts_tz;
+    }
 
-		/* for milliseconds, we don't print trailing zeros */
-		df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.");
-		df.setTimeZone(TimeZone.getTimeZone("UTC"));
-		
-		if ((millis % 10) != 0) {
-			millisString = String.format("%03d", millis);
-		} else if (millis % 100 != 0) {
-			millisString = String.format("%02d", millis / 10);
-		} else {
-			millisString = String.format("%01d", millis / 100);
-		}
-			
-		return df.format(this) + millisString;
-	}
+    private String timestamptoString() {
+        SimpleDateFormat df;
+        int millis = this.getNanos() / 1000000;
+        String millisString = "";
 
-	public String toString() {
-		if (timezone.isEmpty()) {
-			return timestamptoString();
-		}
-		else {
-			return timestamptoString() + " " + timezone;
-		}
-	}
+        /* for milliseconds, we don't print trailing zeros */
+        df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.");
+        df.setTimeZone(TimeZone.getTimeZone("UTC"));
 
-	public String getTimezone() {
-		return timezone;
-	}
-	
-	public long getUnixTime () {
-		String dateString = timestamptoString ();
-		String adjustedTimezone;
-		
-		java.util.Date parsedDate;
-		
-		if (timezone.charAt(0) == '+' || timezone.charAt(0) == '-') {
-			adjustedTimezone = "GMT" + timezone;
-		} else if (timezone.indexOf(" ") > 0) {
-			adjustedTimezone = timezone.substring(timezone.indexOf(" ") + 1);
-		} else {
-			adjustedTimezone = timezone;
-		}
+        if ((millis % 10) != 0) {
+            millisString = String.format("%03d", millis);
+        } else if (millis % 100 != 0) {
+            millisString = String.format("%02d", millis / 10);
+        } else {
+            millisString = String.format("%01d", millis / 100);
+        }
 
-		dateString = timestamptoString () + " " + adjustedTimezone;
-        	DateFormat dateFormatLocal = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS z");
-        	try {
-			parsedDate = dateFormatLocal.parse(dateString);
-		} catch (java.text.ParseException e) {
-			return -1;
-		}
+        return df.format(this) + millisString;
+    }
 
-		return parsedDate.getTime();
+    public String toString() {
+        if (timezone.isEmpty()) {
+            return timestamptoString();
+        } else {
+            return timestamptoString() + " " + timezone;
+        }
+    }
 
-	}
+    public String getTimezone() {
+        return timezone;
+    }
 
+    public long getUnixTime() {
+        String dateString = timestamptoString();
+        String adjustedTimezone;
+
+        java.util.Date parsedDate;
+
+        if (timezone.charAt(0) == '+' || timezone.charAt(0) == '-') {
+            adjustedTimezone = "GMT" + timezone;
+        } else if (timezone.indexOf(" ") > 0) {
+            adjustedTimezone = timezone.substring(timezone.indexOf(" ") + 1);
+        } else {
+            adjustedTimezone = timezone;
+        }
+
+        dateString = timestamptoString() + " " + adjustedTimezone;
+        DateFormat dateFormatLocal = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS z");
+        try {
+            parsedDate = dateFormatLocal.parse(dateString);
+        } catch (java.text.ParseException e) {
+            return -1;
+        }
+
+        return parsedDate.getTime();
+    }
 }

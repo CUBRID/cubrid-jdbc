@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -31,132 +31,120 @@
 
 package cubrid.jdbc.driver;
 
-import java.sql.Connection;
-import java.sql.DatabaseMetaData;
-import java.sql.ResultSet;
-import java.sql.RowIdLifetime;
-import java.sql.SQLException;
-
-import cubrid.jdbc.jci.UColumnInfo;
 import cubrid.jdbc.jci.UConnection;
 import cubrid.jdbc.jci.UError;
 import cubrid.jdbc.jci.UErrorCode;
-import cubrid.jdbc.jci.USchType;
-import cubrid.jdbc.jci.UStatement;
-import cubrid.jdbc.jci.UUType;
 import cubrid.jdbc.jci.UShardInfo;
+import java.sql.SQLException;
 
 /**
  * Title: CUBRID JDBC Driver Description:
- * 
+ *
  * @version 2.0
  */
-
 public class CUBRIDShardMetaData {
-	CUBRIDConnection con;
-	UConnection u_con;
-	UError error;
-	boolean is_closed;
-	CUBRIDDatabaseMetaData[] metadata = null;
+    CUBRIDConnection con;
+    UConnection u_con;
+    UError error;
+    boolean is_closed;
+    CUBRIDDatabaseMetaData[] metadata = null;
 
-	protected CUBRIDShardMetaData(CUBRIDConnection c) {
-		con = c;
-		u_con = con.u_con;
-		error = null;
-		is_closed = false;
-		metadata = null;
-	}
+    protected CUBRIDShardMetaData(CUBRIDConnection c) {
+        con = c;
+        u_con = con.u_con;
+        error = null;
+        is_closed = false;
+        metadata = null;
+    }
 
-	synchronized void close() {
-		is_closed = true;
-		con = null;
-		u_con = null;
-		error = null;
-		metadata = null;
-	}
+    synchronized void close() {
+        is_closed = true;
+        con = null;
+        u_con = null;
+        error = null;
+        metadata = null;
+    }
 
-	private void checkIsOpen() throws SQLException {
-		if (is_closed) {
-			throw con.createCUBRIDException(CUBRIDJDBCErrorCode.dbmetadata_closed, null);
-		}
-	}
+    private void checkIsOpen() throws SQLException {
+        if (is_closed) {
+            throw con.createCUBRIDException(CUBRIDJDBCErrorCode.dbmetadata_closed, null);
+        }
+    }
 
-	public synchronized CUBRIDDatabaseMetaData getMetaData(int shard_id) throws SQLException {
-		int num_shard;
-		UShardInfo shard_info;
+    public synchronized CUBRIDDatabaseMetaData getMetaData(int shard_id) throws SQLException {
+        int num_shard;
+        UShardInfo shard_info;
 
-		checkIsOpen();
+        checkIsOpen();
 
-		if (metadata != null) {
-			shard_info = u_con.getShardInfo(shard_id);
-			switch (error.getErrorCode()) {
-			case UErrorCode.ER_NO_ERROR:
-				break;
-			default:
-				throw con.createCUBRIDException(error);
-			}
+        if (metadata != null) {
+            shard_info = u_con.getShardInfo(shard_id);
+            switch (error.getErrorCode()) {
+                case UErrorCode.ER_NO_ERROR:
+                    break;
+                default:
+                    throw con.createCUBRIDException(error);
+            }
 
-			return metadata[shard_id];
-		}
+            return metadata[shard_id];
+        }
 
-		synchronized (u_con) {
-			num_shard = u_con.shardInfo();
+        synchronized (u_con) {
+            num_shard = u_con.shardInfo();
 
-	       	error = u_con.getRecentError();
-			switch (error.getErrorCode()) {
-			case UErrorCode.ER_NO_ERROR:
-				break;
-			default:
-				throw con.createCUBRIDException(error);
-			}
-		}
+            error = u_con.getRecentError();
+            switch (error.getErrorCode()) {
+                case UErrorCode.ER_NO_ERROR:
+                    break;
+                default:
+                    throw con.createCUBRIDException(error);
+            }
+        }
 
-		metadata = new CUBRIDDatabaseMetaData[num_shard];
-		for(int i=0; i<num_shard; i++)
-		{
-			metadata[i] = new CUBRIDDatabaseMetaData(con);
+        metadata = new CUBRIDDatabaseMetaData[num_shard];
+        for (int i = 0; i < num_shard; i++) {
+            metadata[i] = new CUBRIDDatabaseMetaData(con);
 
-			shard_info = u_con.getShardInfo(i);	
-	       	error = u_con.getRecentError();
-			switch (error.getErrorCode()) {
-			case UErrorCode.ER_NO_ERROR:
-				break;
-			default:
-				metadata = null;
-				throw con.createCUBRIDException(error);
-			}
+            shard_info = u_con.getShardInfo(i);
+            error = u_con.getRecentError();
+            switch (error.getErrorCode()) {
+                case UErrorCode.ER_NO_ERROR:
+                    break;
+                default:
+                    metadata = null;
+                    throw con.createCUBRIDException(error);
+            }
 
-			metadata[i].setShardId(shard_info.getShardId());
-		}
+            metadata[i].setShardId(shard_info.getShardId());
+        }
 
-		shard_info = u_con.getShardInfo(shard_id);
-		switch (error.getErrorCode()) {
-		case UErrorCode.ER_NO_ERROR:
-			break;
-		default:
-			throw con.createCUBRIDException(error);
-		}
+        shard_info = u_con.getShardInfo(shard_id);
+        switch (error.getErrorCode()) {
+            case UErrorCode.ER_NO_ERROR:
+                break;
+            default:
+                throw con.createCUBRIDException(error);
+        }
 
-		return metadata[shard_id];
-	}
+        return metadata[shard_id];
+    }
 
-	public synchronized int getShardCount() throws SQLException {
-		checkIsOpen();
+    public synchronized int getShardCount() throws SQLException {
+        checkIsOpen();
 
-		int count = 0;
-		synchronized (u_con) {
-			count = u_con.getShardCount();
-	       	error = u_con.getRecentError();
-	    }
-	
-		switch (error.getErrorCode()) {
-		case UErrorCode.ER_NO_ERROR:
-			break;
-		default:
-			throw con.createCUBRIDException(error);
-		}
+        int count = 0;
+        synchronized (u_con) {
+            count = u_con.getShardCount();
+            error = u_con.getRecentError();
+        }
 
-		return count;
-	}
+        switch (error.getErrorCode()) {
+            case UErrorCode.ER_NO_ERROR:
+                break;
+            default:
+                throw con.createCUBRIDException(error);
+        }
+
+        return count;
+    }
 }
-

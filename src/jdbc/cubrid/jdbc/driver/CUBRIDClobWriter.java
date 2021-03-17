@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -36,87 +36,81 @@ import java.io.Writer;
 import java.sql.SQLException;
 
 class CUBRIDClobWriter extends Writer {
-	private CUBRIDClob clob;
-	private long char_pos;
+    private CUBRIDClob clob;
+    private long char_pos;
 
-	CUBRIDClobWriter(CUBRIDClob clob, long pos) {
-		this.clob = clob;
-		char_pos = pos;
-	}
+    CUBRIDClobWriter(CUBRIDClob clob, long pos) {
+        this.clob = clob;
+        char_pos = pos;
+    }
 
-	/*
-	 * java.io.Writer interface
-	 */
+    /*
+     * java.io.Writer interface
+     */
 
-	/*
-	public synchronized Writer append(CharSequence csq) throws IOException {
-		write(csq.toString());
-		return this;
-	}
-	*/
+    /*
+    public synchronized Writer append(CharSequence csq) throws IOException {
+    	write(csq.toString());
+    	return this;
+    }
+    */
 
-	/*
-	public synchronized Writer append(CharSequence csq, int start, int end)
-			throws IOException {
-		write(csq.subSequence(start, end).toString());
-		return this;
-	}
-	*/
+    /*
+    public synchronized Writer append(CharSequence csq, int start, int end)
+    		throws IOException {
+    	write(csq.subSequence(start, end).toString());
+    	return this;
+    }
+    */
 
-	/*
-	public synchronized Writer append(char c) throws IOException {
-		write(0xffff & c);
-		return this;
-	}
-	*/
+    /*
+    public synchronized Writer append(char c) throws IOException {
+    	write(0xffff & c);
+    	return this;
+    }
+    */
 
-	/*
-	public synchronized void write(int c) throws IOException {
-		char[] cbuf = new char[1];
-		cbuf[0] = (char) c;
-		write(cbuf, 0, 1);
-	}
-	*/
+    /*
+    public synchronized void write(int c) throws IOException {
+    	char[] cbuf = new char[1];
+    	cbuf[0] = (char) c;
+    	write(cbuf, 0, 1);
+    }
+    */
 
-	/*
-	public synchronized void write(char[] cbuf) throws IOException {
-		write(cbuf, 0, cbuf.length);
-	}
-	*/
+    /*
+    public synchronized void write(char[] cbuf) throws IOException {
+    	write(cbuf, 0, cbuf.length);
+    }
+    */
 
-	/*
-	public synchronized void write(String str) throws IOException {
-		write(str, 0, str.length());
-	}
-	*/
+    /*
+    public synchronized void write(String str) throws IOException {
+    	write(str, 0, str.length());
+    }
+    */
 
-	public synchronized void write(String str, int off, int len)
-			throws IOException {
-		if (clob == null)
-			throw new IOException();
-		if (str == null)
-			throw new NullPointerException();
-		if (off < 0 || len < 0 || off + len > str.length())
-			throw new IndexOutOfBoundsException();
+    public synchronized void write(String str, int off, int len) throws IOException {
+        if (clob == null) throw new IOException();
+        if (str == null) throw new NullPointerException();
+        if (off < 0 || len < 0 || off + len > str.length()) throw new IndexOutOfBoundsException();
 
-		try {
-			char_pos += clob.setString(char_pos, str, off, len);
-		} catch (SQLException e) {
-			throw new IOException(e.getMessage());
-		}
-	}
+        try {
+            char_pos += clob.setString(char_pos, str, off, len);
+        } catch (SQLException e) {
+            throw new IOException(e.getMessage());
+        }
+    }
 
-	public synchronized void write(char[] cbuf, int off, int len)
-			throws IOException {
-		write(new String(cbuf, off, len));
-	}
+    public synchronized void write(char[] cbuf, int off, int len) throws IOException {
+        write(new String(cbuf, off, len));
+    }
 
-	public synchronized void flush() throws IOException {
-	}
+    public synchronized void flush() throws IOException {}
 
-	public synchronized void close() throws IOException {
-		flush();
-		clob.removeFlushableStream(this);
-		clob = null;
-	}
+    public synchronized void close() throws IOException {
+        flush();
+        clob.removeFlushableStream(this);
+        clob = null;
+    }
 }

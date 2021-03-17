@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -34,112 +34,82 @@ package cubrid.jdbc.driver;
 import java.util.Comparator;
 
 class CUBRIDComparator implements Comparator<Object> {
-	private String dbmd_method;
+    private String dbmd_method;
 
-	CUBRIDComparator(String whatfor) {
-		dbmd_method = whatfor;
-	}
+    CUBRIDComparator(String whatfor) {
+        dbmd_method = whatfor;
+    }
 
-	/*
-	 * java.util.Comparator interface
-	 */
+    /*
+     * java.util.Comparator interface
+     */
 
-	public int compare(Object o1, Object o2) {
-		if (dbmd_method.endsWith("getTables"))
-			return compare_getTables(o1, o2);
-		if (dbmd_method.endsWith("getColumns"))
-			return compare_getColumns(o1, o2);
-		if (dbmd_method.endsWith("getColumnPrivileges"))
-			return compare_getColumnPrivileges(o1, o2);
-		if (dbmd_method.endsWith("getTablePrivileges"))
-			return compare_getTablePrivileges(o1, o2);
-		if (dbmd_method.endsWith("getBestRowIdentifier"))
-			return compare_getBestRowIdentifier(o1, o2);
-		if (dbmd_method.endsWith("getIndexInfo"))
-			return compare_getIndexInfo(o1, o2);
-		if (dbmd_method.endsWith("getSuperTables"))
-			return compare_getSuperTables(o1, o2);
-		return 0;
-	}
+    public int compare(Object o1, Object o2) {
+        if (dbmd_method.endsWith("getTables")) return compare_getTables(o1, o2);
+        if (dbmd_method.endsWith("getColumns")) return compare_getColumns(o1, o2);
+        if (dbmd_method.endsWith("getColumnPrivileges")) return compare_getColumnPrivileges(o1, o2);
+        if (dbmd_method.endsWith("getTablePrivileges")) return compare_getTablePrivileges(o1, o2);
+        if (dbmd_method.endsWith("getBestRowIdentifier"))
+            return compare_getBestRowIdentifier(o1, o2);
+        if (dbmd_method.endsWith("getIndexInfo")) return compare_getIndexInfo(o1, o2);
+        if (dbmd_method.endsWith("getSuperTables")) return compare_getSuperTables(o1, o2);
+        return 0;
+    }
 
-	private int compare_getTables(Object o1, Object o2) {
-		int t;
-		t = ((String) ((Object[]) o1)[3])
-				.compareTo((String) ((Object[]) o2)[3]);
-		if (t != 0)
-			return t;
-		return ((String) ((Object[]) o1)[2])
-				.compareTo((String) ((Object[]) o2)[2]);
-	}
+    private int compare_getTables(Object o1, Object o2) {
+        int t;
+        t = ((String) ((Object[]) o1)[3]).compareTo((String) ((Object[]) o2)[3]);
+        if (t != 0) return t;
+        return ((String) ((Object[]) o1)[2]).compareTo((String) ((Object[]) o2)[2]);
+    }
 
-	private int compare_getColumns(Object o1, Object o2) {
-		int t;
-		t = ((String) ((Object[]) o1)[2])
-				.compareTo((String) ((Object[]) o2)[2]);
-		if (t != 0)
-			return t;
-		return ((Integer) ((Object[]) o1)[16])
-				.compareTo((Integer) ((Object[]) o2)[16]);
-	}
+    private int compare_getColumns(Object o1, Object o2) {
+        int t;
+        t = ((String) ((Object[]) o1)[2]).compareTo((String) ((Object[]) o2)[2]);
+        if (t != 0) return t;
+        return ((Integer) ((Object[]) o1)[16]).compareTo((Integer) ((Object[]) o2)[16]);
+    }
 
-	private int compare_getColumnPrivileges(Object o1, Object o2) {
-		int t;
-		t = ((String) ((Object[]) o1)[3])
-				.compareTo((String) ((Object[]) o2)[3]);
-		if (t != 0)
-			return t;
-		return ((String) ((Object[]) o1)[6])
-				.compareTo((String) ((Object[]) o2)[6]);
-	}
+    private int compare_getColumnPrivileges(Object o1, Object o2) {
+        int t;
+        t = ((String) ((Object[]) o1)[3]).compareTo((String) ((Object[]) o2)[3]);
+        if (t != 0) return t;
+        return ((String) ((Object[]) o1)[6]).compareTo((String) ((Object[]) o2)[6]);
+    }
 
-	private int compare_getTablePrivileges(Object o1, Object o2) {
-		int t;
-		t = ((String) ((Object[]) o1)[2])
-				.compareTo((String) ((Object[]) o2)[2]);
-		if (t != 0)
-			return t;
-		return ((String) ((Object[]) o1)[5])
-				.compareTo((String) ((Object[]) o2)[5]);
-	}
+    private int compare_getTablePrivileges(Object o1, Object o2) {
+        int t;
+        t = ((String) ((Object[]) o1)[2]).compareTo((String) ((Object[]) o2)[2]);
+        if (t != 0) return t;
+        return ((String) ((Object[]) o1)[5]).compareTo((String) ((Object[]) o2)[5]);
+    }
 
-	private int compare_getBestRowIdentifier(Object o1, Object o2) {
-		return ((Short) ((Object[]) o1)[0])
-				.compareTo((Short) ((Object[]) o2)[0]);
-	}
+    private int compare_getBestRowIdentifier(Object o1, Object o2) {
+        return ((Short) ((Object[]) o1)[0]).compareTo((Short) ((Object[]) o2)[0]);
+    }
 
-	private int compare_getIndexInfo(Object o1, Object o2) {
-		int t;
+    private int compare_getIndexInfo(Object o1, Object o2) {
+        int t;
 
-		if (((Boolean) ((Object[]) o1)[3]).booleanValue()
-				&& !((Boolean) ((Object[]) o2)[3]).booleanValue())
-			return 1;
-		if (!((Boolean) ((Object[]) o1)[3]).booleanValue()
-				&& ((Boolean) ((Object[]) o2)[3]).booleanValue())
-			return -1;
+        if (((Boolean) ((Object[]) o1)[3]).booleanValue()
+                && !((Boolean) ((Object[]) o2)[3]).booleanValue()) return 1;
+        if (!((Boolean) ((Object[]) o1)[3]).booleanValue()
+                && ((Boolean) ((Object[]) o2)[3]).booleanValue()) return -1;
 
-		t = ((Short) ((Object[]) o1)[6]).compareTo((Short) ((Object[]) o2)[6]);
-		if (t != 0)
-			return t;
+        t = ((Short) ((Object[]) o1)[6]).compareTo((Short) ((Object[]) o2)[6]);
+        if (t != 0) return t;
 
-		if (((Object[]) o1)[5] == null)
-			return 0;
-		t = ((String) ((Object[]) o1)[5])
-				.compareTo((String) ((Object[]) o2)[5]);
-		if (t != 0)
-			return t;
+        if (((Object[]) o1)[5] == null) return 0;
+        t = ((String) ((Object[]) o1)[5]).compareTo((String) ((Object[]) o2)[5]);
+        if (t != 0) return t;
 
-		return ((Integer) ((Object[]) o1)[7])
-				.compareTo((Integer) ((Object[]) o2)[7]);
-	}
+        return ((Integer) ((Object[]) o1)[7]).compareTo((Integer) ((Object[]) o2)[7]);
+    }
 
-	private int compare_getSuperTables(Object o1, Object o2) {
-		int t;
-		t = ((String) ((Object[]) o1)[2])
-				.compareTo((String) ((Object[]) o2)[2]);
-		if (t != 0)
-			return t;
-		return ((String) ((Object[]) o1)[3])
-				.compareTo((String) ((Object[]) o2)[3]);
-	}
-
+    private int compare_getSuperTables(Object o1, Object o2) {
+        int t;
+        t = ((String) ((Object[]) o1)[2]).compareTo((String) ((Object[]) o2)[2]);
+        if (t != 0) return t;
+        return ((String) ((Object[]) o1)[3]).compareTo((String) ((Object[]) o2)[3]);
+    }
 }

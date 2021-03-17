@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -31,39 +31,38 @@
 
 package cubrid.jdbc.driver;
 
+import cubrid.jdbc.jci.UConnection;
 import java.util.Arrays;
-
 import javax.transaction.xa.Xid;
 
-import cubrid.jdbc.jci.UConnection;
-
 class CUBRIDXidInfo {
-	static final int STATUS_NOFLAG = 0, STATUS_STARTED = 1,
-			STATUS_SUSPENDED = 2, STATUS_PREPARED = 3, STATUS_RECOVERED = 4,
-			STATUS_COMPLETED = 5;
+    static final int STATUS_NOFLAG = 0,
+            STATUS_STARTED = 1,
+            STATUS_SUSPENDED = 2,
+            STATUS_PREPARED = 3,
+            STATUS_RECOVERED = 4,
+            STATUS_COMPLETED = 5;
 
-	Xid xid;
-	UConnection ucon;
-	int status;
+    Xid xid;
+    UConnection ucon;
+    int status;
 
-	CUBRIDXidInfo(Xid xid, UConnection ucon, int status) {
-		this.xid = xid;
-		this.ucon = ucon;
-		this.status = status;
-	}
+    CUBRIDXidInfo(Xid xid, UConnection ucon, int status) {
+        this.xid = xid;
+        this.ucon = ucon;
+        this.status = status;
+    }
 
-	boolean compare(CUBRIDXidInfo x) {
-		return (compare(x.xid));
-	}
+    boolean compare(CUBRIDXidInfo x) {
+        return (compare(x.xid));
+    }
 
-	boolean compare(Xid x) {
-		if ((xid.getFormatId() == x.getFormatId())
-				&& Arrays.equals(xid.getBranchQualifier(), x
-						.getBranchQualifier())
-				&& Arrays.equals(xid.getGlobalTransactionId(), x
-						.getGlobalTransactionId())) {
-			return true;
-		}
-		return false;
-	}
+    boolean compare(Xid x) {
+        if ((xid.getFormatId() == x.getFormatId())
+                && Arrays.equals(xid.getBranchQualifier(), x.getBranchQualifier())
+                && Arrays.equals(xid.getGlobalTransactionId(), x.getGlobalTransactionId())) {
+            return true;
+        }
+        return false;
+    }
 }

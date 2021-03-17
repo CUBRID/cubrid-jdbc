@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -31,28 +31,26 @@
 
 package cubrid.jdbc.driver;
 
+import cubrid.jdbc.jci.UConnection;
 import java.sql.SQLException;
 
-import cubrid.jdbc.jci.UConnection;
-
 public class CUBRIDConnectionWrapperPooling extends CUBRIDConnection {
-	private CUBRIDPooledConnection pcon;
+    private CUBRIDPooledConnection pcon;
 
-	protected CUBRIDConnectionWrapperPooling(UConnection u, String r, String s,
-			CUBRIDPooledConnection p) {
-		super(u, r, s);
-		pcon = p;
-	}
+    protected CUBRIDConnectionWrapperPooling(
+            UConnection u, String r, String s, CUBRIDPooledConnection p) {
+        super(u, r, s);
+        pcon = p;
+    }
 
-	/*
-	 * java.sql.Connection interface
-	 */
+    /*
+     * java.sql.Connection interface
+     */
 
-	public synchronized void close() throws SQLException {
-		if (is_closed)
-			return;
+    public synchronized void close() throws SQLException {
+        if (is_closed) return;
 
-		closeConnection();
-		pcon.notifyConnectionClosed();
-	}
+        closeConnection();
+        pcon.notifyConnectionClosed();
+    }
 }

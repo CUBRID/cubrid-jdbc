@@ -1,5 +1,15 @@
 @echo off
 
+REM
+REM Copyright 2016 CUBRID Corporation
+REM
+
+rem build script for MS Windows.
+rem
+rem Requirements
+rem - jdk 1.6 or higher
+rem - build tools (ant)
+
 set CUR_PATH=%cd%
 set JAVA_FILE=%JAVA_HOME%\bin\java.exe
 set ANT_FILE=%ANT_HOME%\bin\ant
@@ -10,13 +20,14 @@ if "%*" == "" GOTO :CHECK_ENV
 if "%*" == "/help" GOTO :SHOW_USAGE
 if "%*" == "/h" GOTO :SHOW_USAGE
 if "%*" == "/?" GOTO :SHOW_USAGE
+echo "[INFO] Unknown Option [%*]"
 GOTO :SHOW_USAGE
 
 :CHECK_ENV
 echo Checking for requirements...
 call :FINDEXEC java.exe JAVA_FILE "%JAVA_FILE%"
 if "%JAVA_HOME%" == "" (
-  echo "[ERROR] set environment variable is required. (PATH and JAVA_HOME)"
+  echo "[ERROR] set environment variable is required. (JAVA_HOME)"
   GOTO :EOF 
 )
 
@@ -63,11 +74,12 @@ GOTO :EOF
 
 :SHOW_USAGE
 @echo.Usage: %0 [OPTION]
-@echo.Build scrtip for CUBRID JDBC Driver
+@echo.Build script for CUBRID JDBC Driver
 @echo. OPTIONS
-@echo.  clean			   Clean (jar and build file)
-@echo.  /help /h /?        Display this help message and exit
+@echo.  clean          Clean (jar and build file)
+@echo.  /help /h /?    Display this help message and exit
+@echo.
 @echo. Examples:
-@echo.  %0             # JDBC Build
-@echo.  %0 clean       # Clean result file
+@echo.  %0             # Build JDBC
+@echo.  %0 clean       # Clean (jar and build file)
 GOTO :EOF

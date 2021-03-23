@@ -31,7 +31,7 @@ Below You will see the brief list of sections to guide You to easily get started
 
   ```
   ./build.sh 
-  ./build.sh claen
+  ./build.sh clean
   ```
 
 ### CUBRID JDBC Driver Installation Guide for Windows/Linux Users

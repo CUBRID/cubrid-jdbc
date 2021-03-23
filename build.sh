@@ -1,22 +1,13 @@
 #!/bin/bash
 #
-#  Copyright 2008 Search Solution Corporation Copyright 2016 CUBRID Corporation
-# 
-#   Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance 
-#   with the License. You may obtain a copy of the License at
-# 
-#       http://www.apache.org/licenses/LICENSE-2.0
-# 
-#   Unless required by applicable law or agreed to in writing, software distributed under the License is distributed 
-#   on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License 
-#   for the specific language governing permissions and limitations under the License.
-# 
+#  Copyright 2016 CUBRID Corporation
 #
 
-# Build and package script for CUBRID 
+# Build and package script for CUBRID JDBC Driver
 # Requirements 
-# - Bash shell 
-# - Build tool - ant
+# - Bash shell
+# - JDK 1.6 or higher
+# - Build tool - ANT
 
 arg=$@
 cur_dir=`pwd`
@@ -26,13 +17,14 @@ java_file=$(which java)
 function show_usage ()
 {
   echo "Usage: $0 [OPTIONS]"
-  echo "Build scrtip for CUBRID JDBC Driver"
+  echo "Build script for CUBRID JDBC Driver"
   echo " OPTIONS"
-  echo "  clean		       Clean (jar and build file)"
+  echo "  clean                Clean (jar and build files)"
   echo "  --help | -h | -?     Display this help message and exit"
+  echo ""
   echo " EXAMPLES"
-  echo "  $0                         # JDBC Build"
-  echo "  $0 clean                   # Clean"
+  echo "  $0                   # Build JDBC"
+  echo "  $0 clean             # Clean (jar and build files)"
   echo ""
 }
 
@@ -67,7 +59,7 @@ elif [ $arg = "--help" -o  $arg = "-h" -o $arg = "-?" ]; then
   show_usage
   exit 0
 else 
-  echo "[ERROR] Unknown Option ($arg)"
+  echo "[ERROR] Unknown Option [$arg]"
   show_usage
   exit 0
 fi

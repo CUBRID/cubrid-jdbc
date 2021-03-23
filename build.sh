@@ -18,20 +18,57 @@
 # - Bash shell 
 # - Build tool - ant
 
-arg=$1
+arg=$@
 cur_dir=`pwd`
 ant_file=$(which ant)
+java_file=$(which java)
 
-echo "[INFO] Checking build tools(ant)"
-if [ $ant_file = "" ]; then
-  echo "[ERROR] check need ANT(build tools)"
-fi
+function show_usage ()
+{
+  echo "Usage: $0 [OPTIONS]"
+  echo "Build scrtip for CUBRID JDBC Driver"
+  echo " OPTIONS"
+  echo "  clean		       Clean (jar and build file)"
+  echo "  --help | -h | -?     Display this help message and exit"
+  echo " EXAMPLES"
+  echo "  $0                         # JDBC Build"
+  echo "  $0 clean                   # Clean"
+  echo ""
+}
+
+function check_env ()
+{
+  echo "Checking Environment Variables(JAVA) and build tools(ANT)"
+
+  if [ "x$JAVA_HOME" != "x" -a "x$JAVA_HOME" != "x" ]; then
+    echo "JAVA_HOME [$JAVA_HOME]"
+    export PATH="$JAVA_HOME/bin:$PATH"
+  elif [ "x$java_file" != "x" ]; then
+    echo "[INFO] Used Java File ($java_file)"
+  else
+    echo "[ERROR] Please check JAVA_HOME Or JAVA PATH" 
+    exit 0
+  fi
+
+  if [ "x$ant_file" = "x" ]; then
+    echo "[ERROR] Pleasse check ANT PATH (Build Tools)"
+    exit 0
+  fi
+}
 
 if [ -z $arg ]; then
-  echo "[INFO] Build Start"
+  check_env
 elif [ $arg = "clean" ]; then
+  check_env
   echo "[INFO] Clean Build"
   $ant_file clean -buildfile $cur_dir/build.xml
+  exit 0
+elif [ $arg = "--help" -o  $arg = "-h" -o $arg = "-?" ]; then
+  show_usage
+  exit 0
+else 
+  echo "[ERROR] Unknown Option ($arg)"
+  show_usage
   exit 0
 fi
 
@@ -51,3 +88,4 @@ if [ ! -d $cur_dir/output ]; then
 fi
 cp -rfv $cur_dir/VERSION $cur_dir/output/CUBRID-JDBC-$version
 $ant_file dist-cubrid -buildfile $cur_dir/build.xml -Dbasedir=. -Dversion=$version -Dsrc=./src
+

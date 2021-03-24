@@ -19,23 +19,21 @@ Below You will see the brief list of sections to guide You to easily get started
 - http://www.cubrid.org/downloads
 - http://ftp.cubrid.org
 
-## HOW TO BUILD/INSTALL CUBRID JDBC Driver
+## HOW TO BUILD CUBRID JDBC Driver
 ### CUBRID JDBC Driver Source Build Guide (ANT Build Project)
 - Windows
   ```
   build.bat 
-  build.bat clean 
   ```
     
 - Linux
 
   ```
   ./build.sh 
-  ./build.sh clean
   ```
 
-### CUBRID JDBC Driver Installation Guide for Windows/Linux Users
-- CUBRID JDBC driver (JAR File) implements an interface to enable access 
+### CUBRID JDBC Driver 
+- implements an interface to enable access 
   from applications in Java to CUBRID database server. 
   The driver has been developed based on the JDBC 2.0 specification 
   and the default driver provided is complied with JDK 1.6.

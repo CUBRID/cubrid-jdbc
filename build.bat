@@ -42,7 +42,7 @@ if "%ANT_PATH%" == "" (
 )
 
 if "%ANT_PATH%" == "" (
-  echo "Please check ANT_HOME or ANT(excute file)"
+  echo "Please check ANT_HOME or ANT(execute file)"
   GOTO :EOF 
 ) else (
   set ANT=%ANT_PATH%

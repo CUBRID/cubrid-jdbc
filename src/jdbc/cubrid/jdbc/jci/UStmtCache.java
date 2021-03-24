@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -35,84 +35,84 @@ import java.util.ArrayList;
 import java.util.Hashtable;
 
 public class UStmtCache {
-	String key;
+    String key;
 
-	private Hashtable<UBindKey, UResCache> res_cache_table;
-	private ArrayList<UResCache> res_cache_remove_list;
-	int ref_count;
+    private Hashtable<UBindKey, UResCache> res_cache_table;
+    private ArrayList<UResCache> res_cache_remove_list;
+    int ref_count;
 
-	UStmtCache(String key) {
-		this.key = key;
+    UStmtCache(String key) {
+        this.key = key;
 
-		res_cache_table = new Hashtable<UBindKey, UResCache>(30);
-		res_cache_remove_list = new ArrayList<UResCache>(100);
-		ref_count = 0;
-	}
+        res_cache_table = new Hashtable<UBindKey, UResCache>(30);
+        res_cache_remove_list = new ArrayList<UResCache>(100);
+        ref_count = 0;
+    }
 
-	public UResCache get(UBindKey key) {
-		UResCache res_cache;
+    public UResCache get(UBindKey key) {
+        UResCache res_cache;
 
-		synchronized (res_cache_table) {
-			res_cache = res_cache_table.get(key);
-			if (res_cache == null) {
-				res_cache = new UResCache(key);
-				res_cache_table.put(key, res_cache);
-				synchronized (res_cache_remove_list) {
-					res_cache_remove_list.add(res_cache);
-				}
-			}
-			return res_cache;
-		}
-	}
+        synchronized (res_cache_table) {
+            res_cache = res_cache_table.get(key);
+            if (res_cache == null) {
+                res_cache = new UResCache(key);
+                res_cache_table.put(key, res_cache);
+                synchronized (res_cache_remove_list) {
+                    res_cache_remove_list.add(res_cache);
+                }
+            }
+            return res_cache;
+        }
+    }
 
-	synchronized void incr_ref_count() {
-		ref_count++;
-	}
+    synchronized void incr_ref_count() {
+        ref_count++;
+    }
 
-	synchronized void decr_ref_count() {
-		ref_count--;
-	}
+    synchronized void decr_ref_count() {
+        ref_count--;
+    }
 
-	void clear() {
-		synchronized (res_cache_table) {
-			res_cache_table.clear();
-			synchronized (res_cache_remove_list) {
-				res_cache_remove_list.clear();
-			}
-		}
-	}
+    void clear() {
+        synchronized (res_cache_table) {
+            res_cache_table.clear();
+            synchronized (res_cache_remove_list) {
+                res_cache_remove_list.clear();
+            }
+        }
+    }
 
-	/* for QA test case */
-	int remove_expired_res(long checkTime) {
-		return 0;
-	}
-	
-	int remove_expired_res(long checkTime, UUrlCache uc) {
-		UResCache rc;
-		UResCache victim = null;
-		int v_idx = -1;
+    /* for QA test case */
+    int remove_expired_res(long checkTime) {
+        return 0;
+    }
 
-		for (int i = 0; i < res_cache_remove_list.size(); i++) {
-			rc = res_cache_remove_list.get(i);
-			if (rc.isExpired(checkTime)) {
-				if (victim == null || rc.getCacheTime() < victim.getCacheTime()) {
-					victim = rc;
-					v_idx = i;
-				}
-			}
-		}
+    int remove_expired_res(long checkTime, UUrlCache uc) {
+        UResCache rc;
+        UResCache victim = null;
+        int v_idx = -1;
 
-		if (victim != null) {
-			uc.addCacheSize(-victim.getCacheSize());
-			synchronized (res_cache_remove_list) {
-				res_cache_table.remove(victim.key);
-				UResCache lastObj = res_cache_remove_list.remove(res_cache_remove_list.size() - 1);
-				if (v_idx < res_cache_remove_list.size()) {
-					res_cache_remove_list.set(v_idx, lastObj);
-				}
-			}
-		}
+        for (int i = 0; i < res_cache_remove_list.size(); i++) {
+            rc = res_cache_remove_list.get(i);
+            if (rc.isExpired(checkTime)) {
+                if (victim == null || rc.getCacheTime() < victim.getCacheTime()) {
+                    victim = rc;
+                    v_idx = i;
+                }
+            }
+        }
 
-		return res_cache_remove_list.size();
-	}
+        if (victim != null) {
+            uc.addCacheSize(-victim.getCacheSize());
+            synchronized (res_cache_remove_list) {
+                res_cache_table.remove(victim.key);
+                UResCache lastObj = res_cache_remove_list.remove(res_cache_remove_list.size() - 1);
+                if (v_idx < res_cache_remove_list.size()) {
+                    res_cache_remove_list.set(v_idx, lastObj);
+                }
+            }
+        }
+
+        return res_cache_remove_list.size();
+    }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -30,21 +30,22 @@
  */
 
 /**
- * Title:        CUBRID Java Client Interface<p>
- * Description:  CUBRID Java Client Interface<p>
+ * Title: CUBRID Java Client Interface
+ *
+ * <p>Description: CUBRID Java Client Interface
+ *
+ * <p>
+ *
  * @version 2.0
  */
-
 package cubrid.jdbc.jci;
 
 abstract class UManageStringInCType {
-	final static String spaceString = new String(" ");
+    static final String spaceString = new String(" ");
 
-	static String stringWithSpace(String originalData, int length) {
-		if (originalData == null)
-			originalData = "";
-		for (int i = originalData.length(); i < length; i++)
-			originalData += spaceString;
-		return originalData;
-	}
+    static String stringWithSpace(String originalData, int length) {
+        if (originalData == null) originalData = "";
+        for (int i = originalData.length(); i < length; i++) originalData += spaceString;
+        return originalData;
+    }
 }

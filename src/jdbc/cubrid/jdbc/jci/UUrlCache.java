@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -36,77 +36,76 @@ import java.util.Hashtable;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class UUrlCache {
-	private Hashtable<String, UStmtCache> stmt_cache_table;
-	private ArrayList<UStmtCache> stmt_cache_remove_list;
-	private int max_size;
-	private AtomicInteger cache_size;
+    private Hashtable<String, UStmtCache> stmt_cache_table;
+    private ArrayList<UStmtCache> stmt_cache_remove_list;
+    private int max_size;
+    private AtomicInteger cache_size;
 
-	UUrlCache() {
-		stmt_cache_table = new Hashtable<String, UStmtCache>(100, 5);
-		stmt_cache_remove_list = new ArrayList<UStmtCache>(100);
-		max_size = 1;
-		cache_size = new AtomicInteger();
-	}
+    UUrlCache() {
+        stmt_cache_table = new Hashtable<String, UStmtCache>(100, 5);
+        stmt_cache_remove_list = new ArrayList<UStmtCache>(100);
+        max_size = 1;
+        cache_size = new AtomicInteger();
+    }
 
-	void setLimit(int limit) {
-		max_size = limit;
-	}
+    void setLimit(int limit) {
+        max_size = limit;
+    }
 
-	void addCacheSize(int value) {
-		cache_size.addAndGet(value);
-	}
+    void addCacheSize(int value) {
+        cache_size.addAndGet(value);
+    }
 
-	int getLimit() {
-		return max_size;
-	}
-	
-	int getCacheSize() {
-		return cache_size.get();
-	}
+    int getLimit() {
+        return max_size;
+    }
 
-	UStmtCache getStmtCache(String sql) {
-		UStmtCache stmt_cache;
-		synchronized (stmt_cache_table) {
-			stmt_cache = stmt_cache_table.get(sql);
-			if (stmt_cache == null) {
-				stmt_cache = new UStmtCache(sql);
-				stmt_cache_table.put(sql, stmt_cache);
-				synchronized (stmt_cache_remove_list) {
-					stmt_cache_remove_list.add(stmt_cache);
-				}
-			}
-			stmt_cache.incr_ref_count();
-		}
+    int getCacheSize() {
+        return cache_size.get();
+    }
 
-		return stmt_cache;
-	}
+    UStmtCache getStmtCache(String sql) {
+        UStmtCache stmt_cache;
+        synchronized (stmt_cache_table) {
+            stmt_cache = stmt_cache_table.get(sql);
+            if (stmt_cache == null) {
+                stmt_cache = new UStmtCache(sql);
+                stmt_cache_table.put(sql, stmt_cache);
+                synchronized (stmt_cache_remove_list) {
+                    stmt_cache_remove_list.add(stmt_cache);
+                }
+            }
+            stmt_cache.incr_ref_count();
+        }
 
-	void remove_expired_stmt(long checkTime) {
-		UStmtCache sc;
+        return stmt_cache;
+    }
 
-		for (int i = 0; i < stmt_cache_remove_list.size(); i++) {
-			sc = stmt_cache_remove_list.get(i);
+    void remove_expired_stmt(long checkTime) {
+        UStmtCache sc;
 
-			int res_count = sc.remove_expired_res(checkTime, this);
-			synchronized (stmt_cache_table) {
-				if (res_count <= 0 && sc.ref_count <= 0) {
-					stmt_cache_table.remove(sc.key);
+        for (int i = 0; i < stmt_cache_remove_list.size(); i++) {
+            sc = stmt_cache_remove_list.get(i);
 
-					synchronized (stmt_cache_remove_list) {
-					    	UStmtCache lastObj = stmt_cache_remove_list
-								.remove(stmt_cache_remove_list.size() - 1);
-						if (i < stmt_cache_remove_list.size()) {
-							stmt_cache_remove_list.set(i, lastObj);
-							i--;
-						}
-					}
-				}
-				
-				if (cache_size.get() < max_size * 0.8) {
-					break;
-				}
-			}
-		}
-	}
+            int res_count = sc.remove_expired_res(checkTime, this);
+            synchronized (stmt_cache_table) {
+                if (res_count <= 0 && sc.ref_count <= 0) {
+                    stmt_cache_table.remove(sc.key);
 
+                    synchronized (stmt_cache_remove_list) {
+                        UStmtCache lastObj =
+                                stmt_cache_remove_list.remove(stmt_cache_remove_list.size() - 1);
+                        if (i < stmt_cache_remove_list.size()) {
+                            stmt_cache_remove_list.set(i, lastObj);
+                            i--;
+                        }
+                    }
+                }
+
+                if (cache_size.get() < max_size * 0.8) {
+                    break;
+                }
+            }
+        }
+    }
 }

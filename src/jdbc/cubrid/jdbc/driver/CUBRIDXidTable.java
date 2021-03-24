@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -33,77 +33,72 @@ package cubrid.jdbc.driver;
 
 import java.util.Hashtable;
 import java.util.Vector;
-
 import javax.transaction.xa.Xid;
 
 abstract class CUBRIDXidTable {
-	private static Hashtable<String, Vector<CUBRIDXidInfo>> xaTable;
+    private static Hashtable<String, Vector<CUBRIDXidInfo>> xaTable;
 
-	static {
-		xaTable = new Hashtable<String, Vector<CUBRIDXidInfo>>();
-	}
+    static {
+        xaTable = new Hashtable<String, Vector<CUBRIDXidInfo>>();
+    }
 
-	static boolean putXidInfo(String key, CUBRIDXidInfo xidInfo) {
-		Vector<CUBRIDXidInfo> xidArray;
+    static boolean putXidInfo(String key, CUBRIDXidInfo xidInfo) {
+        Vector<CUBRIDXidInfo> xidArray;
 
-		synchronized (xaTable) {
-			xidArray = xaTable.get(key);
+        synchronized (xaTable) {
+            xidArray = xaTable.get(key);
 
-			if (xidArray == null) {
-				xidArray = new Vector<CUBRIDXidInfo>();
-				xaTable.put(key, xidArray);
-			}
-		}
+            if (xidArray == null) {
+                xidArray = new Vector<CUBRIDXidInfo>();
+                xaTable.put(key, xidArray);
+            }
+        }
 
-		synchronized (xidArray) {
-			for (int i = 0; i < xidArray.size(); i++) {
-				if (xidInfo.compare(xidArray.get(i)))
-					return false;
-			}
-			xidArray.add(xidInfo);
-		}
-		return true;
-	}
+        synchronized (xidArray) {
+            for (int i = 0; i < xidArray.size(); i++) {
+                if (xidInfo.compare(xidArray.get(i))) return false;
+            }
+            xidArray.add(xidInfo);
+        }
+        return true;
+    }
 
-	static CUBRIDXidInfo getXid(String key, Xid xid) {
-		Vector<CUBRIDXidInfo> xidArray;
+    static CUBRIDXidInfo getXid(String key, Xid xid) {
+        Vector<CUBRIDXidInfo> xidArray;
 
-		synchronized (xaTable) {
-			xidArray = xaTable.get(key);
-			if (xidArray == null)
-				return null;
-		}
+        synchronized (xaTable) {
+            xidArray = xaTable.get(key);
+            if (xidArray == null) return null;
+        }
 
-		synchronized (xidArray) {
-			CUBRIDXidInfo xidInfo;
-			for (int i = 0; i < xidArray.size(); i++) {
-				xidInfo = xidArray.get(i);
-				if (xidInfo.compare(xid))
-					return xidInfo;
-			}
-		}
+        synchronized (xidArray) {
+            CUBRIDXidInfo xidInfo;
+            for (int i = 0; i < xidArray.size(); i++) {
+                xidInfo = xidArray.get(i);
+                if (xidInfo.compare(xid)) return xidInfo;
+            }
+        }
 
-		return null;
-	}
+        return null;
+    }
 
-	static void removeXid(String key, Xid xid) {
-		Vector<CUBRIDXidInfo> xidArray;
+    static void removeXid(String key, Xid xid) {
+        Vector<CUBRIDXidInfo> xidArray;
 
-		synchronized (xaTable) {
-			xidArray = xaTable.get(key);
-			if (xidArray == null)
-				return;
-		}
+        synchronized (xaTable) {
+            xidArray = xaTable.get(key);
+            if (xidArray == null) return;
+        }
 
-		synchronized (xidArray) {
-			CUBRIDXidInfo xidInfo;
-			for (int i = 0; i < xidArray.size(); i++) {
-				xidInfo = xidArray.get(i);
-				if (xidInfo.compare(xid)) {
-					xidArray.remove(i);
-					return;
-				}
-			}
-		}
-	}
+        synchronized (xidArray) {
+            CUBRIDXidInfo xidInfo;
+            for (int i = 0; i < xidArray.size(); i++) {
+                xidInfo = xidArray.get(i);
+                if (xidInfo.compare(xid)) {
+                    xidArray.remove(i);
+                    return;
+                }
+            }
+        }
+    }
 }

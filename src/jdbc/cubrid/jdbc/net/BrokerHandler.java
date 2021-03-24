@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -31,6 +31,10 @@
 
 package cubrid.jdbc.net;
 
+import cubrid.jdbc.jci.UConnection;
+import cubrid.jdbc.jci.UErrorCode;
+import cubrid.jdbc.jci.UJciException;
+import cubrid.jdbc.jci.UTimedDataInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -38,24 +42,16 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
-import java.sql.SQLException;
-import java.net.UnknownHostException;
 import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
-
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
-
-import cubrid.jdbc.jci.UConnection;
-import cubrid.jdbc.jci.UErrorCode;
-import cubrid.jdbc.jci.UJciException;
-import cubrid.jdbc.jci.UTimedDataInputStream;
 
 public class BrokerHandler {
     private static int TIMEOUT_UNIT = 1000;
@@ -69,128 +65,126 @@ public class BrokerHandler {
         long begin = System.currentTimeMillis();
 
         try {
-          toBroker = new Socket();
-          InetSocketAddress brokerAddress = new InetSocketAddress(ip, port);
-          if (timeout <= 0) {
-            toBroker.connect(brokerAddress);
-          }
-          else {
-            toBroker.connect(brokerAddress, timeout);
-            timeout -= (System.currentTimeMillis() - begin);
+            toBroker = new Socket();
+            InetSocketAddress brokerAddress = new InetSocketAddress(ip, port);
             if (timeout <= 0) {
-              toBroker.close();
-              throw new UJciException(UErrorCode.ER_TIMEOUT);
+                toBroker.connect(brokerAddress);
+            } else {
+                toBroker.connect(brokerAddress, timeout);
+                timeout -= (System.currentTimeMillis() - begin);
+                if (timeout <= 0) {
+                    toBroker.close();
+                    throw new UJciException(UErrorCode.ER_TIMEOUT);
+                }
             }
-          }
 
-          toBroker.setSoTimeout(TIMEOUT_UNIT);
-          toBroker.setKeepAlive(true);
-          in = new UTimedDataInputStream(toBroker.getInputStream(), ip, port, timeout);
-          out = new DataOutputStream(toBroker.getOutputStream());
+            toBroker.setSoTimeout(TIMEOUT_UNIT);
+            toBroker.setKeepAlive(true);
+            in = new UTimedDataInputStream(toBroker.getInputStream(), ip, port, timeout);
+            out = new DataOutputStream(toBroker.getOutputStream());
 
-          if (useSSL == true) {
-	          out.write(UConnection.driverInfossl);
-          } else {
-              out.write(UConnection.driverInfo);
-          }
+            if (useSSL == true) {
+                out.write(UConnection.driverInfossl);
+            } else {
+                out.write(UConnection.driverInfo);
+            }
 
-          out.flush();
-          int code = in.readInt();
-          if (code < 0) {
-          // in here, all errors are sent by only a broker
-          // the error greater than -10000 is sent by old broker
-          if (code > -10000) {
-              code -= 9000;
-          }
+            out.flush();
+            int code = in.readInt();
+            if (code < 0) {
+                // in here, all errors are sent by only a broker
+                // the error greater than -10000 is sent by old broker
+                if (code > -10000) {
+                    code -= 9000;
+                }
 
-          // There is an issue that cannot display an error text. (All cas error code)
-          if (code == UErrorCode.CAS_ER_SSL_TYPE_NOT_ALLOWED) {
-              throw new UJciException(UErrorCode.ER_DBMS, UErrorCode.CAS_ERROR_INDICATOR, code, "");
-          } else {
-              throw new UJciException(code);   
-          }
+                // There is an issue that cannot display an error text. (All cas error code)
+                if (code == UErrorCode.CAS_ER_SSL_TYPE_NOT_ALLOWED) {
+                    throw new UJciException(
+                            UErrorCode.ER_DBMS, UErrorCode.CAS_ERROR_INDICATOR, code, "");
+                } else {
+                    throw new UJciException(code);
+                }
 
-	      } else if (code == 0) {
-              if (useSSL == true) {
-                  toSSLBroker = (Socket)createSSLSocket(toBroker, ip, port);
-                  return (Socket)toSSLBroker;
-              } else {
-                  return toBroker;
-              }
-          }
+            } else if (code == 0) {
+                if (useSSL == true) {
+                    toSSLBroker = (Socket) createSSLSocket(toBroker, ip, port);
+                    return (Socket) toSSLBroker;
+                } else {
+                    return toBroker;
+                }
+            }
 
-          // if (code > 0) { only windows }
-          toBroker.setSoLinger(true, 0);
-          toBroker.close();
+            // if (code > 0) { only windows }
+            toBroker.setSoLinger(true, 0);
+            toBroker.close();
 
-          toBroker = new Socket(); // need instantiation
-          brokerAddress = new InetSocketAddress(ip, code);
-          if (timeout <= 0) {
-            toBroker.connect(brokerAddress);
-          }
-          else {
-            timeout -= (System.currentTimeMillis() - begin);
+            toBroker = new Socket(); // need instantiation
+            brokerAddress = new InetSocketAddress(ip, code);
             if (timeout <= 0) {
-              throw new UJciException(UErrorCode.ER_TIMEOUT);
+                toBroker.connect(brokerAddress);
+            } else {
+                timeout -= (System.currentTimeMillis() - begin);
+                if (timeout <= 0) {
+                    throw new UJciException(UErrorCode.ER_TIMEOUT);
+                }
+                toBroker.connect(brokerAddress, timeout);
             }
-            toBroker.connect(brokerAddress, timeout);
-          }
 
-          toBroker.setKeepAlive(true);
-          if (useSSL == true) {
-              toSSLBroker = (Socket)createSSLSocket(toBroker, ip, code);
-              return (Socket)toSSLBroker;
-          } else {
-              return toBroker;
-          }
+            toBroker.setKeepAlive(true);
+            if (useSSL == true) {
+                toSSLBroker = (Socket) createSSLSocket(toBroker, ip, code);
+                return (Socket) toSSLBroker;
+            } else {
+                return toBroker;
+            }
         } catch (SocketTimeoutException e) {
-          if (toBroker != null) {
-          toBroker.close();
-        }
-        throw new UJciException(UErrorCode.ER_TIMEOUT, e);
+            if (toBroker != null) {
+                toBroker.close();
+            }
+            throw new UJciException(UErrorCode.ER_TIMEOUT, e);
         } catch (IOException e) {
-          if (toBroker != null) {
-          toBroker.close();
-        }
-        throw new UJciException(UErrorCode.ER_CONNECTION, e);
+            if (toBroker != null) {
+                toBroker.close();
+            }
+            throw new UJciException(UErrorCode.ER_CONNECTION, e);
         } finally {
         }
     }
 
-    private static byte[] PING_INFO = { 'P', 'I', 'N', 'G', 0, 0, 0, 0, 0, 0 };
-    public static void pingBroker(String ip, int port, int timeout)
-            throws IOException {
+    private static byte[] PING_INFO = {'P', 'I', 'N', 'G', 0, 0, 0, 0, 0, 0};
+
+    public static void pingBroker(String ip, int port, int timeout) throws IOException {
         Socket toBroker = null;
         DataInputStream in = null;
         DataOutputStream out = null;
         long begin = System.currentTimeMillis();
 
         try {
-          toBroker = new Socket();
-          InetSocketAddress brokerAddress = new InetSocketAddress(ip, port);
-          if (timeout <= 0) {
-            toBroker.connect(brokerAddress);
-          }
-          else {
-            toBroker.connect(brokerAddress, timeout);
-            timeout -= (System.currentTimeMillis() - begin);
+            toBroker = new Socket();
+            InetSocketAddress brokerAddress = new InetSocketAddress(ip, port);
             if (timeout <= 0) {
-              String msg = UErrorCode.codeToMessage(UErrorCode.ER_TIMEOUT);
-              throw new SocketTimeoutException(msg);
+                toBroker.connect(brokerAddress);
+            } else {
+                toBroker.connect(brokerAddress, timeout);
+                timeout -= (System.currentTimeMillis() - begin);
+                if (timeout <= 0) {
+                    String msg = UErrorCode.codeToMessage(UErrorCode.ER_TIMEOUT);
+                    throw new SocketTimeoutException(msg);
+                }
+                toBroker.setSoTimeout(timeout);
             }
-            toBroker.setSoTimeout(timeout);
-          }
 
-          in = new DataInputStream(toBroker.getInputStream());
-          out = new DataOutputStream(toBroker.getOutputStream());
-  
-          out.write(PING_INFO);
-          out.flush();
-          in.readInt();
+            in = new DataInputStream(toBroker.getInputStream());
+            out = new DataOutputStream(toBroker.getOutputStream());
+
+            out.write(PING_INFO);
+            out.flush();
+            in.readInt();
         } finally {
-          if (in != null) in.close();
-          if (out != null) out.close();
-          if (toBroker != null) toBroker.close();
+            if (in != null) in.close();
+            if (out != null) out.close();
+            if (toBroker != null) toBroker.close();
         }
     }
 
@@ -201,35 +195,34 @@ public class BrokerHandler {
         DataOutputStream out = null;
         long begin = System.currentTimeMillis();
 
-        try{
-          toBroker = new Socket();
-          InetSocketAddress brokerAddress = new InetSocketAddress(ip, port);
-          if (timeout <= 0) {
-            toBroker.connect(brokerAddress);
-          }
-          else {
-            toBroker.connect(brokerAddress, timeout);
-            timeout -= (System.currentTimeMillis() - begin);
+        try {
+            toBroker = new Socket();
+            InetSocketAddress brokerAddress = new InetSocketAddress(ip, port);
             if (timeout <= 0) {
-              throw new UJciException(UErrorCode.ER_TIMEOUT);
+                toBroker.connect(brokerAddress);
+            } else {
+                toBroker.connect(brokerAddress, timeout);
+                timeout -= (System.currentTimeMillis() - begin);
+                if (timeout <= 0) {
+                    throw new UJciException(UErrorCode.ER_TIMEOUT);
+                }
+                toBroker.setSoTimeout(timeout);
             }
-            toBroker.setSoTimeout(timeout);
-          }
-    
-          in = new DataInputStream(toBroker.getInputStream());
-          out = new DataOutputStream(toBroker.getOutputStream());
-    
-          out.write(data);
-          out.flush();
-    
-          int error = in.readInt();
-          return error;
+
+            in = new DataInputStream(toBroker.getInputStream());
+            out = new DataOutputStream(toBroker.getOutputStream());
+
+            out.write(data);
+            out.flush();
+
+            int error = in.readInt();
+            return error;
         } catch (SocketTimeoutException e) {
-          throw new UJciException(UErrorCode.ER_TIMEOUT);
+            throw new UJciException(UErrorCode.ER_TIMEOUT);
         } finally {
-          if (in != null) in.close();
-          if (out != null) out.close();
-          if (toBroker != null) toBroker.close();
+            if (in != null) in.close();
+            if (out != null) out.close();
+            if (toBroker != null) toBroker.close();
         }
     }
 
@@ -241,50 +234,49 @@ public class BrokerHandler {
         long begin = System.currentTimeMillis();
 
         try {
-          toBroker = new Socket();
-          InetSocketAddress brokerAddress = new InetSocketAddress(ip, port);
-          if (timeout <= 0) {
-            toBroker.connect(brokerAddress);
-          }
-          else {
-            toBroker.connect(brokerAddress, timeout);
-            timeout -= (System.currentTimeMillis() - begin);
+            toBroker = new Socket();
+            InetSocketAddress brokerAddress = new InetSocketAddress(ip, port);
             if (timeout <= 0) {
-              throw new UJciException(UErrorCode.ER_TIMEOUT);
+                toBroker.connect(brokerAddress);
+            } else {
+                toBroker.connect(brokerAddress, timeout);
+                timeout -= (System.currentTimeMillis() - begin);
+                if (timeout <= 0) {
+                    throw new UJciException(UErrorCode.ER_TIMEOUT);
+                }
+                toBroker.setSoTimeout(timeout);
             }
-            toBroker.setSoTimeout(timeout);
-          }
 
-          in = new DataInputStream(toBroker.getInputStream());
-          out = new DataOutputStream(toBroker.getOutputStream());
+            in = new DataInputStream(toBroker.getInputStream());
+            out = new DataOutputStream(toBroker.getOutputStream());
 
-          out.write(data);
-          out.flush();
+            out.write(data);
+            out.flush();
 
-          int error = in.readInt();
-          if (error < 0) {
-            throw new UJciException(UErrorCode.CAS_ER_QUERY_CANCEL);
-          }
+            int error = in.readInt();
+            if (error < 0) {
+                throw new UJciException(UErrorCode.CAS_ER_QUERY_CANCEL);
+            }
         } catch (SocketTimeoutException e) {
-          throw new UJciException(UErrorCode.ER_TIMEOUT);
+            throw new UJciException(UErrorCode.ER_TIMEOUT);
         } finally {
-          if (in != null) in.close();
-          if (out != null) out.close();
-          if (toBroker != null) toBroker.close();
+            if (in != null) in.close();
+            if (out != null) out.close();
+            if (toBroker != null) toBroker.close();
         }
     }
 
-    private static byte[] CANCEL_INFO = { 'C', 'A', 'N', 'C', 'E', 'L' };
-    private static byte[] STATUS_INFO = { 'S', 'T' };
+    private static byte[] CANCEL_INFO = {'C', 'A', 'N', 'C', 'E', 'L'};
+    private static byte[] STATUS_INFO = {'S', 'T'};
 
     public static int statusBroker(String ip, int port, int process, byte[] session, int timeout)
-        throws IOException, UJciException {
+            throws IOException, UJciException {
 
         int status;
 
         ByteArrayOutputStream bao = new ByteArrayOutputStream(10);
         DataOutputStream dao = new DataOutputStream(bao);
-    
+
         dao.write(STATUS_INFO);
         dao.writeInt(process);
         for (int i = 0; i < 4; i++) dao.writeByte(session[i]);
@@ -319,22 +311,24 @@ public class BrokerHandler {
         cancelRequest(ip, port, bao.toByteArray(), timeout);
     }
 
-    private static SSLSocket createSSLSocket(Socket plainSocket, String ip, int port) throws UJciException {
+    private static SSLSocket createSSLSocket(Socket plainSocket, String ip, int port)
+            throws UJciException {
         SSLSocket sslSocket = null;
         SSLContext ctx = null;
         SSLSocketFactory sslsocketfactory = null;
 
-        X509TrustManager tm = new X509TrustManager() {
-            public void checkClientTrusted(X509Certificate[] chain, String authType) throws CertificateException {
-            }
+        X509TrustManager tm =
+                new X509TrustManager() {
+                    public void checkClientTrusted(X509Certificate[] chain, String authType)
+                            throws CertificateException {}
 
-            public void checkServerTrusted(X509Certificate[] xcs, String string) throws CertificateException {
-            }
+                    public void checkServerTrusted(X509Certificate[] xcs, String string)
+                            throws CertificateException {}
 
-            public X509Certificate[] getAcceptedIssuers() {
-                return new X509Certificate[0];
-            }
-        };
+                    public X509Certificate[] getAcceptedIssuers() {
+                        return new X509Certificate[0];
+                    }
+                };
 
         try {
             ctx = SSLContext.getInstance("TLS");
@@ -343,7 +337,7 @@ public class BrokerHandler {
         }
 
         try {
-            ctx.init(null, new TrustManager[] { tm }, new SecureRandom());
+            ctx.init(null, new TrustManager[] {tm}, new SecureRandom());
         } catch (KeyManagementException e) {
             throw new UJciException(UErrorCode.ER_CONNECTION, e);
         }

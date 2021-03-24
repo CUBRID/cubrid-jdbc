@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -30,63 +30,65 @@
  */
 
 /**
- * Title:        CUBRID Java Client Interface<p>
- * Description:  CUBRID Java Client Interface<p>
+ * Title: CUBRID Java Client Interface
+ *
+ * <p>Description: CUBRID Java Client Interface
+ *
+ * <p>
+ *
  * @version 2.0
  */
-
 package cubrid.jdbc.jci;
 
 /**
- * CUBRIDÀÇ Command TypeÀ» Á¤ÀÇÇÏ´Â classÀÌ´Ù.
- * 
- * since 1.0
+ * CUBRIDï¿½ï¿½ Command Typeï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï´ï¿½ classï¿½Ì´ï¿½.
+ *
+ * <p>since 1.0
  */
+public abstract class CUBRIDCommandType {
+    public static final byte CUBRID_STMT_ALTER_CLASS = 0;
+    public static final byte CUBRID_STMT_ALTER_SERIAL = 1;
+    public static final byte CUBRID_STMT_COMMIT_WORK = 2;
+    public static final byte CUBRID_STMT_REGISTER_DATABASE = 3;
+    public static final byte CUBRID_STMT_CREATE_CLASS = 4;
+    public static final byte CUBRID_STMT_CREATE_INDEX = 5;
+    public static final byte CUBRID_STMT_CREATE_TRIGGER = 6;
+    public static final byte CUBRID_STMT_CREATE_SERIAL = 7;
+    public static final byte CUBRID_STMT_DROP_DATABASE = 8;
+    public static final byte CUBRID_STMT_DROP_CLASS = 9;
+    public static final byte CUBRID_STMT_DROP_INDEX = 10;
+    public static final byte CUBRID_STMT_DROP_LABEL = 11;
+    public static final byte CUBRID_STMT_DROP_TRIGGER = 12;
+    public static final byte CUBRID_STMT_DROP_SERIAL = 13;
+    public static final byte CUBRID_STMT_EVALUATE = 14;
+    public static final byte CUBRID_STMT_RENAME_CLASS = 15;
+    public static final byte CUBRID_STMT_ROLLBACK_WORK = 16;
+    public static final byte CUBRID_STMT_GRANT = 17;
+    public static final byte CUBRID_STMT_REVOKE = 18;
+    public static final byte CUBRID_STMT_STATISTICS = 19;
+    public static final byte CUBRID_STMT_INSERT = 20;
+    public static final byte CUBRID_STMT_SELECT = 21;
+    public static final byte CUBRID_STMT_UPDATE = 22;
+    public static final byte CUBRID_STMT_DELETE = 23;
+    public static final byte CUBRID_STMT_CALL = 24;
+    public static final byte CUBRID_STMT_GET_ISO_LVL = 25;
+    public static final byte CUBRID_STMT_GET_TIMEOUT = 26;
+    public static final byte CUBRID_STMT_GET_OPT_LVL = 27;
+    public static final byte CUBRID_STMT_SET_OPT_LVL = 28;
+    public static final byte CUBRID_STMT_SCOPE = 29;
+    public static final byte CUBRID_STMT_GET_TRIGGER = 30;
+    public static final byte CUBRID_STMT_SET_TRIGGER = 31;
+    public static final byte CUBRID_STMT_SAVEPOINT = 32;
+    public static final byte CUBRID_STMT_PREPARE = 33;
+    public static final byte CUBRID_STMT_ATTACH = 34;
+    public static final byte CUBRID_STMT_USE = 35;
+    public static final byte CUBRID_STMT_REMOVE_TRIGGER = 36;
+    public static final byte CUBRID_STMT_RENAME_TRIGGER = 37;
+    public static final byte CUBRID_STMT_ON_LDB = 38;
+    public static final byte CUBRID_STMT_GET_LDB = 39;
+    public static final byte CUBRID_STMT_SET_LDB = 40;
+    public static final byte CUBRID_STMT_GET_STATS = 41;
 
-abstract public class CUBRIDCommandType {
-	public final static byte CUBRID_STMT_ALTER_CLASS = 0;
-	public final static byte CUBRID_STMT_ALTER_SERIAL = 1;
-	public final static byte CUBRID_STMT_COMMIT_WORK = 2;
-	public final static byte CUBRID_STMT_REGISTER_DATABASE = 3;
-	public final static byte CUBRID_STMT_CREATE_CLASS = 4;
-	public final static byte CUBRID_STMT_CREATE_INDEX = 5;
-	public final static byte CUBRID_STMT_CREATE_TRIGGER = 6;
-	public final static byte CUBRID_STMT_CREATE_SERIAL = 7;
-	public final static byte CUBRID_STMT_DROP_DATABASE = 8;
-	public final static byte CUBRID_STMT_DROP_CLASS = 9;
-	public final static byte CUBRID_STMT_DROP_INDEX = 10;
-	public final static byte CUBRID_STMT_DROP_LABEL = 11;
-	public final static byte CUBRID_STMT_DROP_TRIGGER = 12;
-	public final static byte CUBRID_STMT_DROP_SERIAL = 13;
-	public final static byte CUBRID_STMT_EVALUATE = 14;
-	public final static byte CUBRID_STMT_RENAME_CLASS = 15;
-	public final static byte CUBRID_STMT_ROLLBACK_WORK = 16;
-	public final static byte CUBRID_STMT_GRANT = 17;
-	public final static byte CUBRID_STMT_REVOKE = 18;
-	public final static byte CUBRID_STMT_STATISTICS = 19;
-	public final static byte CUBRID_STMT_INSERT = 20;
-	public final static byte CUBRID_STMT_SELECT = 21;
-	public final static byte CUBRID_STMT_UPDATE = 22;
-	public final static byte CUBRID_STMT_DELETE = 23;
-	public final static byte CUBRID_STMT_CALL = 24;
-	public final static byte CUBRID_STMT_GET_ISO_LVL = 25;
-	public final static byte CUBRID_STMT_GET_TIMEOUT = 26;
-	public final static byte CUBRID_STMT_GET_OPT_LVL = 27;
-	public final static byte CUBRID_STMT_SET_OPT_LVL = 28;
-	public final static byte CUBRID_STMT_SCOPE = 29;
-	public final static byte CUBRID_STMT_GET_TRIGGER = 30;
-	public final static byte CUBRID_STMT_SET_TRIGGER = 31;
-	public final static byte CUBRID_STMT_SAVEPOINT = 32;
-	public final static byte CUBRID_STMT_PREPARE = 33;
-	public final static byte CUBRID_STMT_ATTACH = 34;
-	public final static byte CUBRID_STMT_USE = 35;
-	public final static byte CUBRID_STMT_REMOVE_TRIGGER = 36;
-	public final static byte CUBRID_STMT_RENAME_TRIGGER = 37;
-	public final static byte CUBRID_STMT_ON_LDB = 38;
-	public final static byte CUBRID_STMT_GET_LDB = 39;
-	public final static byte CUBRID_STMT_SET_LDB = 40;
-	public final static byte CUBRID_STMT_GET_STATS = 41;
-
-	public final static byte CUBRID_STMT_CALL_SP = 0x7e;
-	public final static byte CUBRID_STMT_UNKNOWN = 0x7f;
+    public static final byte CUBRID_STMT_CALL_SP = 0x7e;
+    public static final byte CUBRID_STMT_UNKNOWN = 0x7f;
 }

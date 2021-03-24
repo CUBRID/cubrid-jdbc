@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -34,13 +34,13 @@ package cubrid.jdbc.driver;
 import cubrid.jdbc.jci.UConKey;
 
 public class CUBRIDConnectionKey {
-	private UConKey conKey;
+    private UConKey conKey;
 
-	public CUBRIDConnectionKey(String s) {
-		conKey = new UConKey(s);
-	}
+    public CUBRIDConnectionKey(String s) {
+        conKey = new UConKey(s);
+    }
 
-	public UConKey getKey() {
-		return conKey;
-	}
+    public UConKey getKey() {
+        return conKey;
+    }
 }

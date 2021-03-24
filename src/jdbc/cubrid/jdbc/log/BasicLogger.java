@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -49,120 +49,125 @@ public class BasicLogger implements Log {
 
     private int logLevel;
 
-    private static Hashtable<String, PrintWriter> writerTable = new Hashtable<String, PrintWriter>();
+    private static Hashtable<String, PrintWriter> writerTable =
+            new Hashtable<String, PrintWriter>();
+
     static {
-	writerTable.put("stderr", new PrintWriter(System.err));
+        writerTable.put("stderr", new PrintWriter(System.err));
     }
+
     PrintWriter writer;
 
     public BasicLogger(String fileName) {
-	initialize(fileName, ALL);
+        initialize(fileName, ALL);
     }
 
     public BasicLogger(String fileName, int level) {
-	initialize(fileName, level);
+        initialize(fileName, level);
     }
 
     private void initialize(String fileName, int level) {
-	logLevel = level;
-	try {
-	    File f = new File(fileName);
-	    String canonicalPath = f.getCanonicalPath();
-	    writer = writerTable.get(canonicalPath);
-	    if (writer == null) {
-		writer = new PrintWriter(canonicalPath);
-		writerTable.put(canonicalPath, writer);
-	    }
-	} catch (IOException e) {
-	    System.err.println("WARNING - Could not create a file for logging.\n The standard error will be using to log.");
-	    e.printStackTrace();
-	    writer = writerTable.get("stderr");
-	}
+        logLevel = level;
+        try {
+            File f = new File(fileName);
+            String canonicalPath = f.getCanonicalPath();
+            writer = writerTable.get(canonicalPath);
+            if (writer == null) {
+                writer = new PrintWriter(canonicalPath);
+                writerTable.put(canonicalPath, writer);
+            }
+        } catch (IOException e) {
+            System.err.println(
+                    "WARNING - Could not create a file for logging.\n The standard error will be using to log.");
+            e.printStackTrace();
+            writer = writerTable.get("stderr");
+        }
     }
 
     public void logDebug(String msg) {
-	logDebug(msg, null);
+        logDebug(msg, null);
     }
 
     public void logDebug(String msg, Throwable thrown) {
-	logInternal(DEBUG, msg, thrown);
+        logInternal(DEBUG, msg, thrown);
     }
 
     public void logError(String msg) {
-	logError(msg, null);
+        logError(msg, null);
     }
 
     public void logError(String msg, Throwable thrown) {
-	logInternal(ERROR, msg, thrown);
+        logInternal(ERROR, msg, thrown);
     }
 
     public void logFatal(String msg) {
-	logFatal(msg, null);
+        logFatal(msg, null);
     }
 
     public void logFatal(String msg, Throwable thrown) {
-	logInternal(FATAL, msg, thrown);
+        logInternal(FATAL, msg, thrown);
     }
 
     public void logInfo(String msg) {
-	logInfo(msg, null);
+        logInfo(msg, null);
     }
 
     public void logInfo(String msg, Throwable thrown) {
-	logInternal(INFO, msg, thrown);
+        logInternal(INFO, msg, thrown);
     }
 
     public void logTrace(String msg) {
-	logTrace(msg);
+        logTrace(msg);
     }
 
     public void logTrace(String msg, Throwable thrown) {
-	logInternal(TRACE, msg, thrown);
+        logInternal(TRACE, msg, thrown);
     }
 
     public void logWarn(String msg) {
-	logWarn(msg);
+        logWarn(msg);
     }
 
     public void logWarn(String msg, Throwable thrown) {
-	logInternal(WARN, msg, thrown);
+        logInternal(WARN, msg, thrown);
     }
 
     private SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
+
     private synchronized void logInternal(int level, String msg, Throwable thrown) {
-	if (logLevel < level) {
-	    return;
-	}
+        if (logLevel < level) {
+            return;
+        }
 
-	StringBuffer b = new StringBuffer();
-	b.append(dateFormat.format(new Date())).append('|');
+        StringBuffer b = new StringBuffer();
+        b.append(dateFormat.format(new Date())).append('|');
 
-	switch (level) {
-	case FATAL:
-	    b.append("FATAL");
-	    break;
-	case ERROR:
-	    b.append("ERROR");
-	    break;
-	case WARN:
-	    b.append("WARN");
-	    break;
-	case INFO:
-	    b.append("INFO");
-	    break;
-	case DEBUG:
-	    b.append("DEBUG");
-	    break;
-	case TRACE:
-	    b.append("TRACE");
-	    break;
-	}
-	b.append('|').append(msg);
-	writer.println(b.toString());
+        switch (level) {
+            case FATAL:
+                b.append("FATAL");
+                break;
+            case ERROR:
+                b.append("ERROR");
+                break;
+            case WARN:
+                b.append("WARN");
+                break;
+            case INFO:
+                b.append("INFO");
+                break;
+            case DEBUG:
+                b.append("DEBUG");
+                break;
+            case TRACE:
+                b.append("TRACE");
+                break;
+        }
+        b.append('|').append(msg);
+        writer.println(b.toString());
 
-	if (thrown != null) {
-	    thrown.printStackTrace(writer);
-	}
-	writer.flush();
+        if (thrown != null) {
+            thrown.printStackTrace(writer);
+        }
+        writer.flush();
     }
 }

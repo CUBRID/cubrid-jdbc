@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -37,31 +37,30 @@ import java.io.Reader;
 import java.io.Writer;
 
 class CUBRIDBufferedWriter extends BufferedWriter {
-	private int bufSize;
+    private int bufSize;
 
-	public CUBRIDBufferedWriter(Writer out, int bufferSize) {
-		super(out, bufferSize);
-		bufSize = bufferSize;
-	}
+    public CUBRIDBufferedWriter(Writer out, int bufferSize) {
+        super(out, bufferSize);
+        bufSize = bufferSize;
+    }
 
-	public synchronized void streamCopyFromReader(Reader in, long length)
-			throws IOException {
-		Writer out = this;
-		char[] buf = new char[bufSize];
-		int read_len;
+    public synchronized void streamCopyFromReader(Reader in, long length) throws IOException {
+        Writer out = this;
+        char[] buf = new char[bufSize];
+        int read_len;
 
-		try {
-			while (length > 0) {
-				read_len = (int) Math.min(length, (long) bufSize);
-				read_len = in.read(buf, 0, read_len);
-				if (read_len <= 0) {
-					break;
-				}
-				out.write(buf, 0, read_len);
-				length -= read_len;
-			}
-		} finally {
-			out.flush();
-		}
-	}
+        try {
+            while (length > 0) {
+                read_len = (int) Math.min(length, (long) bufSize);
+                read_len = in.read(buf, 0, read_len);
+                if (read_len <= 0) {
+                    break;
+                }
+                out.write(buf, 0, read_len);
+                length -= read_len;
+            }
+        } finally {
+            out.flush();
+        }
+    }
 }

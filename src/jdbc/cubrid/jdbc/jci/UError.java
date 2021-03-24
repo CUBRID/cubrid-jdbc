@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -30,126 +30,134 @@
  */
 
 /**
- * Title:        CUBRID Java Client Interface<p>
- * Description:  CUBRID Java Client Interface<p>
+ * Title: CUBRID Java Client Interface
+ *
+ * <p>Description: CUBRID Java Client Interface
+ *
+ * <p>
+ *
  * @version 2.0
  */
-
 package cubrid.jdbc.jci;
 
 public class UError {
-	public final static int METHOD_USER_ERROR_BASE = -100000;
+    public static final int METHOD_USER_ERROR_BASE = -100000;
 
-	private UConnection connection = null;
-	private int jciErrorCode;
-	private int serverErrorCode;
-	private String errorMessage;
-	private StackTraceElement[] stackTrace;
+    private UConnection connection = null;
+    private int jciErrorCode;
+    private int serverErrorCode;
+    private String errorMessage;
+    private StackTraceElement[] stackTrace;
 
-	UError(UConnection c) {
-		connection = c;
-		jciErrorCode = UErrorCode.ER_NO_ERROR;
-	}
+    UError(UConnection c) {
+        connection = c;
+        jciErrorCode = UErrorCode.ER_NO_ERROR;
+    }
 
-	public UError(UError src) {
-		copyValue(src);
-	}
+    public UError(UError src) {
+        copyValue(src);
+    }
 
-	public int getErrorCode() {
-		return jciErrorCode;
-	}
+    public int getErrorCode() {
+        return jciErrorCode;
+    }
 
-	private int getSessionNumber(byte[] session) {
-		int ch1 = session[8];
-		int ch2 = session[9];
-		int ch3 = session[10];
-		int ch4 = session[11];
+    private int getSessionNumber(byte[] session) {
+        int ch1 = session[8];
+        int ch2 = session[9];
+        int ch3 = session[10];
+        int ch4 = session[11];
 
-		return ((ch1 << 24) + (ch2 << 16) + (ch3 << 8) + (ch4 << 0));
-	}
+        return ((ch1 << 24) + (ch2 << 16) + (ch3 << 8) + (ch4 << 0));
+    }
 
-	public String getErrorMsg(boolean include_con_info) {
-		if (connection != null && include_con_info) {
-			String sessionInfo = "";			
-			if (connection.protoVersionIsAbove(UConnection.PROTOCOL_V3)) {
-				sessionInfo = String.format("[SESSION-%d],",
-						getSessionNumber(connection.sessionId));
-			} else {
-				sessionInfo = String.format("[SESSION-%d],",
-						connection.oldSessionId);
-			}
-			
-			String infoType = "";
-			if (connection.isConnectedToProxy()) {
-				sessionInfo = "";
-				infoType = "PROXY INFO";
-			} else {
-				infoType = "CAS INFO";
-			}
-			
-			if (connection.protoVersionIsAbove(UConnection.PROTOCOL_V4)) {
-				return String.format(
-						"%s[%s-%s:%d,%d,%d],%s[URL-%s].",
-						errorMessage, infoType, connection.casIp, connection.casPort,
-						connection.casId, connection.casProcessId,
-						sessionInfo, connection.url);
-			} else {
-				return String.format(
-						"%s[%s-%s:%d,%d],%s[URL-%s].",
-						errorMessage, infoType, connection.casIp, connection.casPort,
-						connection.casProcessId, sessionInfo,
-						connection.url);
-			}
-		}
-		return errorMessage;
-	}
+    public String getErrorMsg(boolean include_con_info) {
+        if (connection != null && include_con_info) {
+            String sessionInfo = "";
+            if (connection.protoVersionIsAbove(UConnection.PROTOCOL_V3)) {
+                sessionInfo =
+                        String.format("[SESSION-%d],", getSessionNumber(connection.sessionId));
+            } else {
+                sessionInfo = String.format("[SESSION-%d],", connection.oldSessionId);
+            }
 
-	public int getJdbcErrorCode() {
-		if (jciErrorCode == UErrorCode.ER_NO_ERROR)
-			return UErrorCode.ER_NO_ERROR;
-		else if (jciErrorCode == UErrorCode.ER_DBMS)
-			return serverErrorCode;
-		else
-			return (jciErrorCode);
-	}
+            String infoType = "";
+            if (connection.isConnectedToProxy()) {
+                sessionInfo = "";
+                infoType = "PROXY INFO";
+            } else {
+                infoType = "CAS INFO";
+            }
 
-	void copyValue(UError object) {
-		connection = object.connection;
-		jciErrorCode = object.jciErrorCode;
-		errorMessage = object.errorMessage;
-		serverErrorCode = object.serverErrorCode;
-		stackTrace = object.stackTrace;
-	}
+            if (connection.protoVersionIsAbove(UConnection.PROTOCOL_V4)) {
+                return String.format(
+                        "%s[%s-%s:%d,%d,%d],%s[URL-%s].",
+                        errorMessage,
+                        infoType,
+                        connection.casIp,
+                        connection.casPort,
+                        connection.casId,
+                        connection.casProcessId,
+                        sessionInfo,
+                        connection.url);
+            } else {
+                return String.format(
+                        "%s[%s-%s:%d,%d],%s[URL-%s].",
+                        errorMessage,
+                        infoType,
+                        connection.casIp,
+                        connection.casPort,
+                        connection.casProcessId,
+                        sessionInfo,
+                        connection.url);
+            }
+        }
+        return errorMessage;
+    }
 
-	synchronized void setDBError(int code, String message) {
-		jciErrorCode = UErrorCode.ER_DBMS;
-		serverErrorCode = code;
-		errorMessage = message;
-	}
+    public int getJdbcErrorCode() {
+        if (jciErrorCode == UErrorCode.ER_NO_ERROR) return UErrorCode.ER_NO_ERROR;
+        else if (jciErrorCode == UErrorCode.ER_DBMS) return serverErrorCode;
+        else return (jciErrorCode);
+    }
 
-	synchronized void setErrorCode(int code) {
-		jciErrorCode = code;
-		if (code != UErrorCode.ER_NO_ERROR) {
-			errorMessage = UErrorCode.codeToMessage(code);
-		}
-	}
+    void copyValue(UError object) {
+        connection = object.connection;
+        jciErrorCode = object.jciErrorCode;
+        errorMessage = object.errorMessage;
+        serverErrorCode = object.serverErrorCode;
+        stackTrace = object.stackTrace;
+    }
 
-	void setErrorMessage(int code, String addMessage) {
-		setErrorCode(code);
-		errorMessage += ":" + addMessage;
-	}
+    synchronized void setDBError(int code, String message) {
+        jciErrorCode = UErrorCode.ER_DBMS;
+        serverErrorCode = code;
+        errorMessage = message;
+    }
 
-	void clear() {
-		jciErrorCode = UErrorCode.ER_NO_ERROR;
-	}
+    synchronized void setErrorCode(int code) {
+        jciErrorCode = code;
+        if (code != UErrorCode.ER_NO_ERROR) {
+            errorMessage = UErrorCode.codeToMessage(code);
+        }
+    }
 
-	public void setStackTrace(StackTraceElement[] stackTrace) {
-		this.stackTrace = stackTrace;
-	}
+    void setErrorMessage(int code, String addMessage) {
+        setErrorCode(code);
+        errorMessage += ":" + addMessage;
+    }
 
-	public void changeStackTrace(Throwable t) {
-		if (stackTrace != null) {
-			t.setStackTrace(stackTrace);
-		}
-	}
+    void clear() {
+        jciErrorCode = UErrorCode.ER_NO_ERROR;
+    }
+
+    public void setStackTrace(StackTraceElement[] stackTrace) {
+        this.stackTrace = stackTrace;
+    }
+
+    public void changeStackTrace(Throwable t) {
+        if (stackTrace != null) {
+            t.setStackTrace(stackTrace);
+        }
+    }
 }

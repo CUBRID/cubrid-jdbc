@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -33,13 +33,13 @@ package cubrid.jdbc.jci;
 
 public class UConKey {
 
-	private String conKey;
+    private String conKey;
 
-	public UConKey(String s) {
-		conKey = s;
-	}
+    public UConKey(String s) {
+        conKey = s;
+    }
 
-	String getKeyString() {
-		return (conKey == null ? "" : conKey);
-	}
+    String getKeyString() {
+        return (conKey == null ? "" : conKey);
+    }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -32,32 +32,31 @@
 package cubrid.jdbc.jci;
 
 public class UUrlHostKey {
-	private String host;
-	private int port;
-	private String dbname;
-	private String user;
+    private String host;
+    private int port;
+    private String dbname;
+    private String user;
 
-	public UUrlHostKey(String host, int port, String dbname, String user) {
-		this.host = host;
-		this.port = port;
-		this.dbname = dbname;
-		this.user = user;
-	}
+    public UUrlHostKey(String host, int port, String dbname, String user) {
+        this.host = host;
+        this.port = port;
+        this.dbname = dbname;
+        this.user = user;
+    }
 
-	public int hashCode() {
-		return host.hashCode() + port + dbname.hashCode() + user.hashCode();
-	}
+    public int hashCode() {
+        return host.hashCode() + port + dbname.hashCode() + user.hashCode();
+    }
 
-	public boolean equals(Object obj) {
-		if (!(obj instanceof UUrlHostKey))
-			return false;
+    public boolean equals(Object obj) {
+        if (!(obj instanceof UUrlHostKey)) return false;
 
-		UUrlHostKey key = (UUrlHostKey) obj;
+        UUrlHostKey key = (UUrlHostKey) obj;
 
-		if (host.equals(key.host) && port == key.port
-				&& dbname.equals(key.dbname) && user.equals(key.user))
-			return true;
-		else
-			return false;
-	}
+        if (host.equals(key.host)
+                && port == key.port
+                && dbname.equals(key.dbname)
+                && user.equals(key.user)) return true;
+        else return false;
+    }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -31,122 +31,115 @@
 
 package cubrid.jdbc.driver;
 
+import cubrid.jdbc.jci.UConnection;
+import cubrid.jdbc.jci.UJCIManager;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.Properties;
 import java.util.logging.Logger;
-
 import javax.naming.NamingException;
 import javax.naming.Reference;
 
-import cubrid.jdbc.jci.UConnection;
-import cubrid.jdbc.jci.UJCIManager;
-
 /**
  * Title: CUBRID JDBC Driver Description:
- * 
+ *
  * @version 3.0
  */
+public class CUBRIDDataSource extends CUBRIDDataSourceBase
+        implements javax.sql.DataSource, javax.naming.Referenceable, java.io.Serializable {
+    private static final long serialVersionUID = -1038542340147556509L;
 
-public class CUBRIDDataSource extends CUBRIDDataSourceBase implements
-		javax.sql.DataSource, javax.naming.Referenceable,
-		java.io.Serializable {
-	private static final long serialVersionUID = -1038542340147556509L;
+    public CUBRIDDataSource() {
+        super();
+    }
 
-	public CUBRIDDataSource() {
-		super();
-	}
+    protected CUBRIDDataSource(Reference ref) {
+        super();
+        setProperties(ref);
+    }
 
-	protected CUBRIDDataSource(Reference ref) {
-		super();
-		setProperties(ref);
-	}
+    /*
+     * javax.sql.DataSource interface
+     */
 
-	/*
-	 * javax.sql.DataSource interface
-	 */
+    public Connection getConnection() throws SQLException {
+        return getConnection(null, null);
+    }
 
-	public Connection getConnection() throws SQLException {
-		return getConnection(null, null);
-	}
+    public Connection getConnection(String username, String passwd) throws SQLException {
+        String dataSourceName = getDataSourceName();
+        Connection con;
 
-	public Connection getConnection(String username, String passwd)
-			throws SQLException {
-		String dataSourceName = getDataSourceName();
-		Connection con;
+        if (dataSourceName == null || dataSourceName.length() == 0) {
+            if (getUrl() != null) {
+                CUBRIDDriver driver = new CUBRIDDriver();
+                Properties props = new Properties();
 
-		if (dataSourceName == null || dataSourceName.length() == 0) {
-			if (getUrl() != null) {
-				CUBRIDDriver driver = new CUBRIDDriver();
-				Properties props = new Properties();
+                if (username != null) {
+                    props.setProperty("user", username);
+                }
+                if (passwd != null) {
+                    props.setProperty("password", passwd);
+                }
+                con = driver.connect(getUrl(), props);
+            } else {
+                if (username == null) {
+                    username = getUser();
+                }
+                if (passwd == null) {
+                    passwd = getPassword();
+                }
+                UConnection u_con =
+                        UJCIManager.connect(
+                                getServerName(),
+                                getPortNumber(),
+                                getDatabaseName(),
+                                username,
+                                passwd,
+                                getDataSourceID(username));
+                con = new CUBRIDConnection(u_con, null, username);
+            }
+            writeLog("getConnection(" + username + ")");
+        } else {
+            CUBRIDConnectionPoolDataSource cpds;
 
-				if (username != null) {
-					props.setProperty("user", username);
-				}
-				if (passwd != null) {
-					props.setProperty("password", passwd);
-				}
-				con = driver.connect(getUrl(), props);
-			} else {
-				if (username == null) {
-					username = getUser();
-				}
-				if (passwd == null) {
-					passwd = getPassword();
-				}
-				UConnection u_con = UJCIManager.connect(
-						getServerName(),
-						getPortNumber(),
-						getDatabaseName(), username,
-						passwd,
-						getDataSourceID(username));
-				con = new CUBRIDConnection(u_con, null,
-						username);
-			}
-			writeLog("getConnection(" + username + ")");
-		} else {
-			CUBRIDConnectionPoolDataSource cpds;
+            cpds = CUBRIDConnectionPoolManager.getConnectionPoolDataSource(dataSourceName);
+            if (username == null) username = cpds.getUser();
+            if (passwd == null) passwd = cpds.getPassword();
+            con = CUBRIDConnectionPoolManager.getConnection(cpds, username, passwd);
+        }
 
-			cpds = CUBRIDConnectionPoolManager
-					.getConnectionPoolDataSource(dataSourceName);
-			if (username == null)
-				username = cpds.getUser();
-			if (passwd == null)
-				passwd = cpds.getPassword();
-			con = CUBRIDConnectionPoolManager.getConnection(cpds,
-					username, passwd);
-		}
+        return con;
+    }
 
-		return con;
-	}
+    /*
+     * javax.naming.Referenceable interface
+     */
 
-	/*
-	 * javax.naming.Referenceable interface
-	 */
+    public synchronized Reference getReference() throws NamingException {
+        Reference ref =
+                new Reference(
+                        this.getClass().getName(),
+                        "cubrid.jdbc.driver.CUBRIDDataSourceObjectFactory",
+                        null);
 
-	public synchronized Reference getReference() throws NamingException {
-		Reference ref = new Reference(
-				this.getClass().getName(),
-				"cubrid.jdbc.driver.CUBRIDDataSourceObjectFactory",
-				null);
+        ref = getProperties(ref);
+        writeLog("Bind DataSource");
+        return ref;
+    }
 
-		ref = getProperties(ref);
-		writeLog("Bind DataSource");
-		return ref;
-	}
+    /* JDK 1.6 */
+    public boolean isWrapperFor(Class<?> iface) throws SQLException {
+        throw new SQLException(new java.lang.UnsupportedOperationException());
+    }
 
-	/* JDK 1.6 */
-	public boolean isWrapperFor(Class<?> iface) throws SQLException {
-		throw new SQLException(new java.lang.UnsupportedOperationException());
-	}
+    /* JDK 1.6 */
+    public <T> T unwrap(Class<T> iface) throws SQLException {
+        throw new SQLException(new java.lang.UnsupportedOperationException());
+    }
 
-	/* JDK 1.6 */
-	public <T> T unwrap(Class<T> iface) throws SQLException {
-		throw new SQLException(new java.lang.UnsupportedOperationException());
-	}
-
-	/* JDK 1.7 */
-	public Logger getParentLogger() {
-		throw new java.lang.UnsupportedOperationException();
-	}
+    /* JDK 1.7 */
+    public Logger getParentLogger() {
+        throw new java.lang.UnsupportedOperationException();
+    }
 }

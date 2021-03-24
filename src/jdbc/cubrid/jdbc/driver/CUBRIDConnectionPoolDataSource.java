@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -31,94 +31,93 @@
 
 package cubrid.jdbc.driver;
 
+import cubrid.jdbc.jci.UConnection;
+import cubrid.jdbc.jci.UJCIManager;
 import java.io.Serializable;
 import java.sql.SQLException;
 import java.util.Properties;
 import java.util.logging.Logger;
-
 import javax.naming.NamingException;
 import javax.naming.Reference;
 import javax.naming.Referenceable;
 import javax.sql.ConnectionPoolDataSource;
 import javax.sql.PooledConnection;
 
-import cubrid.jdbc.jci.UConnection;
-import cubrid.jdbc.jci.UJCIManager;
-
 public class CUBRIDConnectionPoolDataSource extends CUBRIDPoolDataSourceBase
-		implements ConnectionPoolDataSource, Referenceable,
-		Serializable {
-	private static final long serialVersionUID = 3418532804994248021L;
+        implements ConnectionPoolDataSource, Referenceable, Serializable {
+    private static final long serialVersionUID = 3418532804994248021L;
 
-	public CUBRIDConnectionPoolDataSource() {
-		super();
-	}
+    public CUBRIDConnectionPoolDataSource() {
+        super();
+    }
 
-	protected CUBRIDConnectionPoolDataSource(Reference ref) {
-		super();
-		setProperties(ref);
-	}
+    protected CUBRIDConnectionPoolDataSource(Reference ref) {
+        super();
+        setProperties(ref);
+    }
 
-	/*
-	 * javax.sql.ConnectionPoolDataSource interface
-	 */
+    /*
+     * javax.sql.ConnectionPoolDataSource interface
+     */
 
-	public synchronized PooledConnection getPooledConnection()
-			throws SQLException {
-		return getPooledConnection(null, null);
-	}
+    public synchronized PooledConnection getPooledConnection() throws SQLException {
+        return getPooledConnection(null, null);
+    }
 
-	public synchronized PooledConnection getPooledConnection(
-			String username, String passwd) throws SQLException {
-		PooledConnection poolCon;
+    public synchronized PooledConnection getPooledConnection(String username, String passwd)
+            throws SQLException {
+        PooledConnection poolCon;
 
-		if (getUrl() != null) {
-			CUBRIDDriver driver = new CUBRIDDriver();
-			Properties props = new Properties();
+        if (getUrl() != null) {
+            CUBRIDDriver driver = new CUBRIDDriver();
+            Properties props = new Properties();
 
-			if (username != null) {
-				props.setProperty("user", username);
-			}
-			if (passwd != null) {
-				props.setProperty("password", passwd);
-			}
-			CUBRIDConnection c_con = (CUBRIDConnection) driver
-					.connect(getUrl(), props);
-			poolCon = new CUBRIDPooledConnection(c_con);
-		} else {
-			if (username == null) {
-				username = getUser();
-			}
-			if (passwd == null) {
-				passwd = getPassword();
-			}
-			UConnection u_con = UJCIManager.connect(
-					getServerName(), getPortNumber(),
-					getDatabaseName(), username, passwd,
-					getDataSourceID(username));
-			poolCon = new CUBRIDPooledConnection(u_con);
-		}
+            if (username != null) {
+                props.setProperty("user", username);
+            }
+            if (passwd != null) {
+                props.setProperty("password", passwd);
+            }
+            CUBRIDConnection c_con = (CUBRIDConnection) driver.connect(getUrl(), props);
+            poolCon = new CUBRIDPooledConnection(c_con);
+        } else {
+            if (username == null) {
+                username = getUser();
+            }
+            if (passwd == null) {
+                passwd = getPassword();
+            }
+            UConnection u_con =
+                    UJCIManager.connect(
+                            getServerName(),
+                            getPortNumber(),
+                            getDatabaseName(),
+                            username,
+                            passwd,
+                            getDataSourceID(username));
+            poolCon = new CUBRIDPooledConnection(u_con);
+        }
 
-		return poolCon;
-	}
+        return poolCon;
+    }
 
-	/*
-	 * javax.naming.Referenceable interface
-	 */
+    /*
+     * javax.naming.Referenceable interface
+     */
 
-	public synchronized Reference getReference() throws NamingException {
-		Reference ref = new Reference(
-				this.getClass().getName(),
-				"cubrid.jdbc.driver.CUBRIDDataSourceObjectFactory",
-				null);
+    public synchronized Reference getReference() throws NamingException {
+        Reference ref =
+                new Reference(
+                        this.getClass().getName(),
+                        "cubrid.jdbc.driver.CUBRIDDataSourceObjectFactory",
+                        null);
 
-		ref = getProperties(ref);
-		return ref;
-	}
+        ref = getProperties(ref);
+        return ref;
+    }
 
-	/* JDK 1.7 */
-	public Logger getParentLogger() {
-		throw new java.lang.UnsupportedOperationException();
-	}
-
+    /* JDK 1.7 */
+    public Logger getParentLogger() {
+        throw new java.lang.UnsupportedOperationException();
+    }
 }

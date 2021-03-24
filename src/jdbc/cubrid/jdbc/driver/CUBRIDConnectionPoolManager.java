@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -34,63 +34,62 @@ package cubrid.jdbc.driver;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.Hashtable;
-
 import javax.naming.Context;
 import javax.naming.InitialContext;
 import javax.naming.NamingException;
 
 abstract class CUBRIDConnectionPoolManager {
-	private static Hashtable<String, CUBRIDConnectionEventListener> connectionPooltable;
-	private static Hashtable<String, CUBRIDConnectionPoolDataSource> poolDataSourceTable;
+    private static Hashtable<String, CUBRIDConnectionEventListener> connectionPooltable;
+    private static Hashtable<String, CUBRIDConnectionPoolDataSource> poolDataSourceTable;
 
-	static {
-		connectionPooltable = new Hashtable<String, CUBRIDConnectionEventListener>();
-		poolDataSourceTable = new Hashtable<String, CUBRIDConnectionPoolDataSource>();
-	}
+    static {
+        connectionPooltable = new Hashtable<String, CUBRIDConnectionEventListener>();
+        poolDataSourceTable = new Hashtable<String, CUBRIDConnectionPoolDataSource>();
+    }
 
-	static Connection getConnection(CUBRIDConnectionPoolDataSource pds,
-			String user, String passwd) throws SQLException {
-		CUBRIDConnectionEventListener cp;
+    static Connection getConnection(CUBRIDConnectionPoolDataSource pds, String user, String passwd)
+            throws SQLException {
+        CUBRIDConnectionEventListener cp;
 
-		String key = pds.getDataSourceID(user);
+        String key = pds.getDataSourceID(user);
 
-		synchronized (connectionPooltable) {
-			cp = connectionPooltable.get(key);
+        synchronized (connectionPooltable) {
+            cp = connectionPooltable.get(key);
 
-			if (cp == null) {
-				cp = addConnectionPool(key, pds);
-			}
-		}
+            if (cp == null) {
+                cp = addConnectionPool(key, pds);
+            }
+        }
 
-		return cp.getConnection(user, passwd);
-	}
+        return cp.getConnection(user, passwd);
+    }
 
-	static CUBRIDConnectionPoolDataSource getConnectionPoolDataSource(
-			String dsName) throws SQLException {
-		CUBRIDConnectionPoolDataSource cpds;
+    static CUBRIDConnectionPoolDataSource getConnectionPoolDataSource(String dsName)
+            throws SQLException {
+        CUBRIDConnectionPoolDataSource cpds;
 
-		synchronized (poolDataSourceTable) {
-			cpds = poolDataSourceTable.get(dsName);
+        synchronized (poolDataSourceTable) {
+            cpds = poolDataSourceTable.get(dsName);
 
-			if (cpds == null) {
-				try {
-					Context ctx = new InitialContext();
-					cpds = (CUBRIDConnectionPoolDataSource) ctx.lookup(dsName);
-				} catch (NamingException e) {
-					throw new CUBRIDException(CUBRIDJDBCErrorCode.unknown, e.toString(), e);
-				}
+            if (cpds == null) {
+                try {
+                    Context ctx = new InitialContext();
+                    cpds = (CUBRIDConnectionPoolDataSource) ctx.lookup(dsName);
+                } catch (NamingException e) {
+                    throw new CUBRIDException(CUBRIDJDBCErrorCode.unknown, e.toString(), e);
+                }
 
-				poolDataSourceTable.put(dsName, cpds);
-			}
-		}
+                poolDataSourceTable.put(dsName, cpds);
+            }
+        }
 
-		return cpds;
-	}
+        return cpds;
+    }
 
-	static private CUBRIDConnectionEventListener addConnectionPool(String key,
-			CUBRIDConnectionPoolDataSource pds) {
-		CUBRIDConnectionEventListener cp = new CUBRIDConnectionEventListener(pds);
-		connectionPooltable.put(key, cp);
-		return cp;
-	}
+    private static CUBRIDConnectionEventListener addConnectionPool(
+            String key, CUBRIDConnectionPoolDataSource pds) {
+        CUBRIDConnectionEventListener cp = new CUBRIDConnectionEventListener(pds);
+        connectionPooltable.put(key, cp);
+        return cp;
+    }
 }

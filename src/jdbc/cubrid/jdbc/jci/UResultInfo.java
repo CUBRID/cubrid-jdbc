@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -30,61 +30,62 @@
  */
 
 /**
- * Title:        CUBRID Java Client Interface<p>
- * Description:  CUBRID Java Client Interface<p>
+ * Title: CUBRID Java Client Interface
+ *
+ * <p>Description: CUBRID Java Client Interface
+ *
+ * <p>
+ *
  * @version 2.0
  */
-
 package cubrid.jdbc.jci;
 
 import cubrid.sql.CUBRIDOID;
 
 public class UResultInfo {
-	byte statementType;
-	private int resultCount;
-	private boolean isResultSet; /* if result is resultset, true. otherwise false */
-	private CUBRIDOID oid;
-	private long srv_cache_time;
+    byte statementType;
+    private int resultCount;
+    private boolean isResultSet; /* if result is resultset, true. otherwise false */
+    private CUBRIDOID oid;
+    private long srv_cache_time;
 
-	UResultInfo(byte type, int count) {
-		statementType = type;
-		resultCount = count;
-		if (statementType == CUBRIDCommandType.CUBRID_STMT_SELECT
-				|| statementType == CUBRIDCommandType.CUBRID_STMT_CALL
-				|| statementType == CUBRIDCommandType.CUBRID_STMT_GET_STATS
-				|| statementType == CUBRIDCommandType.CUBRID_STMT_EVALUATE) {
-			isResultSet = true;
-		} else {
-			isResultSet = false;
-		}
-		oid = null;
-		srv_cache_time = 0L;
-	}
+    UResultInfo(byte type, int count) {
+        statementType = type;
+        resultCount = count;
+        if (statementType == CUBRIDCommandType.CUBRID_STMT_SELECT
+                || statementType == CUBRIDCommandType.CUBRID_STMT_CALL
+                || statementType == CUBRIDCommandType.CUBRID_STMT_GET_STATS
+                || statementType == CUBRIDCommandType.CUBRID_STMT_EVALUATE) {
+            isResultSet = true;
+        } else {
+            isResultSet = false;
+        }
+        oid = null;
+        srv_cache_time = 0L;
+    }
 
-	public int getResultCount() {
-		return resultCount;
-	}
+    public int getResultCount() {
+        return resultCount;
+    }
 
-	public boolean isResultSet() {
-		return isResultSet;
-	}
+    public boolean isResultSet() {
+        return isResultSet;
+    }
 
-	CUBRIDOID getCUBRIDOID() {
-		return oid;
-	}
+    CUBRIDOID getCUBRIDOID() {
+        return oid;
+    }
 
-	void setResultOid(CUBRIDOID o) {
-		if (statementType == CUBRIDCommandType.CUBRID_STMT_INSERT
-				&& resultCount == 1)
-			oid = o;
-	}
+    void setResultOid(CUBRIDOID o) {
+        if (statementType == CUBRIDCommandType.CUBRID_STMT_INSERT && resultCount == 1) oid = o;
+    }
 
-	void setSrvCacheTime(int sec, int usec) {
-		srv_cache_time = sec;
-		srv_cache_time = (srv_cache_time << 32) | usec;
-	}
+    void setSrvCacheTime(int sec, int usec) {
+        srv_cache_time = sec;
+        srv_cache_time = (srv_cache_time << 32) | usec;
+    }
 
-	long getSrvCacheTime() {
-		return srv_cache_time;
-	}
+    long getSrvCacheTime() {
+        return srv_cache_time;
+    }
 }

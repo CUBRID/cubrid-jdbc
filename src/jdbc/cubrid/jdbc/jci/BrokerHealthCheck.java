@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Search Solution Corporation. 
+ * Copyright (C) 2008 Search Solution Corporation.
  * Copyright (c) 2016 CUBRID Corporation.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -33,28 +33,27 @@ package cubrid.jdbc.jci;
 
 public class BrokerHealthCheck extends Thread {
 
-	private static final int BROKER_HEALTH_CHECK_TIMEOUT = 5000;
-	public static final int MONITORING_INTERVAL = 60000;
+    private static final int BROKER_HEALTH_CHECK_TIMEOUT = 5000;
+    public static final int MONITORING_INTERVAL = 60000;
 
-	public void run() {
-		long startTime, elapseTime;
-		UUnreachableHostList unreachableHosts = UUnreachableHostList
-				.getInstance();
+    public void run() {
+        long startTime, elapseTime;
+        UUnreachableHostList unreachableHosts = UUnreachableHostList.getInstance();
 
-		while (true) {
-			startTime = System.currentTimeMillis();
+        while (true) {
+            startTime = System.currentTimeMillis();
 
-			unreachableHosts.checkReachability(BROKER_HEALTH_CHECK_TIMEOUT);
-			
-			elapseTime = System.currentTimeMillis() - startTime;
+            unreachableHosts.checkReachability(BROKER_HEALTH_CHECK_TIMEOUT);
 
-			if (elapseTime < MONITORING_INTERVAL) {
-				try {
-					Thread.sleep(MONITORING_INTERVAL - elapseTime);
-				} catch (InterruptedException e) {
-					// do nothing
-				}
-			}
-		}
-	}
+            elapseTime = System.currentTimeMillis() - startTime;
+
+            if (elapseTime < MONITORING_INTERVAL) {
+                try {
+                    Thread.sleep(MONITORING_INTERVAL - elapseTime);
+                } catch (InterruptedException e) {
+                    // do nothing
+                }
+            }
+        }
+    }
 }

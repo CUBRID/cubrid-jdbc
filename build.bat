@@ -11,9 +11,11 @@ rem - jdk 1.6 or higher
 rem - build tools (ant)
 
 set CUR_PATH=%cd%
+set GIT_FILE=C:\Program Files\Git\bin\git.exe
 set JAVA_FILE=%JAVA_HOME%\bin\java.exe
 set ANT_FILE=%ANT_HOME%\bin\ant
 set VERSION_FILE=VERSION
+set SERIAL_START_DATE=2021-03-26
 
 if "%*" == "clean" GOTO :CHECK_ENV
 if "%*" == "" GOTO :CHECK_ENV
@@ -25,6 +27,15 @@ GOTO :SHOW_USAGE
 
 :CHECK_ENV
 echo Checking for requirements...
+call :FINDEXEC git.exe GIT_FILE "%GIT_FILE%"
+
+if EXIST "%CUR_PATH%\.git" (
+  for /f "delims=" %%i in ('"%GIT_FILE%" rev-list --after %SERIAL_START_DATE% --count HEAD') do set SERIAL_NUMBER=0000%%i
+) else (
+  set SERIAL_NUMBER=0000
+)
+set SERIAL_NUMBER=%SERIAL_NUMBER:~-4%
+
 call :FINDEXEC java.exe JAVA_FILE "%JAVA_FILE%"
 if "%JAVA_HOME%" == "" (
   echo "[ERROR] set environment variable is required. (JAVA_HOME)"
@@ -47,20 +58,21 @@ if "%ANT_PATH%" == "" (
 ) else (
   set ANT=%ANT_PATH%
 )
+GOTO :BUILD
 
 :BUILD
 for /f "delims=" %%i in (%CUR_PATH%\%VERSION_FILE%) do set VERSION=%%i
-
+set VERSION=%VERSION%.%SERIAL_NUMBER%
 echo "VERSION = %VERSION%
 if "%*" == "clean" (
-  %ANT_PATH% clean -buildfile ./build.xml
+  "%ANT_PATH%" clean -buildfile ./build.xml
 ) else (
   
   if NOT EXIST "%CUR_PATH%\\output" (
     mkdir output
   )
   copy VERSION output\CUBRID-JDBC-%VERSION%
-  %ANT_PATH% dist-cubrid -buildfile ./build.xml -Dbasedir=. -Dversion=%VERSION% -Dsrc=./src
+  "%ANT_PATH%" dist-cubrid -buildfile ./build.xml -Dbasedir=. -Dversion=%VERSION% -Dsrc=./src
   copy JDBC-%VERSION%-cubrid.jar cubrid_jdbc.jar /Y /V
 )
 GOTO :EOF
@@ -71,6 +83,7 @@ if NOT EXIST %3 for %%X in (%1) do set FOUNDINPATH=%%~$PATH:X
 if defined FOUNDINPATH set %2=%FOUNDINPATH:"=%
 if NOT defined FOUNDINPATH if NOT EXIST %3 echo Executable [%1] is not found & GOTO :EOF
 call echo Executable [%1] is found at [%%%2%%]
+set FOUNDINPATH=
 GOTO :EOF
 
 :SHOW_USAGE

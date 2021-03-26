@@ -54,6 +54,7 @@ elif [ $arg = "clean" ]; then
   check_env
   echo "[INFO] Clean Build"
   $ant_file clean -buildfile $cur_dir/build.xml
+  rm -fv cubrid_jdbc.jar
   exit 0
 elif [ $arg = "--help" -o  $arg = "-h" -o $arg = "-?" ]; then
   show_usage
@@ -80,4 +81,5 @@ if [ ! -d $cur_dir/output ]; then
 fi
 cp -rfv $cur_dir/VERSION $cur_dir/output/CUBRID-JDBC-$version
 $ant_file dist-cubrid -buildfile $cur_dir/build.xml -Dbasedir=. -Dversion=$version -Dsrc=./src
+ln -sf JDBC-$version-cubrid.jar cubrid_jdbc.jar
 

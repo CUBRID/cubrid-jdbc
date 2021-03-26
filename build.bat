@@ -61,6 +61,7 @@ if "%*" == "clean" (
   )
   copy VERSION output\CUBRID-JDBC-%VERSION%
   %ANT_PATH% dist-cubrid -buildfile ./build.xml -Dbasedir=. -Dversion=%VERSION% -Dsrc=./src
+  copy JDBC-%VERSION%-cubrid.jar cubrid_jdbc.jar /Y /V
 )
 GOTO :EOF
 

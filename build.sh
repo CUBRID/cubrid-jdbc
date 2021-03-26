@@ -13,6 +13,7 @@ arg=$@
 cur_dir=`pwd`
 ant_file=$(which ant)
 java_file=$(which java)
+serial_start_date=2021-03-26
 
 function show_usage ()
 {
@@ -30,6 +31,11 @@ function show_usage ()
 
 function check_env ()
 {
+  # check Git
+  echo "Checking for Git"
+  which_git=$(which git)
+  [ $? -eq 0 ] && echo "[INFO] Git File [$which_git"] || echo "[ERROR] Git not found"
+
   echo "Checking Environment Variables(JAVA) and build tools(ANT)"
 
   if [ "x$JAVA_HOME" != "x" -a "x$JAVA_HOME" != "x" ]; then
@@ -54,6 +60,7 @@ elif [ $arg = "clean" ]; then
   check_env
   echo "[INFO] Clean Build"
   $ant_file clean -buildfile $cur_dir/build.xml
+  rm -fv cubrid_jdbc.jar
   exit 0
 elif [ $arg = "--help" -o  $arg = "-h" -o $arg = "-?" ]; then
   show_usage
@@ -69,6 +76,8 @@ echo "[INFO] Checking VERSION"
 if [ -f $cur_dir/VERSION ]; then
   version_file=VERSION
   version=$(cat $cur_dir/$version_file)
+  serial_number=$(cd $cur_dir && $which_git rev-list --count --after $serial_start_date HEAD | awk '{ printf "%04d", $1 }' 2> /dev/null)
+  version=$version.$serial_number
 else 
   version="external"
 fi
@@ -80,4 +89,5 @@ if [ ! -d $cur_dir/output ]; then
 fi
 cp -rfv $cur_dir/VERSION $cur_dir/output/CUBRID-JDBC-$version
 $ant_file dist-cubrid -buildfile $cur_dir/build.xml -Dbasedir=. -Dversion=$version -Dsrc=./src
+ln -sf JDBC-$version-cubrid.jar cubrid_jdbc.jar
 

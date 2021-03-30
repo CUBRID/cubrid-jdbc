@@ -2,12 +2,12 @@
 <!DOCTYPE project>
 
 <project default="dist-cubrid" name="CUBRID JDBC Driver">
-    <property name="cubrid-jar-file" value="JDBC-${version}-cubrid.jar"/>
-    <property name="cubrid-src-jar-file" value="JDBC-${version}-cubrid-src.jar"/>
+    <property name="cubrid-jar-file" value="${basedir}/JDBC-${version}-cubrid.jar"/>
+    <property name="cubrid-src-jar-file" value="${basedir}/JDBC-${version}-cubrid-src.jar"/>
     <property name="output" value="${basedir}/output"/>
-    <property name="bin-cubrid" value="${basedir}/output/bin-cubrid"/>
-    <property name="src-cubrid" value="${basedir}/output/src-cubrid"/>
-    <property name="src" value="$basedir"/>
+    <property name="bin-cubrid" value="${output}/bin-cubrid"/>
+    <property name="src-cubrid" value="${output}/output/src-cubrid"/>
+    <property name="src" value="${basedir}/src/jdbc"/>
 
     <target name="init">
         <available property="jdk1.3+" classname="java.lang.StrictMath"/>

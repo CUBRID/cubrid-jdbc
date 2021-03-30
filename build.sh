@@ -10,10 +10,10 @@
 # - Build tool - ANT
 
 arg=$@
-cur_dir=`pwd`
+shell_dir="$( cd "$( dirname "$0" )" && pwd -P )"
 ant_file=$(which ant)
 java_file=$(which java)
-serial_start_date=2021-03-26
+serial_start_date=2021-03-30
 
 function show_usage ()
 {
@@ -59,8 +59,8 @@ if [ -z $arg ]; then
 elif [ $arg = "clean" ]; then
   check_env
   echo "[INFO] Clean Build"
-  $ant_file clean -buildfile $cur_dir/build.xml
-  rm -fv cubrid_jdbc.jar
+  $ant_file clean -buildfile $shell_dir/build.xml
+  rm -fv $shell_dir/cubrid_jdbc.jar
   exit 0
 elif [ $arg = "--help" -o  $arg = "-h" -o $arg = "-?" ]; then
   show_usage
@@ -73,10 +73,10 @@ fi
 
 # check version
 echo "[INFO] Checking VERSION"
-if [ -f $cur_dir/VERSION ]; then
+if [ -f $shell_dir/VERSION ]; then
   version_file=VERSION
-  version=$(cat $cur_dir/$version_file)
-  serial_number=$(cd $cur_dir && $which_git rev-list --count --after $serial_start_date HEAD | awk '{ printf "%04d", $1 }' 2> /dev/null)
+  version=$(cat $shell_dir/$version_file)
+  serial_number=$(cd $shell_dir && $which_git rev-list --count --after $serial_start_date HEAD | awk '{ printf "%04d", $1 }' 2> /dev/null)
   version=$version.$serial_number
 else 
   version="external"
@@ -84,10 +84,10 @@ fi
 
 echo "[INFO] VERSION = $version"
 
-if [ ! -d $cur_dir/output ]; then
-  mkdir -p $cur_dir/output
+if [ ! -d $shell_dir/output ]; then
+  mkdir -p $shell_dir/output
 fi
-cp -rfv $cur_dir/VERSION $cur_dir/output/CUBRID-JDBC-$version
-$ant_file dist-cubrid -buildfile $cur_dir/build.xml -Dbasedir=. -Dversion=$version -Dsrc=./src
-ln -sf JDBC-$version-cubrid.jar cubrid_jdbc.jar
+echo $version > $shell_dir/output/VERSION-DIST
+$ant_file dist-cubrid -buildfile $shell_dir/build.xml -Dbasedir=$shell_dir -Dversion=$version -Dsrc=$shell_dir/src
+ln -sf $shell_dir/JDBC-$version-cubrid.jar $shell_dir/cubrid_jdbc.jar
 

@@ -4,10 +4,10 @@
 <project default="dist-cubrid" name="CUBRID JDBC Driver">
     <property name="cubrid-jar-file" value="JDBC-${version}-cubrid.jar"/>
     <property name="cubrid-src-jar-file" value="JDBC-${version}-cubrid-src.jar"/>
-    <property name="output" value="./output"/>
-    <property name="bin-cubrid" value="./output/bin-cubrid"/>
-    <property name="src-cubrid" value="./output/src-cubrid"/>
-    <property name="src" value="."/>
+    <property name="output" value="${basedir}/output"/>
+    <property name="bin-cubrid" value="${basedir}/output/bin-cubrid"/>
+    <property name="src-cubrid" value="${basedir}/output/src-cubrid"/>
+    <property name="src" value="$basedir"/>
 
     <target name="init">
         <available property="jdk1.3+" classname="java.lang.StrictMath"/>
@@ -27,7 +27,7 @@
 
         <mkdir dir="src"/>
         <copy todir="src">
-            <fileset dir="${src}" excludes="**/.svn">
+            <fileset dir="${src}">
                 <include name="cubrid/**/*.java"/>
             </fileset>
         </copy>
@@ -35,7 +35,7 @@
 
     <target name="init-jdk6" depends="init" if="isUnderJDK6">
         <copy todir="src">
-            <fileset dir="${src}" excludes="**/.svn">
+            <fileset dir="${src}">
                 <include name="java/**/*.java"/>
                 <include name="javax/**/*.java"/>
             </fileset>
@@ -45,7 +45,7 @@
     <target name="clean">
         <delete failonerror="false" includeEmptyDirs="true">
             <fileset dir="${output}"/>
-            <fileset file="*.jar"/>
+            <fileset file="${basedir}/*.jar"/>
         </delete>
     </target>
 
@@ -53,7 +53,7 @@
         <jar jarfile="${cubrid-jar-file}">
             <fileset dir="${bin-cubrid}"/>
             <fileset file="${src}/sql-error-codes.xml"/>
-            <fileset file="${output}/CUBRID-JDBC-${version}"/>
+            <fileset file="${output}/VERSION-DIST"/>
             <service type="java.sql.Driver" provider="cubrid.jdbc.driver.CUBRIDDriver"/>
         </jar>
     </target>
@@ -71,7 +71,7 @@
     <target name="src-cubrid" depends="init-jdk6">
         <mkdir dir="${bin-cubrid}"/>
         <mkdir dir="${src-cubrid}"/>
-        <copy file="${output}/CUBRID-JDBC-${version}" tofile="${src-cubrid}/CUBRID-JDBC-${version}"/>
+        <copy file="${output}/VERSION-DIST" tofile="${src-cubrid}/VERSION-DIST"/>
         <copy todir="${src-cubrid}" filtering="true">
             <fileset dir="src">
                 <include name="**/*.java"/>

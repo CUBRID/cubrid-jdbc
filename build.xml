@@ -44,8 +44,12 @@
 
     <target name="clean">
         <delete failonerror="false" includeEmptyDirs="true">
+            <fileset dir="${bin-cubrid}"/>
+            <fileset dir="${src-cubrid}"/>
             <fileset dir="${output}"/>
-            <fileset file="${basedir}/*.jar"/>
+            <fileset file="${cubrid-jar-file}"/>
+            <fileset file="${cubrid-src-jar-file}"/>
+            <fileset file="*.jar"/>
         </delete>
     </target>
 

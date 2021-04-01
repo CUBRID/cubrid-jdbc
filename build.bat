@@ -10,12 +10,12 @@ rem Requirements
 rem - jdk 1.6 or higher
 rem - build tools (ant)
 
-set CUR_PATH=%cd%
+set SHELL_PATH=%~dp0
 set GIT_FILE=C:\Program Files\Git\bin\git.exe
 set JAVA_FILE=%JAVA_HOME%\bin\java.exe
 set ANT_FILE=%ANT_HOME%\bin\ant
 set VERSION_FILE=VERSION
-set SERIAL_START_DATE=2021-03-26
+set SERIAL_START_DATE=2021-03-30
 
 if "%*" == "clean" GOTO :CHECK_ENV
 if "%*" == "" GOTO :CHECK_ENV
@@ -29,8 +29,8 @@ GOTO :SHOW_USAGE
 echo Checking for requirements...
 call :FINDEXEC git.exe GIT_FILE "%GIT_FILE%"
 
-if EXIST "%CUR_PATH%\.git" (
-  for /f "delims=" %%i in ('"%GIT_FILE%" rev-list --after %SERIAL_START_DATE% --count HEAD') do set SERIAL_NUMBER=0000%%i
+if EXIST "%SHELL_PATH%.git" (
+  for /f "delims=" %%i in ('"%GIT_FILE%" -C %SHELL_PATH% rev-list --after %SERIAL_START_DATE% --count HEAD') do set SERIAL_NUMBER=0000%%i
 ) else (
   set SERIAL_NUMBER=0000
 )
@@ -61,19 +61,19 @@ if "%ANT_PATH%" == "" (
 GOTO :BUILD
 
 :BUILD
-for /f "delims=" %%i in (%CUR_PATH%\%VERSION_FILE%) do set VERSION=%%i
+for /f "delims=" %%i in (%SHELL_PATH%%VERSION_FILE%) do set VERSION=%%i
 set VERSION=%VERSION%.%SERIAL_NUMBER%
 echo "VERSION = %VERSION%
 if "%*" == "clean" (
-  "%ANT_PATH%" clean -buildfile ./build.xml
+  "%ANT_PATH%" clean -buildfile %SHELL_PATH%build.xml
 ) else (
   
-  if NOT EXIST "%CUR_PATH%\\output" (
-    mkdir output
+  if NOT EXIST "%SHELL_PATH%output" (
+    mkdir %SHELL_PATH%output
   )
-  copy VERSION output\CUBRID-JDBC-%VERSION%
-  "%ANT_PATH%" dist-cubrid -buildfile ./build.xml -Dbasedir=. -Dversion=%VERSION% -Dsrc=./src
-  copy JDBC-%VERSION%-cubrid.jar cubrid_jdbc.jar /Y /V
+  echo %VERSION% > %SHELL_PATH%output\VERSION-DIST
+  "%ANT_PATH%" dist-cubrid -buildfile %SHELL_PATH%build.xml -Dbasedir=%SHELL_PATH% -Dversion=%VERSION% -Dsrc=%SHELL_PATH%src
+  copy %SHELL_PATH%JDBC-%VERSION%-cubrid.jar %SHELL_PATH%cubrid_jdbc.jar /Y /V
 )
 GOTO :EOF
 

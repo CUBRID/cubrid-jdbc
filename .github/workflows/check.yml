@@ -74,18 +74,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+      - id: files
+        uses: jitterbit/get-changed-files@v1
+        continue-on-error: true
       - uses: axel-op/googlejavaformat-action@v3
         with:
           skipCommit: true
           args: "--aosp --replace --set-exit-if-changed"
-        continue-on-error: true
-      - id: files
-        uses: jitterbit/get-changed-files@v1
-        continue-on-error: true
+          files: ${{ steps.files.outputs.added_modified }}
       - name: Suggest code changes
         if: ${{ failure() }}
         uses: reviewdog/action-suggester@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tool_name: code-style (indent, googlejavaformat)

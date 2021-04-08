@@ -420,7 +420,9 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
                 } catch (Exception e) {
                     u_stmt.bind(parameterIndex - 1, x);
                 }
-                u_stmt.bind(parameterIndex - 1, new BigDecimal(n.toString()).setScale(scale));
+                if (n != null) {
+                    u_stmt.bind(parameterIndex - 1, new BigDecimal(n.toString()).setScale(scale));
+                }
             } else {
                 u_stmt.bind(parameterIndex - 1, x);
             }

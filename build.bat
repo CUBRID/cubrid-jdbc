@@ -71,7 +71,7 @@ if "%*" == "clean" (
   if NOT EXIST "%SHELL_PATH%output" (
     mkdir %SHELL_PATH%output
   )
-  echo %VERSION% > %SHELL_PATH%output\VERSION-DIST
+  echo %VERSION%> %SHELL_PATH%output\VERSION-DIST
   "%ANT_PATH%" dist-cubrid -buildfile %SHELL_PATH%build.xml -Dbasedir=%SHELL_PATH% -Dversion=%VERSION% -Dsrc=%SHELL_PATH%src
   copy %SHELL_PATH%JDBC-%VERSION%-cubrid.jar %SHELL_PATH%cubrid_jdbc.jar /Y /V
 )

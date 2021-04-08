@@ -412,8 +412,9 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
         checkIsOpen();
 
         synchronized (u_stmt) {
-            if (targetSqlType == java.sql.Types.NUMERIC
-                    || targetSqlType == java.sql.Types.DECIMAL) {
+            if (x != null
+                    && (targetSqlType == java.sql.Types.NUMERIC
+                            || targetSqlType == java.sql.Types.DECIMAL)) {
                 Number n = null;
                 try {
                     n = (Number) x;

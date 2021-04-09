@@ -33,7 +33,6 @@ jobs:
         run: |
           set +e # make this step proceed even if a command returns non-zero
           license_headers=.github/workflows/license_headers
-          license_headers=.github/workflows/license_headers
           result="PASS"
           for f in ${{ steps.files.outputs.added_modified }}; do
             if [ -d "$f" ]; then

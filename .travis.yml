@@ -1,0 +1,16 @@
+dist: trusty
+
+language: java
+jdk:
+  - oraclejdk8
+  - openjdk8
+
+addons:
+  apt:
+    packages:
+      - ant
+os:
+- linux
+
+script:
+  - ./build.sh

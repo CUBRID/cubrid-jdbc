@@ -88,6 +88,7 @@ if [ ! -d $shell_dir/output ]; then
   mkdir -p $shell_dir/output
 fi
 echo $version > $shell_dir/output/VERSION-DIST
+touch $shell_dir/output/CUBRID-JDBC-$version
 $ant_file dist-cubrid -buildfile $shell_dir/build.xml -Dbasedir=$shell_dir -Dversion=$version -Dsrc=$shell_dir/src
 ln -sf JDBC-$version-cubrid.jar $shell_dir/cubrid_jdbc.jar
 

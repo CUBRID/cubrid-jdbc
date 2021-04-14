@@ -7,7 +7,7 @@
     <property name="output" value="output"/>
     <property name="bin-cubrid" location="${output}/bin-cubrid"/>
     <property name="src-cubrid" location="${output}/src-cubrid"/>
-    <property name="src" value="${basedir}/src/jdbc"/>
+    <property name="src" value="${basedir}/src"/>
 
     <target name="init">
         <available property="jdk1.3+" classname="java.lang.StrictMath"/>
@@ -56,7 +56,7 @@
     <target name="dist-cubrid" depends="build-cubrid">
         <jar jarfile="${cubrid-jar-file}">
             <fileset dir="${bin-cubrid}"/>
-            <fileset file="${src}/sql-error-codes.xml"/>
+            <fileset file="${src}/jdbc/sql-error-codes.xml"/>
             <fileset file="${output}/CUBRID-JDBC-${version}"/>
             <service type="java.sql.Driver" provider="cubrid.jdbc.driver.CUBRIDDriver"/>
         </jar>

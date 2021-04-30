@@ -46,7 +46,7 @@
         <delete failonerror="false" includeEmptyDirs="true">
             <fileset dir="${bin-cubrid}"/>
             <fileset dir="${src-cubrid}"/>
-            <fileset dir="${output}"/>
+            <fileset dir="${output}" excludes="VERSION-DIST"/>
             <fileset file="${cubrid-jar-file}"/>
             <fileset file="${cubrid-src-jar-file}"/>
             <fileset file="*.jar"/>

@@ -73,13 +73,23 @@ fi
 
 # check version
 echo "[INFO] Checking VERSION"
+
 if [ -f $shell_dir/VERSION ]; then
   version_file=VERSION
-  version=$(cat $shell_dir/$version_file)
+elif [ -f $shell_dir/output/VERSION-DIST ]; then   
+  version_file=output/VERSION-DIST
+fi
+
+_version=$(cat $shell_dir/$version_file)
+serial_number=$(echo $_version | cut -d . -f 4)
+if [ "x$serial_number" != "x" ]; then
+  version=$_version
+elif [ -d $shell_dir/.git -o -d $shell_dir/../.git ]; then
   serial_number=$(cd $shell_dir && $which_git rev-list --count --after $serial_start_date HEAD | awk '{ printf "%04d", $1 }' 2> /dev/null)
-  version=$version.$serial_number
-else 
-  version="external"
+  version=$_version.$serial_number
+else
+  serial_number="external"
+  version=$_version.$serial_number
 fi
 
 echo "[INFO] VERSION = $version"

@@ -37,7 +37,9 @@ import cubrid.jdbc.jci.UConnection;
 import cubrid.jdbc.jci.UJCIManager;
 import cubrid.jdbc.jci.UJCIUtil;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.io.PrintStream;
 import java.sql.Connection;
 import java.sql.Driver;
@@ -86,6 +88,7 @@ public class CUBRIDDriver implements Driver {
             "jdbc:cubrid(-oracle|-mysql)?:([a-zA-Z_0-9\\.-]*):([0-9]*):([^:]+):([^:]*):([^:]*):(\\?[a-zA-Z_0-9]+=[^&=?]+(&[a-zA-Z_0-9]+=[^&=?]+)*)?";
     private static final String CUBRID_JDBC_URL_HEADER = "jdbc:cubrid";
     private static final String JDBC_DEFAULT_CONNECTION = "jdbc:default:connection";
+    private static final String ENV_JDBC_PROP_NAME = "CUBRID_JDBC_PROP";
 
     static {
         try {
@@ -123,6 +126,17 @@ public class CUBRIDDriver implements Driver {
      */
 
     public Connection connect(String url, Properties info) throws SQLException {
+        Connection conn = null;
+        String holdability = null;
+        String dummy = null;
+        String host = null;
+        String portString = null;
+        String db = null;
+        String user = null;
+        String pass = null;
+        String prop = null;
+        int port = default_port;
+
         if (!acceptsURL(url)) {
             return null;
         }
@@ -142,14 +156,10 @@ public class CUBRIDDriver implements Driver {
             throw new CUBRIDException(CUBRIDJDBCErrorCode.invalid_url, url, null);
         }
 
-        String dummy;
-        String host = matcher.group(2);
-        String portString = matcher.group(3);
-        String db = matcher.group(4);
-        String user;
-        String pass;
-        String prop = matcher.group(7);
-        int port = default_port;
+        host = matcher.group(2);
+        portString = matcher.group(3);
+        db = matcher.group(4);
+        prop = matcher.group(7);
 
         UClientSideConnection u_con;
         String resolvedUrl;
@@ -165,9 +175,6 @@ public class CUBRIDDriver implements Driver {
             port = Integer.parseInt(portString);
         }
 
-        connProperties = new ConnectionProperties();
-        connProperties.setProperties(prop);
-
         user = info.getProperty("user");
         if (user == null) {
             user = matcher.group(5);
@@ -178,11 +185,80 @@ public class CUBRIDDriver implements Driver {
             pass = matcher.group(6);
         }
 
+        String filePath = System.getenv(ENV_JDBC_PROP_NAME);
+
+        if (filePath != null) {
+            if (existPropertiesFile(filePath)) {
+                Properties temp_prop = new Properties();
+                FileInputStream in;
+                try {
+                    in = new FileInputStream(filePath);
+                    temp_prop.load(in);
+                    in.close();
+
+                    StringBuilder sbProp = new StringBuilder();
+                    String value = null;
+                    for (String key : temp_prop.stringPropertyNames()) {
+                        value = temp_prop.getProperty(key);
+                        if (sbProp.length() == 0) {
+                            sbProp.append("?");
+                        } else {
+                            sbProp.append("&");
+                        }
+                        sbProp.append(key + "=" + value);
+                    }
+
+                    if (sbProp == null || sbProp.length() <= 0) {
+                        throw new CUBRIDException(
+                                CUBRIDJDBCErrorCode.invalid_prop_file, filePath, null);
+                    }
+
+                    prop = sbProp.toString();
+                    url =
+                            "jdbc:cubrid:"
+                                    + host
+                                    + ":"
+                                    + port
+                                    + ":"
+                                    + db
+                                    + ":"
+                                    + user
+                                    + ":"
+                                    + pass
+                                    + ":"
+                                    + prop;
+
+                    Matcher propMatcher = pattern.matcher(url);
+                    if (!propMatcher.find()) {
+                        throw new CUBRIDException(
+                                CUBRIDJDBCErrorCode.invalid_prop_file, filePath, null);
+                    }
+
+                    String propMatch = propMatcher.group();
+                    if (!propMatch.equals(url)) {
+                        throw new CUBRIDException(
+                                CUBRIDJDBCErrorCode.invalid_prop_file, filePath, null);
+                    }
+
+                } catch (FileNotFoundException e) {
+                    throw new CUBRIDException(
+                            CUBRIDJDBCErrorCode.file_not_found_prop, filePath, null);
+                } catch (IOException e) {
+                    throw new CUBRIDException(
+                            CUBRIDJDBCErrorCode.invalid_prop_file, filePath, null);
+                }
+            } else {
+                throw new CUBRIDException(CUBRIDJDBCErrorCode.file_not_found_prop, filePath, null);
+            }
+        }
+
         resolvedUrl = "jdbc:cubrid:" + host + ":" + port + ":" + db + ":" + user + ":********:";
         if (prop != null) {
             resolvedUrl += prop;
         }
 
+        connProperties = new ConnectionProperties();
+        connProperties.setProperties(prop);
         connProperties.setProperties(info);
 
         dummy = connProperties.getAltHosts();
@@ -221,7 +297,12 @@ public class CUBRIDDriver implements Driver {
 
         u_con.setConnectionProperties(connProperties);
         u_con.tryConnect();
-        return new CUBRIDConnection(u_con, url, user);
+
+        conn = new CUBRIDConnection(u_con, url, user);
+        if (conn != null) {
+            conn.setHoldability(connProperties.getHoldCursor());
+        }
+        return conn;
     }
 
     public Connection defaultConnection() throws SQLException {
@@ -301,5 +382,10 @@ public class CUBRIDDriver implements Driver {
     /* JDK 1.7 */
     public Logger getParentLogger() {
         throw new java.lang.UnsupportedOperationException();
+    }
+
+    private boolean existPropertiesFile(String filePath) {
+        File file = new File(filePath);
+        return file.exists();
     }
 }

@@ -308,9 +308,10 @@ public class CUBRIDDriver implements Driver {
     public Connection defaultConnection() {
         try {
             if (UJCIUtil.isServerSide()) {
-                Thread t = Thread.currentThread();
                 Class<?> cl = Class.forName("com.cubrid.jsp.jdbc.CUBRIDServerSideConnection");
                 Connection c = (Connection) cl.getDeclaredConstructor().newInstance();
+
+                Thread t = Thread.currentThread();
                 UJCIUtil.invoke("com.cubrid.jsp.ExecuteThread", "setJdbcConnection",
                     new Class[] {Connection.class}, t, new Object[] {c});
                 

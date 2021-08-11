@@ -308,10 +308,14 @@ public class CUBRIDDriver implements Driver {
     public Connection defaultConnection() {
         try {
             if (UJCIUtil.isServerSide()) {
-                Class<?> cl = Class.forName("com.cubrid.jsp.jdbc.CUBRIDServerSideConnection");
-                Connection c = (Connection) cl.getDeclaredConstructor().newInstance();
-
+                //Class<?> cl = Class.forName("com.cubrid.jsp.jdbc.CUBRIDServerSideConnection");
+                //Connection c = (Connection) cl.getDeclaredConstructor().newInstance();
                 Thread t = Thread.currentThread();
+                Connection c = (Connection) UJCIUtil.invoke("com.cubrid.jsp.ExecuteThread", "createConnection",
+                    null, t, null);
+
+                System.out.println (c);
+                
                 UJCIUtil.invoke("com.cubrid.jsp.ExecuteThread", "setJdbcConnection",
                     new Class[] {Connection.class}, t, new Object[] {c});
                 
@@ -329,6 +333,10 @@ public class CUBRIDDriver implements Driver {
         } catch (Exception e) {
         }
         return null;
+    }
+
+    private void pritnln(Connection c) {
+        // TODO
     }
 
     public boolean acceptsURL(String url) throws SQLException {

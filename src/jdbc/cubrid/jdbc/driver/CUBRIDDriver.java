@@ -33,7 +33,6 @@ package cubrid.jdbc.driver;
 
 import cubrid.jdbc.jci.BrokerHealthCheck;
 import cubrid.jdbc.jci.UClientSideConnection;
-import cubrid.jdbc.jci.UConnection;
 import cubrid.jdbc.jci.UJCIManager;
 import cubrid.jdbc.jci.UJCIUtil;
 import java.io.File;
@@ -308,35 +307,20 @@ public class CUBRIDDriver implements Driver {
     public Connection defaultConnection() {
         try {
             if (UJCIUtil.isServerSide()) {
-                //Class<?> cl = Class.forName("com.cubrid.jsp.jdbc.CUBRIDServerSideConnection");
-                //Connection c = (Connection) cl.getDeclaredConstructor().newInstance();
                 Thread t = Thread.currentThread();
-                Connection c = (Connection) UJCIUtil.invoke("com.cubrid.jsp.ExecuteThread", "createConnection",
-                    null, t, null);
-
-                System.out.println (c);
-                
-                UJCIUtil.invoke("com.cubrid.jsp.ExecuteThread", "setJdbcConnection",
-                    new Class[] {Connection.class}, t, new Object[] {c});
-                
+                Connection c =
+                        (Connection)
+                                UJCIUtil.invoke(
+                                        "com.cubrid.jsp.ExecuteThread",
+                                        "createConnection",
+                                        null,
+                                        t,
+                                        null);
                 return c;
-                /*
-                UJCIUtil.invoke(
-                        "com.cubrid.jsp.ExecuteThread",
-                        "setJdbcConnection",
-                        new Class[] {Connection.class},
-                        t,
-                        new Object[] {con});
-                UJCIUtil.invoke("com.cubrid.jsp.ExecuteThread", "sendCall", null, t, null);
-                */
             }
         } catch (Exception e) {
         }
         return null;
-    }
-
-    private void pritnln(Connection c) {
-        // TODO
     }
 
     public boolean acceptsURL(String url) throws SQLException {

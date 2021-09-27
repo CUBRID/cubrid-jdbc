@@ -192,7 +192,14 @@ public class UServerSideConnection extends UConnection {
     protected void closeInternal() {
         if (client != null) {
             stmtHandlerCache.clearStatus();
-            int currentStatus = (Integer) UJCIUtil.invoke("com.cubrid.jsp.ExecuteThread", "getStatus", new Class[] {}, this.curThread, new Object[] {});
+            int currentStatus =
+                    (Integer)
+                            UJCIUtil.invoke(
+                                    "com.cubrid.jsp.ExecuteThread",
+                                    "getStatus",
+                                    new Class[] {},
+                                    this.curThread,
+                                    new Object[] {});
             if (currentStatus == CALL) {
                 disconnect();
                 UJCIUtil.invoke(
@@ -202,7 +209,7 @@ public class UServerSideConnection extends UConnection {
                         this.curThread,
                         new Object[] {INVOKE});
             }
-       }
+        }
     }
 
     @Override

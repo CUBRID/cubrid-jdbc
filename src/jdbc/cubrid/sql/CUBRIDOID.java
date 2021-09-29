@@ -36,294 +36,39 @@ package cubrid.sql;
  *
  * @version 2.0
  */
-import cubrid.jdbc.driver.CUBRIDConnection;
-import cubrid.jdbc.driver.CUBRIDException;
-import cubrid.jdbc.driver.CUBRIDJDBCErrorCode;
-import cubrid.jdbc.driver.CUBRIDResultSet;
-import cubrid.jdbc.jci.UConnection;
-import cubrid.jdbc.jci.UError;
-import cubrid.jdbc.jci.UErrorCode;
-import cubrid.jdbc.jci.UJCIUtil;
-import cubrid.jdbc.jci.UStatement;
+import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.util.NoSuchElementException;
-import java.util.StringTokenizer;
 
-public class CUBRIDOID {
-    private CUBRIDConnection cur_con;
-    private byte[] oid;
-    private boolean is_closed;
-    private UError error;
+public interface CUBRIDOID {
 
-    /*
-     * Just for Driver's uses. DO NOT create an object with this constructor!
-     */
-    public CUBRIDOID(CUBRIDConnection con, byte[] o) {
-        cur_con = con;
-        oid = o;
-        is_closed = false;
-    }
+    public ResultSet getValues(String attrNames[]) throws SQLException;
 
-    public CUBRIDOID(CUBRIDOID o) {
-        cur_con = o.cur_con;
-        oid = o.oid;
-        is_closed = false;
-    }
+    public void setValues(String[] attrNames, Object[] values) throws SQLException;
 
-    public synchronized ResultSet getValues(String attrNames[]) throws SQLException {
-        checkIsOpen();
+    public void remove() throws SQLException;
 
-        UStatement u_stmt = null;
-        UConnection u_con = cur_con.getUConnection();
-        synchronized (u_con) {
-            u_stmt = u_con.getByOID(this, attrNames);
-            error = u_con.getRecentError();
-        }
+    public boolean isInstance() throws SQLException;
 
-        checkError();
-        return new CUBRIDResultSet(u_stmt);
-    }
+    public void setReadLock() throws SQLException;
 
-    public synchronized void setValues(String[] attrNames, Object[] values) throws SQLException {
-        checkIsOpen();
+    public void setWriteLock() throws SQLException;
 
-        if (attrNames == null || values == null) {
-            throw new IllegalArgumentException();
-        }
+    public void addToSet(String attrName, Object value) throws SQLException;
 
-        if (attrNames.length != values.length) {
-            throw new IllegalArgumentException();
-        }
+    public void removeFromSet(String attrName, Object value) throws SQLException;
 
-        UConnection u_con = cur_con.getUConnection();
-        synchronized (u_con) {
-            u_con.putByOID(this, attrNames, values);
-            error = u_con.getRecentError();
-        }
+    public void addToSequence(String attrName, int index, Object value) throws SQLException;
 
-        checkError();
-    }
+    public void putIntoSequence(String attrName, int index, Object value) throws SQLException;
 
-    public synchronized void remove() throws SQLException {
-        checkIsOpen();
+    public void removeFromSequence(String attrName, int index) throws SQLException;
 
-        UConnection u_con = cur_con.getUConnection();
-        synchronized (u_con) {
-            u_con.oidCmd(this, UConnection.DROP_BY_OID);
-            error = u_con.getRecentError();
-        }
+    public String getOidString() throws SQLException;
 
-        checkError();
+    public String getTableName() throws SQLException;
 
-        if (u_con.getAutoCommit()) {
-            u_con.turnOnAutoCommitBySelf();
-        }
-    }
+    public byte[] getOID();
 
-    public synchronized boolean isInstance() throws SQLException {
-        checkIsOpen();
-
-        Object instance_obj;
-        UConnection u_con = cur_con.getUConnection();
-        synchronized (u_con) {
-            instance_obj = u_con.oidCmd(this, UConnection.IS_INSTANCE);
-            error = u_con.getRecentError();
-        }
-
-        checkError();
-        if (instance_obj == null) return false;
-        else return true;
-    }
-
-    public synchronized void setReadLock() throws SQLException {
-        checkIsOpen();
-
-        UConnection u_con = cur_con.getUConnection();
-        synchronized (u_con) {
-            u_con.oidCmd(this, UConnection.GET_READ_LOCK_BY_OID);
-            error = u_con.getRecentError();
-        }
-
-        checkError();
-    }
-
-    public synchronized void setWriteLock() throws SQLException {
-        checkIsOpen();
-
-        UConnection u_con = cur_con.getUConnection();
-        synchronized (u_con) {
-            u_con.oidCmd(this, UConnection.GET_WRITE_LOCK_BY_OID);
-            error = u_con.getRecentError();
-        }
-
-        checkError();
-    }
-
-    public synchronized void addToSet(String attrName, Object value) throws SQLException {
-        checkIsOpen();
-
-        if (attrName == null) {
-            throw new IllegalArgumentException();
-        }
-
-        UConnection u_con = cur_con.getUConnection();
-        synchronized (u_con) {
-            u_con.addElementToSet(this, attrName, value);
-            error = u_con.getRecentError();
-        }
-
-        checkError();
-    }
-
-    public synchronized void removeFromSet(String attrName, Object value) throws SQLException {
-        checkIsOpen();
-
-        if (attrName == null) {
-            throw new IllegalArgumentException();
-        }
-
-        UConnection u_con = cur_con.getUConnection();
-        synchronized (u_con) {
-            u_con.dropElementInSet(this, attrName, value);
-            error = u_con.getRecentError();
-        }
-
-        checkError();
-    }
-
-    public synchronized void addToSequence(String attrName, int index, Object value)
-            throws SQLException {
-        checkIsOpen();
-
-        if (attrName == null) {
-            throw new IllegalArgumentException();
-        }
-
-        UConnection u_con = cur_con.getUConnection();
-        synchronized (u_con) {
-            u_con.insertElementIntoSequence(this, attrName, index, value);
-            error = u_con.getRecentError();
-        }
-
-        checkError();
-    }
-
-    public synchronized void putIntoSequence(String attrName, int index, Object value)
-            throws SQLException {
-        checkIsOpen();
-
-        if (attrName == null) {
-            throw new IllegalArgumentException();
-        }
-
-        UConnection u_con = cur_con.getUConnection();
-        synchronized (u_con) {
-            u_con.putElementInSequence(this, attrName, index, value);
-            error = u_con.getRecentError();
-        }
-
-        checkError();
-    }
-
-    public synchronized void removeFromSequence(String attrName, int index) throws SQLException {
-        checkIsOpen();
-
-        if (attrName == null) {
-            throw new IllegalArgumentException();
-        }
-
-        UConnection u_con = cur_con.getUConnection();
-        synchronized (u_con) {
-            u_con.dropElementInSequence(this, attrName, index);
-            error = u_con.getRecentError();
-        }
-
-        checkError();
-    }
-
-    public synchronized String getOidString() throws SQLException {
-        checkIsOpen();
-
-        if (oid == null || oid.length != UConnection.OID_BYTE_SIZE) return "";
-
-        return ("@"
-                + UJCIUtil.bytes2int(oid, 0)
-                + "|"
-                + UJCIUtil.bytes2short(oid, 4)
-                + "|"
-                + UJCIUtil.bytes2short(oid, 6));
-    }
-
-    public byte[] getOID() {
-        return oid;
-    }
-
-    public synchronized String getTableName() throws SQLException {
-        checkIsOpen();
-
-        UConnection u_con = cur_con.getUConnection();
-        String tablename;
-        synchronized (u_con) {
-            tablename = (String) u_con.oidCmd(this, UConnection.GET_CLASS_NAME_BY_OID);
-        }
-        return tablename;
-    }
-
-    public static CUBRIDOID getNewInstance(CUBRIDConnection con, String oidStr)
-            throws SQLException {
-        if (con == null || oidStr == null) {
-            throw new IllegalArgumentException();
-        }
-        if (oidStr.charAt(0) != '@') throw new IllegalArgumentException();
-        StringTokenizer oidStringArray = new StringTokenizer(oidStr, "|");
-        try {
-            int page = Integer.parseInt(oidStringArray.nextToken().substring(1));
-            short slot = Short.parseShort(oidStringArray.nextToken());
-            short vol = Short.parseShort(oidStringArray.nextToken());
-
-            byte[] bOID = new byte[UConnection.OID_BYTE_SIZE];
-            bOID[0] = ((byte) ((page >>> 24) & 0xFF));
-            bOID[1] = ((byte) ((page >>> 16) & 0xFF));
-            bOID[2] = ((byte) ((page >>> 8) & 0xFF));
-            bOID[3] = ((byte) ((page >>> 0) & 0xFF));
-            bOID[4] = ((byte) ((slot >>> 8) & 0xFF));
-            bOID[5] = ((byte) ((slot >>> 0) & 0xFF));
-            bOID[6] = ((byte) ((vol >>> 8) & 0xFF));
-            bOID[7] = ((byte) ((vol >>> 0) & 0xFF));
-
-            return new CUBRIDOID(con, bOID);
-        } catch (NoSuchElementException e) {
-            throw new IllegalArgumentException();
-        }
-    }
-
-    private void close() throws SQLException {
-        if (is_closed) {
-            return;
-        }
-        is_closed = true;
-        cur_con = null;
-        oid = null;
-    }
-
-    private void checkIsOpen() throws SQLException {
-        if (is_closed) {
-            throw new CUBRIDException(CUBRIDJDBCErrorCode.oid_closed);
-        }
-    }
-
-    private void checkError() throws SQLException {
-        switch (error.getErrorCode()) {
-            case UErrorCode.ER_NO_ERROR:
-                break;
-            case UErrorCode.ER_IS_CLOSED:
-                close();
-                throw new CUBRIDException(CUBRIDJDBCErrorCode.oid_closed);
-            case UErrorCode.ER_INVALID_ARGUMENT:
-                throw new IllegalArgumentException();
-            default:
-                throw new CUBRIDException(error);
-        }
-    }
+    public Connection getConnection();
 }

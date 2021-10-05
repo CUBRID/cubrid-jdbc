@@ -46,7 +46,9 @@ import java.net.Socket;
 import java.util.List;
 
 public class UServerSideConnection extends UConnection {
+    /* defined in ExecuteThreadStatus.java */
     public static final int INVOKE = 2;
+    public static final int CALL = 3;
 
     private static final byte CAS_CLIENT_SERVER_SIDE_JDBC = 6;
 
@@ -190,13 +192,23 @@ public class UServerSideConnection extends UConnection {
     protected void closeInternal() {
         if (client != null) {
             stmtHandlerCache.clearStatus();
-            disconnect();
-            UJCIUtil.invoke(
-                    "com.cubrid.jsp.ExecuteThread",
-                    "setStatus",
-                    new Class[] {Integer.class},
-                    this.curThread,
-                    new Object[] {INVOKE});
+            int currentStatus =
+                    (Integer)
+                            UJCIUtil.invoke(
+                                    "com.cubrid.jsp.ExecuteThread",
+                                    "getStatus",
+                                    new Class[] {},
+                                    this.curThread,
+                                    new Object[] {});
+            if (currentStatus == CALL) {
+                disconnect();
+                UJCIUtil.invoke(
+                        "com.cubrid.jsp.ExecuteThread",
+                        "setStatus",
+                        new Class[] {Integer.class},
+                        this.curThread,
+                        new Object[] {INVOKE});
+            }
         }
     }
 

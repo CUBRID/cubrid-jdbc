@@ -200,7 +200,7 @@ public class UServerSideConnection extends UConnection {
                                     new Class[] {},
                                     this.curThread,
                                     new Object[] {});
-            if (currentStatus == CALL) {
+            if (currentStatus != INVOKE) {
                 disconnect();
                 UJCIUtil.invoke(
                         "com.cubrid.jsp.ExecuteThread",

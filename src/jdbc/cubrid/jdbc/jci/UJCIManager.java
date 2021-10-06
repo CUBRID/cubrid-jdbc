@@ -40,8 +40,6 @@
  */
 package cubrid.jdbc.jci;
 
-import java.net.Socket;
-import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Hashtable;
 
@@ -107,15 +105,6 @@ public abstract class UJCIManager {
         }
 
         return url_cache;
-    }
-
-    public static UConnection connectServerSide() throws SQLException {
-        Thread curThread = Thread.currentThread();
-        Socket s =
-                (Socket)
-                        UJCIUtil.invoke(
-                                "com.cubrid.jsp.ExecuteThread", "getSocket", null, curThread, null);
-        return new UServerSideConnection(s, curThread);
     }
 
     /*

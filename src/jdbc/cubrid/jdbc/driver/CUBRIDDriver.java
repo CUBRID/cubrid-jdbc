@@ -319,6 +319,7 @@ public class CUBRIDDriver implements Driver {
                 return c;
             }
         } catch (Exception e) {
+            /* do nothing. The exception will be dealt with in ExecuteThread */
         }
         return null;
     }

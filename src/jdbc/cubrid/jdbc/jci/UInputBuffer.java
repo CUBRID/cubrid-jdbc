@@ -46,6 +46,7 @@ import cubrid.jdbc.driver.CUBRIDClob;
 import cubrid.jdbc.driver.CUBRIDConnection;
 import cubrid.jdbc.driver.CUBRIDXid;
 import cubrid.sql.CUBRIDOID;
+import cubrid.sql.CUBRIDOIDImpl;
 import cubrid.sql.CUBRIDTimestamp;
 import cubrid.sql.CUBRIDTimestamptz;
 import java.io.IOException;
@@ -481,7 +482,7 @@ class UInputBuffer {
         byte[] oid = readBytes(UConnection.OID_BYTE_SIZE);
         for (int i = 0; i < oid.length; i++) {
             if (oid[i] != (byte) 0) {
-                return (new CUBRIDOID(con, oid));
+                return (new CUBRIDOIDImpl(con, oid));
             }
         }
         return null;

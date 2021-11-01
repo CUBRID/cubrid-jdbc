@@ -13,7 +13,8 @@ rem - build tools (ant)
 set SHELL_PATH=%~dp0
 set GIT_FILE=C:\Program Files\Git\bin\git.exe
 set JAVA_FILE=%JAVA_HOME%\bin\java.exe
-set ANT_FILE=%ANT_HOME%\bin\ant
+set FIND_ANT1=%ANT_HOME%\bin\ant
+set FIND_ANT2=%ANT%\bin\ant
 set VERSION_FILE=VERSION
 set SERIAL_START_DATE=2021-03-30
 
@@ -42,21 +43,20 @@ if "%JAVA_HOME%" == "" (
   GOTO :EOF 
 )
 
-call :FINDEXEC ant ANT_PATH "%ANT%"
+call :FINDEXEC ant ANT_PATH "%ANT_PATH%"
 if "%ANT_PATH%" == "" (
-  if "%ANT_HOME%" == "" (
-    echo "[ERROR] set environment variable is required. (ANT Or ANT_HOME)"
-    GOTO :EOF 
-  ) else (
-    call :FINDEXEC ant ANT_PATH "%ANT_FILE%"
- )
-)
-
-if "%ANT_PATH%" == "" (
-  echo "Please check ANT_HOME or ANT(execute file)"
-  GOTO :EOF 
-) else (
-  set ANT=%ANT_PATH%
+  call :FINDEXEC ant FIND_ANT1 "%FIND_ANT1%"
+  if "%FIND_ANT1%" == "\bin\ant" (
+    call :FINDEXEC ant FIND_ANT2 "%FIND_ANT2%"
+    if "%FIND_ANT2%" == "\bin\ant" (
+      echo "set environment variable is required. (ANT_HOME or ANT)"
+      GOTO :EOF 
+    ) else (
+      set ANT_PATH=%FIND_ANT2%
+		)
+	) else (
+		set ANT_PATH=%FIND_ANT1%
+	)
 )
 GOTO :BUILD
 

@@ -721,6 +721,8 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
         try {
             synchronized (con) {
                 synchronized (this) {
+                    String sql = "";
+
                     setShardId(UShardInfo.SHARD_ID_INVALID);
                     if (is_closed) return;
 
@@ -728,8 +730,13 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
                     is_closed = true;
 
                     if (u_stmt != null) {
+                        sql = u_stmt.getQuery();
                         u_stmt.close();
                         u_stmt = null;
+                    }
+
+                    if (u_con.isPrepStmtCache(sql)) {
+                        con.prepStmtCache.remove(sql);
                     }
 
                     con.removeStatement(this);

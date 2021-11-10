@@ -395,6 +395,15 @@ public class ConnectionProperties {
 
     BooleanConnectionProperty holdCursor = new BooleanConnectionProperty("hold_cursor", true);
 
+    BooleanConnectionProperty preparedStmtCache =
+            new BooleanConnectionProperty("preparedStmtCache", false);
+
+    IntegerConnectionProperty preparedStmtCacheSize =
+            new IntegerConnectionProperty("preparedStmtCacheSize", 25, 1, Integer.MAX_VALUE);
+
+    IntegerConnectionProperty preparedStmtCacheSqlLimit =
+            new IntegerConnectionProperty("preparedStmtCacheSqlLimit", 256, 1, Integer.MAX_VALUE);
+
     public boolean getLogOnException() {
         return logOnException.getValueAsBoolean();
     }
@@ -469,5 +478,17 @@ public class ConnectionProperties {
             holdability = ResultSet.CLOSE_CURSORS_AT_COMMIT;
         }
         return holdability;
+    }
+
+    public boolean getPrepStmtCache() {
+        return preparedStmtCache.getValueAsBoolean();
+    }
+
+    public int getPrepStmtCacheSize() {
+        return preparedStmtCacheSize.getValueAsInteger();
+    }
+
+    public int getPrepStmtCacheSqlLimit() {
+        return preparedStmtCacheSqlLimit.getValueAsInteger();
     }
 }

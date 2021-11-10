@@ -395,8 +395,8 @@ public class ConnectionProperties {
 
     BooleanConnectionProperty holdCursor = new BooleanConnectionProperty("hold_cursor", true);
 
-    BooleanConnectionProperty preparedStmtCache =
-            new BooleanConnectionProperty("preparedStmtCache", false);
+    BooleanConnectionProperty usePreparedStmtCache =
+            new BooleanConnectionProperty("usePreparedStmtCache", false);
 
     IntegerConnectionProperty preparedStmtCacheSize =
             new IntegerConnectionProperty("preparedStmtCacheSize", 25, 1, Integer.MAX_VALUE);
@@ -481,7 +481,7 @@ public class ConnectionProperties {
     }
 
     public boolean getPrepStmtCache() {
-        return preparedStmtCache.getValueAsBoolean();
+        return usePreparedStmtCache.getValueAsBoolean();
     }
 
     public int getPrepStmtCacheSize() {

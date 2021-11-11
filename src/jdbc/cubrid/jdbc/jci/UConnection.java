@@ -1490,6 +1490,27 @@ public abstract class UConnection {
         return connectionProperties.getClientCacheSize() * 1024 * 1024;
     }
 
+    public boolean getPrepStmtCache() {
+        return connectionProperties.getPrepStmtCache();
+    }
+
+    public int getPrepStmtCacheSize() {
+        return connectionProperties.getPrepStmtCacheSize();
+    }
+
+    public int getPrepStmtCacheSqlLimit() {
+        return connectionProperties.getPrepStmtCacheSqlLimit();
+    }
+
+    public boolean isPrepStmtCache(String sql) {
+        boolean isCacheable = false;
+        if (connectionProperties.getPrepStmtCache()
+                && sql.length() <= connectionProperties.getPrepStmtCacheSqlLimit()) {
+            isCacheable = true;
+        }
+        return isCacheable;
+    }
+
     public void setCasIp(String casIp) {
         this.casIp = casIp;
     }

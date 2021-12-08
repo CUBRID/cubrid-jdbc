@@ -38,23 +38,22 @@ import java.sql.SQLException;
 public class CUBRIDOutResultSet extends CUBRIDResultSet {
     private boolean created;
 
-    private int srv_handle;
+    private long queryId;
 
     private UConnection ucon;
 
-    public CUBRIDOutResultSet(UConnection ucon, int srv_handle_id) {
+    public CUBRIDOutResultSet(UConnection ucon, long queryId) {
         super(null);
         created = false;
-        this.srv_handle = srv_handle_id;
+        this.queryId = queryId;
         this.ucon = ucon;
         ucon.getCUBRIDConnection().addOutResultSet(this);
     }
 
     public void createInstance() throws Exception {
         if (created) return;
-        if (srv_handle <= 0) throw new IllegalArgumentException();
 
-        u_stmt = new UStatement(ucon, srv_handle);
+        u_stmt = new UStatement(ucon, queryId);
         column_info = u_stmt.getColumnInfo();
         col_name_to_index = u_stmt.getColumnNameToIndexMap();
         number_of_rows = u_stmt.getExecuteResult();

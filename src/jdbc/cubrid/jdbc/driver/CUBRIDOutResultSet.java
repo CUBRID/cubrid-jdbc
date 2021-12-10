@@ -38,14 +38,18 @@ import java.sql.SQLException;
 public class CUBRIDOutResultSet extends CUBRIDResultSet {
     private boolean created;
 
-    private long queryId;
+    /*
+    * if under PROTOCOL_V11) SRV_HANDLE id
+    * else) QUERY_ID
+    */
+    private long resultId;
 
     private UConnection ucon;
 
-    public CUBRIDOutResultSet(UConnection ucon, long queryId) {
+    public CUBRIDOutResultSet(UConnection ucon, long id) {
         super(null);
         created = false;
-        this.queryId = queryId;
+        this.resultId = id;
         this.ucon = ucon;
         ucon.getCUBRIDConnection().addOutResultSet(this);
     }
@@ -53,7 +57,7 @@ public class CUBRIDOutResultSet extends CUBRIDResultSet {
     public void createInstance() throws Exception {
         if (created) return;
 
-        u_stmt = new UStatement(ucon, queryId);
+        u_stmt = new UStatement(ucon, resultId);
         column_info = u_stmt.getColumnInfo();
         col_name_to_index = u_stmt.getColumnNameToIndexMap();
         number_of_rows = u_stmt.getExecuteResult();

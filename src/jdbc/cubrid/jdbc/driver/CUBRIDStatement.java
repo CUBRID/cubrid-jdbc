@@ -916,9 +916,7 @@ public class CUBRIDStatement implements Statement {
 
         if (u_stmt != null) {
             u_stmt.close();
-            if (!u_stmt.isReturnable()) {
-                u_stmt = null;
-            }
+            u_stmt = null;
         }
 
         result_info = null;

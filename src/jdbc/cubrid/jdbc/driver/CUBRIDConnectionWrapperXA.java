@@ -129,6 +129,7 @@ public class CUBRIDConnectionWrapperXA extends CUBRIDConnection {
         if (u != null) {
             u_con = u;
             u_con.setCUBRIDConnection(this);
+            u_con.setAutoCommit(auto_commit);
         }
     }
 
@@ -138,5 +139,6 @@ public class CUBRIDConnectionWrapperXA extends CUBRIDConnection {
         xa_started = false;
         if (u != null) u_con = u;
         auto_commit = true;
+        u_con.setAutoCommit(auto_commit);
     }
 }

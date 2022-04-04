@@ -284,9 +284,7 @@ public class CUBRIDResultSet implements ResultSet {
                         streams = null;
                         stmt = null;
                         u_stmt.closeResult();
-                        if (!u_stmt.isReturnable()) {
-                            u_stmt = null;
-                        }
+                        u_stmt = null;
                         column_info = null;
                         col_name_to_index = null;
                         error = null;
@@ -1815,13 +1813,9 @@ public class CUBRIDResultSet implements ResultSet {
     }
 
     public int getServerHandle() {
-        if (u_stmt == null || !u_stmt.isReturnable()) return 0;
+        if (u_stmt == null) return 0;
 
         return u_stmt.getServerHandle();
-    }
-
-    public void setReturnable() {
-        if (!is_closed) u_stmt.setReturnable();
     }
 
     /* JDK 1.6 */

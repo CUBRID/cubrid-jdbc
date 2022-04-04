@@ -121,7 +121,6 @@ public class UStatement {
     private UOutputBuffer outBuffer;
 
     private int schemaType;
-    private boolean isReturnable = false;
     private String sql_stmt;
     private byte prepare_flag;
     private UInputBuffer tmp_inbuffer;
@@ -292,7 +291,7 @@ public class UStatement {
          */
     }
 
-    public UStatement(UConnection u_con, int srv_handle) throws UJciException, IOException {
+    public UStatement(UConnection u_con, long id) throws UJciException, IOException {
         relatedConnection = u_con;
         outBuffer = u_con.outBuffer;
         statementType = NORMAL;
@@ -308,7 +307,11 @@ public class UStatement {
         UInputBuffer inBuffer;
         synchronized (u_con) {
             outBuffer.newRequest(UFunctionCode.MAKE_OUT_RS);
-            outBuffer.addInt(srv_handle);
+            if (UConnection.protoVersionIsLower(UConnection.PROTOCOL_V11)) {
+                outBuffer.addInt((int) id);
+            } else {
+                outBuffer.addLong(id);
+            }
             inBuffer = u_con.send_recv_msg();
         }
 
@@ -591,8 +594,7 @@ public class UStatement {
         }
 
         try {
-            if (!isReturnable
-                    && close_srv_handle
+            if (close_srv_handle
                     && (relatedConnection.getAutoCommit() == false
                             || relatedConnection.brokerInfoStatementPooling() == true
                             || ((prepare_flag & UConnection.PREPARE_HOLDABLE) != 0))) {
@@ -661,10 +663,6 @@ public class UStatement {
     }
 
     public synchronized void closeCursor() {
-        if (isReturnable) {
-            return;
-        }
-
         if (relatedConnection.isConnectedToCubrid() == false) {
             return;
         }
@@ -2285,7 +2283,11 @@ public class UStatement {
             case UUType.U_TYPE_VARBIT:
                 return inBuffer.readBytes(dataSize);
             case UUType.U_TYPE_RESULTSET:
-                return new CUBRIDOutResultSet(relatedConnection, inBuffer.readInt());
+                if (UConnection.protoVersionIsLower(UConnection.PROTOCOL_V11)) {
+                    return new CUBRIDOutResultSet(relatedConnection, (long) inBuffer.readInt());
+                } else {
+                    return new CUBRIDOutResultSet(relatedConnection, inBuffer.readLong());
+                }
             case UUType.U_TYPE_BLOB:
                 return inBuffer.readBlob(dataSize, relatedConnection.cubridcon);
             case UUType.U_TYPE_CLOB:
@@ -2422,14 +2424,6 @@ public class UStatement {
 
     public int getServerHandle() {
         return serverHandler;
-    }
-
-    public void setReturnable() {
-        isReturnable = true;
-    }
-
-    public boolean isReturnable() {
-        return isReturnable;
     }
 
     /*

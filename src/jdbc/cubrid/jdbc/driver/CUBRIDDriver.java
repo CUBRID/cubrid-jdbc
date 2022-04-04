@@ -33,7 +33,6 @@ package cubrid.jdbc.driver;
 
 import cubrid.jdbc.jci.BrokerHealthCheck;
 import cubrid.jdbc.jci.UClientSideConnection;
-import cubrid.jdbc.jci.UConnection;
 import cubrid.jdbc.jci.UJCIManager;
 import cubrid.jdbc.jci.UJCIUtil;
 import java.io.File;
@@ -305,36 +304,24 @@ public class CUBRIDDriver implements Driver {
         return conn;
     }
 
-    public Connection defaultConnection() throws SQLException {
-        if (UJCIUtil.isServerSide()) {
-            Thread t = Thread.currentThread();
-            Connection c =
-                    (Connection)
-                            UJCIUtil.invoke(
-                                    "com.cubrid.jsp.ExecuteThread",
-                                    "getJdbcConnection",
-                                    null,
-                                    t,
-                                    null);
-            if (c != null) {
-                UJCIUtil.invoke("com.cubrid.jsp.ExecuteThread", "sendCall", null, t, null);
+    public Connection defaultConnection() {
+        try {
+            if (UJCIUtil.isServerSide()) {
+                Thread t = Thread.currentThread();
+                Connection c =
+                        (Connection)
+                                UJCIUtil.invoke(
+                                        "com.cubrid.jsp.ExecuteThread",
+                                        "createConnection",
+                                        null,
+                                        t,
+                                        null);
                 return c;
             }
-
-            UConnection u_con = UJCIManager.connectServerSide();
-            CUBRIDConnection con =
-                    new CUBRIDConnectionDefault(u_con, "jdbc:default:connection:", "default");
-            UJCIUtil.invoke(
-                    "com.cubrid.jsp.ExecuteThread",
-                    "setJdbcConnection",
-                    new Class[] {Connection.class},
-                    t,
-                    new Object[] {con});
-            UJCIUtil.invoke("com.cubrid.jsp.ExecuteThread", "sendCall", null, t, null);
-            return con;
-        } else {
-            return null;
+        } catch (Exception e) {
+            /* do nothing. The exception will be dealt with in ExecuteThread */
         }
+        return null;
     }
 
     public boolean acceptsURL(String url) throws SQLException {

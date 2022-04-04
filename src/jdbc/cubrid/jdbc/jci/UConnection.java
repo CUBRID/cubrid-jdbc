@@ -99,8 +99,10 @@ public abstract class UConnection {
     public static final int PROTOCOL_V8 = 8;
     public static final int PROTOCOL_V9 = 9;
 
+    public static final int PROTOCOL_V11 = 11;
+
     /* Current protocol version */
-    protected static final byte CAS_PROTOCOL_VERSION = PROTOCOL_V9;
+    protected static final byte CAS_PROTOCOL_VERSION = PROTOCOL_V11;
     protected static final byte CAS_PROTO_INDICATOR = 0x40;
     protected static final byte CAS_PROTO_VER_MASK = 0x3F;
     protected static final byte CAS_RENEWED_ERROR_CODE = (byte) 0x80;

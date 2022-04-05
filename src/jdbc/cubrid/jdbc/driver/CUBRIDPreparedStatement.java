@@ -726,7 +726,7 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
                     if (u_stmt != null) {
                         String sql = "";
                         sql = u_stmt.getQuery();
-                        if (u_con.isPrepStmtCache(sql)) {
+                        if (con.prepStmtCache.get(sql) != null) {
                             return;
                         }
                     }

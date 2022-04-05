@@ -41,7 +41,6 @@ execute_process(
 
 # getting around awk is not supported on windows
 string(CONCAT EXTRA_VERSION "0000" ${EXTRA_VERSION})
-message("${EXTRA_VERSION}")
 string(REGEX MATCHALL "([0-9][0-9][0-9][0-9]$)" VERSION_MATCHES ${EXTRA_VERSION})
   list(GET VERSION_MATCHES 0 EXTRA_VERSION)
 endif (UNIX)

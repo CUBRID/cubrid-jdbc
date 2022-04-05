@@ -58,12 +58,6 @@ add_custom_command(TARGET jdbc_build
 )
 
 # generate cubrid_jdbc.jar
-if(UNIX)
-  add_custom_command(TARGET jdbc_build POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E create_symlink ${CMAKE_CURRENT_SOURCE_DIR}/JDBC-${JDBC_VERSION}-cubrid.jar ${CMAKE_CURRENT_SOURCE_DIR}/cubrid_jdbc.jar
-  )
-else(UNIX)
-  add_custom_command(TARGET jdbc_build POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/JDBC-${JDBC_VERSION}-cubrid.jar ${CMAKE_CURRENT_SOURCE_DIR}/cubrid_jdbc.jar
-  )
-endif(UNIX)
+add_custom_command(TARGET jdbc_build POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -DCUBRID_JDBC_SOURCE_DIR=${CUBRID_JDBC_SOURCE_DIR} -DCUBRID_JDBC_OUTPUT_DIR=${CUBRID_JDBC_OUTPUT_DIR} -P ${CUBRID_JDBC_SOURCE_DIR}/cmake/gen_symlink.cmake
+)

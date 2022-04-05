@@ -705,6 +705,10 @@ public class CUBRIDConnection implements Connection {
         closeAllStatements();
         closeAllOutResultSet();
 
+        if (prepStmtCache != null) {
+            prepStmtCache.clear();
+        }
+
         if (mdata != null) {
             mdata.close();
             mdata = null;

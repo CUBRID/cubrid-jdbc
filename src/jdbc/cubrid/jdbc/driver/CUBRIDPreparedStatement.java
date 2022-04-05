@@ -721,22 +721,24 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
         try {
             synchronized (con) {
                 synchronized (this) {
-                    String sql = "";
-
                     setShardId(UShardInfo.SHARD_ID_INVALID);
+
+                    if (u_stmt != null) {
+                        String sql = "";
+                        sql = u_stmt.getQuery();
+                        if (u_con.isPrepStmtCache(sql)) {
+                            return;
+                        }
+                    }
+
                     if (is_closed) return;
 
                     complete();
                     is_closed = true;
 
                     if (u_stmt != null) {
-                        sql = u_stmt.getQuery();
                         u_stmt.close();
                         u_stmt = null;
-                    }
-
-                    if (u_con.isPrepStmtCache(sql)) {
-                        con.prepStmtCache.remove(sql);
                     }
 
                     con.removeStatement(this);

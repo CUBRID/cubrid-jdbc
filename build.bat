@@ -63,15 +63,15 @@ if "%*" == "clean" (
   
   SET CURRENT_PATH=%CD%
   
-  cd %OUTPUT_PATH%
+  cd %OUTPUT_PATH% >NUL
 
   "%CMAKE_PATH%" ..
-  if ERRORLEVEL 1 (echo FAILD. & GOTO :EOF) ELSE echo OK.
+  if ERRORLEVEL 1 (echo FAILED & GOTO :EOF) ELSE echo CMake CONFIGURE SUCCESSFUL
 
   "%CMAKE_PATH%" --build . --target jdbc_build
-  if ERRORLEVEL 1 (echo FAILD. & GOTO :EOF) ELSE echo OK.
+  if ERRORLEVEL 1 (echo FAILED & GOTO :EOF) ELSE echo CMake BUILD SUCCESSFUL
   
-  cd %CURRENT_PATH%
+  cd %CURRENT_PATH% >NUL
 )
 GOTO :EOF
 

@@ -55,7 +55,8 @@ GOTO :BUILD
 
 :BUILD
 if "%*" == "clean" (
-  rmdir %OUTPUT_PATH%
+  rmdir /Q /S %OUTPUT_PATH%
+  DEL /Q /F ".\*.jar"
 ) else (
   if NOT EXIST "%OUTPUT_PATH%" (
     mkdir %OUTPUT_PATH%

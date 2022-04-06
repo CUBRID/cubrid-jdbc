@@ -15,8 +15,6 @@
 #   limitations under the License.
 # 
 #
-find_package(Git)
-
 file(STRINGS ${CUBRID_JDBC_OUTPUT_DIR}/VERSION-DIST CUBRID_JDBC_VERSION)
 
 if(NOT CUBRID_JDBC_VERSION)

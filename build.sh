@@ -74,11 +74,10 @@ else
   exit 0
 fi
 
-echo "[INFO] VERSION = $version"
-
 if [ ! -d $output_dir ]; then
   mkdir -p $output_dir
 fi
 
-cd $output_dir
+cd $output_dir > /dev/null
 cmake .. && cmake --build . --target jdbc_build
+cd - > /dev/null

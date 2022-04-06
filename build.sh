@@ -11,9 +11,9 @@
 
 arg=$@
 shell_dir="$( cd "$( dirname "$0" )" && pwd -P )"
+output_dir=$shell_dir/output
 ant_file=$(which ant)
 java_file=$(which java)
-serial_start_date=2021-03-30
 
 function show_usage ()
 {
@@ -59,8 +59,11 @@ if [ -z $arg ]; then
 elif [ $arg = "clean" ]; then
   check_env
   echo "[INFO] Clean Build"
-  $ant_file clean -buildfile $shell_dir/build.xml
-  rm -fv $shell_dir/cubrid_jdbc.jar
+
+  if [ -d $output_dir ]; then
+    rm -rf $output_dir
+  fi
+  rm -fv $shell_dir/*.jar
   exit 0
 elif [ $arg = "--help" -o  $arg = "-h" -o $arg = "-?" ]; then
   show_usage
@@ -71,34 +74,10 @@ else
   exit 0
 fi
 
-# check version
-echo "[INFO] Checking VERSION"
-
-if [ -f $shell_dir/VERSION ]; then
-  version_file=VERSION
-elif [ -f $shell_dir/output/VERSION-DIST ]; then   
-  version_file=output/VERSION-DIST
+if [ ! -d $output_dir ]; then
+  mkdir -p $output_dir
 fi
 
-_version=$(cat $shell_dir/$version_file)
-serial_number=$(echo $_version | cut -d . -f 4)
-if [ "x$serial_number" != "x" ]; then
-  version=$_version
-elif [ -d $shell_dir/.git -o -d $shell_dir/../.git ]; then
-  serial_number=$(cd $shell_dir && $which_git rev-list --count --after $serial_start_date HEAD | awk '{ printf "%04d", $1 }' 2> /dev/null)
-  version=$_version.$serial_number
-else
-  serial_number="external"
-  version=$_version.$serial_number
-fi
-
-echo "[INFO] VERSION = $version"
-
-if [ ! -d $shell_dir/output ]; then
-  mkdir -p $shell_dir/output
-fi
-echo $version > $shell_dir/output/VERSION-DIST
-touch $shell_dir/output/CUBRID-JDBC-$version
-$ant_file dist-cubrid -buildfile $shell_dir/build.xml -Dbasedir=$shell_dir -Dversion=$version -Dsrc=$shell_dir/src
-ln -sf JDBC-$version-cubrid.jar $shell_dir/cubrid_jdbc.jar
-
+cd $output_dir > /dev/null
+cmake .. && cmake --build . --target jdbc_build
+cd - > /dev/null

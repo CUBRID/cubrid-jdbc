@@ -11,12 +11,12 @@ rem - jdk 1.6 or higher
 rem - build tools (ant)
 
 set SHELL_PATH=%~dp0
+set OUTPUT_PATH=%SHELL_PATH%\output
 set GIT_FILE=C:\Program Files\Git\bin\git.exe
 set JAVA_FILE=%JAVA_HOME%\bin\java.exe
 set FIND_ANT1=%ANT_HOME%\bin\ant
 set FIND_ANT2=%ANT%\bin\ant
-set VERSION_FILE=VERSION
-set SERIAL_START_DATE=2021-03-30
+set CMAKE_PATH=C:\Program Files\CMake\bin\cmake.exe
 
 if "%*" == "clean" GOTO :CHECK_ENV
 if "%*" == "" GOTO :CHECK_ENV
@@ -29,14 +29,7 @@ GOTO :SHOW_USAGE
 :CHECK_ENV
 echo Checking for requirements...
 call :FINDEXEC git.exe GIT_FILE "%GIT_FILE%"
-
-if EXIST "%SHELL_PATH%.git" (
-  for /f "delims=" %%i in ('"%GIT_FILE%" -C %SHELL_PATH% rev-list --after %SERIAL_START_DATE% --count HEAD') do set SERIAL_NUMBER=0000%%i
-) else (
-  set SERIAL_NUMBER=0000
-)
-set SERIAL_NUMBER=%SERIAL_NUMBER:~-4%
-
+call :FINDEXEC cmake.exe CMAKE_PATH "%CMAKE_PATH%"
 call :FINDEXEC java.exe JAVA_FILE "%JAVA_FILE%"
 if "%JAVA_HOME%" == "" (
   echo "[ERROR] set environment variable is required. (JAVA_HOME)"
@@ -61,20 +54,25 @@ if "%ANT_PATH%" == "" (
 GOTO :BUILD
 
 :BUILD
-for /f "delims=" %%i in (%SHELL_PATH%%VERSION_FILE%) do set VERSION=%%i
-set VERSION=%VERSION%.%SERIAL_NUMBER%
-echo "VERSION = %VERSION%
 if "%*" == "clean" (
-  "%ANT_PATH%" clean -buildfile %SHELL_PATH%build.xml
+  rmdir /Q /S %OUTPUT_PATH%
+  DEL /Q /F ".\*.jar"
 ) else (
-  
-  if NOT EXIST "%SHELL_PATH%output" (
-    mkdir %SHELL_PATH%output
+  if NOT EXIST "%OUTPUT_PATH%" (
+    mkdir %OUTPUT_PATH%
   )
-  echo %VERSION%> %SHELL_PATH%output\VERSION-DIST
-  echo.>"%SHELL_PATH%output\CUBRID-JDBC-%VERSION%"
-  "%ANT_PATH%" dist-cubrid -buildfile %SHELL_PATH%build.xml -Dbasedir=%SHELL_PATH% -Dversion=%VERSION% -Dsrc=%SHELL_PATH%src
-  copy %SHELL_PATH%JDBC-%VERSION%-cubrid.jar %SHELL_PATH%cubrid_jdbc.jar /Y /V
+  
+  SET CURRENT_PATH=%CD%
+  
+  cd %OUTPUT_PATH% >NUL
+
+  "%CMAKE_PATH%" ..
+  if ERRORLEVEL 1 (echo FAILED & GOTO :EOF) ELSE echo CMake CONFIGURE SUCCESSFUL
+
+  "%CMAKE_PATH%" --build . --target jdbc_build
+  if ERRORLEVEL 1 (echo FAILED & GOTO :EOF) ELSE echo CMake BUILD SUCCESSFUL
+  
+  cd %CURRENT_PATH% >NUL
 )
 GOTO :EOF
 

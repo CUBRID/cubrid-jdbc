@@ -23,6 +23,7 @@ if(NOT CUBRID_JDBC_VERSION)
     message(FATAL_ERROR "Could not find VERSION file")
 endif(NOT CUBRID_JDBC_VERSION)
 
+# TODO: it should be treated as input argument in the future
 set(CUBRID_JDBC_START_SERIAL_DATE "2021-03-30")
 
 if (UNIX)
@@ -51,6 +52,7 @@ endif(git_result)
 
 set(CUBRID_JDBC_RELEASE_VERSION ${CUBRID_JDBC_VERSION}.${EXTRA_VERSION})
 
+# write VERSION-DIST and CUBRID-JDBC-11.2.xxxx (for example) files
 file(WRITE ${CUBRID_JDBC_OUTPUT_DIR}/VERSION-DIST "${CUBRID_JDBC_RELEASE_VERSION}")
 
 if(CMAKE_VERSION VERSION_GREATER "3.1")

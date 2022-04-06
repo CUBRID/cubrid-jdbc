@@ -61,6 +61,8 @@ if "%*" == "clean" (
     mkdir %OUTPUT_PATH%
   )
   
+  SET CURRENT_PATH=%CD%
+  
   cd %OUTPUT_PATH%
 
   "%CMAKE_PATH%" ..
@@ -68,6 +70,8 @@ if "%*" == "clean" (
 
   "%CMAKE_PATH%" --build . --target jdbc_build
   if ERRORLEVEL 1 (echo FAILD. & GOTO :EOF) ELSE echo OK.
+  
+  cd %CURRENT_PATH%
 )
 GOTO :EOF
 

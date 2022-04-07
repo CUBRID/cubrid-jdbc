@@ -23,11 +23,13 @@ endif(NOT CUBRID_JDBC_VERSION)
 
 if(UNIX)
   execute_process(
-    COMMAND ${CMAKE_COMMAND} -E create_symlink ${CUBRID_JDBC_SOURCE_DIR}/JDBC-${CUBRID_JDBC_VERSION}-cubrid.jar ${CUBRID_JDBC_SOURCE_DIR}/cubrid_jdbc.jar
+    COMMAND ${CMAKE_COMMAND} -E create_symlink JDBC-${CUBRID_JDBC_VERSION}-cubrid.jar cubrid_jdbc.jar
+    WORKING_DIRECTORY ${CUBRID_JDBC_SOURCE_DIR}
   )
 else(UNIX)
   execute_process(
-    COMMAND ${CMAKE_COMMAND} -E copy ${CUBRID_JDBC_SOURCE_DIR}/JDBC-${CUBRID_JDBC_VERSION}-cubrid.jar ${CUBRID_JDBC_SOURCE_DIR}/cubrid_jdbc.jar
+    COMMAND ${CMAKE_COMMAND} -E copy JDBC-${CUBRID_JDBC_VERSION}-cubrid.jar cubrid_jdbc.jar
+    WORKING_DIRECTORY ${CUBRID_JDBC_SOURCE_DIR}
   )
 endif(UNIX)
 

@@ -47,10 +47,8 @@
         <delete failonerror="false" includeEmptyDirs="true">
             <fileset dir="${bin-cubrid}"/>
             <fileset dir="${src-cubrid}"/>
-            <fileset dir="${output}" excludes="VERSION-DIST"/>
             <fileset file="${cubrid-jar-file}"/>
             <fileset file="${cubrid-src-jar-file}"/>
-            <fileset file="*.jar"/>
         </delete>
     </target>
 
@@ -73,7 +71,7 @@
         </javac>
     </target>
 
-    <target name="src-cubrid" depends="init-jdk6">
+    <target name="src-cubrid" depends="clean,init-jdk6">
         <mkdir dir="${bin-cubrid}"/>
         <mkdir dir="${src-cubrid}"/>
         <copy file="${output}/CUBRID-JDBC-${version}" tofile="${src-cubrid}/CUBRID-JDBC-${version}"/>

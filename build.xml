@@ -47,8 +47,9 @@
         <delete failonerror="false" includeEmptyDirs="true">
             <fileset dir="${bin-cubrid}"/>
             <fileset dir="${src-cubrid}"/>
-            <fileset file="${cubrid-jar-file}"/>
-            <fileset file="${cubrid-src-jar-file}"/>
+            <fileset dir="${basedir}">
+                <include name="*.jar"/>
+            </fileset>
         </delete>
     </target>
 

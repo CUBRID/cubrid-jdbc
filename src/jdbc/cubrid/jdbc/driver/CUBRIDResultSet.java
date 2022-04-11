@@ -302,7 +302,7 @@ public class CUBRIDResultSet implements ResultSet {
     }
 
     @Deprecated
-    public void setReturnable () {
+    public void setReturnable() {
         // do nothing
         // This is for compatibility with versions prior to 11.2.
     }

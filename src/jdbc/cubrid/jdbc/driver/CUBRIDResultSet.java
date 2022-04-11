@@ -301,6 +301,12 @@ public class CUBRIDResultSet implements ResultSet {
         return was_null;
     }
 
+    @Deprecated
+    public void setReturnable() {
+        // do nothing
+        // This is for compatibility with versions prior to 11.2.
+    }
+
     public synchronized String getString(int columnIndex) throws SQLException {
         checkIsOpen();
         beforeGetValue(columnIndex);

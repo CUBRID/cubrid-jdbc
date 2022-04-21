@@ -39,9 +39,9 @@ public class CUBRIDOutResultSet extends CUBRIDResultSet {
     private boolean created;
 
     /*
-    * if under PROTOCOL_V11) SRV_HANDLE id
-    * else) QUERY_ID
-    */
+     * if under PROTOCOL_V11) SRV_HANDLE id
+     * else) QUERY_ID
+     */
     private long resultId;
 
     private UConnection ucon;
@@ -57,7 +57,7 @@ public class CUBRIDOutResultSet extends CUBRIDResultSet {
     public void createInstance() throws Exception {
         if (created) return;
         if (resultId <= 0) {
-            throw new IllegalArgumentException ();
+            throw new IllegalArgumentException();
         }
 
         u_stmt = new UStatement(ucon, resultId);

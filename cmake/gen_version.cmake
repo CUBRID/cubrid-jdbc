@@ -54,9 +54,10 @@ else(EXISTS ${CUBRID_JDBC_OUTPUT_DIR}/VERSION-DIST AND NOT EXISTS ${CUBRID_JDBC_
     list(GET VERSION_MATCHES 0 EXTRA_VERSION)
     endif (UNIX)
 
-    if(git_result)
-        message(FATAL_ERROR "Could not get count information from Git")
-    endif(git_result)
+    if ("${EXTRA_VERSION}" STREQUAL "")
+       message(WARNING "Could not get count information from Git. So EXTRA_VERSION is 0000")
+       set(EXTRA_VERSION "0000")
+    endif ("${EXTRA_VERSION}" STREQUAL "")
 
     set(CUBRID_JDBC_RELEASE_VERSION ${CUBRID_JDBC_VERSION}.${EXTRA_VERSION})
 

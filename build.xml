@@ -6,6 +6,7 @@
     <property file="${output}/build.properties" />
     <property name="cubrid-jar-file" value="${basedir}/JDBC-${version}-cubrid.jar"/>
     <property name="cubrid-src-jar-file" value="${basedir}/JDBC-${version}-cubrid-src.jar"/>
+    <property name="temp-src" location="${output}/temp-src"/>
     <property name="bin-cubrid" location="${output}/bin-cubrid"/>
     <property name="src-cubrid" location="${output}/src-cubrid"/>
     <property name="src" value="${basedir}/src"/>
@@ -26,25 +27,26 @@
             <equals arg1="${ant.java.version}" arg2="1.6" />
         </condition>
 
-        <mkdir dir="src"/>
-        <copy todir="src">
+        <mkdir dir="${temp-src}"/>
+        <copy todir="${temp-src}">
             <fileset dir="${src}">
-                <include name="cubrid/**/*.java"/>
+                <include name="jdbc/cubrid/**/*.java"/>
             </fileset>
         </copy>
     </target>
 
     <target name="init-jdk6" depends="init" if="isUnderJDK6">
-        <copy todir="src">
+        <copy todir="${temp-src}">
             <fileset dir="${src}">
-                <include name="java/**/*.java"/>
-                <include name="javax/**/*.java"/>
+                <include name="jdbc/java/**/*.java"/>
+                <include name="jdbc/javax/**/*.java"/>
             </fileset>
         </copy>
     </target>
 
     <target name="clean">
         <delete failonerror="false" includeEmptyDirs="true">
+            <fileset dir="${temp-src}"/>
             <fileset dir="${bin-cubrid}"/>
             <fileset dir="${src-cubrid}"/>
             <fileset dir="${basedir}">
@@ -77,7 +79,7 @@
         <mkdir dir="${src-cubrid}"/>
         <copy file="${output}/CUBRID-JDBC-${version}" tofile="${src-cubrid}/CUBRID-JDBC-${version}"/>
         <copy todir="${src-cubrid}" filtering="true">
-            <fileset dir="src">
+            <fileset dir="${temp-src}">
                 <include name="**/*.java"/>
             </fileset>
             <filterset>

@@ -6,47 +6,15 @@
     <property file="${output}/build.properties" />
     <property name="cubrid-jar-file" value="${basedir}/JDBC-${version}-cubrid.jar"/>
     <property name="cubrid-src-jar-file" value="${basedir}/JDBC-${version}-cubrid-src.jar"/>
-    <property name="temp-src" location="${output}/temp-src"/>
     <property name="bin-cubrid" location="${output}/bin-cubrid"/>
     <property name="src-cubrid" location="${output}/src-cubrid"/>
     <property name="src" value="${basedir}/src"/>
 
     <target name="init">
-        <available property="jdk1.3+" classname="java.lang.StrictMath"/>
-        <available property="jdk1.4+" classname="java.lang.CharSequence"/>
-        <available property="jdk1.5+" classname="java.lang.Readable"/>
-        <available property="jdk1.6+" classname="java.sql.NClob"/>
-
-        <condition property="isUnderJDK6">
-            <not>
-                <equals arg1="${jdk1.6+}" arg2="true" />
-            </not>
-        </condition>
-
-        <condition property="isJDK6">
-            <equals arg1="${ant.java.version}" arg2="1.6" />
-        </condition>
-
-        <mkdir dir="${temp-src}"/>
-        <copy todir="${temp-src}">
-            <fileset dir="${src}">
-                <include name="jdbc/cubrid/**/*.java"/>
-            </fileset>
-        </copy>
-    </target>
-
-    <target name="init-jdk6" depends="init" if="isUnderJDK6">
-        <copy todir="${temp-src}">
-            <fileset dir="${src}">
-                <include name="jdbc/java/**/*.java"/>
-                <include name="jdbc/javax/**/*.java"/>
-            </fileset>
-        </copy>
     </target>
 
     <target name="clean">
         <delete failonerror="false" includeEmptyDirs="true">
-            <fileset dir="${temp-src}"/>
             <fileset dir="${bin-cubrid}"/>
             <fileset dir="${src-cubrid}"/>
             <fileset dir="${basedir}">
@@ -68,18 +36,18 @@
     </target>
 
     <target name="compile-cubrid" depends="src-cubrid">
-        <javac destdir="${bin-cubrid}" source="1.5" target="1.5" encoding="EUC-KR" debug="true" debuglevel="lines,source,vars" deprecation="off" includeantruntime="no">
+        <javac destdir="${bin-cubrid}" source="1.6" target="1.6" encoding="EUC-KR" debug="true" debuglevel="lines,source,vars" deprecation="off" includeantruntime="no">
             <src path="${src-cubrid}"/>
             <include name="**/*.java"/>
         </javac>
     </target>
 
-    <target name="src-cubrid" depends="clean,init-jdk6">
+    <target name="src-cubrid" depends="clean">
         <mkdir dir="${bin-cubrid}"/>
         <mkdir dir="${src-cubrid}"/>
         <copy file="${output}/CUBRID-JDBC-${version}" tofile="${src-cubrid}/CUBRID-JDBC-${version}"/>
         <copy todir="${src-cubrid}" filtering="true">
-            <fileset dir="${temp-src}">
+            <fileset dir="${src}/jdbc">
                 <include name="**/*.java"/>
             </fileset>
             <filterset>

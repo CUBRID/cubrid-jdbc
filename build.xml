@@ -2,7 +2,7 @@
 <!DOCTYPE project>
 
 <project default="dist-cubrid" name="CUBRID JDBC Driver">
-    <property name="output" value="output"/>
+    <property name="output" value="${basedir}/output"/>
     <property file="${output}/build.properties" />
     <property name="cubrid-jar-file" value="${basedir}/JDBC-${version}-cubrid.jar"/>
     <property name="cubrid-src-jar-file" value="${basedir}/JDBC-${version}-cubrid-src.jar"/>

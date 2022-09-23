@@ -2534,7 +2534,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
 
     public synchronized boolean supportsGetGeneratedKeys() throws SQLException {
         checkIsOpen();
-        return false;
+        return true;
     }
 
     public synchronized boolean supportsMultipleOpenResults() throws SQLException {

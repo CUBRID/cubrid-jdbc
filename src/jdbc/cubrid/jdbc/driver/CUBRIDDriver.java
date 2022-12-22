@@ -86,7 +86,6 @@ public class CUBRIDDriver implements Driver {
     private static final String URL_PATTERN =
             "jdbc:cubrid(-oracle|-mysql)?:([a-zA-Z_0-9\\.-]*):([0-9]*):([^:]+):([^:]*):([^:]*):(\\?[a-zA-Z_0-9]+=[^&=?]+(&[a-zA-Z_0-9]+=[^&=?]+)*)?";
     private static final String CUBRID_JDBC_URL_HEADER = "jdbc:cubrid";
-    private static final String JDBC_DEFAULT_CONNECTION = "jdbc:default:connection";
     private static final String ENV_JDBC_PROP_NAME = "CUBRID_JDBC_PROP";
 
     static {
@@ -138,10 +137,6 @@ public class CUBRIDDriver implements Driver {
 
         if (!acceptsURL(url)) {
             return null;
-        }
-
-        if (url.toLowerCase().startsWith(JDBC_DEFAULT_CONNECTION)) {
-            return defaultConnection();
         }
 
         Pattern pattern = Pattern.compile(URL_PATTERN, Pattern.CASE_INSENSITIVE);
@@ -304,26 +299,6 @@ public class CUBRIDDriver implements Driver {
         return conn;
     }
 
-    public Connection defaultConnection() {
-        try {
-            if (UJCIUtil.isServerSide()) {
-                Thread t = Thread.currentThread();
-                Connection c =
-                        (Connection)
-                                UJCIUtil.invoke(
-                                        "com.cubrid.jsp.ExecuteThread",
-                                        "createConnection",
-                                        null,
-                                        t,
-                                        null);
-                return c;
-            }
-        } catch (Exception e) {
-            /* do nothing. The exception will be dealt with in ExecuteThread */
-        }
-        return null;
-    }
-
     public boolean acceptsURL(String url) throws SQLException {
         if (url == null) {
             return false;
@@ -340,10 +315,6 @@ public class CUBRIDDriver implements Driver {
         }
 
         if (url.toLowerCase().startsWith(urlHeader)) {
-            return true;
-        }
-
-        if (url.toLowerCase().startsWith(JDBC_DEFAULT_CONNECTION)) {
             return true;
         }
 

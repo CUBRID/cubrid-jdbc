@@ -1513,6 +1513,10 @@ public abstract class UConnection {
         return isCacheable;
     }
 
+    public boolean getOracleStyleNumberReturn() {
+        return connectionProperties.getOracleStyleNumberReturn();
+    }
+
     public void setCasIp(String casIp) {
         this.casIp = casIp;
     }

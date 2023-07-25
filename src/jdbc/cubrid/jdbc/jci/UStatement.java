@@ -1576,7 +1576,11 @@ public class UStatement {
         if (obj == null) return null;
 
         try {
-            return (UGetTypeConvertedValue.getString(obj));
+            if (relatedConnection.getOracleStyleNumberReturn() && (obj instanceof BigDecimal)) {
+                return ((BigDecimal) obj).stripTrailingZeros().toPlainString();
+            } else {
+                return (UGetTypeConvertedValue.getString(obj));
+            }
         } catch (UJciException e) {
             e.toUError(errorHandler);
         }

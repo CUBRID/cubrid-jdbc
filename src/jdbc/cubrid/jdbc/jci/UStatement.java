@@ -1570,13 +1570,23 @@ public class UStatement {
     }
 
     public synchronized String getString(int index) {
+        String numString = null;
+
         errorHandler = new UError(relatedConnection);
 
         Object obj = beforeGetXXX(index);
         if (obj == null) return null;
 
         try {
-            return (UGetTypeConvertedValue.getString(obj));
+            if (relatedConnection.getOracleStyleNumberReturn() && (obj instanceof Double)) {
+                numString = obj.toString();
+                return new BigDecimal(numString).stripTrailingZeros().toPlainString();
+            } else if (relatedConnection.getOracleStyleNumberReturn() && (obj instanceof Float)) {
+                numString = obj.toString();
+                return new BigDecimal(numString).stripTrailingZeros().toPlainString();
+            } else {
+                return (UGetTypeConvertedValue.getString(obj));
+            }
         } catch (UJciException e) {
             e.toUError(errorHandler);
         }

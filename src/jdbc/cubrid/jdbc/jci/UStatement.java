@@ -1510,6 +1510,12 @@ public class UStatement {
                 } catch (Exception e) {
                     retValue = null;
                 }
+            } else if (relatedConnection.getOracleStyleNumberReturn() && (obj instanceof Double)) {
+                String numString = obj.toString();
+                retValue = new BigDecimal(numString).stripTrailingZeros().toPlainString();
+            } else if (relatedConnection.getOracleStyleNumberReturn() && (obj instanceof Float)) {
+                String numString = obj.toString();
+                retValue = new BigDecimal(numString).stripTrailingZeros().toPlainString();
             } else retValue = obj;
         } catch (UJciException e) {
             e.toUError(errorHandler);

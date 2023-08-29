@@ -404,9 +404,6 @@ public class ConnectionProperties {
     IntegerConnectionProperty preparedStmtCacheSqlLimit =
             new IntegerConnectionProperty("preparedStmtCacheSqlLimit", 256, 1, Integer.MAX_VALUE);
 
-    BooleanConnectionProperty oracleStyleNumberReturn =
-            new BooleanConnectionProperty("oracleStyleNumberReturn", false);
-
     public boolean getLogOnException() {
         return logOnException.getValueAsBoolean();
     }
@@ -493,9 +490,5 @@ public class ConnectionProperties {
 
     public int getPrepStmtCacheSqlLimit() {
         return preparedStmtCacheSqlLimit.getValueAsInteger();
-    }
-
-    public boolean getOracleStyleNumberReturn() {
-        return oracleStyleNumberReturn.getValueAsBoolean();
     }
 }

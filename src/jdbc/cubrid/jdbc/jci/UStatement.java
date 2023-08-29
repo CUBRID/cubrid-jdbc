@@ -1510,10 +1510,11 @@ public class UStatement {
                 } catch (Exception e) {
                     retValue = null;
                 }
-            } else if (relatedConnection.getOracleStyleNumberReturn() && (obj instanceof Double)) {
+            } else if (relatedConnection.isOracleCompatNumberBehavior()
+                    && (obj instanceof Double)) {
                 String numString = obj.toString();
                 retValue = new BigDecimal(numString).stripTrailingZeros().toPlainString();
-            } else if (relatedConnection.getOracleStyleNumberReturn() && (obj instanceof Float)) {
+            } else if (relatedConnection.isOracleCompatNumberBehavior() && (obj instanceof Float)) {
                 String numString = obj.toString();
                 retValue = new BigDecimal(numString).stripTrailingZeros().toPlainString();
             } else retValue = obj;
@@ -1584,10 +1585,10 @@ public class UStatement {
         if (obj == null) return null;
 
         try {
-            if (relatedConnection.getOracleStyleNumberReturn() && (obj instanceof Double)) {
+            if (relatedConnection.isOracleCompatNumberBehavior() && (obj instanceof Double)) {
                 numString = obj.toString();
                 return new BigDecimal(numString).stripTrailingZeros().toPlainString();
-            } else if (relatedConnection.getOracleStyleNumberReturn() && (obj instanceof Float)) {
+            } else if (relatedConnection.isOracleCompatNumberBehavior() && (obj instanceof Float)) {
                 numString = obj.toString();
                 return new BigDecimal(numString).stripTrailingZeros().toPlainString();
             } else {

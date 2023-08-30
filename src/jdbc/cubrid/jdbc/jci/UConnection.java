@@ -100,15 +100,18 @@ public abstract class UConnection {
     public static final int PROTOCOL_V9 = 9;
 
     public static final int PROTOCOL_V11 = 11;
+    public static final int PROTOCOL_V12 = 12;
 
     /* Current protocol version */
-    protected static final byte CAS_PROTOCOL_VERSION = PROTOCOL_V11;
+    protected static final byte CAS_PROTOCOL_VERSION = PROTOCOL_V12;
     protected static final byte CAS_PROTO_INDICATOR = 0x40;
     protected static final byte CAS_PROTO_VER_MASK = 0x3F;
     protected static final byte CAS_RENEWED_ERROR_CODE = (byte) 0x80;
     protected static final byte CAS_SUPPORT_HOLDABLE_RESULT = (byte) 0x40;
     /* Do not remove and rename CAS_RECONNECT_WHEN_SERVER_DOWN */
     protected static final byte CAS_RECONNECT_WHEN_SERVER_DOWN = (byte) 0x20;
+
+    protected static final byte CAS_ORACLE_COMPAT_NUMBER_BEHAVIOR = (byte) 0x01;
 
     @SuppressWarnings("unused")
     private static final byte GET_COLLECTION_VALUE = 1,
@@ -159,13 +162,13 @@ public abstract class UConnection {
     protected static final int BROKER_INFO_CCI_PCONNECT = 3;
     protected static final int BROKER_INFO_PROTO_VERSION = 4;
     protected static final int BROKER_INFO_FUNCTION_FLAG = 5;
-    protected static final int BROKER_INFO_RESERVED2 = 6;
+    protected static final int BROKER_INFO_SYSTEM_PARAM = 6;
     protected static final int BROKER_INFO_RESERVED3 = 7;
 
     /* For backward compatibility */
     protected static final int BROKER_INFO_MAJOR_VERSION = BROKER_INFO_PROTO_VERSION;
     protected static final int BROKER_INFO_MINOR_VERSION = BROKER_INFO_FUNCTION_FLAG;
-    protected static final int BROKER_INFO_PATCH_VERSION = BROKER_INFO_RESERVED2;
+    protected static final int BROKER_INFO_PATCH_VERSION = BROKER_INFO_SYSTEM_PARAM;
 
     public static final String ZERO_DATETIME_BEHAVIOR_CONVERT_TO_NULL = "convertToNull";
     public static final String ZERO_DATETIME_BEHAVIOR_EXCEPTION = "exception";
@@ -1513,10 +1516,6 @@ public abstract class UConnection {
         return isCacheable;
     }
 
-    public boolean getOracleStyleNumberReturn() {
-        return connectionProperties.getOracleStyleNumberReturn();
-    }
-
     public void setCasIp(String casIp) {
         this.casIp = casIp;
     }
@@ -1711,6 +1710,16 @@ public abstract class UConnection {
         }
 
         return false;
+    }
+
+    public boolean isOracleCompatNumberBehavior() {
+        if (protoVersionIsAbove(PROTOCOL_V12)) {
+            if (brokerInfo == null) return false;
+            return (brokerInfo[BROKER_INFO_SYSTEM_PARAM] & CAS_ORACLE_COMPAT_NUMBER_BEHAVIOR)
+                    == CAS_ORACLE_COMPAT_NUMBER_BEHAVIOR;
+        } else {
+            return false;
+        }
     }
 
     public void setCUBRIDConnection(CUBRIDConnection con) {

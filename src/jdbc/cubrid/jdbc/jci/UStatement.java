@@ -47,6 +47,7 @@ import cubrid.sql.CUBRIDOID;
 import cubrid.sql.CUBRIDTimestamptz;
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.math.MathContext;
 import java.sql.Blob;
 import java.sql.Clob;
 import java.sql.Date;
@@ -1512,11 +1513,15 @@ public class UStatement {
                 }
             } else if (relatedConnection.isOracleCompatNumberBehavior()
                     && (obj instanceof Double)) {
-                String numString = obj.toString();
-                retValue = new BigDecimal(numString).stripTrailingZeros().toPlainString();
+                retValue =
+                        new BigDecimal(((Number) obj).doubleValue(), MathContext.DECIMAL64)
+                                .stripTrailingZeros()
+                                .toPlainString();
             } else if (relatedConnection.isOracleCompatNumberBehavior() && (obj instanceof Float)) {
-                String numString = obj.toString();
-                retValue = new BigDecimal(numString).stripTrailingZeros().toPlainString();
+                retValue =
+                        new BigDecimal(((Number) obj).floatValue(), MathContext.DECIMAL32)
+                                .stripTrailingZeros()
+                                .toPlainString();
             } else retValue = obj;
         } catch (UJciException e) {
             e.toUError(errorHandler);
@@ -1586,11 +1591,13 @@ public class UStatement {
 
         try {
             if (relatedConnection.isOracleCompatNumberBehavior() && (obj instanceof Double)) {
-                numString = obj.toString();
-                return new BigDecimal(numString).stripTrailingZeros().toPlainString();
+                return new BigDecimal(((Number) obj).doubleValue(), MathContext.DECIMAL64)
+                        .stripTrailingZeros()
+                        .toPlainString();
             } else if (relatedConnection.isOracleCompatNumberBehavior() && (obj instanceof Float)) {
-                numString = obj.toString();
-                return new BigDecimal(numString).stripTrailingZeros().toPlainString();
+                return new BigDecimal(((Number) obj).floatValue(), MathContext.DECIMAL32)
+                        .stripTrailingZeros()
+                        .toPlainString();
             } else {
                 return (UGetTypeConvertedValue.getString(obj));
             }

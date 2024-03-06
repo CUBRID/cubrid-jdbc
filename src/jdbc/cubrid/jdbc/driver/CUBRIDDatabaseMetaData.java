@@ -1963,10 +1963,22 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
             "FLOAT",
             "DOUBLE",
             "VARCHAR",
+            "STRING",
             "DATE",
             "TIME",
             "TIMESTAMP",
-            "DATETIME"
+            "TIMESTAMPTZ",
+            "TIMESTAMPLTZ",
+            "DATETIME",
+            "DATETIMETZ",
+            "DATETIMELTZ",
+            "BLOB",
+            "CLOB",
+            "ENUM",
+            "MULTISET",
+            "SET",
+            "LIST",
+            "JSON"
         };
         /* Data Type */
         Object[] column2 = {
@@ -1986,10 +1998,22 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
             new Short((short) java.sql.Types.REAL),
             new Short((short) java.sql.Types.DOUBLE),
             new Short((short) java.sql.Types.VARCHAR),
+            new Short((short) java.sql.Types.VARCHAR),
             new Short((short) java.sql.Types.DATE),
             new Short((short) java.sql.Types.TIME),
             new Short((short) java.sql.Types.TIMESTAMP),
-            new Short((short) java.sql.Types.TIMESTAMP)
+            new Short((short) java.sql.Types.TIMESTAMP_WITH_TIMEZONE),
+            new Short((short) java.sql.Types.TIMESTAMP_WITH_TIMEZONE),
+            new Short((short) java.sql.Types.TIMESTAMP),
+            new Short((short) java.sql.Types.TIMESTAMP_WITH_TIMEZONE),
+            new Short((short) java.sql.Types.TIMESTAMP_WITH_TIMEZONE),
+            new Short((short) java.sql.Types.BLOB),
+            new Short((short) java.sql.Types.CLOB),
+            new Short((short) java.sql.Types.VARCHAR),
+            new Short((short) java.sql.Types.ARRAY),
+            new Short((short) java.sql.Types.ARRAY),
+            new Short((short) java.sql.Types.ARRAY),
+            new Short((short) java.sql.Types.VARCHAR)
         };
         /* Precision */
         Object[] column3 = {
@@ -2009,10 +2033,22 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
             new Integer(38),
             new Integer(38),
             new Integer(1073741823),
+            new Integer(1073741823),
             new Integer(10),
             new Integer(11),
             new Integer(22),
-            new Integer(26)
+            new Integer(29),
+            new Integer(29),
+            new Integer(26),
+            new Integer(33),
+            new Integer(33),
+            new Integer(1073741823),
+            new Integer(1073741823),
+            new Integer(1073741823),
+            new Integer(1073741823),
+            new Integer(1073741823),
+            new Integer(1073741823),
+            new Integer(1073741823)
         };
         /* Literal prefix */
         Object[] column4 = {
@@ -2032,20 +2068,36 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
             null,
             null,
             "'",
+            "'",
             "DATE'",
             "TIME'",
             "TIMESTAMP'",
-            "DATETIME'"
+            "TIMESTAMPTZ'",
+            "TIMESTAMPLTZ'",
+            "DATETIME'",
+            "DATETIMETZ'",
+            "DATETIMELTZ'",
+            null,
+            null,
+            "'",
+            "MULTISET",
+            "SET",
+            "LIST",
+            "'"
         };
         /* Literal Suffix */
         Object[] column5 = {
-            "'", null, null, "'", "'", "'", "'", "'", null, null, null, null, null, null, null, "'",
-            "'", "'", "'", "'"
+            "'", null, null, "'", "'", "'", "'", "'", null, null,
+            null, null, null, null, null, "'", "'", "'", "'", "'", 
+            "'", "'", "'", "'", "'", null, null, "'", null, null, 
+            null, "'"
         };
         /* Create Params */
         Object[] column6 = {
-            "(8)", "(3)", null, null, null, null, null, null, null, null, null, null, null, null,
-            null, null, null, null, null, null
+            "(8)", "(3)", null, null, null, null, null, null, null, null, 
+            null, null, null, null, null, null, null, null, null, null,
+            null, null, null, null, null, null, null, null, null, null,
+            null, null
         };
         /* Nullable */
         Object column7 = new Short((short) typeNullable);
@@ -2070,6 +2122,18 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
             new Boolean(false),
             new Boolean(false),
             new Boolean(false),
+            new Boolean(false),
+            new Boolean(false),
+            new Boolean(false),
+            new Boolean(false),
+            new Boolean(false),
+            new Boolean(false),
+            new Boolean(false),
+            new Boolean(false),
+            new Boolean(true),
+            new Boolean(true),
+            new Boolean(true),
+            new Boolean(true),
             new Boolean(false)
         };
         /* Searchable */
@@ -2090,6 +2154,18 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
             new Short((short) typePredBasic),
             new Short((short) typePredBasic),
             new Short((short) typeSearchable),
+            new Short((short) typeSearchable),
+            new Short((short) typePredBasic),
+            new Short((short) typePredBasic),
+            new Short((short) typePredBasic),
+            new Short((short) typePredBasic),
+            new Short((short) typePredBasic),
+            new Short((short) typePredBasic),
+            new Short((short) typePredBasic),
+            new Short((short) typePredBasic),
+            new Short((short) typePredBasic),
+            new Short((short) typePredBasic),
+            new Short((short) typePredBasic),
             new Short((short) typePredBasic),
             new Short((short) typePredBasic),
             new Short((short) typePredBasic),
@@ -2112,6 +2188,18 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
             new Boolean(false),
             new Boolean(false),
             new Boolean(false),
+            new Boolean(true),
+            new Boolean(true),
+            new Boolean(true),
+            new Boolean(true),
+            new Boolean(true),
+            new Boolean(true),
+            new Boolean(true),
+            new Boolean(true),
+            new Boolean(true),
+            new Boolean(true),
+            new Boolean(true),
+            new Boolean(true),
             new Boolean(true),
             new Boolean(true),
             new Boolean(true),
@@ -2139,6 +2227,18 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
             new Boolean(false),
             new Boolean(false),
             new Boolean(false),
+            new Boolean(false),
+            new Boolean(false),
+            new Boolean(false),
+            new Boolean(false),
+            new Boolean(false),
+            new Boolean(false),
+            new Boolean(false),
+            new Boolean(false),
+            new Boolean(false),
+            new Boolean(false),
+            new Boolean(false),
+            new Boolean(false),
             new Boolean(false)
         };
         /* AUTO_INCREMENT */
@@ -2147,6 +2247,18 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
         Object[] column13 = column1;
         /* MINIMUM_SCALE */
         Object[] column14 = {
+            new Integer(0),
+            new Integer(0),
+            new Integer(0),
+            new Integer(0),
+            new Integer(0),
+            new Integer(0),
+            new Integer(0),
+            new Integer(0),
+            new Integer(0),
+            new Integer(0),
+            new Integer(0),
+            new Integer(0),
             new Integer(0),
             new Integer(0),
             new Integer(0),
@@ -2189,6 +2301,18 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
             new Integer(0),
             new Integer(0),
             new Integer(0),
+            new Integer(0),
+            new Integer(0),
+            new Integer(0),
+            new Integer(0),
+            new Integer(0),
+            new Integer(0),
+            new Integer(0),
+            new Integer(0),
+            new Integer(0),
+            new Integer(0),
+            new Integer(0),
+            new Integer(0),
             new Integer(0)
         };
         /* SQL_DATA_TYPE */
@@ -2204,7 +2328,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
         value[15] = column16;
         value[16] = column17;
         value[17] = column18;
-        for (int i = 0; i < 18; i++) {
+        for (int i = 0; i < column1.length; i++) {
             value[0] = column1[i];
             value[1] = column2[i];
             value[2] = column3[i];

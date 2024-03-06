@@ -2087,17 +2087,14 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
         };
         /* Literal Suffix */
         Object[] column5 = {
-            "'", null, null, "'", "'", "'", "'", "'", null, null,
-            null, null, null, null, null, "'", "'", "'", "'", "'", 
-            "'", "'", "'", "'", "'", null, null, "'", null, null, 
-            null, "'"
+            "'", null, null, "'", "'", "'", "'", "'", null, null, null, null, null, null, null, "'",
+            "'", "'", "'", "'", "'", "'", "'", "'", "'", null, null, "'", null, null, null, "'"
         };
         /* Create Params */
         Object[] column6 = {
-            "(8)", "(3)", null, null, null, null, null, null, null, null, 
-            null, null, null, null, null, null, null, null, null, null,
-            null, null, null, null, null, null, null, null, null, null,
-            null, null
+            "(8)", "(3)", null, null, null, null, null, null, null, null, null, null, null, null,
+            null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+            null, null, null, null
         };
         /* Nullable */
         Object column7 = new Short((short) typeNullable);

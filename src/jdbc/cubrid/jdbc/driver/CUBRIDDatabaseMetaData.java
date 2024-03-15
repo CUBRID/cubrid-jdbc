@@ -2092,7 +2092,8 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
         /* Literal Suffix */
         Object[] column5 = {
             "'", null, null, "'", "'", "'", "'", "'", null, null, null, null, null, null, null, "'",
-            "'", "'", "'", "'", "'", "'", "'", "'", "'", null, null, "'", null, null, null, null, "'"
+            "'", "'", "'", "'", "'", "'", "'", "'", "'", null, null, "'", null, null, null, null,
+            "'"
         };
         /* Create Params */
         Object[] column6 = {

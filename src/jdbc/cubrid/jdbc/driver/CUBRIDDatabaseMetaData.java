@@ -1978,6 +1978,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
             "MULTISET",
             "SET",
             "LIST",
+            "SEQUENCE",
             "JSON"
         };
         /* Data Type */
@@ -2013,6 +2014,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
             new Short((short) java.sql.Types.ARRAY),
             new Short((short) java.sql.Types.ARRAY),
             new Short((short) java.sql.Types.ARRAY),
+            new Short((short) java.sql.Types.ARRAY),
             new Short((short) java.sql.Types.VARCHAR)
         };
         /* Precision */
@@ -2042,6 +2044,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
             new Integer(26),
             new Integer(26),
             new Integer(26),
+            new Integer(1073741823),
             new Integer(1073741823),
             new Integer(1073741823),
             new Integer(1073741823),
@@ -2083,18 +2086,20 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
             "MULTISET",
             "SET",
             "LIST",
+            "SEQUENCE",
             "'"
         };
         /* Literal Suffix */
         Object[] column5 = {
             "'", null, null, "'", "'", "'", "'", "'", null, null, null, null, null, null, null, "'",
-            "'", "'", "'", "'", "'", "'", "'", "'", "'", null, null, "'", null, null, null, "'"
+            "'", "'", "'", "'", "'", "'", "'", "'", "'", null, null, "'", null, null, null, null,
+            "'"
         };
         /* Create Params */
         Object[] column6 = {
             "(8)", "(3)", null, null, null, null, null, null, null, null, null, null, null, null,
             null, null, null, null, null, null, null, null, null, null, null, null, null, null,
-            null, null, null, null
+            null, null, null, null, null
         };
         /* Nullable */
         Object column7 = new Short((short) typeNullable);
@@ -2131,6 +2136,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
             new Boolean(true),
             new Boolean(true),
             new Boolean(true),
+            new Boolean(true),
             new Boolean(false)
         };
         /* Searchable */
@@ -2152,6 +2158,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
             new Short((short) typePredBasic),
             new Short((short) typeSearchable),
             new Short((short) typeSearchable),
+            new Short((short) typePredBasic),
             new Short((short) typePredBasic),
             new Short((short) typePredBasic),
             new Short((short) typePredBasic),
@@ -2201,6 +2208,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
             new Boolean(true),
             new Boolean(true),
             new Boolean(true),
+            new Boolean(true),
             new Boolean(true)
         };
         /* FIXED_PREC_SCALE */
@@ -2220,6 +2228,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
             new Boolean(true),
             new Boolean(true),
             new Boolean(true),
+            new Boolean(false),
             new Boolean(false),
             new Boolean(false),
             new Boolean(false),
@@ -2275,6 +2284,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
             new Integer(0),
             new Integer(0),
             new Integer(0),
+            new Integer(0),
             new Integer(0)
         };
         /* MAXIMUM_SCALE */
@@ -2294,6 +2304,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
             new Integer(38),
             new Integer(38),
             new Integer(38),
+            new Integer(0),
             new Integer(0),
             new Integer(0),
             new Integer(0),

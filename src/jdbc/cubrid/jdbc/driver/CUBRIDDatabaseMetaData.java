@@ -1698,7 +1698,6 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
         Object[] value = new Object[6];
 
         value[0] = null;
-        value[1] = null;
 
         int i = 0;
         while (true) {
@@ -1706,7 +1705,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
             if (us.getRecentError().getErrorCode() != UErrorCode.ER_NO_ERROR) break;
             us.fetch();
 
-            value[2] = us.getString(0);
+            extractSchemaAndTable(us.getString(0), value, 1, 2);
             value[3] = us.getString(1);
             value[4] = us.getInt(2);
             value[5] = us.getString(3);

@@ -892,7 +892,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
 
                 if (us.getInt(1) != 2) continue;
 
-                value[2] = us.getString(0);
+                extractSchemaAndTable(us.getString(0), value, 1, 2);
                 if (has_remarks == true) {
                     value[4] = us.getString(2);
                 }
@@ -918,7 +918,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
 
                 if (us.getInt(1) != 1) continue;
 
-                value[2] = us.getString(0);
+                extractSchemaAndTable(us.getString(0), value, 1, 2);
                 if (has_remarks == true) {
                     value[4] = us.getString(2);
                 }
@@ -1137,7 +1137,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
             }
 
             // type-independent decisions
-            value[2] = us.getString(10);
+            extractSchemaAndTable(us.getString(10), value, 1, 2);
             value[3] = us.getString(0);
             value[6] = value[15] = new Integer(us.getInt(3));
             value[8] = new Integer(us.getInt(2));
@@ -1307,8 +1307,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
         Object[] value = new Object[8];
 
         value[0] = null;
-        value[1] = null;
-        value[2] = table;
+        extractSchemaAndTable(table, value, 1, 2);
 
         int i = 0;
         while (true) {
@@ -1382,7 +1381,6 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
         Object[] value = new Object[7];
 
         value[0] = null;
-        value[1] = null;
 
         int i = 0;
         while (true) {
@@ -1390,7 +1388,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
             if (us.getRecentError().getErrorCode() != UErrorCode.ER_NO_ERROR) break;
             us.fetch();
 
-            value[2] = us.getString(0);
+            extractSchemaAndTable(us.getString(0), value, 1, 2);
             value[3] = null;
             value[4] = con.user;
             value[5] = us.getString(1);
@@ -1806,12 +1804,8 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
 
         /* 1. PKTABLE_CAT (String) */
         value[0] = null;
-        /* 2. PKTABLE_SCHEM (String) */
-        value[1] = null;
         /* 5. FKTABLE_CAT (String) */
         value[4] = null;
-        /* 6. FKTABLE_SCHEM (String) */
-        value[5] = null;
         /* 14. DEFERRABILITY (short) */
         value[13] = DatabaseMetaData.importedKeyInitiallyImmediate;
 
@@ -1823,14 +1817,16 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
             }
             us.fetch();
 
+            /* 2. PKTABLE_SCHEM (String) */
             /* 3. PKTABLE_NAME (String) */
-            value[2] = us.getString(0);
+            extractSchemaAndTable(us.getString(0), value, 1, 2);
 
             /* 4. PKCOLUMN_NAME (String) */
             value[3] = us.getString(1);
 
+            /* 6. FKTABLE_SCHEM (String) */
             /* 7. FKTABLE_NAME (String) */
-            value[6] = us.getString(2);
+            extractSchemaAndTable(us.getString(2), value, 5, 6);
 
             /* 8. FKCOLUMN_NAME (String) */
             value[7] = us.getString(3);
@@ -2419,8 +2415,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
 
         Object[] value = new Object[13];
         value[0] = null;
-        value[1] = null;
-        value[2] = table;
+        extractSchemaAndTable(table, value, 1, 2);
         value[4] = null;
 
         // tableIndexStatistic
@@ -2736,7 +2731,6 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
         Object[] value = new Object[4];
 
         value[0] = null;
-        value[1] = null;
 
         int i = 0;
         while (true) {
@@ -2744,8 +2738,15 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
             if (us.getRecentError().getErrorCode() != UErrorCode.ER_NO_ERROR) break;
             us.fetch();
 
-            value[2] = us.getString(0);
-            value[3] = us.getString(1);
+            extractSchemaAndTable(us.getString(0), value, 1, 2);
+            String superSchemaTable = us.getString(1);
+            int dotIndex = superSchemaTable.indexOf('.');
+            String superSchema = dotIndex != -1 ? superSchemaTable.substring(0, dotIndex) : null;
+            if (superSchema != null && superSchema.equals(value[1])) {
+                value[3] = superSchemaTable.substring(dotIndex + 1);
+            } else {
+                value[3] = superSchemaTable;
+            }
 
             rs.addTuple(value);
         }
@@ -2809,6 +2810,17 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
 
     private boolean containsWildcard(String s) {
         return (s != null && (s.indexOf('%') >= 0 || s.indexOf('_') >= 0));
+    }
+
+    private void extractSchemaAndTable(String schemaTableName, Object[] value, int schemaIndex, int tableIndex) {
+        int dotIndex = schemaTableName.indexOf('.');
+        if (dotIndex != -1) {
+            value[schemaIndex] = schemaTableName.substring(0, dotIndex);
+            value[tableIndex] = schemaTableName.substring(dotIndex + 1);
+        } else {
+            value[schemaIndex] = null;
+            value[tableIndex] = schemaTableName;
+        }
     }
 
     public synchronized void setShardId(int sid) throws SQLException {

@@ -2811,7 +2811,8 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
         return (s != null && (s.indexOf('%') >= 0 || s.indexOf('_') >= 0));
     }
 
-    private void extractSchemaAndTable(String schemaTableName, Object[] value, int schemaIndex, int tableIndex) {
+    private void extractSchemaAndTable(
+            String schemaTableName, Object[] value, int schemaIndex, int tableIndex) {
         int dotIndex = schemaTableName.indexOf('.');
         if (dotIndex != -1) {
             value[schemaIndex] = schemaTableName.substring(0, dotIndex);

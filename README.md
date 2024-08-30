@@ -12,8 +12,8 @@ Below You will see the brief list of sections to guide You to easily get started
 - CUBRID Official Site: http://www.cubrid.org ,  http://www.cubrid.com
 - CUBRID Development Site(Global): http://jira.cubrid.org
 - CUBRID Manuals: http://www.cubrid.org/manuals 
-- CUBRID JDBC Manuals (V11.0) : https://www.cubrid.org/manual/en/11.0/api/jdbc.html (Eng)
-  https://www.cubrid.org/manual/ko/11.0/api/jdbc.html (Kor)
+- CUBRID JDBC Manuals (V11.3) : https://www.cubrid.org/manual/en/11.3/api/jdbc.html (Eng)
+  https://www.cubrid.org/manual/ko/11.3/api/jdbc.html (Kor)
 
 ## DOWNLOADS and FILE REPOSITORIES
 - http://www.cubrid.org/downloads

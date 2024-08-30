@@ -2814,13 +2814,9 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
     private void extractSchemaAndTable(
             String schemaTableName, Object[] value, int schemaIndex, int tableIndex) {
         int dotIndex = schemaTableName.indexOf('.');
-        if (dotIndex != -1) {
-            value[schemaIndex] = schemaTableName.substring(0, dotIndex);
-            value[tableIndex] = schemaTableName.substring(dotIndex + 1);
-        } else {
-            value[schemaIndex] = null;
-            value[tableIndex] = schemaTableName;
-        }
+        value[schemaIndex] = dotIndex != -1 ? schemaTableName.substring(0, dotIndex) : null;
+        value[tableIndex] =
+                dotIndex != -1 ? schemaTableName.substring(dotIndex + 1) : schemaTableName;
     }
 
     public synchronized void setShardId(int sid) throws SQLException {

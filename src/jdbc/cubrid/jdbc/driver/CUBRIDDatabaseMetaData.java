@@ -2742,7 +2742,10 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
             int dotIndex = superSchemaTable.indexOf('.');
             if (dotIndex != -1) {
                 String superSchema = superSchemaTable.substring(0, dotIndex);
-                value[3] = superSchema.equals(value[1]) ? superSchemaTable.substring(dotIndex + 1) : superSchemaTable;
+                value[3] =
+                        superSchema.equals(value[1])
+                                ? superSchemaTable.substring(dotIndex + 1)
+                                : superSchemaTable;
             } else {
                 value[3] = superSchemaTable;
             }

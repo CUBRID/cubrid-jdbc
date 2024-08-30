@@ -6,7 +6,7 @@
 # Build and package script for CUBRID JDBC Driver
 # Requirements 
 # - Bash shell
-# - JDK 1.6 or higher
+# - JDK 1.8 or higher
 # - Build tool - ANT
 
 arg=$@

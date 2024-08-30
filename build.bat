@@ -7,7 +7,7 @@ REM
 rem build script for MS Windows.
 rem
 rem Requirements
-rem - jdk 1.6 or higher
+rem - jdk 1.8 or higher
 rem - build tools (ant)
 
 set SHELL_PATH=%~dp0

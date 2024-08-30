@@ -2740,9 +2740,9 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
             extractSchemaAndTable(us.getString(0), value, 1, 2);
             String superSchemaTable = us.getString(1);
             int dotIndex = superSchemaTable.indexOf('.');
-            String superSchema = dotIndex != -1 ? superSchemaTable.substring(0, dotIndex) : null;
-            if (superSchema != null && superSchema.equals(value[1])) {
-                value[3] = superSchemaTable.substring(dotIndex + 1);
+            if (dotIndex != -1) {
+                String superSchema = superSchemaTable.substring(0, dotIndex);
+                value[3] = superSchema.equals(value[1]) ? superSchemaTable.substring(dotIndex + 1) : superSchemaTable;
             } else {
                 value[3] = superSchemaTable;
             }

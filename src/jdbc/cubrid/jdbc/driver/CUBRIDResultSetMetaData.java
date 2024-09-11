@@ -51,6 +51,7 @@ public class CUBRIDResultSetMetaData implements ResultSetMetaData {
     private int[] col_prec;
     private int[] col_disp_size;
     private int[] col_scale;
+    private String[] col_schema;
     private String[] col_table;
     private int[] col_null;
     private String[] col_class_name;
@@ -66,6 +67,7 @@ public class CUBRIDResultSetMetaData implements ResultSetMetaData {
         col_prec = new int[col_info.length];
         col_disp_size = new int[col_info.length];
         col_scale = new int[col_info.length];
+        col_schema = new String[col_info.length];
         col_table = new String[col_info.length];
         col_null = new int[col_info.length];
         col_class_name = new String[col_info.length];
@@ -77,7 +79,10 @@ public class CUBRIDResultSetMetaData implements ResultSetMetaData {
             col_name[i] = col_info[i].getColumnName();
             col_prec[i] = col_info[i].getColumnPrecision();
             col_scale[i] = col_info[i].getColumnScale();
-            col_table[i] = col_info[i].getClassName();
+            String tableName = col_info[i].getClassName();
+            int dotIndex = tableName != null ? tableName.indexOf('.') : -1;
+            col_schema[i] = dotIndex != -1 ? tableName.substring(0, dotIndex) : "";
+            col_table[i] = dotIndex != -1 ? tableName.substring(dotIndex + 1) : tableName;
             col_type_name[i] = null;
             col_class_name[i] = col_info[i].getFQDN();
             if (col_info[i].isNullable()) col_null[i] = columnNullable;
@@ -452,6 +457,7 @@ public class CUBRIDResultSetMetaData implements ResultSetMetaData {
         col_prec = new int[col_name.length];
         col_disp_size = new int[col_name.length];
         col_scale = new int[col_name.length];
+        col_schema = new String[col_name.length];
         col_table = new String[col_name.length];
         col_null = new int[col_name.length];
         col_class_name = new String[col_name.length];
@@ -513,6 +519,7 @@ public class CUBRIDResultSetMetaData implements ResultSetMetaData {
             }
             col_scale[i] = 0;
             ele_type[i] = -1;
+            col_schema[i] = "";
             col_table[i] = "";
             col_charset_name[i] = null;
             if (r.nullable[i]) {
@@ -691,7 +698,7 @@ public class CUBRIDResultSetMetaData implements ResultSetMetaData {
 
     public String getSchemaName(int column) throws SQLException {
         checkColumnIndex(column);
-        return "";
+        return col_schema[column - 1];
     }
 
     public int getPrecision(int column) throws SQLException {

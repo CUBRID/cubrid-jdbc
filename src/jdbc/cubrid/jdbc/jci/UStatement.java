@@ -1511,17 +1511,6 @@ public class UStatement {
                 } catch (Exception e) {
                     retValue = null;
                 }
-            } else if (relatedConnection.isOracleCompatNumberBehavior()
-                    && (obj instanceof Double)) {
-                retValue =
-                        new BigDecimal(((Number) obj).doubleValue(), MathContext.DECIMAL64)
-                                .stripTrailingZeros()
-                                .toPlainString();
-            } else if (relatedConnection.isOracleCompatNumberBehavior() && (obj instanceof Float)) {
-                retValue =
-                        new BigDecimal(((Number) obj).floatValue(), MathContext.DECIMAL32)
-                                .stripTrailingZeros()
-                                .toPlainString();
             } else retValue = obj;
         } catch (UJciException e) {
             e.toUError(errorHandler);

@@ -6,8 +6,10 @@
     <property file="${output}/build.properties" />
     <property name="cubrid-jar-file" value="${basedir}/JDBC-${version}-cubrid.jar"/>
     <property name="cubrid-src-jar-file" value="${basedir}/JDBC-${version}-cubrid-src.jar"/>
+    <property name="cubrid-doc-jar-file" value="${basedir}/cubrid-jdbc-${version}-javadoc.jar"/>
     <property name="bin-cubrid" location="${output}/bin-cubrid"/>
     <property name="src-cubrid" location="${output}/src-cubrid"/>
+    <property name="doc-cubrid" location="${output}/doc-cubrid"/>
     <property name="src" value="${basedir}/src"/>
 
     <target name="init">
@@ -48,7 +50,20 @@
         </javac>
     </target>
 
-    <target name="dist-cubrid" depends="compile-cubrid">
+    <target name="doc-jar-cubrid" depends="compile-cubrid">
+        <mkdir dir="${doc-cubrid}"/>
+        <javadoc destdir="${doc-cubrid}" sourcepath="${src}/jdbc" author="true" version="true" encoding="EUC-KR" docencoding="EUC-KR" charset="EUC-KR">
+            <classpath>
+                <pathelement location="${bin-cubrid}"/>
+            </classpath>
+        </javadoc>
+
+        <jar destfile="${cubrid-doc-jar-file}">
+            <fileset dir="${doc-cubrid}"/>
+        </jar>
+    </target>
+
+    <target name="dist-cubrid" depends="doc-jar-cubrid">
         <jar jarfile="${cubrid-jar-file}">
             <fileset dir="${bin-cubrid}"/>
             <fileset file="${src}/jdbc/sql-error-codes.xml"/>

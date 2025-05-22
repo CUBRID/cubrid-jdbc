@@ -1,6 +1,6 @@
 pub   rsa4096/931BD893AC114412 2025-05-16 [SC]
       D1376F1BB366ED216AE32660931BD893AC114412
-uid                 [ultimate] Dongmin Kim <dmkim@cubrid.com>
+uid                 [ultimate] Dongmin Kim (cubrid jdbc gpg key) <dmkim@cubrid.com>
 sub   rsa4096/D62CFC4AACB6FD83 2025-05-16 [E]
 
 -----BEGIN PGP PUBLIC KEY BLOCK-----

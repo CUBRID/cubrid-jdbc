@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             http://maven.apache.org/maven-v4_0_0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>org.cubrid</groupId>
+  <artifactId>cubrid-jdbc</artifactId>
+  <version></version>
+  <packaging>jar</packaging>
+
+  <name>org.cubrid:cubrid-jdbc</name>
+  <description>JDBC for CUBRID Database</description>
+  <url>https://www.cubrid.org</url>
+
+  <licenses>
+    <license>
+      <name>The 3-Clause BSD License</name>
+      <url>https://opensource.org/license/BSD-3-Clause</url>
+    </license>
+  </licenses>
+
+  <developers>
+    <developer>
+      <name>CUBRID Developer Team</name>
+      <email>rnd@cubrid.com</email>
+      <organization>CUBRID</organization>
+      <organizationUrl>https://www.cubrid.org</organizationUrl>
+    </developer>
+  </developers>
+
+  <scm>
+    <connection>scm:git:git://github.com/CUBRID/cubrid-jdbc.git</connection>
+    <developerConnection>scm:git:ssh://github.com/CUBRID/cubrid-jdbc.git</developerConnection>
+    <url>https://github.com/CUBRID/cubrid-jdbc</url>
+  </scm>
+
+  <issueManagement>
+    <system>JIRA</system>
+    <url>http://jira.cubrid.org/projects/APIS/issues</url>
+  </issueManagement>
+</project>
+

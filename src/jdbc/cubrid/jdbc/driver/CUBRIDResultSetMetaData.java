@@ -36,6 +36,7 @@ import cubrid.jdbc.jci.UJCIUtil;
 import cubrid.jdbc.jci.UUType;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
+import java.util.Locale;
 
 /**
  * Title: CUBRID JDBC Driver Description:
@@ -81,7 +82,7 @@ public class CUBRIDResultSetMetaData implements ResultSetMetaData {
             col_scale[i] = col_info[i].getColumnScale();
             String tableName = col_info[i].getClassName();
             int dotIndex = tableName != null ? tableName.indexOf('.') : -1;
-            col_schema[i] = dotIndex != -1 ? tableName.substring(0, dotIndex) : "";
+            col_schema[i] = dotIndex != -1 ? tableName.substring(0, dotIndex).toUpperCase(Locale.ENGLISH) : "";
             col_table[i] = dotIndex != -1 ? tableName.substring(dotIndex + 1) : tableName;
             col_type_name[i] = null;
             col_class_name[i] = col_info[i].getFQDN();

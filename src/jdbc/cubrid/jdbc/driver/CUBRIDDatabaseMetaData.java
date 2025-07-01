@@ -44,6 +44,7 @@ import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.RowIdLifetime;
 import java.sql.SQLException;
+import java.util.Locale;
 import java.util.StringTokenizer;
 
 /**
@@ -2817,7 +2818,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
     private void extractSchemaAndTable(
             String schemaTableName, Object[] value, int schemaIndex, int tableIndex) {
         int dotIndex = schemaTableName.indexOf('.');
-        value[schemaIndex] = dotIndex != -1 ? schemaTableName.substring(0, dotIndex) : null;
+        value[schemaIndex] = dotIndex != -1 ? schemaTableName.substring(0, dotIndex).toUpperCase(Locale.ENGLISH) : null;
         value[tableIndex] =
                 dotIndex != -1 ? schemaTableName.substring(dotIndex + 1) : schemaTableName;
     }

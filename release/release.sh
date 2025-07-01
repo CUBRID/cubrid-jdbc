@@ -1,5 +1,32 @@
 #!/bin/bash
 
+# -----------------------------------------------------------------------------
+# CUBRID JDBC - Maven Central Release Script
+#
+# Purpose
+#   Builds the CUBRID JDBC driver and bundles all artifacts into a
+#   Maven-Central-ready ZIP with GPG signatures and checksums.
+#
+# Workflow
+#   1) Validate GPG key ID & passphrase (CLI args or env vars)
+#   2) Run build.sh → produce JARs & read version from VERSION-DIST
+#   3) Update <version> tag inside release.pom
+#   4) GPG-sign JAR/POM (ASCII armor) and create MD5/SHA1/256/512 digests
+#   5) Stage files in Maven directory layout: stage/org/cubrid/…
+#   6) Generate cubrid-jdbc-<ver>-release.zip
+#
+# Usage
+#   ./make-release.sh -k <GPG_FINGERPRINT> -s <PASSPHRASE>
+#   (or set GPG_KEY_ID and SIGN_PASSPHRASE environment variables)
+#
+# Prerequisites
+#   • bash 3.0+, zip, md5sum/sha*sum utilities, gpg 2.1+
+#   • Secret GPG key available locally; loopback pinentry recommended
+#
+# Output
+#   SCRIPT_DIR/cubrid-jdbc-<version>-release.zip
+# -----------------------------------------------------------------------------
+
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

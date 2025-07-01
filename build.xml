@@ -6,7 +6,7 @@
     <property file="${output}/build.properties" />
     <property name="cubrid-jar-file" value="${basedir}/cubrid-jdbc-${version}.jar"/>
     <property name="cubrid-src-jar-file" value="${basedir}/cubrid-jdbc-${version}-sources.jar"/>
-  <property name="cubrid-doc-jar-file" value="${basedir}/cubrid-jdbc-${version}-javadoc.jar"/>
+    <property name="cubrid-doc-jar-file" value="${basedir}/cubrid-jdbc-${version}-javadoc.jar"/>
 
     <property name="bin-cubrid" location="${output}/bin-cubrid"/>
     <property name="src-cubrid" location="${output}/src-cubrid"/>

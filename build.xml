@@ -46,14 +46,14 @@
     </target>
 
     <target name="compile-cubrid" depends="src-jar-cubrid">
-        <javac destdir="${bin-cubrid}" source="1.6" target="1.6" encoding="EUC-KR" debug="true" debuglevel="lines,source,vars" deprecation="off" includeantruntime="no">
+        <javac destdir="${bin-cubrid}" source="1.6" target="1.6" encoding="UTF-8" debug="true" debuglevel="lines,source,vars" deprecation="off" includeantruntime="no">
             <src path="${src-cubrid}"/>
         </javac>
     </target>
 
     <target name="doc-jar-cubrid" depends="compile-cubrid">
         <mkdir dir="${doc-cubrid}"/>
-        <javadoc destdir="${doc-cubrid}" sourcepath="${src}/jdbc" author="true" version="true" encoding="EUC-KR" docencoding="EUC-KR" charset="EUC-KR">
+        <javadoc destdir="${doc-cubrid}" sourcepath="${src}/jdbc" author="true" version="true" encoding="UTF-8" docencoding="UTF-8" charset="UTF-8">
             <classpath>
                 <pathelement location="${bin-cubrid}"/>
             </classpath>

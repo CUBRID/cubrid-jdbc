@@ -41,7 +41,7 @@
 package cubrid.jdbc.jci;
 
 /**
- * CUBRID�� Schema type�� �����ϴ� class�̴�.
+ * Defines the schema types used in CUBRID.
  *
  * <p>since 1.0
  */

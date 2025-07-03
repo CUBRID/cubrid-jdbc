@@ -41,7 +41,7 @@
 package cubrid.jdbc.jci;
 
 /**
- * CUBRID�� Isolation level�� ������ class�̴�.
+ * Defines the isolation levels used in CUBRID.
  *
  * <p>since 1.0
  */

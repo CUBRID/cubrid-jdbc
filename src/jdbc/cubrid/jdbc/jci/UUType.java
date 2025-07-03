@@ -52,7 +52,7 @@ import java.sql.Time;
 import java.sql.Timestamp;
 
 /**
- * CUBRID Data Type�� ������ ���� class�̴�.
+ * Defines the data types used in CUBRID.
  *
  * <p>since 1.0
  */

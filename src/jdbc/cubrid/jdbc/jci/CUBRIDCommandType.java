@@ -41,7 +41,7 @@
 package cubrid.jdbc.jci;
 
 /**
- * CUBRID�� Command Type�� �����ϴ� class�̴�.
+ * Defines the command types used in CUBRID.
  *
  * <p>since 1.0
  */

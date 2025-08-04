@@ -23,8 +23,8 @@
 
   <developers>
     <developer>
-      <name>CUBRID Developer Team</name>
-      <email>rnd@cubrid.com</email>
+      <name>CUBRID JDBC Developer Team</name>
+      <email>cubrid-jdbc@cubrid.com</email>
       <organization>CUBRID</organization>
       <organizationUrl>https://www.cubrid.org</organizationUrl>
     </developer>

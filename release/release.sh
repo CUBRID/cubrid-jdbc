@@ -8,7 +8,7 @@
 #   Maven-Central-ready ZIP with GPG signatures and checksums.
 #
 # Workflow
-#   1) Validate GPG key ID & passphrase (CLI args or env vars)
+#   1) Validate GPG fingerprint & passphrase (CLI args or env vars)
 #   2) Run build.sh → produce JARs & read version from VERSION-DIST
 #   3) Update <version> tag inside release.pom
 #   4) GPG-sign JAR/POM (ASCII armor) and create MD5/SHA1/256/512 digests
@@ -16,12 +16,12 @@
 #   6) Generate cubrid-jdbc-<ver>-release.zip
 #
 # Usage
-#   ./make-release.sh -k <GPG_FINGERPRINT> -s <PASSPHRASE>
-#   (or set GPG_KEY_ID and SIGN_PASSPHRASE environment variables)
+#   ./release.sh -f <GPG_FINGERPRINT> -s <SIGN_PASSPHRASE>
+#   (or set GPG_FINGERPRINT and SIGN_PASSPHRASE environment variables)
 #
 # Prerequisites
-#   • bash 3.0+, zip, md5sum/sha*sum utilities, gpg 2.1+
-#   • Secret GPG key available locally; loopback pinentry recommended
+#   • bash 3.0+, zip, md5sum/sha*sum utilities, gpg 2.0+
+#   • Secret GPG key available locally
 #
 # Output
 #   SCRIPT_DIR/cubrid-jdbc-<version>-release.zip
@@ -33,7 +33,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 JDBC_DIR="$(dirname "${SCRIPT_DIR}")"
 OUTPUT_DIR="${JDBC_DIR}/output"
 
-GPG_KEY_ID="${GPG_KEY_ID:-}"
+GPG_FINGERPRINT="${GPG_FINGERPRINT:-}"
 SIGN_PASSPHRASE="${SIGN_PASSPHRASE:-}"
 
 log()         { printf '[%s] %s\n' "$1" "$2"; }
@@ -45,12 +45,12 @@ log_ok()      { log OK    "$*"; }
 show_usage() {
   cat << EOF
 
-Usage: $0 [-k <fingerprint>] [-s <passphrase>] [-h]
+Usage: $0 [-f <fingerprint>] [-s <sign_passphrase>] [-h]
 
 Options:
-  -k, --keyid    GPG key fingerprint (env: GPG_KEY_ID)
-  -s, --sign     GPG signing key pass (env: SIGN_PASSPHRASE)
-  -h, --help     Show this help and exit
+  -f, --fingerprint  GPG key fingerprint (env: GPG_FINGERPRINT)
+  -s, --sign         GPG signing key pass (env: SIGN_PASSPHRASE)
+  -h, --help         Show this help and exit
 EOF
 }
 
@@ -58,10 +58,10 @@ parse_cli() {
   local argv=()
   for arg in "$@"; do
     case "$arg" in
-      --keyid) argv+=( -k ) ;;
-      --sign)  argv+=( -s ) ;;
-      --help)  argv+=( -h ) ;;
-      *)       argv+=( "$arg" ) ;;
+      --fingerprint) argv+=( -f ) ;;
+      --sign)        argv+=( -s ) ;;
+      --help)        argv+=( -h ) ;;
+      *)             argv+=( "$arg" ) ;;
     esac
   done
 
@@ -71,9 +71,9 @@ parse_cli() {
     set --
   fi
 
-  while getopts ':k:s:h' opt; do
+  while getopts ':f:s:h' opt; do
     case "$opt" in
-      k) GPG_KEY_ID="$OPTARG" ;;
+      f) GPG_FINGERPRINT="$OPTARG" ;;
       s) SIGN_PASSPHRASE="$OPTARG" ;;
       h) show_usage; exit 0 ;;
       *) show_usage; exit 1 ;;
@@ -83,13 +83,13 @@ parse_cli() {
 }
 
 check_gpg_config() {
-  [[ -n "$GPG_KEY_ID" ]]       || { log_error "GPG key ID missing."; exit 1; }
+  [[ -n "$GPG_FINGERPRINT" ]]       || { log_error "GPG fingerprint missing."; exit 1; }
   [[ -n "$SIGN_PASSPHRASE" ]]  || { log_error "GPG passphrase missing."; exit 1; }
 }
 
 check_gpg_key() {
-  gpg --batch --list-secret-keys "$GPG_KEY_ID" &> /dev/null || {
-    log_error "GPG secret key $GPG_KEY_ID not found"; exit 1;
+  gpg --batch --list-secret-keys "$GPG_FINGERPRINT" &> /dev/null || {
+    log_error "GPG secret key $GPG_FINGERPRINT not found"; exit 1;
   }
 }
 
@@ -124,7 +124,7 @@ sign_and_checksum() {
   log_info "Sign & checksum artefacts..."
   cp "${SCRIPT_DIR}/release.pom" "${SCRIPT_DIR}/cubrid-jdbc-${VERSION}.pom"
 
-  local gpg_opts=(--batch --yes --local-user "${GPG_KEY_ID}" --passphrase "${SIGN_PASSPHRASE}")
+  local gpg_opts=(--batch --yes --local-user "${GPG_FINGERPRINT}" --passphrase "${SIGN_PASSPHRASE}")
   if ((${#PINENTRY_OPTS[@]})); then
     gpg_opts+=("${PINENTRY_OPTS[@]}")
   fi

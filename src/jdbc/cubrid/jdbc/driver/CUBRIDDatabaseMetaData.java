@@ -276,7 +276,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
 
     public synchronized String getTimeDateFunctions() throws SQLException {
         checkIsOpen();
-        return "ADD_MONTHS, LAST_DAY, MONTH_BETWEEN, SYS_DATE, SYS_TIME, SYS_TIMESTMAP, TO_DATE, TO_TIME, TO_TIMESTAMP, TO_DATETIME";
+        return "ADD_MONTHS, LAST_DAY, MONTH_BETWEEN, SYS_DATE, SYS_TIME, SYS_TIMESTAMP, TO_DATE, TO_TIME, TO_TIMESTAMP, TO_DATETIME";
     }
 
     public synchronized String getSearchStringEscape() throws SQLException {

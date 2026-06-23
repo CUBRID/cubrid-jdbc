@@ -101,8 +101,23 @@ public class ByteArrayBuffer {
         } else if (len == 0) {
             return;
         }
-        for (int i = 0; i < len; i++) {
-            write(b[off + i]);
+        int srcPos = off;
+        int remaining = len;
+        while (remaining > 0) {
+            if (pos == UnitSize) {
+                byteArrayList.add(buffer);
+                buffer = new byte[UnitSize];
+                pos = 0;
+            }
+            int n = UnitSize - pos;
+            if (n > remaining) {
+                n = remaining;
+            }
+            System.arraycopy(b, srcPos, buffer, pos, n);
+            pos += n;
+            srcPos += n;
+            remaining -= n;
+            dataSize += n;
         }
     }
 

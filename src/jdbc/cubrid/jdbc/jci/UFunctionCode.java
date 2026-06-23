@@ -95,7 +95,7 @@ public enum UFunctionCode {
     GET_SHARD_INFO(43),
     SET_CAS_CHANGE_MODE(44),
 
-    /* shared client->server byte-stream transport (COPY, internal-LOB, ...) */
+    /* shared client->server byte-stream transport */
     STREAM_SEND_DATA(45),
     STREAM_END(46),
 

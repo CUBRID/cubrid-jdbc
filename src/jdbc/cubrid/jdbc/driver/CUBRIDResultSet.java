@@ -155,8 +155,8 @@ public class CUBRIDResultSet implements ResultSet {
         }
     }
 
-    public CUBRIDResultSet(UStatement s) {
-        con = null;
+    public CUBRIDResultSet(CUBRIDConnection c, UStatement s) {
+        con = c;
         stmt = null;
         u_stmt = s;
         current_row = -1;

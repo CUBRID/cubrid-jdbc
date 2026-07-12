@@ -47,7 +47,7 @@ public class CUBRIDOutResultSet extends CUBRIDResultSet {
     private UConnection ucon;
 
     public CUBRIDOutResultSet(UConnection ucon, long id) {
-        super(null);
+        super(ucon.getCUBRIDConnection(), null);
         created = false;
         this.resultId = id;
         this.ucon = ucon;

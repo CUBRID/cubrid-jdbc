@@ -596,7 +596,7 @@ public class CUBRIDStatement implements Statement {
         checkIsOpen();
 
         if (auto_generatedkeys_result_set == null) {
-            auto_generatedkeys_result_set = new CUBRIDResultSet(null);
+            auto_generatedkeys_result_set = new CUBRIDResultSet(con, null);
         }
 
         return auto_generatedkeys_result_set;
@@ -965,7 +965,7 @@ public class CUBRIDStatement implements Statement {
                 throw con.createCUBRIDException(error);
         }
 
-        auto_generatedkeys_result_set = new CUBRIDResultSet(auto_generatedkeys_stmt);
+        auto_generatedkeys_result_set = new CUBRIDResultSet(con, auto_generatedkeys_stmt);
 
         return true;
     }

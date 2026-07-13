@@ -84,22 +84,26 @@ public abstract class UUType {
     public static final byte U_TYPE_RESULTSET = 20;
     public static final byte U_TYPE_BIGINT = 21;
     public static final byte U_TYPE_DATETIME = 22;
-    public static final byte U_TYPE_BLOB = 23;
-    public static final byte U_TYPE_CLOB = 24;
-    public static final byte U_TYPE_ENUM = 25;
-    public static final byte U_TYPE_USHORT = 26;
-    public static final byte U_TYPE_UINT = 27;
-    public static final byte U_TYPE_UBIGINT = 28;
-    public static final byte U_TYPE_TIMESTAMPTZ = 29;
-    public static final byte U_TYPE_TIMESTAMPLTZ = 30;
-    public static final byte U_TYPE_DATETIMETZ = 31;
-    public static final byte U_TYPE_DATETIMELTZ = 32;
-    public static final byte U_TYPE_TIMETZ = 33; /* unused */
-    public static final byte U_TYPE_JSON = 34;
+    public static final byte U_TYPE_BFILE = 23;
+    public static final byte U_TYPE_CFILE = 24;
+    public static final byte U_TYPE_BLOB = 25;
+    public static final byte U_TYPE_CLOB = 26;
+    public static final byte U_TYPE_ENUM = 27;
+    public static final byte U_TYPE_USHORT = 28;
+    public static final byte U_TYPE_UINT = 29;
+    public static final byte U_TYPE_UBIGINT = 30;
+    public static final byte U_TYPE_TIMESTAMPTZ = 31;
+    public static final byte U_TYPE_TIMESTAMPLTZ = 32;
+    public static final byte U_TYPE_DATETIMETZ = 33;
+    public static final byte U_TYPE_DATETIMELTZ = 34;
+    public static final byte U_TYPE_TIMETZ = 35; /* unused */
+    public static final byte U_TYPE_JSON = 36;
+    static final byte U_TYPE_INTERNAL_BLOB_UPLOAD = 37;
+    static final byte U_TYPE_INTERNAL_CLOB_UPLOAD = 38;
 
     /* append new type here and also modify U_TYPE_MAX */
 
-    public static final int U_TYPE_MAX = 34;
+    public static final int U_TYPE_MAX = 38;
 
     static boolean isCollectionType(byte type) {
         if (type == UUType.U_TYPE_SET

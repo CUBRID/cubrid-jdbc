@@ -1138,6 +1138,39 @@ public abstract class UConnection {
         return -1;
     }
 
+    // UFunctionCode.STREAM_INIT
+    public synchronized int streamInit(int streamKind, byte[] config) {
+        errorHandler = new UError(this);
+        if (isClosed == true) {
+            errorHandler.setErrorCode(UErrorCode.ER_IS_CLOSED);
+            return -1;
+        }
+        try {
+            setBeginTime();
+            checkReconnect();
+            if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR) return -1;
+
+            outBuffer.newRequest(output, UFunctionCode.STREAM_INIT);
+            outBuffer.addInt(streamKind);
+            outBuffer.addBytes(config);
+
+            UInputBuffer inBuffer = send_recv_msg();
+            int resCode = inBuffer.getResCode();
+            if (resCode < 0) errorHandler.setErrorCode(UErrorCode.ER_UNKNOWN);
+            return resCode;
+        } catch (UJciException e) {
+            logException(e);
+            e.toUError(errorHandler);
+        } catch (IOException e) {
+            logException(e);
+            errorHandler.setErrorCode(UErrorCode.ER_COMMUNICATION);
+        } catch (Exception e) {
+            logException(e);
+            errorHandler.setErrorCode(UErrorCode.ER_UNKNOWN);
+        }
+        return -1;
+    }
+
     // UFunctionCode.STREAM_SEND_DATA
     public synchronized int streamSendData(byte[] data, int start, int len) {
         errorHandler = new UError(this);
@@ -1176,7 +1209,7 @@ public abstract class UConnection {
     }
 
     // UFunctionCode.STREAM_END
-    public synchronized int streamEnd() {
+    public synchronized long streamEndResult() {
         errorHandler = new UError(this);
         if (isClosed == true) {
             errorHandler.setErrorCode(UErrorCode.ER_IS_CLOSED);
@@ -1188,16 +1221,13 @@ public abstract class UConnection {
             if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR) return -1;
 
             outBuffer.newRequest(output, UFunctionCode.STREAM_END);
-
-            UInputBuffer inBuffer;
-            inBuffer = send_recv_msg();
-
-            int res_code;
-            res_code = inBuffer.getResCode();
-            if (res_code < 0) {
+            UInputBuffer inBuffer = send_recv_msg();
+            int resCode = inBuffer.getResCode();
+            if (resCode < 0) {
                 errorHandler.setErrorCode(UErrorCode.ER_UNKNOWN);
+                return -1;
             }
-            return res_code;
+            return inBuffer.readLong();
         } catch (UJciException e) {
             logException(e);
             e.toUError(errorHandler);
@@ -1211,8 +1241,41 @@ public abstract class UConnection {
         return -1;
     }
 
-    /* XA protocols */
-    // UFunctionCode.XA_END_TRAN
+    public synchronized int streamEnd() {
+        long result = streamEndResult();
+        return result > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) result;
+    }
+
+    // UFunctionCode.STREAM_ABORT
+    public synchronized int streamAbort() {
+        errorHandler = new UError(this);
+        if (isClosed == true) {
+            errorHandler.setErrorCode(UErrorCode.ER_IS_CLOSED);
+            return -1;
+        }
+        try {
+            setBeginTime();
+            checkReconnect();
+            if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR) return -1;
+
+            outBuffer.newRequest(output, UFunctionCode.STREAM_ABORT);
+            UInputBuffer inBuffer = send_recv_msg();
+            int resCode = inBuffer.getResCode();
+            if (resCode < 0) errorHandler.setErrorCode(UErrorCode.ER_UNKNOWN);
+            return resCode;
+        } catch (UJciException e) {
+            logException(e);
+            e.toUError(errorHandler);
+        } catch (IOException e) {
+            logException(e);
+            errorHandler.setErrorCode(UErrorCode.ER_COMMUNICATION);
+        } catch (Exception e) {
+            logException(e);
+            errorHandler.setErrorCode(UErrorCode.ER_UNKNOWN);
+        }
+        return -1;
+    }
+
     public synchronized void xa_endTransaction(Xid xid, boolean type) {
         errorHandler = new UError(this);
 

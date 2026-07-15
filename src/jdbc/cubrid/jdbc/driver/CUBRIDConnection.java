@@ -524,35 +524,40 @@ public class CUBRIDConnection implements Connection {
     }
 
     public synchronized void releaseSavepoint(Savepoint savepoint) throws SQLException {
-        throw new SQLException(new java.lang.UnsupportedOperationException());
+        checkIsOpen();
         /*
-         * 3.0 checkIsOpen(); boolean flag=true;
-         *
-         * if (!savepoints.isEmpty()) { for (int i=0 ; i < savepoints.size() ;
-         * i++) {
-         * if(savepoint.equals(((CUBRIDSavepoint)savepoints.get(i)).getSavepointName
-         * ())) { savepoints.remove(savepoint); flag=false; } } }
-         *
-         * if (flag) throw new CUBRIDException("The Savepoint is not exist ");
+         * CUBRID has no server-side savepoint release: the engine grammar has no
+         * RELEASE SAVEPOINT statement and protocol function code 26 only supports
+         * set(1) / rollback(2). Savepoints are discarded by the server at
+         * COMMIT / ROLLBACK, so there is no resource leak.
          */
+        throw new SQLFeatureNotSupportedException("releaseSavepoint is not supported by CUBRID");
     }
 
     public synchronized void rollback(Savepoint savepoint) throws SQLException {
-        throw new SQLException(new java.lang.UnsupportedOperationException());
-        /*
-         * 3.0 checkIsOpen();
-         *
-         * if (isRelease((CUBRIDSavepoint)savepoint)) { throw new
-         * CUBRIDException("The Savepoint is released"); }
-         *
-         * synchronized (u_con) { u_con.savepoint(2,
-         * savepoint.getSavepointName()); error = u_con.getRecentError(); }
-         *
-         * switch (error.getErrorCode()) { case UErrorCode.ER_NO_ERROR : break;
-         * default : throw new CUBRIDException(error); }
-         *
-         * deleteSavepoint((CUBRIDSavepoint)savepoint);
-         */
+        checkIsOpen();
+        checkSavepointSupported();
+
+        if (!(savepoint instanceof CUBRIDSavepoint)
+                || !((CUBRIDSavepoint) savepoint).isOwnedBy(this)) {
+            throw createCUBRIDException(
+                    CUBRIDJDBCErrorCode.invalid_savepoint,
+                    "the savepoint was not created by this connection",
+                    null);
+        }
+
+        String name = ((CUBRIDSavepoint) savepoint).getInternalName();
+        synchronized (u_con) {
+            u_con.savepoint(UConnection.SAVEPOINT_MODE_ROLLBACK, name);
+            error = u_con.getRecentError();
+        }
+
+        switch (error.getErrorCode()) {
+            case UErrorCode.ER_NO_ERROR:
+                break;
+            default:
+                throw createCUBRIDException(error);
+        }
     }
 
     public synchronized void setHoldability(int holdable) throws SQLException {

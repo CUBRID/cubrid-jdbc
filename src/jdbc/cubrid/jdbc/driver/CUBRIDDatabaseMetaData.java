@@ -2683,7 +2683,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
 
     public synchronized boolean supportsSavepoints() throws SQLException {
         checkIsOpen();
-        return true;
+        return con.isSavepointTopologySupported();
     }
 
     public synchronized boolean supportsStatementPooling() throws SQLException {

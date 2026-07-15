@@ -66,6 +66,9 @@ public abstract class UConnection {
     public static final byte DBMS_PROXY_CUBRID = 4;
     public static final byte DBMS_PROXY_MYSQL = 5;
     public static final byte DBMS_PROXY_ORACLE = 6;
+    public static final byte DBMS_CGW_ORACLE = 7;
+    public static final byte DBMS_CGW_MYSQL = 8;
+    public static final byte DBMS_CGW_MARIADB = 9;
 
     /* prepare flags */
     public static final byte PREPARE_INCLUDE_OID = 0x01;
@@ -1669,6 +1672,16 @@ public abstract class UConnection {
         if (dbms_type == DBMS_PROXY_CUBRID
                 || dbms_type == DBMS_PROXY_MYSQL
                 || dbms_type == DBMS_PROXY_ORACLE) {
+            return true;
+        }
+        return false;
+    }
+
+    public boolean isConnectedToGateway() {
+        byte dbms_type = getDbmsType();
+        if (dbms_type == DBMS_CGW_ORACLE
+                || dbms_type == DBMS_CGW_MYSQL
+                || dbms_type == DBMS_CGW_MARIADB) {
             return true;
         }
         return false;

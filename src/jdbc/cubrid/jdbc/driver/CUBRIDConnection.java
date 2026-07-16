@@ -728,8 +728,7 @@ public class CUBRIDConnection implements Connection {
                     "Savepoint is not supported on SHARD proxy or gateway connections");
         }
         if (auto_commit) {
-            throw createCUBRIDException(
-                    CUBRIDJDBCErrorCode.savepoint_in_auto_commit_mode, null);
+            throw createCUBRIDException(CUBRIDJDBCErrorCode.savepoint_in_auto_commit_mode, null);
         }
     }
 

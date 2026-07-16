@@ -523,6 +523,7 @@ public class CUBRIDConnection implements Connection {
         return prepareStatement(sql);
     }
 
+    @Override
     public synchronized void releaseSavepoint(Savepoint savepoint) throws SQLException {
         checkIsOpen();
         /*
@@ -534,6 +535,7 @@ public class CUBRIDConnection implements Connection {
         throw new SQLFeatureNotSupportedException("releaseSavepoint is not supported by CUBRID");
     }
 
+    @Override
     public synchronized void rollback(Savepoint savepoint) throws SQLException {
         checkIsOpen();
         checkSavepointSupported();
@@ -566,6 +568,7 @@ public class CUBRIDConnection implements Connection {
         holdability = holdable;
     }
 
+    @Override
     public synchronized Savepoint setSavepoint() throws SQLException {
         checkIsOpen();
         checkSavepointSupported();
@@ -575,6 +578,7 @@ public class CUBRIDConnection implements Connection {
         return sv;
     }
 
+    @Override
     public synchronized Savepoint setSavepoint(String name) throws SQLException {
         checkIsOpen();
         checkSavepointSupported();

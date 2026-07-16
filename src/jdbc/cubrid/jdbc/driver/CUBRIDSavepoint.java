@@ -54,6 +54,7 @@ public class CUBRIDSavepoint implements Savepoint {
         this.name = name;
     }
 
+    @Override
     public int getSavepointId() throws SQLException {
         if (isNamed) {
             throw new CUBRIDException(
@@ -64,6 +65,7 @@ public class CUBRIDSavepoint implements Savepoint {
         return id;
     }
 
+    @Override
     public String getSavepointName() throws SQLException {
         if (!isNamed) {
             throw new CUBRIDException(

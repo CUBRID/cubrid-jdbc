@@ -554,11 +554,8 @@ public class CUBRIDConnection implements Connection {
             error = u_con.getRecentError();
         }
 
-        switch (error.getErrorCode()) {
-            case UErrorCode.ER_NO_ERROR:
-                break;
-            default:
-                throw createCUBRIDException(error);
+        if (error.getErrorCode() != UErrorCode.ER_NO_ERROR) {
+            throw createCUBRIDException(error);
         }
     }
 
@@ -733,7 +730,7 @@ public class CUBRIDConnection implements Connection {
     }
 
     private void checkSavepointName(String name) throws SQLException {
-        if (name == null || name.length() == 0 || name.indexOf('\0') >= 0) {
+        if (name == null || name.isEmpty() || name.indexOf('\0') >= 0) {
             throw createCUBRIDException(
                     CUBRIDJDBCErrorCode.invalid_savepoint,
                     "savepoint name must be a non-empty string without NUL characters",
@@ -747,11 +744,8 @@ public class CUBRIDConnection implements Connection {
             error = u_con.getRecentError();
         }
 
-        switch (error.getErrorCode()) {
-            case UErrorCode.ER_NO_ERROR:
-                break;
-            default:
-                throw createCUBRIDException(error);
+        if (error.getErrorCode() != UErrorCode.ER_NO_ERROR) {
+            throw createCUBRIDException(error);
         }
     }
 

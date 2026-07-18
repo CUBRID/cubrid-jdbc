@@ -1617,7 +1617,7 @@ public abstract class UConnection {
     // UFunctionCode.SAVEPOINT
     public synchronized void savepoint(byte mode, String name) {
         errorHandler = new UError(this);
-        if (isClosed == true) {
+        if (isClosed) {
             errorHandler.setErrorCode(UErrorCode.ER_IS_CLOSED);
             return;
         }
@@ -1693,12 +1693,9 @@ public abstract class UConnection {
 
     public boolean isConnectedToGateway() {
         byte dbms_type = getDbmsType();
-        if (dbms_type == DBMS_CGW_ORACLE
+        return dbms_type == DBMS_CGW_ORACLE
                 || dbms_type == DBMS_CGW_MYSQL
-                || dbms_type == DBMS_CGW_MARIADB) {
-            return true;
-        }
-        return false;
+                || dbms_type == DBMS_CGW_MARIADB;
     }
 
     public boolean brokerInfoStatementPooling() {

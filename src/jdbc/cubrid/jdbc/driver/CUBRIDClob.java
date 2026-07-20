@@ -41,6 +41,7 @@ import java.io.UnsupportedEncodingException;
 import java.io.Writer;
 import java.sql.Clob;
 import java.sql.SQLException;
+import java.sql.SQLFeatureNotSupportedException;
 import java.util.ArrayList;
 
 public class CUBRIDClob implements Clob {
@@ -183,11 +184,11 @@ public class CUBRIDClob implements Clob {
     }
 
     public long position(String searchstr, long start) throws SQLException {
-        throw new SQLException(new java.lang.UnsupportedOperationException());
+        throw new SQLFeatureNotSupportedException();
     }
 
     public long position(Clob searchClob, long start) throws SQLException {
-        throw new SQLException(new java.lang.UnsupportedOperationException());
+        throw new SQLFeatureNotSupportedException();
     }
 
     public synchronized int setString(long pos, String str) throws SQLException {
@@ -297,7 +298,7 @@ public class CUBRIDClob implements Clob {
     }
 
     public void truncate(long len) throws SQLException {
-        throw new SQLException(new java.lang.UnsupportedOperationException());
+        throw new SQLFeatureNotSupportedException();
     }
 
     /* JDK 1.6 */

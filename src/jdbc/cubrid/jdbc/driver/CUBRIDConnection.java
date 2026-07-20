@@ -736,6 +736,14 @@ public class CUBRIDConnection implements Connection {
                     "savepoint name must be a non-empty string without NUL characters",
                     null);
         }
+        if (name.startsWith(CUBRIDSavepoint.UNNAMED_SAVEPOINT_PREFIX)) {
+            throw createCUBRIDException(
+                    CUBRIDJDBCErrorCode.invalid_savepoint,
+                    "savepoint name must not start with the reserved prefix \""
+                            + CUBRIDSavepoint.UNNAMED_SAVEPOINT_PREFIX
+                            + "\"",
+                    null);
+        }
     }
 
     private void setSavepointInternal(String name) throws SQLException {

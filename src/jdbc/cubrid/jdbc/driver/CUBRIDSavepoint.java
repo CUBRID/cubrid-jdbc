@@ -35,6 +35,9 @@ import java.sql.SQLException;
 import java.sql.Savepoint;
 
 public class CUBRIDSavepoint implements Savepoint {
+    /* names of unnamed savepoints are generated from this prefix; user names must not use it */
+    static final String UNNAMED_SAVEPOINT_PREFIX = "CUBRID_JDBC_SAVEPOINT_";
+
     private final CUBRIDConnection con;
     private final boolean isNamed;
     private final int id;
@@ -44,7 +47,7 @@ public class CUBRIDSavepoint implements Savepoint {
         this.con = con;
         this.isNamed = false;
         this.id = id;
-        this.name = "CUBRID_JDBC_SAVEPOINT_" + id;
+        this.name = UNNAMED_SAVEPOINT_PREFIX + id;
     }
 
     CUBRIDSavepoint(CUBRIDConnection con, String name) {

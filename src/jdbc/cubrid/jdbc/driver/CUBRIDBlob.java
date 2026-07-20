@@ -38,7 +38,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.sql.Blob;
 import java.sql.SQLException;
-import java.sql.SQLFeatureNotSupportedException;
 import java.util.ArrayList;
 
 public class CUBRIDBlob implements Blob {
@@ -178,11 +177,11 @@ public class CUBRIDBlob implements Blob {
     }
 
     public long position(byte[] pattern, long start) throws SQLException {
-        throw new SQLFeatureNotSupportedException();
+        throw CUBRIDException.notSupported();
     }
 
     public long position(Blob pattern, long start) throws SQLException {
-        throw new SQLFeatureNotSupportedException();
+        throw CUBRIDException.notSupported();
     }
 
     public int setBytes(long pos, byte[] bytes) throws SQLException {
@@ -255,7 +254,7 @@ public class CUBRIDBlob implements Blob {
     }
 
     public void truncate(long len) throws SQLException {
-        throw new SQLFeatureNotSupportedException();
+        throw CUBRIDException.notSupported();
     }
 
     /* JDK 1.6 */

@@ -53,6 +53,7 @@ import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.RowId;
 import java.sql.SQLException;
+import java.sql.SQLType;
 import java.sql.SQLWarning;
 import java.sql.SQLXML;
 import java.sql.Statement;
@@ -2112,5 +2113,50 @@ public class CUBRIDResultSet implements ResultSet {
     /* JDK 1.7 */
     public <T> T getObject(String columnLabel, Class<T> type) throws SQLException {
         throw new SQLException(new java.lang.UnsupportedOperationException());
+    }
+
+    // ------------------------- JDBC 4.2 -----------------------------------
+
+    private void checkSqlType(SQLType targetSqlType) throws SQLException {
+        if (targetSqlType == null) {
+            throw con.createCUBRIDException(
+                    CUBRIDJDBCErrorCode.invalid_value, " - targetSqlType is null", null);
+        }
+        if (targetSqlType.getVendorTypeNumber() == null) {
+            throw con.createCUBRIDException(
+                    CUBRIDJDBCErrorCode.invalid_value,
+                    " - targetSqlType has no vendor type number: " + targetSqlType.getName(),
+                    null);
+        }
+    }
+
+    @Override
+    public synchronized void updateObject(int columnIndex, Object x, SQLType targetSqlType)
+            throws SQLException {
+        checkSqlType(targetSqlType);
+        updateObject(columnIndex, x);
+    }
+
+    @Override
+    public synchronized void updateObject(
+            int columnIndex, Object x, SQLType targetSqlType, int scaleOrLength)
+            throws SQLException {
+        checkSqlType(targetSqlType);
+        updateObject(columnIndex, x, scaleOrLength);
+    }
+
+    @Override
+    public synchronized void updateObject(String columnLabel, Object x, SQLType targetSqlType)
+            throws SQLException {
+        checkSqlType(targetSqlType);
+        updateObject(columnLabel, x);
+    }
+
+    @Override
+    public synchronized void updateObject(
+            String columnLabel, Object x, SQLType targetSqlType, int scaleOrLength)
+            throws SQLException {
+        checkSqlType(targetSqlType);
+        updateObject(columnLabel, x, scaleOrLength);
     }
 }

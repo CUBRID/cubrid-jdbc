@@ -48,6 +48,7 @@ import java.sql.Ref;
 import java.sql.ResultSet;
 import java.sql.RowId;
 import java.sql.SQLException;
+import java.sql.SQLType;
 import java.sql.SQLXML;
 import java.sql.Statement;
 import java.sql.Time;
@@ -817,5 +818,24 @@ public class CUBRIDCallableStatement extends CUBRIDPreparedStatement implements 
     /* JDK 1.7 */
     public <T> T getObject(String parameterName, Class<T> type) throws SQLException {
         throw new SQLException(new UnsupportedOperationException());
+    }
+
+    // ------------------------- JDBC 4.2 -----------------------------------
+
+    @Override
+    public void registerOutParameter(int parameterIndex, SQLType sqlType) throws SQLException {
+        registerOutParameter(parameterIndex, checkSqlType(sqlType));
+    }
+
+    @Override
+    public void registerOutParameter(int parameterIndex, SQLType sqlType, int scale)
+            throws SQLException {
+        registerOutParameter(parameterIndex, checkSqlType(sqlType), scale);
+    }
+
+    @Override
+    public void registerOutParameter(int parameterIndex, SQLType sqlType, String typeName)
+            throws SQLException {
+        registerOutParameter(parameterIndex, checkSqlType(sqlType), typeName);
     }
 }

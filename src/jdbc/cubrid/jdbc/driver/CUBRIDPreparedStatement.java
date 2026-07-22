@@ -1059,12 +1059,14 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
     }
 
     @Override
-    public void setObject(int parameterIndex, Object x, SQLType targetSqlType) throws SQLException {
+    public synchronized void setObject(int parameterIndex, Object x, SQLType targetSqlType)
+            throws SQLException {
         setObject(parameterIndex, x, checkSqlType(targetSqlType));
     }
 
     @Override
-    public void setObject(int parameterIndex, Object x, SQLType targetSqlType, int scaleOrLength)
+    public synchronized void setObject(
+            int parameterIndex, Object x, SQLType targetSqlType, int scaleOrLength)
             throws SQLException {
         setObject(parameterIndex, x, checkSqlType(targetSqlType), scaleOrLength);
     }

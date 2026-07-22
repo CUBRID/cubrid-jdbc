@@ -827,12 +827,19 @@ public class CUBRIDCallableStatement extends CUBRIDPreparedStatement implements 
         registerOutParameter(parameterIndex, checkSqlType(sqlType));
     }
 
+    /* As with the int-based overload, scale is ignored. */
     @Override
     public void registerOutParameter(int parameterIndex, SQLType sqlType, int scale)
             throws SQLException {
         registerOutParameter(parameterIndex, checkSqlType(sqlType), scale);
     }
 
+    /*
+     * As with the int-based overload, typeName is ignored: the JDBC spec allows a
+     * driver that does not need the type name information to ignore it, and it
+     * applies only to user-defined (STRUCT/DISTINCT/JAVA_OBJECT) and REF
+     * parameters, which CUBRID does not support.
+     */
     @Override
     public void registerOutParameter(int parameterIndex, SQLType sqlType, String typeName)
             throws SQLException {

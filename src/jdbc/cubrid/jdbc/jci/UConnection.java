@@ -66,6 +66,13 @@ public abstract class UConnection {
     public static final byte DBMS_PROXY_CUBRID = 4;
     public static final byte DBMS_PROXY_MYSQL = 5;
     public static final byte DBMS_PROXY_ORACLE = 6;
+    public static final byte DBMS_CGW_ORACLE = 7;
+    public static final byte DBMS_CGW_MYSQL = 8;
+    public static final byte DBMS_CGW_MARIADB = 9;
+
+    /* fn_savepoint mode bytes (cas_function.c): 1 = set, 2 = rollback to savepoint */
+    public static final byte SAVEPOINT_MODE_SET = 1;
+    public static final byte SAVEPOINT_MODE_ROLLBACK = 2;
 
     /* prepare flags */
     public static final byte PREPARE_INCLUDE_OID = 0x01;
@@ -1607,21 +1614,31 @@ public abstract class UConnection {
         return lastLockTimeout;
     }
 
-    /*
-     * 3.0 synchronized public void savepoint(int mode, String name) {
-     * errorHandler = new UError(); if (isClosed == true) {
-     * errorHandler.setErrorCode(UErrorCode.ER_IS_CLOSED); return; }
-     *
-     * try { checkReconnect(); if (errorHandler.getErrorCode() !=
-     * UErrorCode.ER_NO_ERROR) return;
-     *
-     * outBuffer.newRequest(out, UFunctionCode.SAVEPOINT);
-     * outBuffer.addByte(mode); outBuffer.addStringWithNull(name);
-     *
-     * UInputBuffer inBuffer; inBuffer = send_recv_msg(); } catch (UJciException
-     * e) { e.toUError(errorHandler); } catch (IOException e) {
-     * errorHandler.setErrorCode(UErrorCode.ER_COMMUNICATION); } }
-     */
+    // UFunctionCode.SAVEPOINT
+    public synchronized void savepoint(byte mode, String name) {
+        errorHandler = new UError(this);
+        if (isClosed) {
+            errorHandler.setErrorCode(UErrorCode.ER_IS_CLOSED);
+            return;
+        }
+        try {
+            setBeginTime();
+            checkReconnect();
+            if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR) return;
+
+            outBuffer.newRequest(output, UFunctionCode.SAVEPOINT);
+            outBuffer.addByte(mode);
+            outBuffer.addStringWithNull(name);
+
+            send_recv_msg();
+        } catch (UJciException e) {
+            logException(e);
+            e.toUError(errorHandler);
+        } catch (IOException e) {
+            logException(e);
+            errorHandler.setErrorCode(UErrorCode.ER_COMMUNICATION);
+        }
+    }
 
     public byte getCASInfoStatus() {
         if (casInfo == null) {
@@ -1672,6 +1689,13 @@ public abstract class UConnection {
             return true;
         }
         return false;
+    }
+
+    public boolean isConnectedToGateway() {
+        byte dbms_type = getDbmsType();
+        return dbms_type == DBMS_CGW_ORACLE
+                || dbms_type == DBMS_CGW_MYSQL
+                || dbms_type == DBMS_CGW_MARIADB;
     }
 
     public boolean brokerInfoStatementPooling() {

@@ -31,57 +31,59 @@
 
 package cubrid.jdbc.driver;
 
-import cubrid.jdbc.jci.UConnection;
-import cubrid.jdbc.jci.UStatement;
 import java.sql.SQLException;
+import java.sql.Savepoint;
 
-public class CUBRIDOutResultSet extends CUBRIDResultSet {
-    private boolean created;
+public class CUBRIDSavepoint implements Savepoint {
+    /* names of unnamed savepoints are generated from this prefix; user names must not use it */
+    static final String UNNAMED_SAVEPOINT_PREFIX = "CUBRID_JDBC_SAVEPOINT_";
 
-    /*
-     * if under PROTOCOL_V11) SRV_HANDLE id
-     * else) QUERY_ID
-     */
-    private long resultId;
+    private final CUBRIDConnection con;
+    private final boolean isNamed;
+    private final int id;
+    private final String name;
 
-    private UConnection ucon;
-
-    public CUBRIDOutResultSet(UConnection ucon, long id) {
-        super(ucon.getCUBRIDConnection(), null);
-        created = false;
-        this.resultId = id;
-        this.ucon = ucon;
-        ucon.getCUBRIDConnection().addOutResultSet(this);
+    CUBRIDSavepoint(CUBRIDConnection con, int id) {
+        this.con = con;
+        this.isNamed = false;
+        this.id = id;
+        this.name = UNNAMED_SAVEPOINT_PREFIX + id;
     }
 
-    public void createInstance() throws Exception {
-        if (created) return;
-        if (resultId <= 0) {
-            throw new IllegalArgumentException();
-        }
-
-        u_stmt = new UStatement(ucon, resultId);
-        column_info = u_stmt.getColumnInfo();
-        col_name_to_index = u_stmt.getColumnNameToIndexMap();
-        number_of_rows = u_stmt.getExecuteResult();
-
-        created = true;
+    CUBRIDSavepoint(CUBRIDConnection con, String name) {
+        this.con = con;
+        this.isNamed = true;
+        this.id = 0;
+        this.name = name;
     }
 
     @Override
-    public void close() throws SQLException {
-        if (is_closed) {
-            return;
+    public int getSavepointId() throws SQLException {
+        if (isNamed) {
+            throw new CUBRIDException(
+                    CUBRIDJDBCErrorCode.invalid_savepoint,
+                    "cannot retrieve the id of a named savepoint",
+                    null);
         }
-        is_closed = true;
+        return id;
+    }
 
-        clearCurrentRow();
+    @Override
+    public String getSavepointName() throws SQLException {
+        if (!isNamed) {
+            throw new CUBRIDException(
+                    CUBRIDJDBCErrorCode.invalid_savepoint,
+                    "cannot retrieve the name of an unnamed savepoint",
+                    null);
+        }
+        return name;
+    }
 
-        u_stmt.close();
+    String getInternalName() {
+        return name;
+    }
 
-        streams = null;
-        u_stmt = null;
-        column_info = null;
-        error = null;
+    boolean isOwnedBy(CUBRIDConnection c) {
+        return con == c;
     }
 }

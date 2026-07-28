@@ -2547,7 +2547,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
     public synchronized ResultSet getUDTs(
             String catalog, String schemaPattern, String typeNamePattern, int[] types)
             throws SQLException {
-        throw CUBRIDException.notSupported();
+        throw new SQLException(new UnsupportedOperationException());
     }
 
     public synchronized Connection getConnection() throws SQLException {
@@ -2881,12 +2881,12 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
 
     /* JDK 1.6 */
     public boolean autoCommitFailureClosesAllResultSets() throws SQLException {
-        throw CUBRIDException.notSupported();
+        throw new SQLException(new java.lang.UnsupportedOperationException());
     }
 
     /* JDK 1.6 */
     public ResultSet getClientInfoProperties() throws SQLException {
-        throw CUBRIDException.notSupported();
+        throw new SQLException(new java.lang.UnsupportedOperationException());
     }
 
     /* JDK 1.6 */
@@ -2896,28 +2896,28 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
             String functionNamePattern,
             String columnNamePattern)
             throws SQLException {
-        throw CUBRIDException.notSupported();
+        throw new SQLException(new java.lang.UnsupportedOperationException());
     }
 
     /* JDK 1.6 */
     public ResultSet getFunctions(String catalog, String schemaPattern, String functionNamePattern)
             throws SQLException {
-        throw CUBRIDException.notSupported();
+        throw new SQLException(new java.lang.UnsupportedOperationException());
     }
 
     /* JDK 1.6 */
     public RowIdLifetime getRowIdLifetime() throws SQLException {
-        throw CUBRIDException.notSupported();
+        throw new SQLException(new java.lang.UnsupportedOperationException());
     }
 
     /* JDK 1.6 */
     public ResultSet getSchemas(String catalog, String schemaPattern) throws SQLException {
-        throw CUBRIDException.notSupported();
+        throw new SQLException(new java.lang.UnsupportedOperationException());
     }
 
     /* JDK 1.6 */
     public boolean supportsStoredFunctionsUsingCallSyntax() throws SQLException {
-        throw CUBRIDException.notSupported();
+        throw new SQLException(new java.lang.UnsupportedOperationException());
     }
 
     /* JDK 1.6 */
@@ -2934,11 +2934,11 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
     public ResultSet getPseudoColumns(
             String catalog, String schemaPattern, String tableNamePattern, String columnNamePattern)
             throws SQLException {
-        throw CUBRIDException.notSupported();
+        throw new SQLException(new java.lang.UnsupportedOperationException());
     }
 
     /* JDK 1.7 */
     public boolean generatedKeyAlwaysReturned() throws SQLException {
-        throw CUBRIDException.notSupported();
+        throw new SQLException(new java.lang.UnsupportedOperationException());
     }
 }

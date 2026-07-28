@@ -175,7 +175,7 @@ public class CUBRIDConnection implements Connection {
     }
 
     public String nativeSQL(String sql) throws SQLException {
-        throw CUBRIDException.notSupported();
+        throw new SQLException(new UnsupportedOperationException());
     }
 
     public synchronized void setAutoCommit(boolean autoCommit) throws SQLException {
@@ -450,11 +450,11 @@ public class CUBRIDConnection implements Connection {
     }
 
     public Map<String, Class<?>> getTypeMap() throws SQLException {
-        throw CUBRIDException.notSupported();
+        throw new SQLException(new java.lang.UnsupportedOperationException());
     }
 
     public void setTypeMap(Map<String, Class<?>> map) throws SQLException {
-        throw CUBRIDException.notSupported();
+        throw new SQLException(new java.lang.UnsupportedOperationException());
     }
 
     // 3.0 api
@@ -463,7 +463,7 @@ public class CUBRIDConnection implements Connection {
         checkIsOpen();
         if (holdable == ResultSet.HOLD_CURSORS_OVER_COMMIT) {
             if (type == ResultSet.TYPE_SCROLL_SENSITIVE || concur == ResultSet.CONCUR_UPDATABLE) {
-                throw CUBRIDException.notSupported();
+                throw new SQLException(new java.lang.UnsupportedOperationException());
             }
         }
         Statement stmt = new CUBRIDStatement(this, type, concur, holdable);
@@ -505,7 +505,7 @@ public class CUBRIDConnection implements Connection {
             String sql, int type, int concur, int holdable) throws SQLException {
         if (holdable == ResultSet.HOLD_CURSORS_OVER_COMMIT) {
             if (type == ResultSet.TYPE_SCROLL_SENSITIVE || concur == ResultSet.CONCUR_UPDATABLE) {
-                throw CUBRIDException.notSupported();
+                throw new SQLException(new java.lang.UnsupportedOperationException());
             }
         }
         return prepare(sql, type, concur, holdable, Statement.NO_GENERATED_KEYS);
@@ -532,7 +532,7 @@ public class CUBRIDConnection implements Connection {
          * set(1) / rollback(2). Savepoints are discarded by the server at
          * COMMIT / ROLLBACK, so there is no resource leak.
          */
-        throw CUBRIDException.notSupported();
+        throw new SQLFeatureNotSupportedException("releaseSavepoint is not supported by CUBRID");
     }
 
     @Override
@@ -1039,32 +1039,32 @@ public class CUBRIDConnection implements Connection {
 
     /* JDK 1.6 */
     public NClob createNClob() throws SQLException {
-        throw CUBRIDException.notSupported();
+        throw new SQLException(new java.lang.UnsupportedOperationException());
     }
 
     /* JDK 1.6 */
     public Array createArrayOf(String arg0, Object[] arg1) throws SQLException {
-        throw CUBRIDException.notSupported();
+        throw new SQLException(new java.lang.UnsupportedOperationException());
     }
 
     /* JDK 1.6 */
     public SQLXML createSQLXML() throws SQLException {
-        throw CUBRIDException.notSupported();
+        throw new SQLException(new java.lang.UnsupportedOperationException());
     }
 
     /* JDK 1.6 */
     public Struct createStruct(String arg0, Object[] arg1) throws SQLException {
-        throw CUBRIDException.notSupported();
+        throw new SQLException(new java.lang.UnsupportedOperationException());
     }
 
     /* JDK 1.6 */
     public Properties getClientInfo() throws SQLException {
-        throw CUBRIDException.notSupported();
+        throw new SQLException(new java.lang.UnsupportedOperationException());
     }
 
     /* JDK 1.6 */
     public String getClientInfo(String arg0) throws SQLException {
-        throw CUBRIDException.notSupported();
+        throw new SQLException(new java.lang.UnsupportedOperationException());
     }
 
     /* JDK 1.6 */
@@ -1104,26 +1104,26 @@ public class CUBRIDConnection implements Connection {
 
     /* JDK 1.7 */
     public void setSchema(String schema) throws SQLException {
-        throw CUBRIDException.notSupported();
+        throw new SQLException(new java.lang.UnsupportedOperationException());
     }
 
     /* JDK 1.7 */
     public String getSchema() throws SQLException {
-        throw CUBRIDException.notSupported();
+        throw new SQLException(new java.lang.UnsupportedOperationException());
     }
 
     /* JDK 1.7 */
     public void abort(Executor executor) throws SQLException {
-        throw CUBRIDException.notSupported();
+        throw new SQLException(new java.lang.UnsupportedOperationException());
     }
 
     /* JDK 1.7 */
     public void setNetworkTimeout(Executor executor, int milliseconds) throws SQLException {
-        throw CUBRIDException.notSupported();
+        throw new SQLException(new java.lang.UnsupportedOperationException());
     }
 
     /* JDK 1.7 */
     public int getNetworkTimeout() throws SQLException {
-        throw CUBRIDException.notSupported();
+        throw new SQLException(new java.lang.UnsupportedOperationException());
     }
 }

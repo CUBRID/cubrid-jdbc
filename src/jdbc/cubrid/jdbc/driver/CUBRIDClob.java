@@ -183,11 +183,11 @@ public class CUBRIDClob implements Clob {
     }
 
     public long position(String searchstr, long start) throws SQLException {
-        throw CUBRIDException.notSupported();
+        throw new SQLException(new java.lang.UnsupportedOperationException());
     }
 
     public long position(Clob searchClob, long start) throws SQLException {
-        throw CUBRIDException.notSupported();
+        throw new SQLException(new java.lang.UnsupportedOperationException());
     }
 
     public synchronized int setString(long pos, String str) throws SQLException {
@@ -297,7 +297,7 @@ public class CUBRIDClob implements Clob {
     }
 
     public void truncate(long len) throws SQLException {
-        throw CUBRIDException.notSupported();
+        throw new SQLException(new java.lang.UnsupportedOperationException());
     }
 
     /* JDK 1.6 */

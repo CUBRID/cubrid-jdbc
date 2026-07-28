@@ -33,7 +33,6 @@ package cubrid.jdbc.driver;
 
 import cubrid.jdbc.jci.UError;
 import java.sql.SQLException;
-import java.sql.SQLFeatureNotSupportedException;
 
 public class CUBRIDException extends SQLException {
     private static final long serialVersionUID = -1902040094322313271L;
@@ -70,17 +69,5 @@ public class CUBRIDException extends SQLException {
         if (t != null) {
             setStackTrace(t.getStackTrace());
         }
-    }
-
-    /*
-     * Builds the standard exception for a JDBC method that this driver does not support.
-     * Uses the JDBC 4.0 standard type (SQLFeatureNotSupportedException) while carrying
-     * the driver's own reason message and error code (not_supported).
-     */
-    static SQLFeatureNotSupportedException notSupported() {
-        return new SQLFeatureNotSupportedException(
-                CUBRIDJDBCErrorCode.getMessage(CUBRIDJDBCErrorCode.not_supported),
-                null,
-                CUBRIDJDBCErrorCode.not_supported);
     }
 }

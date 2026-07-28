@@ -634,7 +634,7 @@ public class CUBRIDStatement implements Statement {
          * e) { throw new CUBRIDException(CUBRIDJDBCErrorCode.statement_closed);
          * }
          */
-        throw CUBRIDException.notSupported();
+        throw new SQLException(new java.lang.UnsupportedOperationException());
     }
 
     int getHoldability() {
@@ -757,12 +757,12 @@ public class CUBRIDStatement implements Statement {
 
     /* JDK 1.6 */
     public boolean isPoolable() throws SQLException {
-        throw CUBRIDException.notSupported();
+        throw new SQLException(new java.lang.UnsupportedOperationException());
     }
 
     /* JDK 1.6 */
     public void setPoolable(boolean poolable) throws SQLException {
-        throw CUBRIDException.notSupported();
+        throw new SQLException(new java.lang.UnsupportedOperationException());
     }
 
     /* JDK 1.6 */
@@ -1008,12 +1008,12 @@ public class CUBRIDStatement implements Statement {
 
     /* JDK 1.7 */
     public void closeOnCompletion() throws SQLException {
-        throw CUBRIDException.notSupported();
+        throw new SQLException(new java.lang.UnsupportedOperationException());
     }
 
     /* JDK 1.7 */
     public boolean isCloseOnCompletion() throws SQLException {
-        throw CUBRIDException.notSupported();
+        throw new SQLException(new java.lang.UnsupportedOperationException());
     }
 
     public void setCurrentTransaction(boolean is_from_current_transaction) {

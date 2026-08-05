@@ -766,13 +766,23 @@ public class CUBRIDStatement implements Statement {
     }
 
     /* JDK 1.6 */
+    @Override
     public boolean isWrapperFor(Class<?> iface) throws SQLException {
-        throw new SQLException(new java.lang.UnsupportedOperationException());
+        checkIsOpen();
+        return iface != null && iface.isAssignableFrom(getClass());
     }
 
     /* JDK 1.6 */
+    @Override
     public <T> T unwrap(Class<T> iface) throws SQLException {
-        throw new SQLException(new java.lang.UnsupportedOperationException());
+        checkIsOpen();
+        if (iface != null && iface.isAssignableFrom(getClass())) {
+            return iface.cast(this);
+        }
+        throw con.createCUBRIDException(
+                CUBRIDJDBCErrorCode.invalid_value,
+                CUBRIDException.cannotUnwrapMessage(iface),
+                null);
     }
 
     protected CUBRIDOID executeInsertCore() throws SQLException {

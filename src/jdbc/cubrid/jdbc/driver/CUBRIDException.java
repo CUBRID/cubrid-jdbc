@@ -83,4 +83,12 @@ public class CUBRIDException extends SQLException {
                 null,
                 CUBRIDJDBCErrorCode.not_supported);
     }
+
+    /*
+     * Builds the reason message for an unwrap request that this object cannot satisfy.
+     * Pairs with CUBRIDJDBCErrorCode.invalid_value.
+     */
+    static String cannotUnwrapMessage(Class<?> iface) {
+        return " - cannot unwrap to " + (iface == null ? "null" : iface.getName());
+    }
 }

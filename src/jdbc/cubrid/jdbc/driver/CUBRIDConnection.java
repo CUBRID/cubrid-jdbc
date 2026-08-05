@@ -1093,13 +1093,23 @@ public class CUBRIDConnection implements Connection {
     }
 
     /* JDK 1.6 */
-    public boolean isWrapperFor(Class<?> arg0) throws SQLException {
-        throw new SQLException(new java.lang.UnsupportedOperationException());
+    @Override
+    public boolean isWrapperFor(Class<?> iface) throws SQLException {
+        checkIsOpen();
+        return iface != null && iface.isAssignableFrom(getClass());
     }
 
     /* JDK 1.6 */
-    public <T> T unwrap(Class<T> arg0) throws SQLException {
-        throw new SQLException(new java.lang.UnsupportedOperationException());
+    @Override
+    public <T> T unwrap(Class<T> iface) throws SQLException {
+        checkIsOpen();
+        if (iface != null && iface.isAssignableFrom(getClass())) {
+            return iface.cast(this);
+        }
+        throw createCUBRIDException(
+                CUBRIDJDBCErrorCode.invalid_value,
+                CUBRIDException.cannotUnwrapMessage(iface),
+                null);
     }
 
     /* JDK 1.7 */

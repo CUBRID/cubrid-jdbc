@@ -82,7 +82,10 @@ public class CUBRIDResultSetMetaData implements ResultSetMetaData {
             col_scale[i] = col_info[i].getColumnScale();
             String tableName = col_info[i].getClassName();
             int dotIndex = tableName != null ? tableName.indexOf('.') : -1;
-            col_schema[i] = dotIndex != -1 ? tableName.substring(0, dotIndex).toUpperCase(Locale.ENGLISH) : "";
+            col_schema[i] =
+                    dotIndex != -1
+                            ? tableName.substring(0, dotIndex).toUpperCase(Locale.ENGLISH)
+                            : "";
             col_table[i] = dotIndex != -1 ? tableName.substring(dotIndex + 1) : tableName;
             col_type_name[i] = null;
             col_class_name[i] = col_info[i].getFQDN();
@@ -780,13 +783,21 @@ public class CUBRIDResultSetMetaData implements ResultSetMetaData {
     }
 
     /* JDK 1.6 */
+    @Override
     public boolean isWrapperFor(Class<?> iface) throws SQLException {
-        throw new SQLException(new java.lang.UnsupportedOperationException());
+        return iface != null && iface.isAssignableFrom(getClass());
     }
 
     /* JDK 1.6 */
+    @Override
     public <T> T unwrap(Class<T> iface) throws SQLException {
-        throw new SQLException(new java.lang.UnsupportedOperationException());
+        if (iface != null && iface.isAssignableFrom(getClass())) {
+            return iface.cast(this);
+        }
+        throw new CUBRIDException(
+                CUBRIDJDBCErrorCode.invalid_value,
+                CUBRIDException.cannotUnwrapMessage(iface),
+                null);
     }
 
     private void checkColumnIndex(int column) throws SQLException {

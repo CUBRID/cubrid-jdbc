@@ -769,17 +769,25 @@ public class CUBRIDStatement implements Statement {
     @Override
     public boolean isWrapperFor(Class<?> iface) throws SQLException {
         checkIsOpen();
-        return iface != null && iface.isAssignableFrom(getClass());
+        if (iface == null) {
+            throw new CUBRIDException(
+                    CUBRIDJDBCErrorCode.invalid_value, CUBRIDException.nullTypeMessage(), null);
+        }
+        return iface.isAssignableFrom(getClass());
     }
 
     /* JDK 1.6 */
     @Override
     public <T> T unwrap(Class<T> iface) throws SQLException {
         checkIsOpen();
-        if (iface != null && iface.isAssignableFrom(getClass())) {
+        if (iface == null) {
+            throw new CUBRIDException(
+                    CUBRIDJDBCErrorCode.invalid_value, CUBRIDException.nullTypeMessage(), null);
+        }
+        if (iface.isAssignableFrom(getClass())) {
             return iface.cast(this);
         }
-        throw con.createCUBRIDException(
+        throw new CUBRIDException(
                 CUBRIDJDBCErrorCode.invalid_value,
                 CUBRIDException.cannotUnwrapMessage(iface),
                 null);

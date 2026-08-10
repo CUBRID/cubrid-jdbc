@@ -84,6 +84,8 @@ public class CUBRIDJDBCErrorCode {
     public static int request_timeout = -21141;
     public static int invalid_prop_file = -21142;
     public static int file_not_found_prop = -21143;
+    public static int savepoint_in_auto_commit_mode = -21144;
+    public static int invalid_savepoint = -21145;
 
     private static Hashtable<Integer, String> messageString;
 
@@ -173,6 +175,10 @@ public class CUBRIDJDBCErrorCode {
         messageString.put(new Integer(request_timeout), "Request timed out.");
         messageString.put(new Integer(invalid_prop_file), "Invalid file - ");
         messageString.put(new Integer(file_not_found_prop), "File not found - ");
+        messageString.put(
+                new Integer(savepoint_in_auto_commit_mode),
+                "Savepoint cannot be used while auto-commit is enabled.");
+        messageString.put(new Integer(invalid_savepoint), "Invalid savepoint - ");
     }
 
     public static String getMessage(int code) {

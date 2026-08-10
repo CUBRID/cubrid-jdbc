@@ -596,7 +596,7 @@ public class CUBRIDStatement implements Statement {
         checkIsOpen();
 
         if (auto_generatedkeys_result_set == null) {
-            auto_generatedkeys_result_set = new CUBRIDResultSet(null);
+            auto_generatedkeys_result_set = new CUBRIDResultSet(con, null);
         }
 
         return auto_generatedkeys_result_set;
@@ -634,7 +634,7 @@ public class CUBRIDStatement implements Statement {
          * e) { throw new CUBRIDException(CUBRIDJDBCErrorCode.statement_closed);
          * }
          */
-        throw new SQLException(new java.lang.UnsupportedOperationException());
+        throw CUBRIDException.notSupported();
     }
 
     int getHoldability() {
@@ -757,12 +757,12 @@ public class CUBRIDStatement implements Statement {
 
     /* JDK 1.6 */
     public boolean isPoolable() throws SQLException {
-        throw new SQLException(new java.lang.UnsupportedOperationException());
+        throw CUBRIDException.notSupported();
     }
 
     /* JDK 1.6 */
     public void setPoolable(boolean poolable) throws SQLException {
-        throw new SQLException(new java.lang.UnsupportedOperationException());
+        throw CUBRIDException.notSupported();
     }
 
     /* JDK 1.6 */
@@ -965,7 +965,7 @@ public class CUBRIDStatement implements Statement {
                 throw con.createCUBRIDException(error);
         }
 
-        auto_generatedkeys_result_set = new CUBRIDResultSet(auto_generatedkeys_stmt);
+        auto_generatedkeys_result_set = new CUBRIDResultSet(con, auto_generatedkeys_stmt);
 
         return true;
     }
@@ -1008,12 +1008,12 @@ public class CUBRIDStatement implements Statement {
 
     /* JDK 1.7 */
     public void closeOnCompletion() throws SQLException {
-        throw new SQLException(new java.lang.UnsupportedOperationException());
+        throw CUBRIDException.notSupported();
     }
 
     /* JDK 1.7 */
     public boolean isCloseOnCompletion() throws SQLException {
-        throw new SQLException(new java.lang.UnsupportedOperationException());
+        throw CUBRIDException.notSupported();
     }
 
     public void setCurrentTransaction(boolean is_from_current_transaction) {

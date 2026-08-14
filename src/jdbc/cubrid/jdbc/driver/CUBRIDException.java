@@ -91,12 +91,4 @@ public class CUBRIDException extends SQLException {
     static String cannotUnwrapMessage(Class<?> iface) {
         return " - cannot unwrap to " + iface.getName();
     }
-
-    /*
-     * Builds the reason message for a null type argument passed to isWrapperFor or unwrap.
-     * Pairs with CUBRIDJDBCErrorCode.invalid_value.
-     */
-    static String nullTypeMessage() {
-        return " - type must not be null";
-    }
 }

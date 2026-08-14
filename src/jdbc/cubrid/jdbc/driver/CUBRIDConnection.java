@@ -1096,10 +1096,6 @@ public class CUBRIDConnection implements Connection {
     @Override
     public boolean isWrapperFor(Class<?> iface) throws SQLException {
         checkIsOpen();
-        if (iface == null) {
-            throw new CUBRIDException(
-                    CUBRIDJDBCErrorCode.invalid_value, CUBRIDException.nullTypeMessage(), null);
-        }
         return iface.isAssignableFrom(getClass());
     }
 
@@ -1107,10 +1103,6 @@ public class CUBRIDConnection implements Connection {
     @Override
     public <T> T unwrap(Class<T> iface) throws SQLException {
         checkIsOpen();
-        if (iface == null) {
-            throw new CUBRIDException(
-                    CUBRIDJDBCErrorCode.invalid_value, CUBRIDException.nullTypeMessage(), null);
-        }
         if (iface.isAssignableFrom(getClass())) {
             return iface.cast(this);
         }

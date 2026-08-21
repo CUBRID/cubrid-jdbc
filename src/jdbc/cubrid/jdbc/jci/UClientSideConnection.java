@@ -102,7 +102,6 @@ public class UClientSideConnection extends UConnection {
     }
 
     public void tryConnect() throws CUBRIDException {
-        initLogger();
         try {
             if (connectionProperties.getUseLazyConnection()) {
                 needReconnection = true;

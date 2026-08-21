@@ -44,8 +44,6 @@ import cubrid.jdbc.driver.CUBRIDConnection;
 import cubrid.jdbc.driver.CUBRIDDriver;
 import cubrid.jdbc.driver.CUBRIDXid;
 import cubrid.jdbc.driver.ConnectionProperties;
-import cubrid.jdbc.log.BasicLogger;
-import cubrid.jdbc.log.Log;
 import cubrid.jdbc.net.BrokerHandler;
 import cubrid.sql.CUBRIDOID;
 import java.io.DataOutputStream;
@@ -56,6 +54,8 @@ import java.sql.SQLException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Vector;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import javax.transaction.xa.Xid;
 
 public abstract class UConnection {
@@ -215,8 +215,9 @@ public abstract class UConnection {
         driverInfossl[9] = 0; // reserved
     }
 
+    private static final Logger LOGGER = Logger.getLogger(UConnection.class.getName());
+
     protected UError errorHandler;
-    protected Log log;
 
     protected ConnectionProperties connectionProperties = new ConnectionProperties();
     protected CUBRIDConnection cubridcon;
@@ -1392,19 +1393,6 @@ public abstract class UConnection {
     /*
      * logger
      */
-    protected Log getLogger() {
-        if (log == null) {
-            log = new BasicLogger(connectionProperties.getLogFile());
-        }
-        return log;
-    }
-
-    protected void initLogger() {
-        if (connectionProperties.getLogOnException() || connectionProperties.getLogSlowQueries()) {
-            log = getLogger();
-        }
-    }
-
     private SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
 
     public void logSlowQuery(long begin, long end, String sql, UBindParameter p) {
@@ -1414,6 +1402,10 @@ public abstract class UConnection {
 
         long elapsed = end - begin;
         if (connectionProperties.getSlowQueryThresholdMillis() > elapsed) {
+            return;
+        }
+
+        if (!LOGGER.isLoggable(Level.FINEST)) {
             return;
         }
 
@@ -1434,9 +1426,7 @@ public abstract class UConnection {
             b.append('\n');
         }
 
-        synchronized (this) {
-            getLogger().logInfo(b.toString());
-        }
+        LOGGER.log(Level.FINEST, b.toString());
     }
 
     /*
@@ -1930,7 +1920,9 @@ public abstract class UConnection {
 
     public UJciException createJciException(int err) {
         UJciException e = new UJciException(err);
-        if (connectionProperties == null || !connectionProperties.getLogOnException()) {
+        if (connectionProperties == null
+                || !connectionProperties.getLogOnException()
+                || !LOGGER.isLoggable(Level.FINE)) {
             return e;
         }
 
@@ -1938,9 +1930,7 @@ public abstract class UConnection {
         b.append("DUMP EXCEPTION\n");
         b.append("[JCI EXCEPTION]");
 
-        synchronized (this) {
-            getLogger().logInfo(b.toString(), e);
-        }
+        LOGGER.log(Level.FINE, b.toString(), e);
         return e;
     }
 
@@ -1951,7 +1941,9 @@ public abstract class UConnection {
     }
 
     public void logException(Throwable t) {
-        if (connectionProperties == null || !connectionProperties.getLogOnException()) {
+        if (connectionProperties == null
+                || !connectionProperties.getLogOnException()
+                || !LOGGER.isLoggable(Level.FINE)) {
             return;
         }
 
@@ -1959,9 +1951,7 @@ public abstract class UConnection {
         b.append("DUMP EXCEPTION\n");
         b.append("[" + t.getClass().getName() + "]");
 
-        synchronized (this) {
-            getLogger().logInfo(b.toString(), t);
-        }
+        LOGGER.log(Level.FINE, b.toString(), t);
     }
 
     public boolean isActive() {

@@ -1941,7 +1941,8 @@ public abstract class UConnection {
     }
 
     public void logException(Throwable t) {
-        if (connectionProperties == null
+        if (t == null
+                || connectionProperties == null
                 || !connectionProperties.getLogOnException()
                 || !LOGGER.isLoggable(Level.FINE)) {
             return;

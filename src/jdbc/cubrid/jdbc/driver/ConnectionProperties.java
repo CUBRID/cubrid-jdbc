@@ -364,7 +364,7 @@ public class ConnectionProperties {
     }
 
     BooleanConnectionProperty logOnException =
-            new BooleanConnectionProperty("logOnException", false);
+            new BooleanConnectionProperty("logOnException", true);
 
     BooleanConnectionProperty logSlowQueries =
             new BooleanConnectionProperty("logSlowQueries", false);

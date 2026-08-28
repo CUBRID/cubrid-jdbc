@@ -35,6 +35,9 @@ import cubrid.jdbc.jci.BrokerHealthCheck;
 import cubrid.jdbc.jci.UClientSideConnection;
 import cubrid.jdbc.jci.UJCIManager;
 import cubrid.jdbc.jci.UJCIUtil;
+import cubrid.jdbc.lb.LoadBalanceConnection;
+import cubrid.jdbc.lb.config.LoadBalanceSettings;
+import cubrid.jdbc.lb.config.LoadBalanceUrlParser;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
@@ -85,9 +88,48 @@ public class CUBRIDDriver implements Driver {
 
     private static final String URL_PATTERN =
             "jdbc:cubrid(-oracle|-mysql)?:([a-zA-Z_0-9\\.-]*):([0-9]*):([^:]+):([^:]*):([^:]*):(\\?[a-zA-Z_0-9]+=[^&=?]+(&[a-zA-Z_0-9]+=[^&=?]+)*)?";
+    /**
+     * Format of a single-node URI URL ({@code jdbc:cubrid[-variant]://host[:port]/db[:user[:pw[:]]]
+     * [?options]}), the counterpart of {@link #URL_PATTERN} for the {@code ://} form. Its field
+     * count is fixed, so the whole URL is validated (and decomposed) by this single pattern the way
+     * the classic URL is by {@link #URL_PATTERN}: 1=scheme prefix as written, 2=variant, 3=host,
+     * 4=port, 5=db, 6=user, 7=password, 8=options. Host and port may be empty (the classic path
+     * fills the defaults, as for a classic {@code jdbc:cubrid:::db:::}); the option group is the
+     * same expression the classic pattern uses, so it must start with {@code '?'}.
+     */
+    private static final String URL_PATTERN_SINGLE =
+            "(jdbc:cubrid(-oracle|-mysql)?)://([a-zA-Z_0-9\\.-]*)(?::([0-9]*))?/([^:?]+)(?::([^:?]*))?(?::([^:?]*))?(?::)?(\\?[a-zA-Z_0-9]+=[^&=?]+(&[a-zA-Z_0-9]+=[^&=?]+)*)?";
+
     private static final String CUBRID_JDBC_URL_HEADER = "jdbc:cubrid";
     private static final String ENV_JDBC_PROP_NAME = "CUBRID_JDBC_PROP";
+    private static final String URL_SCHEME_SEPARATOR = "://";
+    private static final String LOADBALANCE_MODE_SUFFIX = ":loadbalance";
+
+    /**
+     * Internal connect-time property carrying the URL as the user wrote it, independent of the URL
+     * actually used to open the physical socket. A URI URL ({@code loadbalance://} or single-node
+     * {@code ://}) is rewritten to a classic colon-delimited URL per broker before the physical
+     * connect, which otherwise made the URL reported back (JDBC error messages and the CAS DB_INFO
+     * handshake) differ from what the user wrote. The LB layer / {@link #connectUri} place the
+     * original (password-masked) user URL under this key so {@link
+     * cubrid.jdbc.jci.UClientSideConnection} reports it instead. Not a real connection property —
+     * {@link ConnectionProperties} ignores unknown keys, so it is inert on the physical connect.
+     */
+    public static final String USER_URL_PROPERTY = "cubrid.internal.user-url";
+
     private int conn_count = 0;
+
+    /**
+     * URL dispatch mode, determined purely lexically from the URL scheme per jdbc-loadbalance-spec
+     * §4.1-4.2: a {@code ://} marks a <em>URI</em> URL; {@code loadbalance} immediately before
+     * {@code ://} marks the load-balancing (multi-node) mode, otherwise it is a single-node URI
+     * URL. A URL without {@code ://} is the classic colon-delimited format.
+     */
+    enum UrlMode {
+        CLASSIC,
+        URI_SINGLE,
+        URI_LOADBALANCE
+    }
 
     static {
         try {
@@ -140,15 +182,31 @@ public class CUBRIDDriver implements Driver {
             return null;
         }
 
+        final UrlMode urlMode = detectUrlMode(url);
+        if (urlMode != UrlMode.CLASSIC) {
+            return connectUri(url, info, urlMode);
+        }
+
+        // The original user URL (password-masked) to show in logs/errors when this connect is a
+        // physical leg of a URI connection; supplied by the LB layer / connectUri via
+        // USER_URL_PROPERTY. Null for a direct classic connect. Resolved before URL parsing so the
+        // invalid_url errors below report the user-written URL, not the internally-rewritten one.
+        String userUrl = (info == null) ? null : info.getProperty(USER_URL_PROPERTY);
+        if (userUrl != null && userUrl.length() == 0) {
+            userUrl = null;
+        }
+
         Pattern pattern = Pattern.compile(URL_PATTERN, Pattern.CASE_INSENSITIVE);
         Matcher matcher = pattern.matcher(url);
         if (!matcher.find()) {
-            throw new CUBRIDException(CUBRIDJDBCErrorCode.invalid_url, url, null);
+            throw new CUBRIDException(
+                    CUBRIDJDBCErrorCode.invalid_url, userUrl != null ? userUrl : url, null);
         }
 
         String match = matcher.group();
         if (!match.equals(url)) {
-            throw new CUBRIDException(CUBRIDJDBCErrorCode.invalid_url, url, null);
+            throw new CUBRIDException(
+                    CUBRIDJDBCErrorCode.invalid_url, userUrl != null ? userUrl : url, null);
         }
 
         host = matcher.group(2);
@@ -252,6 +310,13 @@ public class CUBRIDDriver implements Driver {
             resolvedUrl += prop;
         }
 
+        // The URL to report back (JDBC errors + CAS DB_INFO). Normally the reconstructed per-broker
+        // resolvedUrl, but when this connect is a physical leg of a URI (loadbalance:// or
+        // single-node ://) connection the LB layer / connectUri supply the original user URL
+        // (password-masked) via USER_URL_PROPERTY, so the reported URL matches what the user wrote
+        // instead of the internally-rewritten classic URL.
+        String reportedUrl = (userUrl != null) ? userUrl : resolvedUrl;
+
         connProperties = new ConnectionProperties();
         connProperties.setProperties(prop);
         connProperties.setProperties(info);
@@ -272,7 +337,7 @@ public class CUBRIDDriver implements Driver {
             try {
                 u_con =
                         (UClientSideConnection)
-                                UJCIManager.connect(altHostList, db, user, pass, resolvedUrl);
+                                UJCIManager.connect(altHostList, db, user, pass, reportedUrl);
             } catch (CUBRIDException e) {
                 throw e;
             }
@@ -280,7 +345,7 @@ public class CUBRIDDriver implements Driver {
             try {
                 u_con =
                         (UClientSideConnection)
-                                UJCIManager.connect(host, port, db, user, pass, resolvedUrl);
+                                UJCIManager.connect(host, port, db, user, pass, reportedUrl);
             } catch (CUBRIDException e) {
                 throw e;
             }
@@ -298,6 +363,212 @@ public class CUBRIDDriver implements Driver {
             conn.setHoldability(connProperties.getHoldCursor());
         }
         return conn;
+    }
+
+    /**
+     * Classify an accepted CUBRID JDBC URL into its dispatch mode. Detection is purely lexical and
+     * does not validate the rest of the URL — URI parsing/validation is done later by the URI URL
+     * parser.
+     *
+     * <ul>
+     *   <li>no {@code ://} → {@link UrlMode#CLASSIC} (classic colon-delimited URLs never contain
+     *       {@code //}, so there is no ambiguity)
+     *   <li>{@code loadbalance} as the segment immediately before {@code ://} → {@link
+     *       UrlMode#URI_LOADBALANCE}
+     *   <li>otherwise (a {@code ://} with no mode keyword) → {@link UrlMode#URI_SINGLE}
+     * </ul>
+     */
+    static UrlMode detectUrlMode(String url) {
+        if (url == null) {
+            return UrlMode.CLASSIC;
+        }
+
+        int sep = url.indexOf(URL_SCHEME_SEPARATOR);
+        if (sep < 0) {
+            return UrlMode.CLASSIC;
+        }
+
+        String scheme = url.substring(0, sep).toLowerCase();
+
+        return scheme.endsWith(LOADBALANCE_MODE_SUFFIX)
+                ? UrlMode.URI_LOADBALANCE
+                : UrlMode.URI_SINGLE;
+    }
+
+    /**
+     * Connect via a URI ({@code ://}) URL.
+     *
+     * <ul>
+     *   <li>{@link UrlMode#URI_LOADBALANCE} → parse the role topology / readWeight ({@link
+     *       LoadBalanceUrlParser}) into an in-memory {@link LoadBalanceSettings} and return a
+     *       {@link LoadBalanceConnection} (write fixed to master RW, reads distributed by
+     *       readWeight).
+     *   <li>{@link UrlMode#URI_SINGLE} → a single-node URI URL differs from a classic single-node
+     *       URL by format only: translate it to the classic colon-delimited form and connect
+     *       through the normal single-node path (no LB, no role assignment).
+     * </ul>
+     */
+    private Connection connectUri(String url, Properties info, UrlMode mode) throws SQLException {
+        if (mode == UrlMode.URI_LOADBALANCE) {
+            LoadBalanceSettings config =
+                    LoadBalanceSettings.fromUrl(LoadBalanceUrlParser.parse(url));
+            return LoadBalanceConnection.openFromSettings(url, info, config);
+        }
+
+        // Single-node URI URL: connect through the classic path with the rewritten colon-delimited
+        // URL, but carry the URI URL along so JDBC errors / CAS show the form the user wrote rather
+        // than the rewritten classic form.
+        Properties infoWithUserUrl = new Properties();
+        if (info != null) {
+            for (String name : info.stringPropertyNames()) {
+                infoWithUserUrl.setProperty(name, info.getProperty(name));
+            }
+        }
+        infoWithUserUrl.setProperty(USER_URL_PROPERTY, uriSingleLogUrl(url, info));
+        return connect(uriSingleToClassicUrl(url), infoWithUserUrl);
+    }
+
+    /**
+     * Rewrite the credential section of a URI ({@code ://}) CUBRID JDBC URL for logging as {@code
+     * db:user:********:}, the same form the classic path's {@code resolvedUrl} logs, leaving every
+     * other character (scheme, hosts, ports, {@code ;replica=...}, and {@code ?} options) exactly
+     * as the user wrote them. The credential section is what follows the first {@code '/'} after
+     * {@code '://'}; the user shown is {@code info}'s {@code user} property (credentials passed to
+     * {@link java.sql.DriverManager#getConnection(String, String, String)}) and otherwise the
+     * second {@code ':'}-separated segment of the credential section — the same precedence the
+     * classic path uses to pick the user it connects with — and the password is always shown
+     * masked. A non-URI (classic) URL, or one without a credential section, is returned unchanged.
+     *
+     * @param url the JDBC URL to mask; may be {@code null}
+     * @param info connection properties supplying the effective {@code user}; may be {@code null}
+     * @return the URL with its credentials rendered for logging, or the input unchanged when there
+     *     is no credential section to rewrite
+     */
+    public static String maskUriUrlPassword(String url, Properties info) {
+        if (url == null) {
+            return url;
+        }
+
+        int sep = url.indexOf(URL_SCHEME_SEPARATOR);
+        if (sep < 0) {
+            return url;
+        }
+
+        int credStart = url.indexOf('/', sep + URL_SCHEME_SEPARATOR.length());
+        if (credStart < 0) {
+            return url;
+        }
+
+        int qIdx = url.indexOf('?', credStart);
+        int credEnd = qIdx >= 0 ? qIdx : url.length();
+
+        String[] segs = url.substring(credStart + 1, credEnd).split(":", -1); // db[:user[:pw[:]]]
+        String db = segs[0];
+
+        // Same precedence as the classic path's resolvedUrl: the properties' user (as passed to
+        // DriverManager.getConnection(url, user, password)) wins over the inline URL user.
+        String user = (info == null) ? null : info.getProperty("user");
+        if (user == null) {
+            user = segs.length > 1 ? segs[1] : "";
+        }
+
+        return url.substring(0, credStart + 1)
+                + db
+                + ":"
+                + user
+                + ":********:"
+                + url.substring(credEnd);
+    }
+
+    /**
+     * Translate a single-node URI URL ({@code jdbc:cubrid[-variant]://host[:port]/db:user:pw:?p})
+     * to the equivalent classic colon-delimited URL ({@code
+     * jdbc:cubrid[-variant]:host:port:db:...}), which differs only in the {@code ://} scheme
+     * separator and the {@code /} before the database.
+     *
+     * <p>The URI URL is validated as written by {@link #URL_PATTERN_SINGLE} — not by checking the
+     * rewritten classic URL afterwards — the way a classic URL is validated by {@link
+     * #URL_PATTERN}, and a URL that does not match the format raises the same classic "invalid URL"
+     * error. An absent host/port/user/password becomes an empty segment, which the classic path
+     * fills with its defaults.
+     */
+    static String uriSingleToClassicUrl(String url) throws SQLException {
+        Matcher matcher = matchUriSingleUrl(url);
+
+        // The classic form always carries all six colon-delimited fields, so an unmatched (absent)
+        // optional group becomes an empty segment: host/port -> classic defaults, user/password ->
+        // taken from the connection Properties instead.
+        return matcher.group(1) // scheme prefix, as written: jdbc:cubrid[-variant]
+                + ":"
+                + nullToEmpty(matcher.group(3)) // host
+                + ":"
+                + nullToEmpty(matcher.group(4)) // port
+                + ":"
+                + matcher.group(5) // db (required by the pattern)
+                + ":"
+                + nullToEmpty(matcher.group(6)) // user
+                + ":"
+                + nullToEmpty(matcher.group(7)) // password
+                + ":"
+                + nullToEmpty(matcher.group(8)); // options, including the leading '?'
+    }
+
+    /**
+     * Match a single-node URI URL against {@link #URL_PATTERN_SINGLE}, raising the classic "invalid
+     * URL" error when it does not match the format.
+     */
+    private static Matcher matchUriSingleUrl(String url) throws SQLException {
+        Matcher matcher =
+                Pattern.compile(URL_PATTERN_SINGLE, Pattern.CASE_INSENSITIVE).matcher(url);
+        if (!matcher.matches()) {
+            throw new CUBRIDException(CUBRIDJDBCErrorCode.invalid_url, url, null);
+        }
+        return matcher;
+    }
+
+    /**
+     * The URL to record for logging (JDBC errors + CAS DB_INFO) for a single-node URI connect: the
+     * URI form the user wrote, but resolved the same way the classic path's {@code resolvedUrl} is
+     * - an absent host/port shows the driver default ({@link #default_hostname}/{@link
+     * #default_port}, the values the connect actually uses) and the credentials are rendered {@code
+     * db:user:********:}.
+     *
+     * @param url the single-node URI URL
+     * @param info connection properties supplying the effective {@code user}; may be {@code null}
+     */
+    static String uriSingleLogUrl(String url, Properties info) throws SQLException {
+        Matcher matcher = matchUriSingleUrl(url);
+
+        String host = nullToEmpty(matcher.group(3));
+        String port = nullToEmpty(matcher.group(4));
+        if (host.length() != 0 && port.length() != 0) {
+            return maskUriUrlPassword(url, info); // nothing to resolve
+        }
+
+        if (host.length() == 0) {
+            host = default_hostname;
+        }
+        if (port.length() == 0) {
+            port = String.valueOf(default_port);
+        }
+
+        // Replace the authority, keeping the rest of the URL (db-cred + options) as written; the
+        // credential section is then rendered by maskUriUrlPassword.
+        int credStart =
+                url.indexOf('/', url.indexOf(URL_SCHEME_SEPARATOR) + URL_SCHEME_SEPARATOR.length());
+        String resolved =
+                matcher.group(1)
+                        + URL_SCHEME_SEPARATOR
+                        + host
+                        + ":"
+                        + port
+                        + url.substring(credStart);
+
+        return maskUriUrlPassword(resolved, info);
+    }
+
+    private static String nullToEmpty(String s) {
+        return s == null ? "" : s;
     }
 
     public boolean acceptsURL(String url) throws SQLException {

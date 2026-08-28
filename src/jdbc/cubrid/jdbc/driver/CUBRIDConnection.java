@@ -123,6 +123,36 @@ public class CUBRIDConnection implements Connection {
          */
     }
 
+    /**
+     * For a logical connection that owns no single {@link UConnection}.
+     *
+     * <p>The public constructor binds this object to one physical socket and registers itself on
+     * it. A load-balancing connection holds a write leg and a read leg and rebinds them on
+     * failover, so there is no single socket to name — {@code u_con} stays null and every inherited
+     * method that would dereference it must be overridden by the subclass. That obligation is not
+     * optional: an inherited method reaching {@code synchronized (u_con)} throws
+     * NullPointerException from a stack trace that never mentions the subclass, and one reading
+     * {@code is_closed} silently sees the wrong state because the subclass tracks closing itself.
+     *
+     * @param r the logical URL to report
+     * @param s the user name to report
+     */
+    protected CUBRIDConnection(String r, String s) {
+        u_con = null;
+        url = r;
+        user = s;
+        is_closed = false;
+        auto_commit = true;
+        holdability = ResultSet.HOLD_CURSORS_OVER_COMMIT;
+        error = null;
+        mdata = null;
+        ending = false;
+        statements = new ArrayList<Statement>();
+        outRs = new ArrayList<CUBRIDOutResultSet>();
+        shard_mdata = null;
+        prepStmtCache = null;
+    }
+
     /*
      * 3.0 CUBRIDConnection (UConnection u, String r, String s,
      * CUBRIDPooledConnection pcon) { u_con = u; url = r; user = s; is_closed =
@@ -960,9 +990,18 @@ public class CUBRIDConnection implements Connection {
         }
     }
 
+    /**
+     * Logging is best-effort: a logical connection owns no single {@link UConnection}, so {@code
+     * u_con} is null there. Without the guard this reports a NullPointerException instead of the
+     * SQLException it was asked to build — turning a diagnosable server error into a stack trace
+     * that names neither the error nor the caller. The two-argument overload below has always
+     * guarded; these did not.
+     */
     CUBRIDException createCUBRIDException(UError error) {
         CUBRIDException e = new CUBRIDException(error);
-        u_con.logException(e);
+        if (u_con != null) {
+            u_con.logException(e);
+        }
         return e;
     }
 
@@ -976,7 +1015,9 @@ public class CUBRIDConnection implements Connection {
 
     CUBRIDException createCUBRIDException(int errCode, String msg, Throwable t) {
         CUBRIDException e = new CUBRIDException(errCode, msg, t);
-        u_con.logException(e);
+        if (u_con != null) {
+            u_con.logException(e);
+        }
         return e;
     }
 

@@ -57,6 +57,25 @@ import java.util.ArrayList;
  */
 public class CUBRIDStatement implements Statement {
     protected CUBRIDConnection con;
+
+    /**
+     * The connection to name as this statement's owner, when that is not {@link #con}.
+     *
+     * <p>A load-balanced session hands out physical statements for the paths it does not wrap —
+     * {@code prepareCall} is the notable one. Without this field {@code getConnection()} on such a
+     * statement returns the physical leg that created it, and an application walking back through
+     * it can {@code commit()}, {@code rollback()} or {@code close()} that leg behind the session's
+     * back: one leg changes, the session knows nothing, and nothing throws.
+     *
+     * <p>Deliberately separate from {@link #con} rather than replacing it. {@code con} is
+     * load-bearing: this class synchronizes on it, calls its package-private {@code autoCommit()}
+     * and {@code createCUBRIDException(...)}, and reads its {@code UConnection}. Pointing it at a
+     * logical connection would run those against an object that owns no socket. So the internal
+     * owner and the reported owner are two notions, and only the reported one is redirected. Same
+     * shape as {@code CUBRIDResultSet.reportedStmt}.
+     */
+    private Connection reportedCon;
+
     protected UConnection u_con;
     protected UStatement u_stmt;
     protected UStatement auto_generatedkeys_stmt;
@@ -111,6 +130,50 @@ public class CUBRIDStatement implements Statement {
         }
 
         is_sensitive = t == ResultSet.TYPE_SCROLL_SENSITIVE;
+        fetch_direction = ResultSet.FETCH_FORWARD;
+        fetch_size = 0;
+        batchs = new ArrayList<String>();
+        completed = true;
+        result_info = null;
+        query_info_flag = false;
+        only_query_plan = false;
+        is_from_current_transaction = true;
+        lastShardId = UShardInfo.SHARD_ID_INVALID;
+    }
+
+    /**
+     * For a logical statement that owns no single {@link UStatement}.
+     *
+     * <p>The regular constructor reads {@code c.u_con} and calls {@code
+     * u_con.supportHoldableResult()}, so it cannot run on a connection that owns no socket. A
+     * load-balancing statement routes each execution to a physical statement chosen at execute
+     * time, so there is no single {@code UStatement} to name — {@code u_con} and {@code u_stmt}
+     * stay null and every inherited method that would dereference them must be overridden by the
+     * subclass. That obligation is not optional: an inherited method reaching {@code u_stmt} throws
+     * NullPointerException from a stack trace that never mentions the subclass, and one reading
+     * {@code is_closed} silently sees the wrong state because the subclass tracks closing itself.
+     *
+     * @param c the logical connection that produced this statement
+     */
+    protected CUBRIDStatement(CUBRIDConnection c) {
+        con = c;
+        u_con = null;
+        u_stmt = null;
+        is_closed = false;
+        max_field_size = 0;
+        max_rows = 0;
+        update_count = -1;
+        current_result_set = null;
+        auto_generatedkeys_result_set = null;
+        auto_generatedkeys_stmt = null;
+        query_timeout = 0;
+        error = null;
+        type = ResultSet.TYPE_FORWARD_ONLY;
+        concurrency = ResultSet.CONCUR_READ_ONLY;
+        is_scrollable = false;
+        is_updatable = false;
+        is_holdable = false;
+        is_sensitive = false;
         fetch_direction = ResultSet.FETCH_FORWARD;
         fetch_size = 0;
         batchs = new ArrayList<String>();
@@ -453,8 +516,23 @@ public class CUBRIDStatement implements Statement {
         }
     }
 
+    /**
+     * Name {@code reported} as this statement's owner instead of the connection that physically
+     * created it. Used by the load-balance driver for the statement kinds it hands out unwrapped;
+     * see {@link #reportedCon}.
+     *
+     * @param reported the connection to report, or null to report the physical owner again
+     */
+    public synchronized void setReportedConnection(Connection reported) {
+        reportedCon = reported;
+    }
+
     public synchronized Connection getConnection() throws SQLException {
         checkIsOpen();
+        if (reportedCon != null) {
+            return reportedCon;
+        }
+
         return con;
     }
 

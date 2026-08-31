@@ -87,6 +87,46 @@ public final class ExecuteFailoverHandler {
             final boolean retrySafe,
             final SqlExecution<T> execution)
             throws SQLException {
+        return run(connection, routeTarget, sql, retrySafe, true, execution);
+    }
+
+    /**
+     * Same recovery as {@link #executeWithFailover}, for a physical call that is <b>not</b> a
+     * statement execution: a connection command ({@code prepareCall}, the LOB trio, {@code
+     * createClob}), a session-property read, or statement/connection metadata.
+     *
+     * <p>The only difference is that the call is not timed. Execution latency is defined as
+     * statement latency (LB-Metrics-Architecture.md), and a pool that reads {@code isReadOnly()} on
+     * every checkout would otherwise flood the read/write histograms with calls that never touched
+     * a SQL statement.
+     *
+     * @param <T> the command's result type
+     * @param connection the logical LB connection issuing the command
+     * @param routeTarget the leg the command runs on
+     * @param label the command name, for logging
+     * @param retrySafe whether re-running the command after a rebind is safe
+     * @param execution the physical command to run
+     * @return the command's result
+     * @throws SQLException if the command fails and cannot be recovered/retried
+     */
+    public <T> T executeCommandWithFailover(
+            final LoadBalanceConnection connection,
+            final Router.RouteTarget routeTarget,
+            final String label,
+            final boolean retrySafe,
+            final SqlExecution<T> execution)
+            throws SQLException {
+        return run(connection, routeTarget, label, retrySafe, false, execution);
+    }
+
+    private <T> T run(
+            final LoadBalanceConnection connection,
+            final Router.RouteTarget routeTarget,
+            final String sql,
+            final boolean retrySafe,
+            final boolean timed,
+            final SqlExecution<T> execution)
+            throws SQLException {
         if (connection == null) {
             throw new IllegalArgumentException("connection must not be null");
         }
@@ -100,7 +140,7 @@ public final class ExecuteFailoverHandler {
         }
 
         try {
-            return timedRun(connection, routeTarget, execution);
+            return timedRun(connection, routeTarget, timed, execution);
         } catch (SQLException ex) {
             // Fail over on the retriable set and on the unreachable-host set used by the core JCI
             // althost reconnect (UClientSideConnection.reconnect) and the LB unreachable filter.
@@ -176,18 +216,24 @@ public final class ExecuteFailoverHandler {
                     LOGGER,
                     LbLog.conn(connection.getConnectionId()),
                     "LB RETRY [" + routeTarget + "]: leg rebound -> replaying the execution once");
-            return timedRun(connection, routeTarget, execution);
+            return timedRun(connection, routeTarget, timed, execution);
         }
     }
 
     /**
      * Runs {@code execution}, timing it and recording the latency on success (diagnostics only).
+     * {@code timed} is false for commands and metadata, which are not statement executions.
      */
     private <T> T timedRun(
             final LoadBalanceConnection connection,
             final Router.RouteTarget routeTarget,
+            final boolean timed,
             final SqlExecution<T> execution)
             throws SQLException {
+        if (!timed) {
+            return execution.run();
+        }
+
         long t0 = System.nanoTime();
         T result = execution.run();
         connection.recordExecLatency(routeTarget, System.nanoTime() - t0);

@@ -36,6 +36,7 @@ import cubrid.jdbc.driver.CUBRIDDriver;
 import cubrid.jdbc.driver.CUBRIDOutResultSet;
 import cubrid.jdbc.driver.CUBRIDShardMetaData;
 import cubrid.jdbc.driver.CUBRIDStatement;
+import cubrid.jdbc.jci.ReconnectPolicy;
 import cubrid.jdbc.jci.UConnection;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
@@ -48,6 +49,7 @@ import cubrid.jdbc.lb.connection.SessionPhysicalConnManager;
 import cubrid.jdbc.lb.failover.ExecuteFailoverHandler;
 import cubrid.jdbc.lb.failover.PhysicalRecoveryContext;
 import cubrid.jdbc.lb.failover.PhysicalRecoveryResult;
+import cubrid.jdbc.lb.failover.UnreachableEndpoints;
 import cubrid.jdbc.lb.log.LbDistLog;
 import cubrid.jdbc.lb.log.LbFileLogging;
 import cubrid.jdbc.lb.log.LbLog;
@@ -1005,7 +1007,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             throws SQLException {
         T result =
                 getExecuteFailoverHandler()
-                        .executeWithFailover(
+                        .executeCommandWithFailover(
                                 this, Router.RouteTarget.TO_READ_WRITE, label, false, command);
         recordRwCmd(label);
 
@@ -1387,8 +1389,17 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     public int getTransactionIsolation() throws SQLException {
         checkClosed();
         if (isSessionInitialized()) {
-            int delegated = getPhysicalConnForCmd(SessionLeg.RW).getTransactionIsolation();
-            recordRwCmd("getTransactionIsolation");
+            int delegated =
+                    runRwCommand(
+                                    "getTransactionIsolation",
+                                    new ExecuteFailoverHandler.SqlExecution<Integer>() {
+                                        public Integer run() throws SQLException {
+                                            return Integer.valueOf(
+                                                    getPhysicalConnForCmd(SessionLeg.RW)
+                                                            .getTransactionIsolation());
+                                        }
+                                    })
+                            .intValue();
             transactionIsolation = delegated;
 
             return delegated;
@@ -1632,8 +1643,17 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     public boolean isReadOnly() throws SQLException {
         checkClosed();
         if (isSessionInitialized()) {
-            boolean delegated = getPhysicalConnForCmd(SessionLeg.RW).isReadOnly();
-            recordRwCmd("isReadOnly");
+            boolean delegated =
+                    runRwCommand(
+                                    "isReadOnly",
+                                    new ExecuteFailoverHandler.SqlExecution<Boolean>() {
+                                        public Boolean run() throws SQLException {
+                                            return Boolean.valueOf(
+                                                    getPhysicalConnForCmd(SessionLeg.RW)
+                                                            .isReadOnly());
+                                        }
+                                    })
+                            .booleanValue();
             readOnly = delegated;
 
             return delegated;
@@ -1666,8 +1686,14 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     public String getCatalog() throws SQLException {
         checkClosed();
         if (isSessionInitialized()) {
-            String delegated = getPhysicalConnForCmd(SessionLeg.RW).getCatalog();
-            recordRwCmd("getCatalog");
+            String delegated =
+                    runRwCommand(
+                            "getCatalog",
+                            new ExecuteFailoverHandler.SqlExecution<String>() {
+                                public String run() throws SQLException {
+                                    return getPhysicalConnForCmd(SessionLeg.RW).getCatalog();
+                                }
+                            });
             catalog = delegated;
 
             return delegated;
@@ -1693,8 +1719,14 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     public String getSchema() throws SQLException {
         checkClosed();
         if (isSessionInitialized()) {
-            String delegated = getPhysicalConnForCmd(SessionLeg.RW).getSchema();
-            recordRwCmd("getSchema");
+            String delegated =
+                    runRwCommand(
+                            "getSchema",
+                            new ExecuteFailoverHandler.SqlExecution<String>() {
+                                public String run() throws SQLException {
+                                    return getPhysicalConnForCmd(SessionLeg.RW).getSchema();
+                                }
+                            });
             schema = delegated;
 
             return delegated;
@@ -1706,8 +1738,17 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     public int getHoldability() throws SQLException {
         checkClosed();
         if (isSessionInitialized()) {
-            int delegated = getPhysicalConnForCmd(SessionLeg.RW).getHoldability();
-            recordRwCmd("getHoldability");
+            int delegated =
+                    runRwCommand(
+                                    "getHoldability",
+                                    new ExecuteFailoverHandler.SqlExecution<Integer>() {
+                                        public Integer run() throws SQLException {
+                                            return Integer.valueOf(
+                                                    getPhysicalConnForCmd(SessionLeg.RW)
+                                                            .getHoldability());
+                                        }
+                                    })
+                            .intValue();
             holdability = delegated;
 
             return delegated;
@@ -1733,9 +1774,13 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     public SQLWarning getWarnings() throws SQLException {
         checkClosed();
         if (isSessionInitialized()) {
-            SQLWarning delegated = getPhysicalConnForCmd(SessionLeg.RW).getWarnings();
-            recordRwCmd("getWarnings");
-            return delegated;
+            return runRwCommand(
+                    "getWarnings",
+                    new ExecuteFailoverHandler.SqlExecution<SQLWarning>() {
+                        public SQLWarning run() throws SQLException {
+                            return getPhysicalConnForCmd(SessionLeg.RW).getWarnings();
+                        }
+                    });
         }
 
         return null;
@@ -1744,8 +1789,14 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     public void clearWarnings() throws SQLException {
         checkClosed();
         if (isSessionInitialized()) {
-            getPhysicalConnForCmd(SessionLeg.RW).clearWarnings();
-            recordRwCmd("clearWarnings");
+            runRwCommand(
+                    "clearWarnings",
+                    new ExecuteFailoverHandler.SqlExecution<SQLWarning>() {
+                        public SQLWarning run() throws SQLException {
+                            getPhysicalConnForCmd(SessionLeg.RW).clearWarnings();
+                            return null;
+                        }
+                    });
         }
     }
 
@@ -1778,8 +1829,17 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     public int getNetworkTimeout() throws SQLException {
         checkClosed();
         if (isSessionInitialized()) {
-            int delegated = getPhysicalConnForCmd(SessionLeg.RW).getNetworkTimeout();
-            recordRwCmd("getNetworkTimeout");
+            int delegated =
+                    runRwCommand(
+                                    "getNetworkTimeout",
+                                    new ExecuteFailoverHandler.SqlExecution<Integer>() {
+                                        public Integer run() throws SQLException {
+                                            return Integer.valueOf(
+                                                    getPhysicalConnForCmd(SessionLeg.RW)
+                                                            .getNetworkTimeout());
+                                        }
+                                    })
+                            .intValue();
             networkTimeout = delegated;
 
             return delegated;
@@ -2000,17 +2060,25 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     public NClob createNClob() throws SQLException {
         checkClosed();
 
-        NClob result = getPhysicalConnForCmd(SessionLeg.RW).createNClob();
-        recordRwCmd("createNClob");
-        return result;
+        return runRwCommand(
+                "createNClob",
+                new ExecuteFailoverHandler.SqlExecution<NClob>() {
+                    public NClob run() throws SQLException {
+                        return getPhysicalConnForCmd(SessionLeg.RW).createNClob();
+                    }
+                });
     }
 
     public SQLXML createSQLXML() throws SQLException {
         checkClosed();
 
-        SQLXML result = getPhysicalConnForCmd(SessionLeg.RW).createSQLXML();
-        recordRwCmd("createSQLXML");
-        return result;
+        return runRwCommand(
+                "createSQLXML",
+                new ExecuteFailoverHandler.SqlExecution<SQLXML>() {
+                    public SQLXML run() throws SQLException {
+                        return getPhysicalConnForCmd(SessionLeg.RW).createSQLXML();
+                    }
+                });
     }
 
     public boolean isValid(int timeout) throws SQLException {
@@ -2313,6 +2381,32 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      * @return the physical metadata of the current write endpoint
      * @throws SQLException if the write endpoint cannot be bound
      */
+    /**
+     * Runs one {@link LBDatabaseMetaData} call that reaches the server through the failover
+     * handler.
+     *
+     * <p>Only the calls that actually send a request need this - {@code getTables}, {@code
+     * getColumns}, the key/index/privilege queries and {@code getDatabaseProductVersion}. The rest
+     * of the 173-method surface answers from local constants, so a broker being down cannot affect
+     * them. The closure resolves the metadata handle <b>and</b> runs the query, because a rebind
+     * must not leave the query on the handle of the failed endpoint (LB-Pending-Issues ISSUE-5).
+     *
+     * <p>Not timed and not replayed: it is a command, not a statement, and the handler never
+     * replays a write target. The leg is rebound, so the caller's retry lands on the new one.
+     *
+     * @param <T> the query's result type
+     * @param label the metadata call name, for logging
+     * @param query resolve-and-run, as one unit
+     * @return the query's result
+     * @throws SQLException if the query fails after the leg was recovered
+     */
+    <T> T runRwMetaQuery(final String label, final ExecuteFailoverHandler.SqlExecution<T> query)
+            throws SQLException {
+        return getExecuteFailoverHandler()
+                .executeCommandWithFailover(
+                        this, Router.RouteTarget.TO_READ_WRITE, label, true, query);
+    }
+
     DatabaseMetaData rwMetaDataRecordingCall(final String commandName) throws SQLException {
         DatabaseMetaData delegate = rwMetaData();
         recordRwCmd("Call: " + commandName);
@@ -2320,11 +2414,31 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         return delegate;
     }
 
+    /**
+     * The write leg's physical metadata, cached per bound connection.
+     *
+     * <p>Acquiring it goes through {@link #runRwCommand}: the cache is dropped whenever failover or
+     * failback replaces the write connection, so the next call re-opens the leg, and an unprotected
+     * open against a stopped broker failed outright instead of rebinding.
+     *
+     * <p>This protects <b>obtaining</b> the handle, not the catalog query the caller then runs on
+     * it: {@link LBDatabaseMetaData} forwards each of its methods separately, so a query that dies
+     * mid-call still propagates. Closing that gap means routing every forwarded metadata method
+     * through the handler - tracked as a separate item in LB-Pending-Issues.
+     */
     DatabaseMetaData rwMetaData() throws SQLException {
         if (rwMetaForCmd != null) {
             return rwMetaForCmd;
         }
-        rwMetaForCmd = getPhysicalConnForCmd(SessionLeg.RW).getMetaData();
+
+        rwMetaForCmd =
+                runRwCommand(
+                        "getMetaData",
+                        new ExecuteFailoverHandler.SqlExecution<DatabaseMetaData>() {
+                            public DatabaseMetaData run() throws SQLException {
+                                return getPhysicalConnForCmd(SessionLeg.RW).getMetaData();
+                            }
+                        });
 
         return rwMetaForCmd;
     }
@@ -2411,12 +2525,69 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      * {@code SessionPhysicalConnManager.endPhyTx}. A read-leg failure masked by a write-leg failure
      * is logged rather than dropped (Java 1.6 target, so no {@code addSuppressed}).
      */
+    /**
+     * Applies a session property to the write leg, rebinding the leg when the broker is down.
+     *
+     * <p>Before this, a property setter was the one thing that could make a logical connection
+     * unusable while a surviving write broker was right there: the failure was isolated per leg but
+     * the leg was never recovered, so a pool resetting a returned connection ({@code
+     * setAutoCommit}, {@code setReadOnly}, {@code setTransactionIsolation}) discarded it
+     * (LB-Pending-Issues ISSUE-6).
+     *
+     * <p>Re-applying after the rebind is not a replayed write. The caller has already written the
+     * intended value into the logical session state, so the connection the rebind opened carries it
+     * ({@code applySessionStateTo}); setting a property is idempotent, and this second apply is
+     * what confirms the new leg took it. When the rebind itself failed, or a transaction was active
+     * (where failover is forbidden), the original failure is what the caller must see - a failure
+     * from the second attempt is chained onto it rather than replacing it.
+     *
+     * @param action the property to apply
+     * @return the write leg's physical connection the property was applied to
+     * @throws SQLException if the property could not be applied, after the leg was recovered
+     */
+    private Connection applyToWriteLegWithFailover(final PhyConnAction action) throws SQLException {
+        try {
+            return getExecuteFailoverHandler()
+                    .executeCommandWithFailover(
+                            this,
+                            Router.RouteTarget.TO_READ_WRITE,
+                            "sessionProperty",
+                            false,
+                            new ExecuteFailoverHandler.SqlExecution<Connection>() {
+                                public Connection run() throws SQLException {
+                                    Connection rw = getPhysicalConnForCmd(SessionLeg.RW);
+                                    action.apply(rw);
+
+                                    return rw;
+                                }
+                            });
+        } catch (SQLException failure) {
+            if (sessionState.isTransactionActive()
+                    || !(ReconnectPolicy.isRetriableSqlException(failure)
+                            || UnreachableEndpoints.shouldMarkUnreachable(failure))) {
+                throw failure; // not a broker failure, or failover was forbidden: nothing rebound
+            }
+
+            try {
+                Connection rw = getPhysicalConnForCmd(SessionLeg.RW);
+                action.apply(rw);
+
+                return rw;
+            } catch (SQLException afterRebind) {
+                if (afterRebind != failure) {
+                    failure.setNextException(afterRebind);
+                }
+
+                throw failure;
+            }
+        }
+    }
+
     private LegOutcome forEachSessPhyConn(final PhyConnAction action) {
         Connection rwPhysical = null;
         SQLException rwFailure = null;
         try {
-            rwPhysical = getPhysicalConnForCmd(SessionLeg.RW);
-            action.apply(rwPhysical);
+            rwPhysical = applyToWriteLegWithFailover(action);
         } catch (SQLException failure) {
             rwFailure = failure;
         }

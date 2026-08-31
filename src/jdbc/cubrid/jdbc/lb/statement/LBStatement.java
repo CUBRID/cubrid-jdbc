@@ -641,6 +641,27 @@ public class LBStatement extends CUBRIDStatement {
                 .executeWithFailover(lbConnection, target, sql, retrySafe, execution);
     }
 
+    /**
+     * Failover for a physical call on this statement's leg that is not an execution - the metadata
+     * calls. Not timed: see {@link ExecuteFailoverHandler#executeCommandWithFailover}.
+     *
+     * @param <T> the call's result type
+     * @param label the call name, for logging
+     * @param target the leg the call runs on
+     * @param call the physical call to run
+     * @return the call's result
+     * @throws SQLException if the call fails and cannot be recovered/retried
+     */
+    protected <T> T commandWithFailover(
+            final String label,
+            final Router.RouteTarget target,
+            final ExecuteFailoverHandler.SqlExecution<T> call)
+            throws SQLException {
+        return lbConnection
+                .getExecuteFailoverHandler()
+                .executeCommandWithFailover(lbConnection, target, label, true, call);
+    }
+
     private Statement createPhyStmt(final String sql, final Router.RouteTarget target)
             throws SQLException {
         // JDBC: a new execution implicitly closes the previous ResultSet. Also release the previous

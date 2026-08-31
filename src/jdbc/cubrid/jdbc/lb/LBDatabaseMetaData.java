@@ -32,6 +32,7 @@ package cubrid.jdbc.lb;
 
 import cubrid.jdbc.driver.CUBRIDDatabaseMetaData;
 import cubrid.jdbc.driver.CUBRIDDriver;
+import cubrid.jdbc.lb.failover.ExecuteFailoverHandler;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
@@ -132,6 +133,26 @@ public class LBDatabaseMetaData extends CUBRIDDatabaseMetaData {
         return owner.rwMetaDataRecordingCall(commandName);
     }
 
+    /**
+     * Serve one call that <b>sends a request</b> to the write endpoint, under the failover handler.
+     *
+     * <p>{@link #rwMeta} resolves the handle inside the closure, so a rebind is followed by a fresh
+     * handle rather than by a query on the connection that just died. Twelve of the 173 methods
+     * need this - the ones whose physical implementation touches {@code u_con}; the others answer
+     * from local constants and are left as plain {@code rwMeta(...)} forwards.
+     *
+     * @param <T> the call's result type
+     * @param commandName the metadata call being served
+     * @param query resolve-and-run
+     * @return the call's result
+     * @throws SQLException if the call fails after the leg was recovered
+     */
+    private <T> T rwMetaQuery(
+            final String commandName, final ExecuteFailoverHandler.SqlExecution<T> query)
+            throws SQLException {
+        return owner.runRwMetaQuery(commandName, query);
+    }
+
     /* ===== standard DatabaseMetaData surface: served from the write endpoint =====*/
 
     /**
@@ -192,7 +213,14 @@ public class LBDatabaseMetaData extends CUBRIDDatabaseMetaData {
     public ResultSet getBestRowIdentifier(
             final String a0, final String a1, final String a2, final int a3, final boolean a4)
             throws SQLException {
-        return rwMeta("getBestRowIdentifier").getBestRowIdentifier(a0, a1, a2, a3, a4);
+        return rwMetaQuery(
+                "getBestRowIdentifier",
+                new ExecuteFailoverHandler.SqlExecution<ResultSet>() {
+                    public ResultSet run() throws SQLException {
+                        return rwMeta("getBestRowIdentifier")
+                                .getBestRowIdentifier(a0, a1, a2, a3, a4);
+                    }
+                });
     }
 
     @Override
@@ -219,13 +247,25 @@ public class LBDatabaseMetaData extends CUBRIDDatabaseMetaData {
     public ResultSet getColumnPrivileges(
             final String a0, final String a1, final String a2, final String a3)
             throws SQLException {
-        return rwMeta("getColumnPrivileges").getColumnPrivileges(a0, a1, a2, a3);
+        return rwMetaQuery(
+                "getColumnPrivileges",
+                new ExecuteFailoverHandler.SqlExecution<ResultSet>() {
+                    public ResultSet run() throws SQLException {
+                        return rwMeta("getColumnPrivileges").getColumnPrivileges(a0, a1, a2, a3);
+                    }
+                });
     }
 
     @Override
     public ResultSet getColumns(final String a0, final String a1, final String a2, final String a3)
             throws SQLException {
-        return rwMeta("getColumns").getColumns(a0, a1, a2, a3);
+        return rwMetaQuery(
+                "getColumns",
+                new ExecuteFailoverHandler.SqlExecution<ResultSet>() {
+                    public ResultSet run() throws SQLException {
+                        return rwMeta("getColumns").getColumns(a0, a1, a2, a3);
+                    }
+                });
     }
 
     @Override
@@ -237,7 +277,14 @@ public class LBDatabaseMetaData extends CUBRIDDatabaseMetaData {
             final String a4,
             final String a5)
             throws SQLException {
-        return rwMeta("getCrossReference").getCrossReference(a0, a1, a2, a3, a4, a5);
+        return rwMetaQuery(
+                "getCrossReference",
+                new ExecuteFailoverHandler.SqlExecution<ResultSet>() {
+                    public ResultSet run() throws SQLException {
+                        return rwMeta("getCrossReference")
+                                .getCrossReference(a0, a1, a2, a3, a4, a5);
+                    }
+                });
     }
 
     @Override
@@ -257,7 +304,13 @@ public class LBDatabaseMetaData extends CUBRIDDatabaseMetaData {
 
     @Override
     public String getDatabaseProductVersion() throws SQLException {
-        return rwMeta("getDatabaseProductVersion").getDatabaseProductVersion();
+        return rwMetaQuery(
+                "getDatabaseProductVersion",
+                new ExecuteFailoverHandler.SqlExecution<String>() {
+                    public String run() throws SQLException {
+                        return rwMeta("getDatabaseProductVersion").getDatabaseProductVersion();
+                    }
+                });
     }
 
     @Override
@@ -293,7 +346,13 @@ public class LBDatabaseMetaData extends CUBRIDDatabaseMetaData {
     @Override
     public ResultSet getExportedKeys(final String a0, final String a1, final String a2)
             throws SQLException {
-        return rwMeta("getExportedKeys").getExportedKeys(a0, a1, a2);
+        return rwMetaQuery(
+                "getExportedKeys",
+                new ExecuteFailoverHandler.SqlExecution<ResultSet>() {
+                    public ResultSet run() throws SQLException {
+                        return rwMeta("getExportedKeys").getExportedKeys(a0, a1, a2);
+                    }
+                });
     }
 
     @Override
@@ -322,14 +381,26 @@ public class LBDatabaseMetaData extends CUBRIDDatabaseMetaData {
     @Override
     public ResultSet getImportedKeys(final String a0, final String a1, final String a2)
             throws SQLException {
-        return rwMeta("getImportedKeys").getImportedKeys(a0, a1, a2);
+        return rwMetaQuery(
+                "getImportedKeys",
+                new ExecuteFailoverHandler.SqlExecution<ResultSet>() {
+                    public ResultSet run() throws SQLException {
+                        return rwMeta("getImportedKeys").getImportedKeys(a0, a1, a2);
+                    }
+                });
     }
 
     @Override
     public ResultSet getIndexInfo(
             final String a0, final String a1, final String a2, final boolean a3, final boolean a4)
             throws SQLException {
-        return rwMeta("getIndexInfo").getIndexInfo(a0, a1, a2, a3, a4);
+        return rwMetaQuery(
+                "getIndexInfo",
+                new ExecuteFailoverHandler.SqlExecution<ResultSet>() {
+                    public ResultSet run() throws SQLException {
+                        return rwMeta("getIndexInfo").getIndexInfo(a0, a1, a2, a3, a4);
+                    }
+                });
     }
 
     @Override
@@ -450,7 +521,13 @@ public class LBDatabaseMetaData extends CUBRIDDatabaseMetaData {
     @Override
     public ResultSet getPrimaryKeys(final String a0, final String a1, final String a2)
             throws SQLException {
-        return rwMeta("getPrimaryKeys").getPrimaryKeys(a0, a1, a2);
+        return rwMetaQuery(
+                "getPrimaryKeys",
+                new ExecuteFailoverHandler.SqlExecution<ResultSet>() {
+                    public ResultSet run() throws SQLException {
+                        return rwMeta("getPrimaryKeys").getPrimaryKeys(a0, a1, a2);
+                    }
+                });
     }
 
     @Override
@@ -526,7 +603,13 @@ public class LBDatabaseMetaData extends CUBRIDDatabaseMetaData {
     @Override
     public ResultSet getSuperTables(final String a0, final String a1, final String a2)
             throws SQLException {
-        return rwMeta("getSuperTables").getSuperTables(a0, a1, a2);
+        return rwMetaQuery(
+                "getSuperTables",
+                new ExecuteFailoverHandler.SqlExecution<ResultSet>() {
+                    public ResultSet run() throws SQLException {
+                        return rwMeta("getSuperTables").getSuperTables(a0, a1, a2);
+                    }
+                });
     }
 
     @Override
@@ -543,7 +626,13 @@ public class LBDatabaseMetaData extends CUBRIDDatabaseMetaData {
     @Override
     public ResultSet getTablePrivileges(final String a0, final String a1, final String a2)
             throws SQLException {
-        return rwMeta("getTablePrivileges").getTablePrivileges(a0, a1, a2);
+        return rwMetaQuery(
+                "getTablePrivileges",
+                new ExecuteFailoverHandler.SqlExecution<ResultSet>() {
+                    public ResultSet run() throws SQLException {
+                        return rwMeta("getTablePrivileges").getTablePrivileges(a0, a1, a2);
+                    }
+                });
     }
 
     @Override
@@ -554,7 +643,13 @@ public class LBDatabaseMetaData extends CUBRIDDatabaseMetaData {
     @Override
     public ResultSet getTables(final String a0, final String a1, final String a2, final String[] a3)
             throws SQLException {
-        return rwMeta("getTables").getTables(a0, a1, a2, a3);
+        return rwMetaQuery(
+                "getTables",
+                new ExecuteFailoverHandler.SqlExecution<ResultSet>() {
+                    public ResultSet run() throws SQLException {
+                        return rwMeta("getTables").getTables(a0, a1, a2, a3);
+                    }
+                });
     }
 
     @Override

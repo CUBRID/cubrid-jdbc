@@ -322,20 +322,45 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     }
 
     /* ===== metadata =====*/
+    /**
+     * Metadata runs through the failover handler like an execute, because reaching it means a
+     * physical prepare: an eager prepare that hit a dead broker was deferred (see {@link
+     * #prepareTolerantOfUnreachable}), so this call is the one that prepares. Unprotected, it threw
+     * at the application while a sibling endpoint was alive. Retry is unconditionally safe here -
+     * describing a statement has no side effect and consumes no parameter stream - so {@code
+     * retrySafe} is {@code true}; a WRITE-target statement still only rebinds, because the handler
+     * never replays {@code TO_READ_WRITE}.
+     */
     public ResultSetMetaData getMetaData() throws SQLException {
         statementDelegate.checkClosed();
 
-        PreparedStatement physicalStatement = physicalPsForMetadata();
+        final Router.RouteTarget target = resolveRouteTarget();
 
-        return physicalStatement.getMetaData();
+        return statementDelegate.commandWithFailover(
+                "getMetaData",
+                target,
+                new ExecuteFailoverHandler.SqlExecution<ResultSetMetaData>() {
+                    public ResultSetMetaData run() throws SQLException {
+                        // Both steps inside the callback: after a rebind the physical statement of
+                        // the failed endpoint must not be the one described.
+                        return physicalPsForMetadata(target).getMetaData();
+                    }
+                });
     }
 
     public ParameterMetaData getParameterMetaData() throws SQLException {
         statementDelegate.checkClosed();
 
-        PreparedStatement physicalStatement = physicalPsForMetadata();
+        final Router.RouteTarget target = resolveRouteTarget();
 
-        return physicalStatement.getParameterMetaData();
+        return statementDelegate.commandWithFailover(
+                "getParameterMetaData",
+                target,
+                new ExecuteFailoverHandler.SqlExecution<ParameterMetaData>() {
+                    public ParameterMetaData run() throws SQLException {
+                        return physicalPsForMetadata(target).getParameterMetaData();
+                    }
+                });
     }
 
     /* ===== parameter setters (stored for delegation at execute time) =====*/
@@ -1084,9 +1109,8 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         return ps;
     }
 
-    private PreparedStatement physicalPsForMetadata() throws SQLException {
-        Router.RouteTarget target = resolveRouteTarget();
-
+    private PreparedStatement physicalPsForMetadata(final Router.RouteTarget target)
+            throws SQLException {
         PreparedStatement ps = phyPsProvider.getPreparedStatement(target, sql);
         statementDelegate.applyStmtProps(ps);
 

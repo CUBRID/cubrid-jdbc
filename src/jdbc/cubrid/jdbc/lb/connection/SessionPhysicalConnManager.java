@@ -30,7 +30,9 @@
 
 package cubrid.jdbc.lb.connection;
 
+import cubrid.jdbc.driver.CUBRIDConnection;
 import cubrid.jdbc.driver.CUBRIDDriver;
+import cubrid.jdbc.jci.UConnection;
 import cubrid.jdbc.lb.FallbackReason;
 import cubrid.jdbc.lb.LbExceptions;
 import cubrid.jdbc.lb.LbProps;
@@ -120,6 +122,15 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
     private final LoadBalanceSettings config;
     private final JdbcConnectionFactory connectionFactory;
     private final Map<String, Connection> connsByEpId = new HashMap<String, Connection>();
+    // CAS identity of each open physical connection, as of the last time LB applied the session
+    // state to it. Core reconnects a leg on its own - UConnection.checkReconnect() runs before
+    // every
+    // request and reconnectWorker() re-opens the socket - and restores only isolation and lock
+    // timeout, so CAS-side state LB had set (casChangeMode) would be silently lost. The broker
+    // hands
+    // out a fresh casId/casProcessId on every connect, which is the only signal LB gets that this
+    // happened. See LB-Pending-Issues ISSUE-7.
+    private final Map<String, String> casIdentityByEpId = new HashMap<String, String>();
     // Physical PreparedStatement cache keyed by endpointId|owner|normalizedSql. Not LRU-bounded on
     // purpose: a logical PS re-fetches its physical statement here on every execute and hands the
     // caller the physical ResultSet directly, so closing a still-referenced entry would destroy a
@@ -1008,6 +1019,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
             physical = null;
         }
         if (physical != null) {
+            reapplySessionStateIfCasReplaced(endpoint, physical);
             return physical;
         }
 
@@ -2015,6 +2027,82 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         return logicalJdbcUrl;
     }
 
+    /**
+     * The CAS this physical connection is talking to: {@code ip:port/casId/casProcessId}, the tuple
+     * the broker assigns at connect time. {@code null} when it cannot be read - a test double that
+     * is not a {@link CUBRIDConnection}, or a connection whose {@code UConnection} is gone - in
+     * which case the check below is skipped rather than guessed at.
+     */
+    private static String casIdentityOf(final Connection conn) {
+        if (!(conn instanceof CUBRIDConnection)) {
+            return null;
+        }
+
+        try {
+            UConnection u = ((CUBRIDConnection) conn).getUConnection();
+            if (u == null) {
+                return null;
+            }
+
+            return u.getCasIp() + ":" + u.getCasPort() + "/" + u.casId + "/" + u.casProcessId;
+        } catch (SQLException unreadable) {
+            return null;
+        } catch (RuntimeException unreadable) {
+            return null; // a stub connection may not carry a UConnection at all
+        }
+    }
+
+    private void rememberCasIdentity(final Endpoint endpoint, final Connection conn) {
+        String identity = casIdentityOf(conn);
+        if (identity == null) {
+            casIdentityByEpId.remove(endpoint.getId());
+
+            return;
+        }
+        casIdentityByEpId.put(endpoint.getId(), identity);
+    }
+
+    /**
+     * Re-applies the session state when core has reconnected this leg underneath LB.
+     *
+     * <p>Core's reconnect is invisible from here: the {@code Connection} object is the same one,
+     * the socket behind it is not. Comparing the CAS identity recorded when LB last applied the
+     * state detects it, and re-applying costs one round of property calls on a connection that was
+     * about to be used anyway. Without this, {@code casChangeMode} silently reverts to the broker
+     * default (ISSUE-7); isolation and lock timeout are restored by core itself, and {@code
+     * autoCommit} rides on every execute, so those need nothing.
+     *
+     * <p>Failure to re-apply propagates: the leg is then in an unknown state, and letting the
+     * caller fail is what puts it through the failover handler.
+     */
+    private void reapplySessionStateIfCasReplaced(final Endpoint endpoint, final Connection conn)
+            throws SQLException {
+        final String known = casIdentityByEpId.get(endpoint.getId());
+        if (known == null) {
+            return;
+        }
+
+        final String current = casIdentityOf(conn);
+        if (current == null || known.equals(current)) {
+            return;
+        }
+
+        if (sessionStateApplier != null) {
+            sessionStateApplier.applyTo(conn);
+        }
+        casIdentityByEpId.put(endpoint.getId(), current);
+        LbLog.fine(
+                LOGGER,
+                logContext,
+                "LB CAS REBOUND: "
+                        + endpoint.getId()
+                        + " reconnected by the core driver ("
+                        + known
+                        + " -> "
+                        + current
+                        + "); session state re-applied");
+    }
+
     private Connection openConnection(final Endpoint endpoint) throws SQLException {
         JdbcPhyConnSpec spec = config.buildPhysicalJdbcSpec(logicalJdbcUrl, clientInfo, endpoint);
 
@@ -2044,6 +2132,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
                 throw e;
             }
         }
+        rememberCasIdentity(endpoint, conn);
 
         return conn;
     }
@@ -2055,6 +2144,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
             closeQuietly(c);
         }
         connsByEpId.clear();
+        casIdentityByEpId.clear();
         sessRwEp = null;
         sessRoEp = null;
         homeReadEp = null;

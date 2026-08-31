@@ -164,6 +164,12 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     private String charset = null;
 
     private DatabaseMetaData rwMetaForCmd = null;
+    // One warning per session when reads distribute under an isolation level that a distributed
+    // read
+    // cannot honour (LB-Pending-Issues ISSUE-1). Not a routing input: the level is the
+    // application's
+    // to choose, and LB only says that it holds within one node.
+    private boolean isolationSpreadWarned;
     private Integer casChangeMode = null;
     private static final Logger LOGGER = Logger.getLogger(LoadBalanceConnection.class.getName());
     private ExecuteFailoverHandler executeFailoverHandler = new ExecuteFailoverHandler();
@@ -2818,7 +2824,53 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             return new EndpointSelection(roEndpoint, FallbackReason.NONE);
         }
 
+        warnIfIsolationCannotHoldAcrossNodes(roEndpoint);
+
         return withPhysicalFallbackReason(roEndpoint);
+    }
+
+    /**
+     * Says once per session that the requested isolation level does not survive a distributed read.
+     *
+     * <p>Reaching here means no transaction is active (a transaction pins every read to RW) and the
+     * read endpoint is a different node from the write leg. Such a read is its own transaction on
+     * that node, so {@code REPEATABLE READ} and {@code SERIALIZABLE} hold <b>within one node</b>
+     * only - read distribution assumes {@code READ COMMITTED} with autocommit on ({@link
+     * cubrid.jdbc.lb.route.Router} never looks at the level, and {@code setTransactionIsolation}
+     * accepts any level and propagates it to both legs).
+     *
+     * <p>A warning rather than a refusal: the combination is legitimate for a single-statement
+     * read, and refusing it would break an application that sets the level once at startup and
+     * never relies on cross-statement repeatability. What was wrong was staying silent, which left
+     * "REPEATABLE READ is set, why do the values differ" with nothing to go on.
+     *
+     * @param readEndpoint the node this read is about to run on
+     */
+    private void warnIfIsolationCannotHoldAcrossNodes(final Endpoint readEndpoint) {
+        if (isolationSpreadWarned
+                || (transactionIsolation != TRANSACTION_REPEATABLE_READ
+                        && transactionIsolation != TRANSACTION_SERIALIZABLE)) {
+            return;
+        }
+
+        isolationSpreadWarned = true;
+        final String level =
+                transactionIsolation == TRANSACTION_SERIALIZABLE
+                        ? "SERIALIZABLE"
+                        : "REPEATABLE_READ";
+        LbLogDedup.warn(
+                LOGGER,
+                LbLog.conn(connectionId),
+                "ISOLATION|" + level,
+                "LB ISOLATION: isolation="
+                        + level
+                        + " but this read runs on "
+                        + readEndpoint.getId()
+                        + ", a different node from the write leg -- a distributed read is its own"
+                        + " snapshot there, so the level holds within one node only. Read"
+                        + " distribution assumes READ COMMITTED with autocommit on; use /*+ TO_RW"
+                        + " */ on the statements that must see the level, or readWeight master:1"
+                        + " alone to stop distributing");
     }
 
     private EndpointSelection withPhysicalFallbackReason(final Endpoint logicalRoEndpoint)

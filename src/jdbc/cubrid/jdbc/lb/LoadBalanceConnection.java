@@ -958,18 +958,18 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         }
     }
 
-    public Endpoint getCurrentEp(final SessionLeg role) {
-        if (role == null) {
+    public Endpoint getCurrentEp(final SessionLeg leg) {
+        if (leg == null) {
             throw new IllegalArgumentException("SessionLeg must not be null");
         }
 
-        switch (role) {
+        switch (leg) {
             case RW:
                 return currentRwEndpoint;
             case RO:
                 return currentRoEndpoint;
             default:
-                throw new IllegalStateException("Unsupported session leg: " + role);
+                throw new IllegalStateException("Unsupported session leg: " + leg);
         }
     }
 
@@ -1012,15 +1012,15 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         return result;
     }
 
-    Connection getPhysicalConnForCmd(final SessionLeg role) throws SQLException {
+    Connection getPhysicalConnForCmd(final SessionLeg leg) throws SQLException {
         checkClosed();
         if (!sessionInitialized) {
             throw LbExceptions.sessionNotInitialized(null);
         }
 
-        Endpoint endpoint = getCurrentEp(role);
+        Endpoint endpoint = getCurrentEp(leg);
         if (endpoint == null) {
-            throw LbExceptions.sessionNotInitialized("role=" + role);
+            throw LbExceptions.sessionNotInitialized("role=" + leg);
         }
 
         return requireConnMgr().getPhyConn(endpoint);
@@ -2607,16 +2607,16 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     /**
-     * The session-bound endpoint for {@code role}: this connection's current (possibly
+     * The session-bound endpoint for {@code leg}: this connection's current (possibly
      * failover-re-pinned) binding, falling back to the manager's session endpoint.
      */
-    private Endpoint currentOrManagerEndpoint(final SessionLeg role) throws SQLException {
-        Endpoint current = getCurrentEp(role);
+    private Endpoint currentOrManagerEndpoint(final SessionLeg leg) throws SQLException {
+        Endpoint current = getCurrentEp(leg);
         if (current != null) {
             return current;
         }
 
-        return requireConnMgr().getSessionEndpoint(role);
+        return requireConnMgr().getSessionEndpoint(leg);
     }
 
     private EndpointSelection selectRwEndpoint() throws SQLException {
@@ -2790,13 +2790,13 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                 FallbackReason.NONE);
     }
 
-    private Endpoint endpointForMetrics(final SessionLeg role) {
-        Endpoint current = getCurrentEp(role);
+    private Endpoint endpointForMetrics(final SessionLeg leg) {
+        Endpoint current = getCurrentEp(leg);
         if (current != null) {
             return current;
         }
 
-        return connMgr == null ? null : connMgr.getSessionEndpoint(role);
+        return connMgr == null ? null : connMgr.getSessionEndpoint(leg);
     }
 
     private static final class EndpointSelection {

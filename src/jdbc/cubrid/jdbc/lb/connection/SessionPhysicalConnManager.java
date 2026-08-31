@@ -728,18 +728,18 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         throw LbExceptions.brokerGroupExhausted(groupLabel, tried.toString(), firstFailure);
     }
 
-    public synchronized Endpoint getSessionEndpoint(final SessionLeg role) {
-        if (role == null) {
+    public synchronized Endpoint getSessionEndpoint(final SessionLeg leg) {
+        if (leg == null) {
             throw new IllegalArgumentException("SessionLeg must not be null");
         }
 
-        switch (role) {
+        switch (leg) {
             case RW:
                 return sessRwEp;
             case RO:
                 return sessRoEp;
             default:
-                throw new IllegalStateException("Unsupported session leg: " + role);
+                throw new IllegalStateException("Unsupported session leg: " + leg);
         }
     }
 

@@ -40,20 +40,20 @@ import cubrid.jdbc.lb.config.Endpoint;
  */
 public final class PhysicalRecoveryResult {
     private final Endpoint boundEndpoint;
-    private final SessionLeg boundRole;
+    private final SessionLeg boundLeg;
     private final String fallbackReason;
 
     public PhysicalRecoveryResult(
-            final Endpoint boundEndpoint, final SessionLeg boundRole, final String fallbackReason) {
+            final Endpoint boundEndpoint, final SessionLeg boundLeg, final String fallbackReason) {
         if (boundEndpoint == null) {
             throw new IllegalArgumentException("boundEndpoint must not be null");
         }
-        if (boundRole == null) {
-            throw new IllegalArgumentException("boundRole must not be null");
+        if (boundLeg == null) {
+            throw new IllegalArgumentException("boundLeg must not be null");
         }
 
         this.boundEndpoint = boundEndpoint;
-        this.boundRole = boundRole;
+        this.boundLeg = boundLeg;
         this.fallbackReason = fallbackReason;
     }
 
@@ -62,7 +62,7 @@ public final class PhysicalRecoveryResult {
     }
 
     public SessionLeg getBoundLeg() {
-        return boundRole;
+        return boundLeg;
     }
 
     public String getFallbackReason() {

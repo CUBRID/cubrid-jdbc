@@ -110,7 +110,7 @@ public interface EndpointConnManager extends LoadBalanceConnection.PhysicalResou
             EndpointTopology topology)
             throws SQLException;
 
-    Endpoint getSessionEndpoint(SessionLeg role);
+    Endpoint getSessionEndpoint(SessionLeg leg);
 
     /**
      * Whether reads currently run on the RW physical connection instead of one of their own - the

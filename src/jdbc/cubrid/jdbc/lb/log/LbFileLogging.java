@@ -31,6 +31,7 @@
 package cubrid.jdbc.lb.log;
 
 import cubrid.jdbc.driver.CUBRIDDriver;
+import cubrid.jdbc.lb.config.LbLogConfig;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;

@@ -28,7 +28,7 @@
  *
  */
 
-package cubrid.jdbc.lb.state;
+package cubrid.jdbc.lb.metrics;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;

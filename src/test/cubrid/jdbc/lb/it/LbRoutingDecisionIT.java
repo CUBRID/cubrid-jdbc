@@ -33,7 +33,7 @@ package cubrid.jdbc.lb.it;
 import static org.junit.Assert.assertTrue;
 
 import cubrid.jdbc.lb.LoadBalanceConnection;
-import cubrid.jdbc.lb.state.RuntimeMetrics;
+import cubrid.jdbc.lb.metrics.RuntimeMetrics;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.DriverManager;

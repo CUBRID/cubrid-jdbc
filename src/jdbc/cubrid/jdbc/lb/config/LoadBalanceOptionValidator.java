@@ -30,8 +30,6 @@
 
 package cubrid.jdbc.lb.config;
 
-import cubrid.jdbc.lb.log.LbLogConfig;
-import cubrid.jdbc.lb.metrics.MetricsConfig;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;

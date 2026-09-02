@@ -28,7 +28,7 @@
  *
  */
 
-package cubrid.jdbc.lb.log;
+package cubrid.jdbc.lb.report;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -36,10 +36,10 @@ import static org.junit.Assert.assertTrue;
 
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.config.LoadBalanceUrlParser;
+import cubrid.jdbc.lb.metrics.BindingView;
+import cubrid.jdbc.lb.metrics.MetricsRegistry;
+import cubrid.jdbc.lb.metrics.RuntimeMetrics;
 import cubrid.jdbc.lb.sql.SqlClassification;
-import cubrid.jdbc.lb.state.BindingView;
-import cubrid.jdbc.lb.state.MetricsRegistry;
-import cubrid.jdbc.lb.state.RuntimeMetrics;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;

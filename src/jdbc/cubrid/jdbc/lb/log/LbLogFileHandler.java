@@ -30,7 +30,6 @@
 
 package cubrid.jdbc.lb.log;
 
-import cubrid.jdbc.lb.metrics.MetricsExporters;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -42,7 +41,7 @@ import java.util.logging.StreamHandler;
 
 /**
  * Appending file handler whose live file always keeps its configured name, with history shifted up
- * through {@code .1} … {@code .N} by {@link MetricsExporters#rotateIfOversized}.
+ * through {@code .1} … {@code .N} by {@link LbFileRotation#rotateIfOversized}.
  *
  * <p>JUL's {@link java.util.logging.FileHandler} is not used because it owns opening, locking and
  * rotation itself and, whenever more than one generation is kept, appends a generation number to
@@ -108,7 +107,7 @@ final class LbLogFileHandler extends StreamHandler {
             // close() flushes and closes the stream; the descriptor must be released before the
             // rename, otherwise this JVM would keep writing into the rotated generation.
             close();
-            MetricsExporters.rotateIfOversized(file, maxBytes, maxFiles);
+            LbFileRotation.rotateIfOversized(file, maxBytes, maxFiles);
             openStream();
         } catch (IOException e) {
             reportError("LB log rotation failed for " + file, e, ErrorManager.WRITE_FAILURE);

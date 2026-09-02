@@ -33,9 +33,9 @@ package cubrid.jdbc.lb.metrics;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
+import cubrid.jdbc.lb.config.MetricsConfig;
 import cubrid.jdbc.lb.failover.UnreachableEndpoints;
-import cubrid.jdbc.lb.state.MetricsRegistry;
-import cubrid.jdbc.lb.state.RuntimeMetrics;
+import cubrid.jdbc.lb.log.LbFileRotation;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -226,50 +226,6 @@ public final class MetricsExporters {
                                         + maxFiles
                                         + " generations)"
                                 : " (rotation disabled)"));
-    }
-
-    /**
-     * Generation rotation for the CSV: {@code .N} is deleted, {@code .N-1} → {@code .N} … and the
-     * live file becomes {@code .1}. Disk use is bounded at {@code maxBytes x (maxFiles + 1)}
-     * instead of growing forever. The next write re-opens the path and, finding it absent, writes
-     * the header again — so every rotated file is a complete CSV on its own.
-     *
-     * <p>No-op when {@code maxBytes <= 0} (rotation disabled) or the file is still under the limit.
-     * {@code maxFiles == 0} keeps no history: the oversized file is simply removed. A failed
-     * delete/rename leaves the live file untouched and logs a WARN — losing the newest rows would
-     * be worse than overshooting the size cap.
-     *
-     * <p>Also used by {@code cubrid.jdbc.lb.log.LbLogFileHandler}, so the LB log file and the
-     * metrics CSV share one generation scheme: the live file keeps its plain name and history
-     * shifts up through {@code .1} ... {@code .N}. JUL's own {@code FileHandler} would name the
-     * live file {@code <path>.0} instead, leaving the two CUBRID-written files with opposite
-     * conventions.
-     *
-     * @param file the current file to rotate
-     * @param maxBytes the size at which the file is rotated; {@code <= 0} disables rotation
-     * @param maxFiles how many generations to keep; {@code 0} discards the overflowing file
-     */
-    public static void rotateIfOversized(final File file, final long maxBytes, final int maxFiles) {
-        if (maxBytes <= 0L || !file.exists() || file.length() < maxBytes) {
-            return;
-        }
-        String base = file.getPath();
-        File oldest = new File(base + "." + maxFiles);
-        if (maxFiles > 0 && oldest.exists() && !oldest.delete()) {
-            LOGGER.warning("LB metrics: cannot delete rotated CSV " + oldest);
-            return;
-        }
-        for (int i = maxFiles - 1; i >= 1; i--) {
-            File from = new File(base + "." + i);
-            if (from.exists() && !from.renameTo(new File(base + "." + (i + 1)))) {
-                LOGGER.warning("LB metrics: cannot rotate " + from);
-                return;
-            }
-        }
-        boolean moved = maxFiles == 0 ? file.delete() : file.renameTo(new File(base + ".1"));
-        if (!moved) {
-            LOGGER.warning("LB metrics: cannot rotate " + file + "; it keeps growing");
-        }
     }
 
     private static String localHost() {
@@ -608,7 +564,7 @@ public final class MetricsExporters {
             String now = ts.format(new Date());
             File parent = file.getParentFile();
             // bound disk use; a rotated-away file makes the next write re-emit the header
-            rotateIfOversized(file, maxBytes, maxFiles);
+            LbFileRotation.rotateIfOversized(file, maxBytes, maxFiles);
             if (parent != null && !parent.exists()) {
                 parent.mkdirs();
             }

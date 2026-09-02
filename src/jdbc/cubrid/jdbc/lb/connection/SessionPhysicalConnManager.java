@@ -46,7 +46,7 @@ import cubrid.jdbc.lb.failover.PhysicalRecoveryResult;
 import cubrid.jdbc.lb.failover.UnreachableEndpoints;
 import cubrid.jdbc.lb.log.LbLog;
 import cubrid.jdbc.lb.log.LbLogDedup;
-import cubrid.jdbc.lb.state.MetricsRegistry;
+import cubrid.jdbc.lb.metrics.MetricsRegistry;
 import cubrid.jdbc.lb.state.RecoveryBackoff;
 import cubrid.jdbc.lb.statement.PreparedSql;
 import java.sql.Connection;

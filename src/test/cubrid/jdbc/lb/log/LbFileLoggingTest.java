@@ -34,6 +34,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import cubrid.jdbc.lb.config.LbLogConfig;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
@@ -276,7 +277,11 @@ public class LbFileLoggingTest {
     }
 
     private static LbLogConfig config(final String path) {
-        return config(path, LbLogConfig.DEFAULT_MAX_SIZE_MB, LbLogConfig.DEFAULT_MAX_FILES);
+        Map<String, String> options = new HashMap<String, String>();
+        options.put(LbLogConfig.OPT_FILE, path);
+        // Size and generation count are left out so parse() applies its own defaults.
+        options.put(LbLogConfig.OPT_TO_CONSOLE, "false");
+        return LbLogConfig.parse(options, true);
     }
 
     private static LbLogConfig config(final String path, final int maxSizeMb, final int maxFiles) {

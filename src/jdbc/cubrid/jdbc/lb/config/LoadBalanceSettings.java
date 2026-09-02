@@ -32,8 +32,6 @@ package cubrid.jdbc.lb.config;
 
 import cubrid.jdbc.lb.LbExceptions;
 import cubrid.jdbc.lb.config.LoadBalanceUrlParser.ParsedUrl;
-import cubrid.jdbc.lb.log.LbLogConfig;
-import cubrid.jdbc.lb.metrics.MetricsConfig;
 import java.sql.SQLException;
 import java.util.Collections;
 import java.util.LinkedHashMap;

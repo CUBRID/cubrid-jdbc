@@ -28,7 +28,7 @@
  *
  */
 
-package cubrid.jdbc.lb.state;
+package cubrid.jdbc.lb.metrics;
 
 import cubrid.jdbc.lb.sql.SqlClassification;
 import java.util.ArrayDeque;

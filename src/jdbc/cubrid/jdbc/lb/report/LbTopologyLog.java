@@ -28,13 +28,14 @@
  *
  */
 
-package cubrid.jdbc.lb.log;
+package cubrid.jdbc.lb.report;
 
 import cubrid.jdbc.driver.CUBRIDDriver;
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.config.NodeRole;
 import cubrid.jdbc.lb.config.ReadWeight;
 import cubrid.jdbc.lb.config.ResolvedRoleTopology;
+import cubrid.jdbc.lb.log.LbLog;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Properties;
@@ -57,11 +58,11 @@ import java.util.logging.Logger;
  *       off".
  * </ol>
  *
- * <p>This cannot go in the {@link LbFileLogging} banner, which fires once per JVM: a JVM may hold
- * several DataSources on different clusters, and all but the first URL would be lost. It cannot be
- * written per connection either, because {@code LoadBalanceSettings.fromUrl} runs on every {@code
- * getConnection} and a hundred-connection pool would repeat the three lines a hundred times. Hence
- * the once-per-configuration gate below.
+ * <p>This cannot go in the {@link cubrid.jdbc.lb.log.LbFileLogging} banner, which fires once per
+ * JVM: a JVM may hold several DataSources on different clusters, and all but the first URL would be
+ * lost. It cannot be written per connection either, because {@code LoadBalanceSettings.fromUrl}
+ * runs on every {@code getConnection} and a hundred-connection pool would repeat the three lines a
+ * hundred times. Hence the once-per-configuration gate below.
  *
  * <p>The password is masked by {@link CUBRIDDriver#maskUriUrlPassword}, the function the driver
  * already uses for the URL in JDBC errors and the CAS handshake, so the URL logged here matches

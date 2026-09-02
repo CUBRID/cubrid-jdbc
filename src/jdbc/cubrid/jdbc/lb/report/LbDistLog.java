@@ -28,13 +28,14 @@
  *
  */
 
-package cubrid.jdbc.lb.log;
+package cubrid.jdbc.lb.report;
 
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.config.NodeRole;
 import cubrid.jdbc.lb.config.ReadWeight;
 import cubrid.jdbc.lb.config.ResolvedRoleTopology;
-import cubrid.jdbc.lb.state.MetricsRegistry;
+import cubrid.jdbc.lb.log.LbLog;
+import cubrid.jdbc.lb.metrics.MetricsRegistry;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -498,7 +499,7 @@ public final class LbDistLog {
     }
 
     /** Test hook: disarms and forgets the window state. */
-    static synchronized void resetForTests() {
+    public static synchronized void resetForTests() {
         armed = false;
         intervalMs = 0L;
         target = null;

@@ -28,7 +28,7 @@
  *
  */
 
-package cubrid.jdbc.lb.metrics;
+package cubrid.jdbc.lb.config;
 
 import java.util.Collections;
 import java.util.LinkedHashSet;

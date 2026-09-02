@@ -28,10 +28,10 @@
  *
  */
 
-package cubrid.jdbc.lb.state;
+package cubrid.jdbc.lb.metrics;
 
-import cubrid.jdbc.lb.state.RuntimeMetrics.EndpointStatsSnapshot;
-import cubrid.jdbc.lb.state.RuntimeMetrics.LatencySnapshot;
+import cubrid.jdbc.lb.metrics.RuntimeMetrics.EndpointStatsSnapshot;
+import cubrid.jdbc.lb.metrics.RuntimeMetrics.LatencySnapshot;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;

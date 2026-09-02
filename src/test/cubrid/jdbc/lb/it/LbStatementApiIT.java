@@ -36,7 +36,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import cubrid.jdbc.lb.LoadBalanceConnection;
-import cubrid.jdbc.lb.state.RuntimeMetrics;
+import cubrid.jdbc.lb.metrics.RuntimeMetrics;
 import cubrid.jdbc.lb.statement.LBStatement;
 import java.sql.Connection;
 import java.sql.DriverManager;

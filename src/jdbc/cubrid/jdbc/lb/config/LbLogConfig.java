@@ -28,7 +28,7 @@
  *
  */
 
-package cubrid.jdbc.lb.log;
+package cubrid.jdbc.lb.config;
 
 import java.util.Map;
 import java.util.logging.Level;

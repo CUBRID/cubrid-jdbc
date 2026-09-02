@@ -28,7 +28,7 @@
  *
  */
 
-package cubrid.jdbc.lb.log;
+package cubrid.jdbc.lb.report;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;

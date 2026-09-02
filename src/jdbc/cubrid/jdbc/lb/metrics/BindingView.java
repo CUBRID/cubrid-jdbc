@@ -28,7 +28,7 @@
  *
  */
 
-package cubrid.jdbc.lb.state;
+package cubrid.jdbc.lb.metrics;
 
 /**
  * Reports the read endpoint a live connection is currently bound to, evaluated lazily by {@link

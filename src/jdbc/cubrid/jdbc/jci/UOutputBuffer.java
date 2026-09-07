@@ -498,6 +498,16 @@ class UOutputBuffer {
         int collection_size = 1;
         ByteArrayBuffer saveBuffer = dataBuffer;
         dataBuffer = new ByteArrayBuffer(false);
+        try {
+            dataBuffer.writeByte((byte) data.getBaseType());
+            switch (data.getBaseType()) {
+                ...
+            }
+            saveBuffer.merge(collection_size, dataBuffer);
+        } finally {
+            dataBuffer = saveBuffer;
+        }
+        return collection_size + 4;
         dataBuffer.writeByte((byte) data.getBaseType());
 
         switch (data.getBaseType()) {

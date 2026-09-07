@@ -45,8 +45,14 @@ public class ByteArrayBuffer {
     private byte[] buffer;
     private int pos;
     private int dataSize;
+    private final boolean reserveHeader;
 
     public ByteArrayBuffer() {
+        this(true);
+    }
+
+    public ByteArrayBuffer(boolean reserveHeader) {
+        this.reserveHeader = reserveHeader;
         baseByteArray = new byte[UnitSize];
         reset();
     }
@@ -175,7 +181,7 @@ public class ByteArrayBuffer {
     public void reset() {
         byteArrayList = new ArrayList<byte[]>();
         buffer = baseByteArray;
-        pos = 8;
+        pos = reserveHeader ? 8 : 0;
         dataSize = 0;
     }
 }

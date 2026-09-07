@@ -497,104 +497,97 @@ class UOutputBuffer {
 
         int collection_size = 1;
         ByteArrayBuffer saveBuffer = dataBuffer;
-        dataBuffer = new ByteArrayBuffer(false);
         try {
+            dataBuffer = new ByteArrayBuffer(false);
             dataBuffer.writeByte((byte) data.getBaseType());
+
             switch (data.getBaseType()) {
-                ...
+                case UUType.U_TYPE_BIT:
+                case UUType.U_TYPE_VARBIT:
+                    byte[][] byteValues = null;
+                    if (values instanceof byte[][]) {
+                        byteValues = (byte[][]) values;
+                    } else if (values instanceof Boolean[]) {
+                        byteValues = new byte[values.length][];
+                        for (int i = 0; i < byteValues.length; i++) {
+                            if (((Boolean[]) values)[i] != null) {
+                                byteValues[i] = new byte[1];
+                                byteValues[i][0] =
+                                        (((Boolean[]) values)[i].booleanValue() == true)
+                                                ? (byte) 1
+                                                : (byte) 0;
+                            } else {
+                                byteValues[i] = null;
+                            }
+                        }
+                    }
+
+                    for (int i = 0; byteValues != null && i < byteValues.length; i++) {
+                        if (byteValues[i] == null) {
+                            collection_size += addNull();
+                        } else {
+                            collection_size += addBytes(byteValues[i]);
+                        }
+                    }
+                    break;
+                case UUType.U_TYPE_NUMERIC:
+                    for (int i = 0; i < values.length; i++) {
+                        if (values[i] == null) {
+                            collection_size += addNull();
+                        } else {
+                            collection_size +=
+                                    addStringWithNull(UGetTypeConvertedValue.getString(values[i]));
+                        }
+                    }
+                    break;
+                case UUType.U_TYPE_SHORT:
+                case UUType.U_TYPE_USHORT:
+                case UUType.U_TYPE_INT:
+                case UUType.U_TYPE_UINT:
+                case UUType.U_TYPE_BIGINT:
+                case UUType.U_TYPE_UBIGINT:
+                case UUType.U_TYPE_FLOAT:
+                case UUType.U_TYPE_DOUBLE:
+                case UUType.U_TYPE_MONETARY:
+                case UUType.U_TYPE_DATE:
+                case UUType.U_TYPE_TIME:
+                case UUType.U_TYPE_TIMETZ:
+                case UUType.U_TYPE_TIMESTAMP:
+                case UUType.U_TYPE_TIMESTAMPTZ:
+                case UUType.U_TYPE_TIMESTAMPLTZ:
+                case UUType.U_TYPE_DATETIME:
+                case UUType.U_TYPE_DATETIMETZ:
+                case UUType.U_TYPE_DATETIMELTZ:
+                case UUType.U_TYPE_OBJECT:
+                case UUType.U_TYPE_BLOB:
+                case UUType.U_TYPE_CLOB:
+                case UUType.U_TYPE_CHAR:
+                case UUType.U_TYPE_NCHAR:
+                case UUType.U_TYPE_STRING:
+                case UUType.U_TYPE_VARNCHAR:
+                case UUType.U_TYPE_ENUM:
+                case UUType.U_TYPE_JSON:
+                    for (int i = 0; i < values.length; i++) {
+                        if (values[i] == null) {
+                            collection_size += addNull();
+                        } else {
+                            collection_size +=
+                                    writeParameter(
+                                            (byte) data.getBaseType(), values[i], setDefaultValue);
+                        }
+                    }
+                    break;
+                case UUType.U_TYPE_NULL:
+                default:
+                    for (int i = 0; i < values.length; i++) {
+                        collection_size += addNull();
+                    }
             }
+
             saveBuffer.merge(collection_size, dataBuffer);
         } finally {
             dataBuffer = saveBuffer;
         }
-        return collection_size + 4;
-        dataBuffer.writeByte((byte) data.getBaseType());
-
-        switch (data.getBaseType()) {
-            case UUType.U_TYPE_BIT:
-            case UUType.U_TYPE_VARBIT:
-                byte[][] byteValues = null;
-                if (values instanceof byte[][]) {
-                    byteValues = (byte[][]) values;
-                } else if (values instanceof Boolean[]) {
-                    byteValues = new byte[values.length][];
-                    for (int i = 0; i < byteValues.length; i++) {
-                        if (((Boolean[]) values)[i] != null) {
-                            byteValues[i] = new byte[1];
-                            byteValues[i][0] =
-                                    (((Boolean[]) values)[i].booleanValue() == true)
-                                            ? (byte) 1
-                                            : (byte) 0;
-                        } else {
-                            byteValues[i] = null;
-                        }
-                    }
-                }
-
-                for (int i = 0; byteValues != null && i < byteValues.length; i++) {
-                    if (byteValues[i] == null) {
-                        collection_size += addNull();
-                    } else {
-                        collection_size += addBytes(byteValues[i]);
-                    }
-                }
-                break;
-            case UUType.U_TYPE_NUMERIC:
-                for (int i = 0; i < values.length; i++) {
-                    if (values[i] == null) {
-                        collection_size += addNull();
-                    } else {
-                        collection_size +=
-                                addStringWithNull(UGetTypeConvertedValue.getString(values[i]));
-                    }
-                }
-                break;
-            case UUType.U_TYPE_SHORT:
-            case UUType.U_TYPE_USHORT:
-            case UUType.U_TYPE_INT:
-            case UUType.U_TYPE_UINT:
-            case UUType.U_TYPE_BIGINT:
-            case UUType.U_TYPE_UBIGINT:
-            case UUType.U_TYPE_FLOAT:
-            case UUType.U_TYPE_DOUBLE:
-            case UUType.U_TYPE_MONETARY:
-            case UUType.U_TYPE_DATE:
-            case UUType.U_TYPE_TIME:
-            case UUType.U_TYPE_TIMETZ:
-            case UUType.U_TYPE_TIMESTAMP:
-            case UUType.U_TYPE_TIMESTAMPTZ:
-            case UUType.U_TYPE_TIMESTAMPLTZ:
-            case UUType.U_TYPE_DATETIME:
-            case UUType.U_TYPE_DATETIMETZ:
-            case UUType.U_TYPE_DATETIMELTZ:
-            case UUType.U_TYPE_OBJECT:
-            case UUType.U_TYPE_BLOB:
-            case UUType.U_TYPE_CLOB:
-            case UUType.U_TYPE_CHAR:
-            case UUType.U_TYPE_NCHAR:
-            case UUType.U_TYPE_STRING:
-            case UUType.U_TYPE_VARNCHAR:
-            case UUType.U_TYPE_ENUM:
-            case UUType.U_TYPE_JSON:
-                for (int i = 0; i < values.length; i++) {
-                    if (values[i] == null) {
-                        collection_size += addNull();
-                    } else {
-                        collection_size +=
-                                writeParameter(
-                                        (byte) data.getBaseType(), values[i], setDefaultValue);
-                    }
-                }
-                break;
-            case UUType.U_TYPE_NULL:
-            default:
-                for (int i = 0; i < values.length; i++) {
-                    collection_size += addNull();
-                }
-        }
-
-        saveBuffer.merge(collection_size, dataBuffer);
-        dataBuffer = saveBuffer;
         return collection_size + 4;
     }
 }

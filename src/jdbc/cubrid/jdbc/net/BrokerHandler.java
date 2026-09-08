@@ -285,17 +285,20 @@ public class BrokerHandler {
         return status;
     }
 
-    public static void cancelBroker(String ip, int port, int process, int timeout)
+    public static void cancelBroker(String ip, int port, int process, byte[] session, int timeout)
             throws IOException, UJciException {
-        ByteArrayOutputStream bao = new ByteArrayOutputStream(10);
+        ByteArrayOutputStream bao = new ByteArrayOutputStream(14);
         DataOutputStream dao = new DataOutputStream(bao);
         dao.write('X');
         dao.write('1');
         dao.write(UConnection.driverInfo[6]);
-        dao.write(UConnection.driverInfo[7]);
+        /* Set the session-cancel capability bit only on this cancel request, not on the shared
+         * driverInfo array used for the main connect handshake, matching cubrid-cci's approach. */
+        dao.write(UConnection.driverInfo[7] | UConnection.CAS_SUPPORT_SESSION_CANCEL);
         dao.write(UConnection.driverInfo[8]);
         dao.write(UConnection.driverInfo[9]);
         dao.writeInt(process);
+        dao.write(session);
 
         cancelRequest(ip, port, bao.toByteArray(), timeout);
     }

@@ -1330,8 +1330,7 @@ public class CUBRIDResultSet implements ResultSet {
                     error = t_u_stmt.getRecentError();
                     t_u_stmt.close();
                     if (error.getErrorCode() != UErrorCode.ER_NO_ERROR)
-                        throw con.createCUBRIDException(
-                                CUBRIDJDBCErrorCode.insertion_query_fail, null);
+                        throw con.createCUBRIDException(error);
                 }
             }
         } catch (NullPointerException e) {

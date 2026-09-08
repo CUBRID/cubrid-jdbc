@@ -1829,7 +1829,7 @@ public class CUBRIDResultSet implements ResultSet {
             }
             strvalue = "X'" + strvalue + "'";
         } else if (value instanceof String) {
-            strvalue = "'" + value.toString() + "'";
+            strvalue = "'" + value.toString().replace("'", "''") + "'";
         } else if (value instanceof Boolean) {
             strvalue = "B'";
             strvalue += ((Boolean) value).booleanValue() ? "1" : "0";

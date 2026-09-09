@@ -1807,7 +1807,7 @@ public class CUBRIDResultSet implements ResultSet {
             }
         } else if (value instanceof java.sql.Timestamp) {
             java.text.SimpleDateFormat format =
-                    new java.text.SimpleDateFormat("MM/dd/yyyy HH:mm:ss");
+                    new java.text.SimpleDateFormat("MM/dd/yyyy HH:mm:ss.SSS");
             strvalue = "'" + format.format((java.util.Date) value) + "'";
         } else if (value instanceof CUBRIDOID) {
             strvalue = "'" + ((CUBRIDOID) value).getOidString() + "'";

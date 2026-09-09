@@ -1327,7 +1327,7 @@ public class CUBRIDResultSet implements ResultSet {
                     t_u_stmt.execute(
                             false, 0, 0, false, false, false, false, false, false, null, 0);
 
-                    error = t_u_stmt.getRecentError();
+                    error = new UError(t_u_stmt.getRecentError());
                     t_u_stmt.close();
                     if (error.getErrorCode() != UErrorCode.ER_NO_ERROR)
                         throw con.createCUBRIDException(error);

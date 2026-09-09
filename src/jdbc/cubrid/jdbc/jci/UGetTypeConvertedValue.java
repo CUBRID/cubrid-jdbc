@@ -54,8 +54,19 @@ import java.sql.Clob;
 import java.sql.Date;
 import java.sql.Time;
 import java.sql.Timestamp;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 
 public abstract class UGetTypeConvertedValue {
+    private static final DateTimeFormatter DATE_FORMAT =
+            DateTimeFormatter.ofPattern("uuuu-MM-dd", Locale.ROOT);
+    private static final DateTimeFormatter TIME_FORMAT =
+            DateTimeFormatter.ofPattern("HH:mm:ss", Locale.ROOT);
+    private static final DateTimeFormatter DATETIME_FORMAT =
+            DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss.SSS", Locale.ROOT);
 
     public static BigDecimal getBigDecimal(Object data) throws UJciException {
         if (data == null) return null;
@@ -252,6 +263,12 @@ public abstract class UGetTypeConvertedValue {
             java.text.SimpleDateFormat f = new java.text.SimpleDateFormat(form);
 
             return f.format(data);
+        } else if (data instanceof LocalDate) {
+            return DATE_FORMAT.format((LocalDate) data);
+        } else if (data instanceof LocalTime) {
+            return TIME_FORMAT.format((LocalTime) data);
+        } else if (data instanceof LocalDateTime) {
+            return DATETIME_FORMAT.format((LocalDateTime) data);
         } else if (data instanceof CUBRIDOID) {
             try {
                 return ((CUBRIDOID) data).getOidString();

@@ -63,6 +63,9 @@ import java.sql.SQLXML;
 import java.sql.Statement;
 import java.sql.Time;
 import java.sql.Timestamp;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.Calendar;
 
 /**
@@ -415,6 +418,8 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
         } else if (x instanceof Clob) {
             setClob(parameterIndex, (Clob) x);
             return;
+        } else if (setJavaTimeObject(parameterIndex, x)) {
+            return;
         }
 
         checkIsOpen();
@@ -456,8 +461,71 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
         } else if (x instanceof Clob) {
             setClob(parameterIndex, (Clob) x);
             return;
+        } else if (setJavaTimeObject(parameterIndex, x)) {
+            return;
         }
 
+        checkIsOpen();
+        synchronized (u_stmt) {
+            u_stmt.bind(parameterIndex - 1, x);
+            error = u_stmt.getRecentError();
+        }
+        checkBindError();
+    }
+
+    /*
+     * Binds x when it is a java.time value and answers whether it did, so that setObject falls
+     * through for everything else.
+     */
+    private boolean setJavaTimeObject(int parameterIndex, Object x) throws SQLException {
+        if (x instanceof LocalDate) {
+            setLocalDate(parameterIndex, (LocalDate) x);
+        } else if (x instanceof LocalTime) {
+            setLocalTime(parameterIndex, (LocalTime) x);
+        } else if (x instanceof LocalDateTime) {
+            setLocalDateTime(parameterIndex, (LocalDateTime) x);
+        } else if (isUnsupportedJavaTime(x)) {
+            checkIsOpen();
+            throw CUBRIDException.notSupported(CUBRIDException.cannotStoreMessage(x.getClass()));
+        } else {
+            return false;
+        }
+        return true;
+    }
+
+    /* Several java.time types are not Temporal, so an instanceof Temporal guard would miss them. */
+    static boolean isUnsupportedJavaTime(Object x) {
+        return x != null
+                && x.getClass().getName().startsWith("java.time.")
+                && !(x instanceof LocalDate)
+                && !(x instanceof LocalTime)
+                && !(x instanceof LocalDateTime);
+    }
+
+    /*
+     * These three exist to pick the matching UStatement.bind overload. Binding through
+     * bind(int, Object) would not do: overloads are chosen from the static type, and
+     * UUType.getObjectDBtype has no java.time arm, so the bind would fail as an invalid argument.
+     */
+    private void setLocalDate(int parameterIndex, LocalDate x) throws SQLException {
+        checkIsOpen();
+        synchronized (u_stmt) {
+            u_stmt.bind(parameterIndex - 1, x);
+            error = u_stmt.getRecentError();
+        }
+        checkBindError();
+    }
+
+    private void setLocalTime(int parameterIndex, LocalTime x) throws SQLException {
+        checkIsOpen();
+        synchronized (u_stmt) {
+            u_stmt.bind(parameterIndex - 1, x);
+            error = u_stmt.getRecentError();
+        }
+        checkBindError();
+    }
+
+    private void setLocalDateTime(int parameterIndex, LocalDateTime x) throws SQLException {
         checkIsOpen();
         synchronized (u_stmt) {
             u_stmt.bind(parameterIndex - 1, x);

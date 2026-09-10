@@ -1744,7 +1744,7 @@ public class CUBRIDResultSet implements ResultSet {
                 null);
     }
 
-    private static boolean isJavaTimeConversionSupported(byte columnType, Class<?> type) {
+    static boolean isJavaTimeConversionSupported(byte columnType, Class<?> type) {
         switch (columnType) {
             case UUType.U_TYPE_DATE:
                 return type == LocalDate.class || type == LocalDateTime.class;

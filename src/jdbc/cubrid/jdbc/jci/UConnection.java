@@ -1553,30 +1553,11 @@ public abstract class UConnection {
     }
 
     public boolean isErrorCommunication(int error) {
-        switch (error) {
-            case UErrorCode.ER_COMMUNICATION:
-            case UErrorCode.ER_ILLEGAL_DATA_SIZE:
-            case UErrorCode.CAS_ER_COMMUNICATION:
-                return true;
-            default:
-                return false;
-        }
+        return ReconnectPolicy.isErrorCommunication(error);
     }
 
     public boolean isErrorToReconnect(int error) {
-        if (isErrorCommunication(error)) {
-            return true;
-        }
-
-        switch (error) {
-            case -111: // ER_TM_SERVER_DOWN_UNILATERALLY_ABORTED
-            case -199: // ER_NET_SERVER_CRASHED
-            case -224: // ER_OBJ_NO_CONNECT
-            case -677: // ER_BO_CONNECT_FAILED
-                return true;
-            default:
-                return false;
-        }
+        return ReconnectPolicy.isErrorToReconnect(error);
     }
 
     public int getLockTimeout() {

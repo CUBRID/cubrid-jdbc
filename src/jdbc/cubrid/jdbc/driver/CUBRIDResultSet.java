@@ -89,6 +89,26 @@ public class CUBRIDResultSet implements ResultSet {
 
     private CUBRIDConnection con;
     private CUBRIDStatement stmt;
+
+    /**
+     * The statement to name as this result set's producer, when that is not {@link #stmt}.
+     *
+     * <p>A load-balanced session runs each execution on a physical statement chosen at execute
+     * time, and hands the physical result set straight to the application. Without this field
+     * {@link #getStatement()} would name that physical statement — an object the application never
+     * asked for, whose {@code getConnection()} is a physical connection. Committing or closing
+     * through it reaches one leg only.
+     *
+     * <p>Deliberately separate from {@link #stmt} rather than replacing it. {@code stmt} is
+     * load-bearing here: {@link #close()} synchronizes on it, calls its package-private {@code
+     * complete()}, and reads its holdability. Pointing it at a logical statement would run {@code
+     * complete()} against a statement that owns no {@code UStatement} — a NullPointerException —
+     * and a logical statement cannot override a package-private method from another package. So the
+     * internal producer and the reported producer are two notions, and only the reported one is
+     * redirected.
+     */
+    private Statement reportedStmt;
+
     protected UStatement u_stmt;
     protected int number_of_rows;
     private int current_row;
@@ -124,6 +144,7 @@ public class CUBRIDResultSet implements ResultSet {
             throws SQLException {
         con = c;
         stmt = s;
+        reportedStmt = null;
         u_stmt = s.u_stmt;
         number_of_rows = u_stmt.getExecuteResult();
         current_row = -1;
@@ -172,6 +193,7 @@ public class CUBRIDResultSet implements ResultSet {
     public CUBRIDResultSet(CUBRIDConnection c, UStatement s) {
         con = c;
         stmt = null;
+        reportedStmt = null;
         u_stmt = s;
         current_row = -1;
         if (u_stmt != null) {
@@ -316,6 +338,7 @@ public class CUBRIDResultSet implements ResultSet {
 
                         streams = null;
                         stmt = null;
+                        reportedStmt = null;
                         u_stmt.closeResult();
                         u_stmt = null;
                         column_info = null;
@@ -1449,7 +1472,22 @@ public class CUBRIDResultSet implements ResultSet {
 
     public synchronized Statement getStatement() throws SQLException {
         checkIsOpen();
+        if (reportedStmt != null) {
+            return reportedStmt;
+        }
+
         return stmt;
+    }
+
+    /**
+     * Name {@code reported} as this result set's producer instead of the statement that physically
+     * created it. Used by the load-balance driver, which hands out physical result sets: see {@link
+     * #reportedStmt} for why this is a separate notion from the internal producer.
+     *
+     * @param reported the statement to report, or null to report the physical producer again
+     */
+    public synchronized void setReportedStatement(Statement reported) {
+        reportedStmt = reported;
     }
 
     public Object getObject(int i, Map<String, Class<?>> map) throws SQLException {

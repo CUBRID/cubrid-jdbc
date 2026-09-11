@@ -899,6 +899,72 @@ public class CUBRIDConnection implements Connection {
         return result;
     }
 
+    /*
+     * Shared client->server byte-stream transport. Used after executing
+     * COPY <table> FROM STDIN: send the encoded payload with streamData(),
+     * then streamEnd() to finish; streamEnd() returns the number of rows loaded.
+     */
+    public synchronized int streamInit(int streamKind, byte[] config) throws SQLException {
+        checkIsOpen();
+        int result;
+        synchronized (u_con) {
+            result = u_con.streamInit(streamKind, config);
+            error = u_con.getRecentError();
+        }
+        if (error.getErrorCode() != UErrorCode.ER_NO_ERROR) throw createCUBRIDException(error);
+        return result;
+    }
+
+    public synchronized int streamData(byte[] data) throws SQLException {
+        return streamData(data, 0, data.length);
+    }
+
+    public synchronized int streamData(byte[] data, int start, int len) throws SQLException {
+        checkIsOpen();
+        int result;
+
+        synchronized (u_con) {
+            result = u_con.streamSendData(data, start, len);
+            error = u_con.getRecentError();
+        }
+
+        switch (error.getErrorCode()) {
+            case UErrorCode.ER_NO_ERROR:
+                break;
+            default:
+                throw createCUBRIDException(error);
+        }
+
+        return result;
+    }
+
+    public synchronized long streamEndResult() throws SQLException {
+        checkIsOpen();
+        long result;
+        synchronized (u_con) {
+            result = u_con.streamEndResult();
+            error = u_con.getRecentError();
+        }
+        if (error.getErrorCode() != UErrorCode.ER_NO_ERROR) throw createCUBRIDException(error);
+        return result;
+    }
+
+    public synchronized int streamEnd() throws SQLException {
+        long result = streamEndResult();
+        return result > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) result;
+    }
+
+    public synchronized int streamAbort() throws SQLException {
+        checkIsOpen();
+        int result;
+        synchronized (u_con) {
+            result = u_con.streamAbort();
+            error = u_con.getRecentError();
+        }
+        if (error.getErrorCode() != UErrorCode.ER_NO_ERROR) throw createCUBRIDException(error);
+        return result;
+    }
+
     public synchronized int getShardId() {
         int lastShardId;
 

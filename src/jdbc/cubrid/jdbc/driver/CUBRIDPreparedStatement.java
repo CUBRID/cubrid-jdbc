@@ -41,11 +41,11 @@ import cubrid.sql.CUBRIDOID;
 import cubrid.sql.CUBRIDTimestamptz;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.io.Reader;
-import java.io.Writer;
 import java.math.BigDecimal;
 import java.net.URL;
+import java.nio.ByteBuffer;
+import java.nio.charset.Charset;
 import java.sql.Array;
 import java.sql.Blob;
 import java.sql.Clob;
@@ -599,82 +599,167 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
         checkBindError();
     }
 
-    /* JDK 1.6 */
-    public void setBlob(int parameterIndex, InputStream inputStream) throws SQLException {
-        if (inputStream == null) {
-            setNull(parameterIndex, java.sql.Types.BLOB);
-            return;
-        }
+    private static final long MAX_INTERNAL_LOB_LENGTH = 0x100000000L;
+    private static final int INTERNAL_LOB_STREAM_KIND = 1;
+    private static final int INTERNAL_LOB_STREAM_BLOB = 0;
+    private static final int INTERNAL_LOB_STREAM_CLOB = 1;
+    private static final int INTERNAL_LOB_STREAM_CHUNK_SIZE = 1024 * 1024;
 
-        checkIsOpen();
-        Blob blob = con.createBlob();
-        OutputStream out = blob.setBinaryStream(1);
+    private void abortInternalLobStream() {
         try {
-            ((CUBRIDBufferedOutputStream) out)
-                    .streamCopyFromInputStream(inputStream, Long.MAX_VALUE);
-        } catch (IOException e) {
-            throw con.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
+            con.streamAbort();
+        } catch (SQLException ignored) {
+            // Preserve the original upload or I/O exception.
         }
-
-        setBlob(parameterIndex, blob);
     }
 
-    /* JDK 1.6 */
-    public void setBlob(int parameterIndex, InputStream inputStream, long length)
+    private void bindInternalBlobStream(int parameterIndex, InputStream inputStream, long length)
             throws SQLException {
         if (inputStream == null) {
             setNull(parameterIndex, java.sql.Types.BLOB);
             return;
         }
+        if (length < -1 || length > MAX_INTERNAL_LOB_LENGTH) throw new IllegalArgumentException();
 
-        checkIsOpen();
-        Blob blob = con.createBlob();
-        OutputStream out = blob.setBinaryStream(1);
+        long logicalLength = length < 0 ? -1 : length * 8;
+        byte[] config =
+                ByteBuffer.allocate(20)
+                        .putInt(INTERNAL_LOB_STREAM_BLOB)
+                        .putLong(length)
+                        .putLong(logicalLength)
+                        .array();
+        byte[] chunk = new byte[INTERNAL_LOB_STREAM_CHUNK_SIZE];
+        long sent = 0;
+        boolean active = false;
         try {
-            ((CUBRIDBufferedOutputStream) out).streamCopyFromInputStream(inputStream, length);
+            con.streamInit(INTERNAL_LOB_STREAM_KIND, config);
+            active = true;
+            while (length < 0 || sent < length) {
+                int request =
+                        length < 0
+                                ? chunk.length
+                                : (int) Math.min((long) chunk.length, length - sent);
+                int read = inputStream.read(chunk, 0, request);
+                if (read < 0) break;
+                if (read == 0) continue;
+                if (sent > MAX_INTERNAL_LOB_LENGTH - read)
+                    throw new IOException("BLOB is too large");
+                con.streamData(chunk, 0, read);
+                sent += read;
+            }
+            if (length >= 0 && sent != length)
+                throw new IOException("BLOB stream ended before length");
+            long token = con.streamEndResult();
+            active = false;
+            synchronized (u_stmt) {
+                u_stmt.bindInternalLobUpload(parameterIndex - 1, true, token, sent, sent * 8);
+                error = u_stmt.getRecentError();
+            }
+            checkBindError();
         } catch (IOException e) {
+            if (active) abortInternalLobStream();
             throw con.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
+        } catch (SQLException e) {
+            if (active) abortInternalLobStream();
+            throw e;
         }
+    }
 
-        setBlob(parameterIndex, blob);
+    private void bindInternalClobStream(int parameterIndex, Reader reader, long charLength)
+            throws SQLException {
+        if (reader == null) {
+            setNull(parameterIndex, java.sql.Types.CLOB);
+            return;
+        }
+        if (charLength < -1) throw new IllegalArgumentException();
+
+        byte[] config =
+                ByteBuffer.allocate(20)
+                        .putInt(INTERNAL_LOB_STREAM_CLOB)
+                        .putLong(-1)
+                        .putLong(-1)
+                        .array();
+        char[] chars = new char[256 * 1024];
+        Charset charset = Charset.forName(con.getUConnection().getCharset());
+        String carry = "";
+        long charsRead = 0;
+        long bytesSent = 0;
+        boolean active = false;
+        try {
+            con.streamInit(INTERNAL_LOB_STREAM_KIND, config);
+            active = true;
+            while (charLength < 0 || charsRead < charLength) {
+                int request =
+                        charLength < 0
+                                ? chars.length
+                                : (int) Math.min((long) chars.length, charLength - charsRead);
+                int read = reader.read(chars, 0, request);
+                if (read < 0) break;
+                if (read == 0) continue;
+                charsRead += read;
+                String text = carry + new String(chars, 0, read);
+                carry = "";
+                if (Character.isHighSurrogate(text.charAt(text.length() - 1))) {
+                    carry = text.substring(text.length() - 1);
+                    text = text.substring(0, text.length() - 1);
+                }
+                if (text.length() > 0) {
+                    byte[] bytes = text.getBytes(charset);
+                    if (bytesSent > MAX_INTERNAL_LOB_LENGTH - bytes.length)
+                        throw new IOException("CLOB is too large");
+                    con.streamData(bytes);
+                    bytesSent += bytes.length;
+                }
+            }
+            if (charLength >= 0 && charsRead != charLength)
+                throw new IOException("CLOB reader ended before length");
+            if (carry.length() > 0) {
+                byte[] bytes = carry.getBytes(charset);
+                if (bytesSent > MAX_INTERNAL_LOB_LENGTH - bytes.length)
+                    throw new IOException("CLOB is too large");
+                con.streamData(bytes);
+                bytesSent += bytes.length;
+            }
+            long token = con.streamEndResult();
+            active = false;
+            synchronized (u_stmt) {
+                u_stmt.bindInternalLobUpload(
+                        parameterIndex - 1, false, token, bytesSent, bytesSent);
+                error = u_stmt.getRecentError();
+            }
+            checkBindError();
+        } catch (IOException e) {
+            if (active) abortInternalLobStream();
+            throw con.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
+        } catch (SQLException e) {
+            if (active) abortInternalLobStream();
+            throw e;
+        }
+    }
+
+    /* JDK 1.6 */
+    public void setBlob(int parameterIndex, InputStream inputStream) throws SQLException {
+        checkIsOpen();
+        bindInternalBlobStream(parameterIndex, inputStream, -1);
+    }
+
+    /* JDK 1.6 */
+    public void setBlob(int parameterIndex, InputStream inputStream, long length)
+            throws SQLException {
+        checkIsOpen();
+        bindInternalBlobStream(parameterIndex, inputStream, length);
     }
 
     /* JDK 1.6 */
     public void setClob(int parameterIndex, Reader reader) throws SQLException {
-        if (reader == null) {
-            setNull(parameterIndex, java.sql.Types.CLOB);
-            return;
-        }
-
         checkIsOpen();
-        Clob clob = con.createClob();
-        Writer out = clob.setCharacterStream(1);
-        try {
-            ((CUBRIDBufferedWriter) out).streamCopyFromReader(reader, Long.MAX_VALUE);
-        } catch (IOException e) {
-            throw con.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
-        }
-
-        setClob(parameterIndex, clob);
+        bindInternalClobStream(parameterIndex, reader, -1);
     }
 
     /* JDK 1.6 */
     public void setClob(int parameterIndex, Reader reader, long length) throws SQLException {
-        if (reader == null) {
-            setNull(parameterIndex, java.sql.Types.CLOB);
-            return;
-        }
-
         checkIsOpen();
-        Clob clob = con.createClob();
-        Writer out = clob.setCharacterStream(1);
-        try {
-            ((CUBRIDBufferedWriter) out).streamCopyFromReader(reader, length);
-        } catch (IOException e) {
-            throw con.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
-        }
-
-        setClob(parameterIndex, clob);
+        bindInternalClobStream(parameterIndex, reader, length);
     }
 
     public void setArray(int i, Array x) throws SQLException {

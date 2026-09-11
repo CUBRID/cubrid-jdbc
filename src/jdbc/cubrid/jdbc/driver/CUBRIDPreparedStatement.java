@@ -41,13 +41,11 @@ import cubrid.sql.CUBRIDOID;
 import cubrid.sql.CUBRIDTimestamptz;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.io.Reader;
-import java.nio.ByteBuffer;
-import java.nio.charset.Charset;
-import java.io.Writer;
 import java.math.BigDecimal;
 import java.net.URL;
+import java.nio.ByteBuffer;
+import java.nio.charset.Charset;
 import java.sql.Array;
 import java.sql.Blob;
 import java.sql.Clob;
@@ -644,11 +642,13 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
                 int read = inputStream.read(chunk, 0, request);
                 if (read < 0) break;
                 if (read == 0) continue;
-                if (sent > MAX_INTERNAL_LOB_LENGTH - read) throw new IOException("BLOB is too large");
+                if (sent > MAX_INTERNAL_LOB_LENGTH - read)
+                    throw new IOException("BLOB is too large");
                 con.streamData(chunk, 0, read);
                 sent += read;
             }
-            if (length >= 0 && sent != length) throw new IOException("BLOB stream ended before length");
+            if (length >= 0 && sent != length)
+                throw new IOException("BLOB stream ended before length");
             long token = con.streamEndResult();
             active = false;
             synchronized (u_stmt) {
@@ -723,7 +723,8 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
             long token = con.streamEndResult();
             active = false;
             synchronized (u_stmt) {
-                u_stmt.bindInternalLobUpload(parameterIndex - 1, false, token, bytesSent, bytesSent);
+                u_stmt.bindInternalLobUpload(
+                        parameterIndex - 1, false, token, bytesSent, bytesSent);
                 error = u_stmt.getRecentError();
             }
             checkBindError();

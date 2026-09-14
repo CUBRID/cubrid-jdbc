@@ -55,6 +55,9 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Time;
 import java.sql.Timestamp;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 
@@ -433,6 +436,18 @@ public class UStatement {
         else data = (byte[]) value.clone();
 
         bindValue(index, UUType.U_TYPE_VARBIT, data);
+    }
+
+    public void bind(int index, LocalDate value) {
+        bindValue(index, UUType.U_TYPE_DATE, value);
+    }
+
+    public void bind(int index, LocalTime value) {
+        bindValue(index, UUType.U_TYPE_TIME, value);
+    }
+
+    public void bind(int index, LocalDateTime value) {
+        bindValue(index, UUType.U_TYPE_DATETIME, value);
     }
 
     public void bind(int index, Date value) {
@@ -1349,6 +1364,76 @@ public class UStatement {
         return null;
     }
 
+    public synchronized LocalDate getLocalDate(int index) {
+        UDateTimeFields fields = dateTimeFieldsOf(index);
+        if (fields == null) return null;
+
+        try {
+            return fields.toLocalDate();
+        } catch (UJciException e) {
+            e.toUError(errorHandler);
+        }
+        return null;
+    }
+
+    public synchronized LocalTime getLocalTime(int index) {
+        UDateTimeFields fields = dateTimeFieldsOf(index);
+        if (fields == null) return null;
+
+        try {
+            return fields.toLocalTime();
+        } catch (UJciException e) {
+            e.toUError(errorHandler);
+        }
+        return null;
+    }
+
+    public synchronized LocalDateTime getLocalDateTime(int index) {
+        UDateTimeFields fields = dateTimeFieldsOf(index);
+        if (fields == null) return null;
+
+        try {
+            return fields.toLocalDateTime();
+        } catch (UJciException e) {
+            e.toUError(errorHandler);
+        }
+        return null;
+    }
+
+    private UDateTimeFields dateTimeFieldsOf(int index) {
+        errorHandler = new UError(relatedConnection);
+
+        if (isClosed == true) {
+            errorHandler.setErrorCode(UErrorCode.ER_IS_CLOSED);
+            return null;
+        }
+        if (index < 0 || index >= columnNumber) {
+            errorHandler.setErrorCode(UErrorCode.ER_COLUMN_INDEX);
+            return null;
+        }
+        if (checkReFetch() != true) return null;
+        if (fetchedTupleNumber <= 0) {
+            errorHandler.setErrorCode(UErrorCode.ER_NO_MORE_DATA);
+            return null;
+        }
+
+        Object obj;
+        if ((tuples == null)
+                || (tuples[cursorPosition - currentFirstCursor] == null)
+                || ((obj = tuples[cursorPosition - currentFirstCursor].getAttribute(index))
+                        == null)) {
+            errorHandler.setErrorCode(UErrorCode.ER_WAS_NULL);
+            return null;
+        }
+
+        if (obj instanceof UDateTimeFields) {
+            return (UDateTimeFields) obj;
+        }
+
+        errorHandler.setErrorCode(UErrorCode.ER_TYPE_CONVERSION);
+        return null;
+    }
+
     public synchronized Date getDate(int index) {
         errorHandler = new UError(relatedConnection);
 
@@ -2035,7 +2120,7 @@ public class UStatement {
             return null;
         }
 
-        return obj;
+        return UDateTimeFields.sqlValueOf(obj);
     }
 
     private boolean checkReFetch() {
@@ -2232,12 +2317,12 @@ public class UStatement {
             case UUType.U_TYPE_TIME:
                 return inBuffer.readTime();
             case UUType.U_TYPE_TIMESTAMP:
-                return inBuffer.readTimestamp(false);
+                return inBuffer.readTimestampFields(false);
             case UUType.U_TYPE_TIMESTAMPTZ:
             case UUType.U_TYPE_TIMESTAMPLTZ:
                 return inBuffer.readTimestamptz(dataSize);
             case UUType.U_TYPE_DATETIME:
-                return inBuffer.readDatetime(false);
+                return inBuffer.readDatetimeFields(false);
             case UUType.U_TYPE_DATETIMETZ:
             case UUType.U_TYPE_DATETIMELTZ:
                 return inBuffer.readDatetimetz(dataSize);
@@ -2255,7 +2340,9 @@ public class UStatement {
                         if (eleSize <= 0) aArray.setElement(i, null);
                         else
                             aArray.setElement(
-                                    i, readData(inBuffer, baseType, eleSize, charsetName));
+                                    i,
+                                    UDateTimeFields.sqlValueOf(
+                                            readData(inBuffer, baseType, eleSize, charsetName)));
                     }
                     return aArray;
                 }

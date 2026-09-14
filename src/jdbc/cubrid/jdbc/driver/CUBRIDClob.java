@@ -183,35 +183,6 @@ public class CUBRIDClob implements Clob {
                         || charsetName.equalsIgnoreCase("ASCII"));
     }
 
-    /* Characters are decoded from the byte stream, so the count is only known by reading the value through. */
-    private long internalCharLength() throws SQLException {
-        if (clobCharLength >= 0) {
-            return clobCharLength;
-        }
-
-        Reader in = getCharacterStream(1, Long.MAX_VALUE);
-        long count = 0;
-        char[] buf = new char[CLOB_MAX_IO_CHARS];
-
-        try {
-            int got;
-            while ((got = in.read(buf, 0, buf.length)) > 0) {
-                count += got;
-            }
-        } catch (IOException e) {
-            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
-        } finally {
-            try {
-                in.close();
-            } catch (IOException e) {
-                /* the count is already complete; a failed close adds nothing the caller can act on */
-            }
-        }
-
-        clobCharLength = count > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) count;
-        return clobCharLength;
-    }
-
     /*
      * ======================================================================= |
      * java.sql.Clob interface
@@ -219,7 +190,10 @@ public class CUBRIDClob implements Clob {
      */
     public synchronized long length() throws SQLException {
         if (isInternalLob()) {
-            return internalCharLength();
+            /* CUBRID measures a CLOB in bytes: the server's CLOB_LENGTH returns the locator's byte length,
+             * and an external LOB reports lobHandle.getLobSize(), also bytes.  Reporting a character count
+             * here would disagree with both and would cost a full read of the value to produce. */
+            return internalLength;
         }
         if (lobHandle == null) {
             throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);

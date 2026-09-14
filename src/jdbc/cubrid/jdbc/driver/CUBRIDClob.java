@@ -67,6 +67,7 @@ public class CUBRIDClob implements Clob {
     /* An internal LOB is held as a reference: the value's byte length and the locator that names it.  The
      * characters are decoded from the server stream on demand instead of living in this object. */
     private byte[] internalLocator = null;
+    private byte[] internalContent = null;
     private long internalLength = 0;
     private String charsetName;
 
@@ -146,8 +147,32 @@ public class CUBRIDClob implements Clob {
         clobNextReadBytePos = 0;
     }
 
+    /* A LOB value with no storage behind it (a scalar function result): the content is all there is. */
+    public CUBRIDClob(CUBRIDConnection conn, byte[] content, String charsetName)
+            throws SQLException {
+        if (conn == null || content == null) {
+            throw new CUBRIDException(CUBRIDJDBCErrorCode.invalid_value);
+        }
+
+        this.conn = conn;
+        this.isWritable = false;
+        this.isLobLocator = false;
+        this.internalContent = content;
+        this.internalLength = content.length;
+        this.charsetName = charsetName;
+
+        clobCharPos = 0;
+        clobCharLength = -1;
+        clobBytePos = 0;
+        clobNextReadBytePos = 0;
+    }
+
     private boolean isInternalLob() {
-        return internalLocator != null;
+        return internalLocator != null || internalContent != null;
+    }
+
+    private boolean isInlineLob() {
+        return internalContent != null;
     }
 
     /* Characters are decoded from the byte stream, so the count is only known by reading the value through. */
@@ -259,6 +284,13 @@ public class CUBRIDClob implements Clob {
     public Reader getCharacterStream(long pos, long length) throws SQLException {
         if (pos < 1 || length < 0) {
             throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
+        }
+
+        if (isInlineLob()) {
+            String whole =
+                    new String(internalContent, java.nio.charset.Charset.forName(charsetName));
+            int from = (int) Math.min(pos - 1, whole.length());
+            return new java.io.StringReader(whole.substring(from));
         }
 
         if (isInternalLob()) {

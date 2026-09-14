@@ -114,6 +114,12 @@ public abstract class UConnection {
     /* Largest payload one LOB_STREAM_READ may ask for; CAS refuses more. */
     public static final int INTERNAL_LOB_STREAM_MAX_CHUNK = 1024 * 1024;
 
+    /* Leading byte of every BLOB/CLOB column sent to a PROTOCOL_V13 driver: it says whether the payload is a
+     * reference to stored content or the content itself.  The column type alone cannot distinguish them,
+     * because a scalar function result (CHAR_TO_CLOB('x')) is a LOB value with no storage behind it. */
+    public static final byte INTERNAL_LOB_WIRE_INLINE = 0;
+    public static final byte INTERNAL_LOB_WIRE_REF = 1;
+
     /* Current protocol version */
     protected static final byte CAS_PROTOCOL_VERSION = PROTOCOL_V13;
     protected static final byte CAS_PROTO_INDICATOR = 0x40;

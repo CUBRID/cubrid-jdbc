@@ -61,6 +61,7 @@ public class CUBRIDBlob implements Blob {
     /* An internal LOB is held as a reference: the value's byte length and the locator that names it.  The bytes
      * are pulled from the server on demand instead of living in this object. */
     private byte[] internalLocator = null;
+    private byte[] internalContent = null;
     private long internalLength = 0;
 
     private ArrayList<java.io.Flushable> streamList = new ArrayList<java.io.Flushable>();
@@ -110,8 +111,25 @@ public class CUBRIDBlob implements Blob {
         this.internalLength = byteLength;
     }
 
+    /* A LOB value with no storage behind it (a scalar function result): the content is all there is. */
+    public CUBRIDBlob(CUBRIDConnection conn, byte[] content) throws SQLException {
+        if (conn == null || content == null) {
+            throw new CUBRIDException(CUBRIDJDBCErrorCode.invalid_value);
+        }
+
+        this.conn = conn;
+        this.isWritable = false;
+        this.isLobLocator = false;
+        this.internalContent = content;
+        this.internalLength = content.length;
+    }
+
     private boolean isInternalLob() {
-        return internalLocator != null;
+        return internalLocator != null || internalContent != null;
+    }
+
+    private boolean isInlineLob() {
+        return internalContent != null;
     }
 
     /*
@@ -237,6 +255,12 @@ public class CUBRIDBlob implements Blob {
     public InputStream getBinaryStream(long pos, long length) throws SQLException {
         if (pos < 1 || length < 0) {
             throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
+        }
+
+        if (isInlineLob()) {
+            int from = (int) Math.min(pos - 1, internalContent.length);
+            return new java.io.ByteArrayInputStream(
+                    internalContent, from, internalContent.length - from);
         }
 
         if (isInternalLob()) {

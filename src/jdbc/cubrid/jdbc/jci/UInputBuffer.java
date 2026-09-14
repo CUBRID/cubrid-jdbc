@@ -505,6 +505,34 @@ class UInputBuffer {
         }
     }
 
+    /*
+     * An internal LOB column carries a reference, not content: the value's byte length followed by the locator
+     * that names it.  The bytes are pulled afterwards over LOB_STREAM_*, so nothing of the value is buffered here.
+     */
+    CUBRIDBlob readInternalBlob(int dataSize, CUBRIDConnection conn) throws UJciException {
+        try {
+            long byteLength = readLong();
+            byte[] locator = readBytes(dataSize - 8);
+            return new CUBRIDBlob(conn, byteLength, locator);
+        } catch (UJciException e) {
+            throw e;
+        } catch (Exception e) {
+            throw uconn.createJciException(UErrorCode.ER_UNKNOWN);
+        }
+    }
+
+    CUBRIDClob readInternalClob(int dataSize, CUBRIDConnection conn) throws UJciException {
+        try {
+            long byteLength = readLong();
+            byte[] locator = readBytes(dataSize - 8);
+            return new CUBRIDClob(conn, byteLength, locator, conn.getUConnection().getCharset());
+        } catch (UJciException e) {
+            throw e;
+        } catch (Exception e) {
+            throw uconn.createJciException(UErrorCode.ER_UNKNOWN);
+        }
+    }
+
     int remainedCapacity() {
         return capacity - position;
     }

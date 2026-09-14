@@ -100,8 +100,11 @@ public enum UFunctionCode {
     STREAM_END(46),
     STREAM_INIT(47),
     STREAM_ABORT(48),
+    LOB_STREAM_OPEN(49),
+    LOB_STREAM_READ(50),
+    LOB_STREAM_CLOSE(51),
 
-    LAST_FUNCTION_CODE(STREAM_ABORT);
+    LAST_FUNCTION_CODE(LOB_STREAM_CLOSE);
 
     private byte code;
 

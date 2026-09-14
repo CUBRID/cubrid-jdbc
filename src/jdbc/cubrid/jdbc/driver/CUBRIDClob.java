@@ -35,6 +35,7 @@ import cubrid.jdbc.jci.UUType;
 import java.io.Flushable;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.Reader;
 import java.io.UnsupportedEncodingException;
@@ -62,6 +63,11 @@ public class CUBRIDClob implements Clob {
     private boolean isWritable;
     private boolean isLobLocator;
     private CUBRIDLobHandle lobHandle;
+
+    /* An internal LOB is held as a reference: the value's byte length and the locator that names it.  The
+     * characters are decoded from the server stream on demand instead of living in this object. */
+    private byte[] internalLocator = null;
+    private long internalLength = 0;
     private String charsetName;
 
     private StringBuffer clobCharBuffer = new StringBuffer("");
@@ -120,12 +126,68 @@ public class CUBRIDClob implements Clob {
         clobNextReadBytePos = 0;
     }
 
+    /* An internal LOB read from a result set: the column carried a locator, not the content. */
+    public CUBRIDClob(CUBRIDConnection conn, long byteLength, byte[] locator, String charsetName)
+            throws SQLException {
+        if (conn == null || locator == null || byteLength < 0) {
+            throw new CUBRIDException(CUBRIDJDBCErrorCode.invalid_value);
+        }
+
+        this.conn = conn;
+        this.isWritable = false;
+        this.isLobLocator = true;
+        this.internalLocator = locator;
+        this.internalLength = byteLength;
+        this.charsetName = charsetName;
+
+        clobCharPos = 0;
+        clobCharLength = -1;
+        clobBytePos = 0;
+        clobNextReadBytePos = 0;
+    }
+
+    private boolean isInternalLob() {
+        return internalLocator != null;
+    }
+
+    /* Characters are decoded from the byte stream, so the count is only known by reading the value through. */
+    private long internalCharLength() throws SQLException {
+        if (clobCharLength >= 0) {
+            return clobCharLength;
+        }
+
+        Reader in = getCharacterStream(1, Long.MAX_VALUE);
+        long count = 0;
+        char[] buf = new char[CLOB_MAX_IO_CHARS];
+
+        try {
+            int got;
+            while ((got = in.read(buf, 0, buf.length)) > 0) {
+                count += got;
+            }
+        } catch (IOException e) {
+            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
+        } finally {
+            try {
+                in.close();
+            } catch (IOException e) {
+                /* the count is already complete; a failed close adds nothing the caller can act on */
+            }
+        }
+
+        clobCharLength = count > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) count;
+        return clobCharLength;
+    }
+
     /*
      * ======================================================================= |
      * java.sql.Clob interface
      * =======================================================================
      */
     public synchronized long length() throws SQLException {
+        if (isInternalLob()) {
+            return internalCharLength();
+        }
         if (lobHandle == null) {
             throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
         }
@@ -140,14 +202,17 @@ public class CUBRIDClob implements Clob {
     }
 
     public synchronized String getSubString(long pos, int length) throws SQLException {
-        if (lobHandle == null) {
-            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
-        }
         if (pos < 1 || length < 0) {
             throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
         }
         if (length == 0) {
             return "";
+        }
+        if (isInternalLob()) {
+            return getInternalSubString(pos, length);
+        }
+        if (lobHandle == null) {
+            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
         }
 
         int read_len = readClobPartially(pos, length);
@@ -158,16 +223,69 @@ public class CUBRIDClob implements Clob {
         return (clobCharBuffer.substring(0, read_len));
     }
 
+    /* Reads a window of an internal LOB by streaming to it.  Sequential readers should prefer
+     * getCharacterStream(); a non-zero start costs a skip through the forward-only cursor. */
+    private String getInternalSubString(long pos, int length) throws SQLException {
+        char[] buf = new char[length];
+        Reader in = getCharacterStream(pos, length);
+        int total = 0;
+
+        try {
+            while (total < length) {
+                int got = in.read(buf, total, length - total);
+                if (got <= 0) {
+                    break;
+                }
+                total += got;
+            }
+        } catch (IOException e) {
+            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
+        } finally {
+            try {
+                in.close();
+            } catch (IOException e) {
+                /* the read already produced its result; a failed close adds nothing the caller can act on */
+            }
+        }
+
+        return new String(buf, 0, total);
+    }
+
     public Reader getCharacterStream() throws SQLException {
         return getCharacterStream(1, Long.MAX_VALUE);
     }
 
     /* JDK 1.6 */
     public Reader getCharacterStream(long pos, long length) throws SQLException {
-        if (lobHandle == null) {
+        if (pos < 1 || length < 0) {
             throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
         }
-        if (pos < 1 || length < 0) {
+
+        if (isInternalLob()) {
+            Reader in =
+                    new InputStreamReader(
+                            new CUBRIDInternalLobInputStream(
+                                    conn.getUConnection(), internalLocator, internalLength),
+                            java.nio.charset.Charset.forName(charsetName));
+            if (pos > 1) {
+                /* the server cursor is forward-only, so a character offset is reached by skipping to it */
+                long toSkip = pos - 1;
+                try {
+                    while (toSkip > 0) {
+                        long skipped = in.skip(toSkip);
+                        if (skipped <= 0) {
+                            break;
+                        }
+                        toSkip -= skipped;
+                    }
+                } catch (IOException e) {
+                    throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
+                }
+            }
+            return new CUBRIDBufferedReader(in, CLOB_MAX_IO_CHARS);
+        }
+
+        if (lobHandle == null) {
             throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
         }
 

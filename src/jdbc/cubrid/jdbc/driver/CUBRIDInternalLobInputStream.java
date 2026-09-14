@@ -75,12 +75,23 @@ public class CUBRIDInternalLobInputStream extends InputStream {
         chunk = new byte[CHUNK_SIZE];
     }
 
+    /* Releases the server-side read cursor.  Safe to call more than once. */
+    private void releaseToken() {
+        if (token > 0) {
+            uconn.lobStreamClose(token);
+            token = 0;
+        }
+    }
+
     /* Pulls the next chunk.  Returns false once the value is exhausted. */
     private boolean fill() throws IOException {
         if (chunkPos < chunkLen) {
             return true;
         }
         if (delivered >= totalLength) {
+            /* the value is spent: let the cursor go now rather than wait for a close() that a caller
+             * reading to EOF has no reason to make */
+            releaseToken();
             return false;
         }
 
@@ -95,6 +106,7 @@ public class CUBRIDInternalLobInputStream extends InputStream {
         if (got == 0) {
             /* the server ran out earlier than the locator promised */
             delivered = totalLength;
+            releaseToken();
             return false;
         }
 
@@ -163,10 +175,7 @@ public class CUBRIDInternalLobInputStream extends InputStream {
             return;
         }
         closed = true;
-        if (token > 0) {
-            uconn.lobStreamClose(token);
-            token = 0;
-        }
+        releaseToken();
         chunk = null;
         chunkPos = chunkLen = 0;
     }

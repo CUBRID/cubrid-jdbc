@@ -1264,13 +1264,13 @@ public abstract class UConnection {
      */
 
     // UFunctionCode.LOB_STREAM_OPEN
-    public synchronized long lobStreamOpen(byte[] locator) {
+    public synchronized long lobStreamOpen(byte[] locator, long startOffset) {
         errorHandler = new UError(this);
         if (isClosed == true) {
             errorHandler.setErrorCode(UErrorCode.ER_IS_CLOSED);
             return -1;
         }
-        if (locator == null || locator.length == 0) {
+        if (locator == null || locator.length == 0 || startOffset < 0) {
             errorHandler.setErrorCode(UErrorCode.ER_INVALID_ARGUMENT);
             return -1;
         }
@@ -1281,6 +1281,7 @@ public abstract class UConnection {
 
             outBuffer.newRequest(output, UFunctionCode.LOB_STREAM_OPEN);
             outBuffer.addBytes(locator);
+            outBuffer.addLong(startOffset);
 
             UInputBuffer inBuffer = send_recv_msg();
             int resCode = inBuffer.getResCode();

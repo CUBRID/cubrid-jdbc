@@ -49,6 +49,7 @@ public class CUBRIDInternalLobInputStream extends InputStream {
     private final UConnection uconn;
     private final byte[] locator;
     private final long totalLength;
+    private final long startOffset;
 
     private long token = 0;
     private long delivered = 0;
@@ -58,16 +59,24 @@ public class CUBRIDInternalLobInputStream extends InputStream {
     private boolean closed = false;
 
     public CUBRIDInternalLobInputStream(UConnection uconn, byte[] locator, long totalLength) {
+        this(uconn, locator, totalLength, 0);
+    }
+
+    /* startOffset positions the server-side cursor, so the bytes ahead of it never cross the network. */
+    public CUBRIDInternalLobInputStream(
+            UConnection uconn, byte[] locator, long totalLength, long startOffset) {
         this.uconn = uconn;
         this.locator = locator;
         this.totalLength = totalLength;
+        this.startOffset = startOffset;
+        this.delivered = startOffset;
     }
 
     private void open() throws IOException {
         if (token > 0) {
             return;
         }
-        long opened = uconn.lobStreamOpen(locator);
+        long opened = uconn.lobStreamOpen(locator, startOffset);
         if (opened <= 0) {
             throw new IOException("cannot open the internal LOB stream");
         }

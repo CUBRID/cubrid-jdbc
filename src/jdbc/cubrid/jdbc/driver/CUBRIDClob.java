@@ -175,6 +175,14 @@ public class CUBRIDClob implements Clob {
         return internalContent != null;
     }
 
+    /* A charset whose characters are one byte each lets a character offset be used as a byte offset. */
+    private boolean isSingleByteCharset() {
+        return charsetName != null
+                && (charsetName.equalsIgnoreCase("ISO-8859-1")
+                        || charsetName.equalsIgnoreCase("US-ASCII")
+                        || charsetName.equalsIgnoreCase("ASCII"));
+    }
+
     /* Characters are decoded from the byte stream, so the count is only known by reading the value through. */
     private long internalCharLength() throws SQLException {
         if (clobCharLength >= 0) {
@@ -294,13 +302,19 @@ public class CUBRIDClob implements Clob {
         }
 
         if (isInternalLob()) {
+            /* pos counts characters while the server cursor counts bytes.  For a single-byte charset the two
+             * agree and the server can position itself; otherwise the offset has to be found by decoding, so
+             * the characters ahead of it are read and dropped here. */
+            boolean bytePerChar = isSingleByteCharset();
             Reader in =
                     new InputStreamReader(
                             new CUBRIDInternalLobInputStream(
-                                    conn.getUConnection(), internalLocator, internalLength),
+                                    conn.getUConnection(),
+                                    internalLocator,
+                                    internalLength,
+                                    bytePerChar ? pos - 1 : 0),
                             java.nio.charset.Charset.forName(charsetName));
-            if (pos > 1) {
-                /* the server cursor is forward-only, so a character offset is reached by skipping to it */
+            if (!bytePerChar && pos > 1) {
                 long toSkip = pos - 1;
                 try {
                     while (toSkip > 0) {

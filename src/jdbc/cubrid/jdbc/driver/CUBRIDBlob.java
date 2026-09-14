@@ -264,25 +264,9 @@ public class CUBRIDBlob implements Blob {
         }
 
         if (isInternalLob()) {
-            InputStream in =
-                    new CUBRIDInternalLobInputStream(
-                            conn.getUConnection(), internalLocator, internalLength);
-            if (pos > 1) {
-                /* the server cursor is forward-only, so an offset is reached by skipping to it */
-                long toSkip = pos - 1;
-                try {
-                    while (toSkip > 0) {
-                        long skipped = in.skip(toSkip);
-                        if (skipped <= 0) {
-                            break;
-                        }
-                        toSkip -= skipped;
-                    }
-                } catch (IOException e) {
-                    throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
-                }
-            }
-            return in;
+            /* the server positions its own cursor, so the bytes before pos never cross the network */
+            return new CUBRIDInternalLobInputStream(
+                    conn.getUConnection(), internalLocator, internalLength, pos - 1);
         }
 
         if (lobHandle == null) {

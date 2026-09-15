@@ -583,6 +583,14 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
 
     public void setBlob(int parameterIndex, Blob x) throws SQLException {
         checkIsOpen();
+        /* A Blob read back from an internal LOB column (CUBRIDBlob.isInternalLob ()) carries a locator or
+         * inline bytes, not the external lobHandle u_stmt.bindBlob ()'s wire encoding requires; rebinding it
+         * that way NPEs deep inside execute. Re-stream it through the same upload path a raw InputStream
+         * bind would use instead. */
+        if (x instanceof CUBRIDBlob && ((CUBRIDBlob) x).isInternalLob()) {
+            bindInternalBlobStream(parameterIndex, x.getBinaryStream(), -1);
+            return;
+        }
         synchronized (u_stmt) {
             u_stmt.bindBlob(parameterIndex - 1, x);
             error = u_stmt.getRecentError();
@@ -592,6 +600,12 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
 
     public void setClob(int parameterIndex, Clob x) throws SQLException {
         checkIsOpen();
+        /* Same reasoning as setBlob (Blob): a Clob read back from an internal LOB column has no external
+         * lobHandle to rebind. */
+        if (x instanceof CUBRIDClob && ((CUBRIDClob) x).isInternalLob()) {
+            bindInternalClobStream(parameterIndex, x.getCharacterStream(), -1);
+            return;
+        }
         synchronized (u_stmt) {
             u_stmt.bindClob(parameterIndex - 1, x);
             error = u_stmt.getRecentError();

@@ -124,7 +124,9 @@ public class CUBRIDBlob implements Blob {
         this.internalLength = content.length;
     }
 
-    private boolean isInternalLob() {
+    /* Package-visible: CUBRIDPreparedStatement.setBlob (Blob) checks this to route a rebound internal-LOB
+     * Blob through the upload-stream path instead of the external lobHandle path. */
+    boolean isInternalLob() {
         return internalLocator != null || internalContent != null;
     }
 

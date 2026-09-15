@@ -167,7 +167,9 @@ public class CUBRIDClob implements Clob {
         clobNextReadBytePos = 0;
     }
 
-    private boolean isInternalLob() {
+    /* Package-visible: CUBRIDPreparedStatement.setClob (Clob) checks this to route a rebound internal-LOB
+     * Clob through the upload-stream path instead of the external lobHandle path. */
+    boolean isInternalLob() {
         return internalLocator != null || internalContent != null;
     }
 

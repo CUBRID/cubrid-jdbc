@@ -261,14 +261,16 @@ public class CUBRIDBlob implements Blob {
 
         if (isInlineLob()) {
             int from = (int) Math.min(pos - 1, internalContent.length);
-            return new java.io.ByteArrayInputStream(
-                    internalContent, from, internalContent.length - from);
+            int avail = internalContent.length - from;
+            int span = (length < avail) ? (int) length : avail;
+            return new java.io.ByteArrayInputStream(internalContent, from, span);
         }
 
         if (isInternalLob()) {
-            /* the server positions its own cursor, so the bytes before pos never cross the network */
+            /* the server positions its own cursor, so the bytes before pos never cross the network;
+             * length bounds the window per JDBC 4.0 */
             return new CUBRIDInternalLobInputStream(
-                    conn.getUConnection(), internalLocator, internalLength, pos - 1);
+                    conn.getUConnection(), internalLocator, internalLength, pos - 1, length);
         }
 
         if (lobHandle == null) {

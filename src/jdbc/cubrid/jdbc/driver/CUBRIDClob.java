@@ -274,7 +274,11 @@ public class CUBRIDClob implements Clob {
             String whole =
                     new String(internalContent, java.nio.charset.Charset.forName(charsetName));
             int from = (int) Math.min(pos - 1, whole.length());
-            return new java.io.StringReader(whole.substring(from));
+            String tail = whole.substring(from);
+            if (length < tail.length()) {
+                tail = tail.substring(0, (int) length);
+            }
+            return new java.io.StringReader(tail);
         }
 
         if (isInternalLob()) {
@@ -304,7 +308,9 @@ public class CUBRIDClob implements Clob {
                     throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
                 }
             }
-            return new CUBRIDBufferedReader(in, CLOB_MAX_IO_CHARS);
+            /* JDBC 4.0: the reader must be exactly `length` characters long. Counting characters is
+             * charset-agnostic, unlike bounding the underlying byte stream. */
+            return new CUBRIDBufferedReader(new BoundedReader(in, length), CLOB_MAX_IO_CHARS);
         }
 
         if (lobHandle == null) {
@@ -700,6 +706,42 @@ public class CUBRIDClob implements Clob {
             return total_write_len;
         } else {
             throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.lob_is_not_writable, null);
+        }
+    }
+
+    /* Caps a Reader at a fixed number of characters, so getCharacterStream(pos, length) yields exactly
+     * `length` characters regardless of the underlying charset's bytes-per-char. */
+    private static class BoundedReader extends java.io.FilterReader {
+        private long remaining;
+
+        BoundedReader(Reader in, long limit) {
+            super(in);
+            this.remaining = limit;
+        }
+
+        @Override
+        public int read() throws IOException {
+            if (remaining <= 0) {
+                return -1;
+            }
+            int c = super.read();
+            if (c >= 0) {
+                remaining--;
+            }
+            return c;
+        }
+
+        @Override
+        public int read(char[] cbuf, int off, int len) throws IOException {
+            if (remaining <= 0) {
+                return -1;
+            }
+            int want = (len < remaining) ? len : (int) remaining;
+            int got = super.read(cbuf, off, want);
+            if (got > 0) {
+                remaining -= got;
+            }
+            return got;
         }
     }
 }

@@ -50,6 +50,9 @@ public class CUBRIDInternalLobInputStream extends InputStream {
     private final byte[] locator;
     private final long totalLength;
     private final long startOffset;
+    /* Absolute byte position (exclusive) at which this stream stops; totalLength when unbounded. Lets
+     * getBinaryStream(pos, length) hand back a stream exactly `length` units long, per JDBC 4.0. */
+    private final long endLimit;
 
     private long token = 0;
     private long delivered = 0;
@@ -59,17 +62,35 @@ public class CUBRIDInternalLobInputStream extends InputStream {
     private boolean closed = false;
 
     public CUBRIDInternalLobInputStream(UConnection uconn, byte[] locator, long totalLength) {
-        this(uconn, locator, totalLength, 0);
+        this(uconn, locator, totalLength, 0, -1);
     }
 
-    /* startOffset positions the server-side cursor, so the bytes ahead of it never cross the network. */
     public CUBRIDInternalLobInputStream(
             UConnection uconn, byte[] locator, long totalLength, long startOffset) {
+        this(uconn, locator, totalLength, startOffset, -1);
+    }
+
+    /* startOffset positions the server-side cursor, so the bytes ahead of it never cross the network.
+     * length < 0 means read to the end; otherwise the stream delivers at most `length` bytes. */
+    public CUBRIDInternalLobInputStream(
+            UConnection uconn, byte[] locator, long totalLength, long startOffset, long length) {
         this.uconn = uconn;
         this.locator = locator;
         this.totalLength = totalLength;
         this.startOffset = startOffset;
         this.delivered = startOffset;
+        if (length < 0) {
+            this.endLimit = totalLength;
+        } else {
+            long end = startOffset + length;
+            this.endLimit = (end < totalLength) ? end : totalLength;
+        }
+    }
+
+    private void checkOpen() throws IOException {
+        if (closed) {
+            throw new IOException("stream is closed");
+        }
     }
 
     private void open() throws IOException {
@@ -97,16 +118,16 @@ public class CUBRIDInternalLobInputStream extends InputStream {
         if (chunkPos < chunkLen) {
             return true;
         }
-        if (delivered >= totalLength) {
-            /* the value is spent: let the cursor go now rather than wait for a close() that a caller
-             * reading to EOF has no reason to make */
+        if (delivered >= endLimit) {
+            /* the value (or the requested window) is spent: let the cursor go now rather than wait for a
+             * close() that a caller reading to the end has no reason to make */
             releaseToken();
             return false;
         }
 
         open();
 
-        long remaining = totalLength - delivered;
+        long remaining = endLimit - delivered;
         int want = remaining < CHUNK_SIZE ? (int) remaining : CHUNK_SIZE;
         int got = uconn.lobStreamRead(token, chunk, 0, want);
         if (got < 0) {
@@ -127,6 +148,7 @@ public class CUBRIDInternalLobInputStream extends InputStream {
 
     @Override
     public int read() throws IOException {
+        checkOpen();
         if (!fill()) {
             return -1;
         }
@@ -135,6 +157,7 @@ public class CUBRIDInternalLobInputStream extends InputStream {
 
     @Override
     public int read(byte[] b, int off, int len) throws IOException {
+        checkOpen();
         if (b == null) {
             throw new NullPointerException();
         }
@@ -157,6 +180,7 @@ public class CUBRIDInternalLobInputStream extends InputStream {
 
     @Override
     public long skip(long n) throws IOException {
+        checkOpen();
         long skipped = 0;
 
         while (skipped < n) {
@@ -173,8 +197,14 @@ public class CUBRIDInternalLobInputStream extends InputStream {
 
     @Override
     public int available() {
+        if (closed) {
+            return 0;
+        }
         int buffered = chunkLen - chunkPos;
-        long remaining = (totalLength - delivered) + buffered;
+        long remaining = (endLimit - delivered) + buffered;
+        if (remaining < 0) {
+            remaining = 0;
+        }
         return remaining > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) remaining;
     }
 

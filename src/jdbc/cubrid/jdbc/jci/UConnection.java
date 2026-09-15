@@ -975,8 +975,7 @@ public abstract class UConnection {
         }
     }
 
-    protected void sendSetDbParameter(int paramName, int value)
-            throws UJciException, IOException {
+    protected void sendSetDbParameter(int paramName, int value) throws UJciException, IOException {
         outBuffer.newRequest(output, UFunctionCode.SET_DB_PARAMETER);
         outBuffer.addInt(paramName);
         outBuffer.addInt(value);

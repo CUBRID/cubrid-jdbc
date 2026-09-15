@@ -1340,11 +1340,10 @@ public class CUBRIDResultSet implements ResultSet {
                     t_u_stmt.execute(
                             false, 0, 0, false, false, false, false, false, false, null, 0);
 
-                    error = t_u_stmt.getRecentError();
+                    error = new UError(t_u_stmt.getRecentError());
                     t_u_stmt.close();
                     if (error.getErrorCode() != UErrorCode.ER_NO_ERROR)
-                        throw con.createCUBRIDException(
-                                CUBRIDJDBCErrorCode.insertion_query_fail, null);
+                        throw con.createCUBRIDException(error);
                 }
             }
         } catch (NullPointerException e) {
@@ -1902,7 +1901,7 @@ public class CUBRIDResultSet implements ResultSet {
             }
         } else if (value instanceof java.sql.Timestamp) {
             java.text.SimpleDateFormat format =
-                    new java.text.SimpleDateFormat("MM/dd/yyyy HH:mm:ss");
+                    new java.text.SimpleDateFormat("MM/dd/yyyy HH:mm:ss.SSS");
             strvalue = "'" + format.format((java.util.Date) value) + "'";
         } else if (value instanceof CUBRIDOID) {
             strvalue = "'" + ((CUBRIDOID) value).getOidString() + "'";
@@ -1924,7 +1923,7 @@ public class CUBRIDResultSet implements ResultSet {
             }
             strvalue = "X'" + strvalue + "'";
         } else if (value instanceof String) {
-            strvalue = "'" + value.toString() + "'";
+            strvalue = "'" + value.toString().replace("'", "''") + "'";
         } else if (value instanceof Boolean) {
             strvalue = "B'";
             strvalue += ((Boolean) value).booleanValue() ? "1" : "0";

@@ -586,6 +586,9 @@ public class CUBRIDClob implements Clob {
     }
 
     public String toString() throws RuntimeException {
+        if (isInternalLob()) {
+            return "CUBRIDClob[internal, length=" + internalLength + "]";
+        }
         if (isLobLocator == true) {
             return lobHandle.toString();
         } else {
@@ -597,6 +600,11 @@ public class CUBRIDClob implements Clob {
     public boolean equals(Object obj) {
         if (obj instanceof CUBRIDClob) {
             CUBRIDClob that = (CUBRIDClob) obj;
+            if (isInternalLob() || that.isInternalLob()) {
+                return isInternalLob() == that.isInternalLob()
+                        && java.util.Arrays.equals(internalLocator, that.internalLocator)
+                        && java.util.Arrays.equals(internalContent, that.internalContent);
+            }
             return lobHandle.equals(that.lobHandle);
         }
         return false;

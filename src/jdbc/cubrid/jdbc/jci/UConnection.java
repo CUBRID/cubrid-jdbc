@@ -108,9 +108,20 @@ public abstract class UConnection {
 
     public static final int PROTOCOL_V11 = 11;
     public static final int PROTOCOL_V12 = 12;
+    /* internal LOB read streaming: the column carries a locator, not the content */
+    public static final int PROTOCOL_V13 = 13;
+
+    /* Largest payload one LOB_STREAM_READ may ask for; CAS refuses more. */
+    public static final int INTERNAL_LOB_STREAM_MAX_CHUNK = 1024 * 1024;
+
+    /* Leading byte of every BLOB/CLOB column sent to a PROTOCOL_V13 driver: it says whether the payload is a
+     * reference to stored content or the content itself.  The column type alone cannot distinguish them,
+     * because a scalar function result (CHAR_TO_CLOB('x')) is a LOB value with no storage behind it. */
+    public static final byte INTERNAL_LOB_WIRE_INLINE = 0;
+    public static final byte INTERNAL_LOB_WIRE_REF = 1;
 
     /* Current protocol version */
-    protected static final byte CAS_PROTOCOL_VERSION = PROTOCOL_V12;
+    protected static final byte CAS_PROTOCOL_VERSION = PROTOCOL_V13;
     protected static final byte CAS_PROTO_INDICATOR = 0x40;
     protected static final byte CAS_PROTO_VER_MASK = 0x3F;
     protected static final byte CAS_RENEWED_ERROR_CODE = (byte) 0x80;
@@ -1138,8 +1149,278 @@ public abstract class UConnection {
         return -1;
     }
 
-    /* XA protocols */
-    // UFunctionCode.XA_END_TRAN
+    // UFunctionCode.STREAM_INIT
+    public synchronized int streamInit(int streamKind, byte[] config) {
+        errorHandler = new UError(this);
+        if (isClosed == true) {
+            errorHandler.setErrorCode(UErrorCode.ER_IS_CLOSED);
+            return -1;
+        }
+        try {
+            setBeginTime();
+            checkReconnect();
+            if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR) return -1;
+
+            outBuffer.newRequest(output, UFunctionCode.STREAM_INIT);
+            outBuffer.addInt(streamKind);
+            outBuffer.addBytes(config);
+
+            UInputBuffer inBuffer = send_recv_msg();
+            int resCode = inBuffer.getResCode();
+            if (resCode < 0) errorHandler.setErrorCode(UErrorCode.ER_UNKNOWN);
+            return resCode;
+        } catch (UJciException e) {
+            logException(e);
+            e.toUError(errorHandler);
+        } catch (IOException e) {
+            logException(e);
+            errorHandler.setErrorCode(UErrorCode.ER_COMMUNICATION);
+        } catch (Exception e) {
+            logException(e);
+            errorHandler.setErrorCode(UErrorCode.ER_UNKNOWN);
+        }
+        return -1;
+    }
+
+    // UFunctionCode.STREAM_SEND_DATA
+    public synchronized int streamSendData(byte[] data, int start, int len) {
+        errorHandler = new UError(this);
+        if (isClosed == true) {
+            errorHandler.setErrorCode(UErrorCode.ER_IS_CLOSED);
+            return -1;
+        }
+        try {
+            setBeginTime();
+            checkReconnect();
+            if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR) return -1;
+
+            outBuffer.newRequest(output, UFunctionCode.STREAM_SEND_DATA);
+            outBuffer.addBytes(data, start, len);
+
+            UInputBuffer inBuffer;
+            inBuffer = send_recv_msg();
+
+            int res_code;
+            res_code = inBuffer.getResCode();
+            if (res_code < 0) {
+                errorHandler.setErrorCode(UErrorCode.ER_UNKNOWN);
+            }
+            return res_code;
+        } catch (UJciException e) {
+            logException(e);
+            e.toUError(errorHandler);
+        } catch (IOException e) {
+            logException(e);
+            errorHandler.setErrorCode(UErrorCode.ER_COMMUNICATION);
+        } catch (Exception e) {
+            logException(e);
+            errorHandler.setErrorCode(UErrorCode.ER_UNKNOWN);
+        }
+        return -1;
+    }
+
+    // UFunctionCode.STREAM_END
+    public synchronized long streamEndResult() {
+        errorHandler = new UError(this);
+        if (isClosed == true) {
+            errorHandler.setErrorCode(UErrorCode.ER_IS_CLOSED);
+            return -1;
+        }
+        try {
+            setBeginTime();
+            checkReconnect();
+            if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR) return -1;
+
+            outBuffer.newRequest(output, UFunctionCode.STREAM_END);
+            UInputBuffer inBuffer = send_recv_msg();
+            int resCode = inBuffer.getResCode();
+            if (resCode < 0) {
+                errorHandler.setErrorCode(UErrorCode.ER_UNKNOWN);
+                return -1;
+            }
+            return inBuffer.readLong();
+        } catch (UJciException e) {
+            logException(e);
+            e.toUError(errorHandler);
+        } catch (IOException e) {
+            logException(e);
+            errorHandler.setErrorCode(UErrorCode.ER_COMMUNICATION);
+        } catch (Exception e) {
+            logException(e);
+            errorHandler.setErrorCode(UErrorCode.ER_UNKNOWN);
+        }
+        return -1;
+    }
+
+    public synchronized int streamEnd() {
+        long result = streamEndResult();
+        return result > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) result;
+    }
+
+    /*
+     * Internal LOB read streaming.  A BLOB/CLOB column of an internal LOB is fetched as a locator, not as content,
+     * so the payload is pulled afterwards in bounded chunks.  These three requests are a thin pass-through to the
+     * same server read cursor csql uses; neither CAS nor the driver holds the whole value.
+     */
+
+    // UFunctionCode.LOB_STREAM_OPEN
+    public synchronized long lobStreamOpen(byte[] locator, long startOffset) {
+        errorHandler = new UError(this);
+        if (isClosed == true) {
+            errorHandler.setErrorCode(UErrorCode.ER_IS_CLOSED);
+            return -1;
+        }
+        if (locator == null || locator.length == 0 || startOffset < 0) {
+            errorHandler.setErrorCode(UErrorCode.ER_INVALID_ARGUMENT);
+            return -1;
+        }
+        try {
+            setBeginTime();
+            checkReconnect();
+            if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR) return -1;
+
+            outBuffer.newRequest(output, UFunctionCode.LOB_STREAM_OPEN);
+            outBuffer.addBytes(locator);
+            outBuffer.addLong(startOffset);
+
+            UInputBuffer inBuffer = send_recv_msg();
+            int resCode = inBuffer.getResCode();
+            if (resCode < 0) {
+                errorHandler.setErrorCode(UErrorCode.ER_UNKNOWN);
+                return -1;
+            }
+            return inBuffer.readLong();
+        } catch (UJciException e) {
+            logException(e);
+            e.toUError(errorHandler);
+        } catch (IOException e) {
+            logException(e);
+            errorHandler.setErrorCode(UErrorCode.ER_COMMUNICATION);
+        } catch (Exception e) {
+            logException(e);
+            errorHandler.setErrorCode(UErrorCode.ER_UNKNOWN);
+        }
+        return -1;
+    }
+
+    // UFunctionCode.LOB_STREAM_READ
+    public synchronized int lobStreamRead(long token, byte[] buf, int offset, int size) {
+        errorHandler = new UError(this);
+        if (isClosed == true) {
+            errorHandler.setErrorCode(UErrorCode.ER_IS_CLOSED);
+            return -1;
+        }
+        if (token <= 0
+                || buf == null
+                || size <= 0
+                || size > INTERNAL_LOB_STREAM_MAX_CHUNK
+                || offset < 0
+                || offset + size > buf.length) {
+            errorHandler.setErrorCode(UErrorCode.ER_INVALID_ARGUMENT);
+            return -1;
+        }
+        try {
+            setBeginTime();
+            checkReconnect();
+            if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR) return -1;
+
+            outBuffer.newRequest(output, UFunctionCode.LOB_STREAM_READ);
+            outBuffer.addLong(token);
+            outBuffer.addInt(size);
+
+            UInputBuffer inBuffer = send_recv_msg();
+            int resCode = inBuffer.getResCode();
+            if (resCode < 0) {
+                errorHandler.setErrorCode(UErrorCode.ER_UNKNOWN);
+                return -1;
+            }
+
+            int received = inBuffer.readInt();
+            if (received < 0 || received > size) {
+                errorHandler.setErrorCode(UErrorCode.ER_COMMUNICATION);
+                return -1;
+            }
+            if (received > 0) {
+                inBuffer.readBytes(buf, offset, received);
+            }
+            return received;
+        } catch (UJciException e) {
+            logException(e);
+            e.toUError(errorHandler);
+        } catch (IOException e) {
+            logException(e);
+            errorHandler.setErrorCode(UErrorCode.ER_COMMUNICATION);
+        } catch (Exception e) {
+            logException(e);
+            errorHandler.setErrorCode(UErrorCode.ER_UNKNOWN);
+        }
+        return -1;
+    }
+
+    // UFunctionCode.LOB_STREAM_CLOSE
+    public synchronized int lobStreamClose(long token) {
+        errorHandler = new UError(this);
+        if (isClosed == true) {
+            errorHandler.setErrorCode(UErrorCode.ER_IS_CLOSED);
+            return -1;
+        }
+        try {
+            setBeginTime();
+            checkReconnect();
+            if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR) return -1;
+
+            outBuffer.newRequest(output, UFunctionCode.LOB_STREAM_CLOSE);
+            outBuffer.addLong(token);
+
+            UInputBuffer inBuffer = send_recv_msg();
+            int resCode = inBuffer.getResCode();
+            if (resCode < 0) {
+                errorHandler.setErrorCode(UErrorCode.ER_UNKNOWN);
+            }
+            return resCode;
+        } catch (UJciException e) {
+            logException(e);
+            e.toUError(errorHandler);
+        } catch (IOException e) {
+            logException(e);
+            errorHandler.setErrorCode(UErrorCode.ER_COMMUNICATION);
+        } catch (Exception e) {
+            logException(e);
+            errorHandler.setErrorCode(UErrorCode.ER_UNKNOWN);
+        }
+        return -1;
+    }
+
+    // UFunctionCode.STREAM_ABORT
+    public synchronized int streamAbort() {
+        errorHandler = new UError(this);
+        if (isClosed == true) {
+            errorHandler.setErrorCode(UErrorCode.ER_IS_CLOSED);
+            return -1;
+        }
+        try {
+            setBeginTime();
+            checkReconnect();
+            if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR) return -1;
+
+            outBuffer.newRequest(output, UFunctionCode.STREAM_ABORT);
+            UInputBuffer inBuffer = send_recv_msg();
+            int resCode = inBuffer.getResCode();
+            if (resCode < 0) errorHandler.setErrorCode(UErrorCode.ER_UNKNOWN);
+            return resCode;
+        } catch (UJciException e) {
+            logException(e);
+            e.toUError(errorHandler);
+        } catch (IOException e) {
+            logException(e);
+            errorHandler.setErrorCode(UErrorCode.ER_COMMUNICATION);
+        } catch (Exception e) {
+            logException(e);
+            errorHandler.setErrorCode(UErrorCode.ER_UNKNOWN);
+        }
+        return -1;
+    }
+
     public synchronized void xa_endTransaction(Xid xid, boolean type) {
         errorHandler = new UError(this);
 

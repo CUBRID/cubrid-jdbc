@@ -461,6 +461,12 @@ class UOutputBuffer {
                     }
                     return addOID((CUBRIDOID) value);
                 }
+            case UUType.U_TYPE_INTERNAL_BLOB_UPLOAD:
+            case UUType.U_TYPE_INTERNAL_CLOB_UPLOAD:
+                if (!(value instanceof byte[])) {
+                    throw u_con.createJciException(UErrorCode.ER_TYPE_CONVERSION);
+                }
+                return addBytes((byte[]) value);
             case UUType.U_TYPE_BLOB:
                 if (value == null) {
                     return addNull();

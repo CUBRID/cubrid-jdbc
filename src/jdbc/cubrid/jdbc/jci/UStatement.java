@@ -507,6 +507,22 @@ public class UStatement {
         bindValue(index, UUType.U_TYPE_OBJECT, oid);
     }
 
+    public void bindInternalLobUpload(
+            int index, boolean blob, long token, long dataLength, long logicalLength) {
+        String marker =
+                "@internal_lob_upload:"
+                        + (blob ? "B:" : "C:")
+                        + token
+                        + ":"
+                        + dataLength
+                        + ":"
+                        + logicalLength;
+        bindValue(
+                index,
+                blob ? UUType.U_TYPE_INTERNAL_BLOB_UPLOAD : UUType.U_TYPE_INTERNAL_CLOB_UPLOAD,
+                marker.getBytes(java.nio.charset.Charset.forName("US-ASCII")));
+    }
+
     public void bindBlob(int index, Blob blob) {
         bindValue(index, UUType.U_TYPE_BLOB, blob);
     }
@@ -2274,8 +2290,15 @@ public class UStatement {
                     return new CUBRIDOutResultSet(relatedConnection, inBuffer.readLong());
                 }
             case UUType.U_TYPE_BLOB:
+                /* an internal LOB arrives as a locator; the pre-V13 wire carried an external LOB handle */
+                if (relatedConnection.brokerProtocolVersion() >= UConnection.PROTOCOL_V13) {
+                    return inBuffer.readInternalBlob(dataSize, relatedConnection.cubridcon);
+                }
                 return inBuffer.readBlob(dataSize, relatedConnection.cubridcon);
             case UUType.U_TYPE_CLOB:
+                if (relatedConnection.brokerProtocolVersion() >= UConnection.PROTOCOL_V13) {
+                    return inBuffer.readInternalClob(dataSize, relatedConnection.cubridcon);
+                }
                 return inBuffer.readClob(dataSize, relatedConnection.cubridcon);
             case UUType.U_TYPE_NULL:
                 return null;

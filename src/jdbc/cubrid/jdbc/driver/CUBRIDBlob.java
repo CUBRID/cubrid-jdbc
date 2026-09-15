@@ -58,6 +58,12 @@ public class CUBRIDBlob implements Blob {
     private boolean isLobLocator;
     private CUBRIDLobHandle lobHandle;
 
+    /* An internal LOB is held as a reference: the value's byte length and the locator that names it.  The bytes
+     * are pulled from the server on demand instead of living in this object. */
+    private byte[] internalLocator = null;
+    private byte[] internalContent = null;
+    private long internalLength = 0;
+
     private ArrayList<java.io.Flushable> streamList = new ArrayList<java.io.Flushable>();
 
     /*
@@ -92,27 +98,111 @@ public class CUBRIDBlob implements Blob {
         lobHandle = new CUBRIDLobHandle(UUType.U_TYPE_BLOB, packedLobHandle, isLobLocator);
     }
 
+    /* An internal LOB read from a result set: the column carried a locator, not the content. */
+    public CUBRIDBlob(CUBRIDConnection conn, long byteLength, byte[] locator) throws SQLException {
+        if (conn == null || locator == null || byteLength < 0) {
+            throw new CUBRIDException(CUBRIDJDBCErrorCode.invalid_value);
+        }
+
+        this.conn = conn;
+        this.isWritable = false;
+        this.isLobLocator = true;
+        this.internalLocator = locator;
+        this.internalLength = byteLength;
+    }
+
+    /* A LOB value with no storage behind it (a scalar function result): the content is all there is. */
+    public CUBRIDBlob(CUBRIDConnection conn, byte[] content) throws SQLException {
+        if (conn == null || content == null) {
+            throw new CUBRIDException(CUBRIDJDBCErrorCode.invalid_value);
+        }
+
+        this.conn = conn;
+        this.isWritable = false;
+        this.isLobLocator = false;
+        this.internalContent = content;
+        this.internalLength = content.length;
+    }
+
+    /* Package-visible: CUBRIDPreparedStatement.setBlob (Blob) checks this to route a rebound internal-LOB
+     * Blob through the upload-stream path instead of the external lobHandle path. */
+    boolean isInternalLob() {
+        return internalLocator != null || internalContent != null;
+    }
+
+    private boolean isInlineLob() {
+        return internalContent != null;
+    }
+
     /*
      * ======================================================================= |
      * java.sql.Blob interface
      * =======================================================================
      */
     public long length() throws SQLException {
+        if (isInternalLob()) {
+            return internalLength;
+        }
         if (lobHandle == null) {
             throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
         }
         return lobHandle.getLobSize();
     }
 
-    public byte[] getBytes(long pos, int length) throws SQLException {
-        if (lobHandle == null) {
-            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
+    /* Reads a window of an internal LOB by streaming to it.  The server cursor is forward-only, so a non-zero
+     * start costs a skip; sequential readers should prefer getBinaryStream(). */
+    private byte[] getInternalBytes(long pos, int length) throws SQLException {
+        long remaining = internalLength - (pos - 1);
+
+        if (remaining <= 0) {
+            return new byte[0];
         }
+        if (length > remaining) {
+            length = (int) remaining;
+        }
+
+        byte[] buf = new byte[length];
+        InputStream in = getBinaryStream(pos, length);
+        int total = 0;
+
+        try {
+            while (total < length) {
+                int got = in.read(buf, total, length - total);
+                if (got <= 0) {
+                    break;
+                }
+                total += got;
+            }
+        } catch (IOException e) {
+            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
+        } finally {
+            try {
+                in.close();
+            } catch (IOException e) {
+                /* the read already produced its result; a failed close adds nothing the caller can act on */
+            }
+        }
+
+        if (total < buf.length) {
+            byte[] exact = new byte[total];
+            System.arraycopy(buf, 0, exact, 0, total);
+            return exact;
+        }
+        return buf;
+    }
+
+    public byte[] getBytes(long pos, int length) throws SQLException {
         if (pos < 1 || length < 0) {
             throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
         }
         if (length == 0) {
             return new byte[0];
+        }
+        if (isInternalLob()) {
+            return getInternalBytes(pos, length);
+        }
+        if (lobHandle == null) {
+            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
         }
 
         pos--; // pos is now offset from 0
@@ -165,10 +255,25 @@ public class CUBRIDBlob implements Blob {
 
     /* JDK 1.6 */
     public InputStream getBinaryStream(long pos, long length) throws SQLException {
-        if (lobHandle == null) {
+        if (pos < 1 || length < 0) {
             throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
         }
-        if (pos < 1 || length < 0) {
+
+        if (isInlineLob()) {
+            int from = (int) Math.min(pos - 1, internalContent.length);
+            int avail = internalContent.length - from;
+            int span = (length < avail) ? (int) length : avail;
+            return new java.io.ByteArrayInputStream(internalContent, from, span);
+        }
+
+        if (isInternalLob()) {
+            /* the server positions its own cursor, so the bytes before pos never cross the network;
+             * length bounds the window per JDBC 4.0 */
+            return new CUBRIDInternalLobInputStream(
+                    conn.getUConnection(), internalLocator, internalLength, pos - 1, length);
+        }
+
+        if (lobHandle == null) {
             throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
         }
 
@@ -290,6 +395,9 @@ public class CUBRIDBlob implements Blob {
     }
 
     public String toString() throws RuntimeException {
+        if (isInternalLob()) {
+            return "CUBRIDBlob[internal, length=" + internalLength + "]";
+        }
         if (isLobLocator == true) {
             return lobHandle.toString();
         } else {
@@ -301,6 +409,11 @@ public class CUBRIDBlob implements Blob {
     public boolean equals(Object obj) {
         if (obj instanceof CUBRIDBlob) {
             CUBRIDBlob that = (CUBRIDBlob) obj;
+            if (isInternalLob() || that.isInternalLob()) {
+                return isInternalLob() == that.isInternalLob()
+                        && java.util.Arrays.equals(internalLocator, that.internalLocator)
+                        && java.util.Arrays.equals(internalContent, that.internalContent);
+            }
             return lobHandle.equals(that.lobHandle);
         }
         return false;

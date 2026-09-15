@@ -975,6 +975,26 @@ public abstract class UConnection {
         }
     }
 
+    public synchronized void restorePropertyLockTimeout() {
+        int property = connectionProperties.getLockTimeout();
+        if (property == LOCK_TIMEOUT_NOT_USED || lastLockTimeout == property) {
+            return;
+        }
+
+        if (needReconnection) {
+            lastLockTimeout = property;
+            return;
+        }
+
+        try {
+            sendSetDbParameter(DB_PARAM_LOCK_TIMEOUT, property);
+        } catch (UJciException | IOException e) {
+            logException(e);
+            resetConnection();
+        }
+        lastLockTimeout = property;
+    }
+
     protected void sendSetDbParameter(int paramName, int value) throws UJciException, IOException {
         outBuffer.newRequest(output, UFunctionCode.SET_DB_PARAMETER);
         outBuffer.addInt(paramName);

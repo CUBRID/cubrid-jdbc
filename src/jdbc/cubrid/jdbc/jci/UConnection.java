@@ -1209,8 +1209,13 @@ public abstract class UConnection {
             res_code = inBuffer.getResCode();
             if (res_code < 0) {
                 errorHandler.setErrorCode(UErrorCode.ER_UNKNOWN);
+                return res_code;
             }
-            return res_code;
+
+            /* the result code is followed by the binding's count, 64-bit so a
+             * value stream's byte count fits; a COPY row count is well inside
+             * an int, and widening this signature is a separate decision */
+            return (int) inBuffer.readLong();
         } catch (UJciException e) {
             logException(e);
             e.toUError(errorHandler);

@@ -52,11 +52,11 @@ import java.sql.Statement;
  * {@code WITH (FORMAT ...)} says, and the bytes are passed through untouched.
  *
  * <pre>
- * CUBRIDCopyManager cm = ((CUBRIDConnection) conn).getCopyManager();
- * long rows = cm.copyIn("COPY t FROM STDIN WITH (FORMAT CSV)", in);
+ * CUBRIDCopyLoader loader = ((CUBRIDConnection) conn).getCopyLoader();
+ * long rows = loader.copyIn("COPY t FROM STDIN WITH (FORMAT CSV)", in);
  * </pre>
  */
-public class CUBRIDCopyManager {
+public class CUBRIDCopyLoader {
 
     /**
      * Bytes read from the source before each send.
@@ -69,7 +69,7 @@ public class CUBRIDCopyManager {
 
     private final CUBRIDConnection con;
 
-    CUBRIDCopyManager(CUBRIDConnection con) {
+    CUBRIDCopyLoader(CUBRIDConnection con) {
         this.con = con;
     }
 

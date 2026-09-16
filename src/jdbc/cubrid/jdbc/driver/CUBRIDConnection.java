@@ -75,7 +75,7 @@ public class CUBRIDConnection implements Connection {
     public static final int CAS_CHANGE_MODE_KEEP = 2;
 
     UConnection u_con;
-    protected CUBRIDCopyManager copy_manager;
+    protected CUBRIDCopyLoader copy_loader;
     String user;
     String url;
 
@@ -114,7 +114,7 @@ public class CUBRIDConnection implements Connection {
         statements = new ArrayList<Statement>();
         outRs = new ArrayList<CUBRIDOutResultSet>();
         shard_mdata = null;
-        copy_manager = null;
+        copy_loader = null;
         prepStmtCache =
                 new UPreparedStatementCache<String, PreparedStatement>(
                         u_con.getPrepStmtCacheSize());
@@ -252,7 +252,7 @@ public class CUBRIDConnection implements Connection {
         statements = null;
         error = null;
         shard_mdata = null;
-        copy_manager = null;
+        copy_loader = null;
     }
 
     public synchronized boolean isClosed() throws SQLException {
@@ -938,15 +938,15 @@ public class CUBRIDConnection implements Connection {
      * Returns the loader for COPY ... FROM STDIN, which runs the statement,
      * chunks the source and ends the stream in one call.
      */
-    public synchronized CUBRIDCopyManager getCopyManager() throws SQLException {
+    public synchronized CUBRIDCopyLoader getCopyLoader() throws SQLException {
         checkIsOpen();
 
-        if (copy_manager != null) {
-            return copy_manager;
+        if (copy_loader != null) {
+            return copy_loader;
         }
 
-        copy_manager = new CUBRIDCopyManager(this);
-        return copy_manager;
+        copy_loader = new CUBRIDCopyLoader(this);
+        return copy_loader;
     }
 
     public synchronized long streamEnd() throws SQLException {

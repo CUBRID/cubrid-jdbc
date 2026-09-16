@@ -75,6 +75,7 @@ public class CUBRIDConnection implements Connection {
     public static final int CAS_CHANGE_MODE_KEEP = 2;
 
     UConnection u_con;
+    private CUBRIDCopyManager copy_manager = null;
     String user;
     String url;
 
@@ -618,7 +619,11 @@ public class CUBRIDConnection implements Connection {
 
     protected void autoCommit() throws SQLException {
         checkIsOpen();
-        if (auto_commit) commit();
+        /* A statement that opened a stream session is not finished when execute
+         * returns -- the bytes still have to be sent -- so committing here would
+         * end the stream before the first chunk. The CAS holds this commit and
+         * pays it at the stream's END, with the mode the statement ran in. */
+        if (auto_commit && !u_con.isStreamOpen()) commit();
     }
 
     protected void autoRollback() throws SQLException {
@@ -925,6 +930,18 @@ public class CUBRIDConnection implements Connection {
         }
 
         return result;
+    }
+
+    /**
+     * Returns the loader for COPY ... FROM STDIN, which runs the statement,
+     * chunks the source and ends the stream in one call.
+     */
+    public synchronized CUBRIDCopyManager getCopyManager() throws SQLException {
+        checkIsOpen();
+        if (copy_manager == null) {
+            copy_manager = new CUBRIDCopyManager(this);
+        }
+        return copy_manager;
     }
 
     public synchronized long streamEnd() throws SQLException {

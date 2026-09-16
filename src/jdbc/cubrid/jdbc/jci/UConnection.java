@@ -108,9 +108,10 @@ public abstract class UConnection {
 
     public static final int PROTOCOL_V11 = 11;
     public static final int PROTOCOL_V12 = 12;
+    public static final int PROTOCOL_V13 = 13;
 
     /* Current protocol version */
-    protected static final byte CAS_PROTOCOL_VERSION = PROTOCOL_V12;
+    protected static final byte CAS_PROTOCOL_VERSION = PROTOCOL_V13;
     protected static final byte CAS_PROTO_INDICATOR = 0x40;
     protected static final byte CAS_PROTO_VER_MASK = 0x3F;
     protected static final byte CAS_RENEWED_ERROR_CODE = (byte) 0x80;
@@ -160,6 +161,7 @@ public abstract class UConnection {
     protected static final byte CAS_INFO_FLAG_MASK_AUTOCOMMIT = 0x01;
     protected static final byte CAS_INFO_FLAG_MASK_FORCE_OUT_TRAN = 0x02;
     protected static final byte CAS_INFO_FLAG_MASK_NEW_SESSION_ID = 0x04;
+    protected static final byte CAS_INFO_FLAG_MASK_STREAM_OPEN = 0x08;
 
     /* broker info */
     protected static final int BROKER_INFO_SIZE = 8;
@@ -1943,6 +1945,22 @@ public abstract class UConnection {
 
     public int brokerProtocolVersion() {
         return protocolVersion;
+    }
+
+    /*
+     * Is a stream session open on this connection? The server reports it in
+     * every reply, so the statement that opened one can be recognised as
+     * unfinished: the bytes are still to come and the auto-commit it owes
+     * belongs to the stream's END, which the CAS pays.
+     *
+     * Older servers leave every bit above the three known masks at 1, so the
+     * answer is only meaningful from PROTOCOL_V13 on.
+     */
+    public boolean isStreamOpen() {
+        if (protocolVersion < PROTOCOL_V13 || casInfo == null) {
+            return false;
+        }
+        return (casInfo[CAS_INFO_ADDITIONAL_FLAG] & CAS_INFO_FLAG_MASK_STREAM_OPEN) != 0;
     }
 
     @Deprecated

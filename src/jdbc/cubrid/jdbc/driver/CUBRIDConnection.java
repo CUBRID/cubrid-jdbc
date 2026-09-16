@@ -927,9 +927,9 @@ public class CUBRIDConnection implements Connection {
         return result;
     }
 
-    public synchronized int streamEnd() throws SQLException {
+    public synchronized long streamEnd() throws SQLException {
         checkIsOpen();
-        int result;
+        long result;
 
         synchronized (u_con) {
             result = u_con.streamEnd();

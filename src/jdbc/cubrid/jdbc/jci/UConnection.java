@@ -1176,7 +1176,7 @@ public abstract class UConnection {
     }
 
     // UFunctionCode.STREAM_END
-    public synchronized int streamEnd() {
+    public synchronized long streamEnd() {
         errorHandler = new UError(this);
         if (isClosed == true) {
             errorHandler.setErrorCode(UErrorCode.ER_IS_CLOSED);
@@ -1192,12 +1192,16 @@ public abstract class UConnection {
             UInputBuffer inBuffer;
             inBuffer = send_recv_msg();
 
+            /* The reply is the result code every CAS reply starts with, then
+             * the binding's count: rows for COPY, bytes for a value stream.
+             * The count is 64-bit so a 4GB LOB value fits. */
             int res_code;
             res_code = inBuffer.getResCode();
             if (res_code < 0) {
                 errorHandler.setErrorCode(UErrorCode.ER_UNKNOWN);
+                return res_code;
             }
-            return res_code;
+            return inBuffer.readLong();
         } catch (UJciException e) {
             logException(e);
             e.toUError(errorHandler);

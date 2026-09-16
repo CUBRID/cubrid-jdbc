@@ -108,15 +108,26 @@ public abstract class UConnection {
 
     public static final int PROTOCOL_V11 = 11;
     public static final int PROTOCOL_V12 = 12;
+    /* CAS-issued session id required (not just optionally checked) for QC/X1 query cancel,
+     * see KVE-2026-1827 and engine ticket CBRD-27389. Mirrors src/broker/cas_protocol.h's
+     * PROTOCOL_V13 (engine) and src/cci/broker_cas_protocol.h's PROTOCOL_V13 (CCI). */
+    public static final int PROTOCOL_V13 = 13;
 
     /* Current protocol version */
-    protected static final byte CAS_PROTOCOL_VERSION = PROTOCOL_V12;
+    protected static final byte CAS_PROTOCOL_VERSION = PROTOCOL_V13;
     protected static final byte CAS_PROTO_INDICATOR = 0x40;
     protected static final byte CAS_PROTO_VER_MASK = 0x3F;
     protected static final byte CAS_RENEWED_ERROR_CODE = (byte) 0x80;
     protected static final byte CAS_SUPPORT_HOLDABLE_RESULT = (byte) 0x40;
     /* Do not remove and rename CAS_RECONNECT_WHEN_SERVER_DOWN */
     protected static final byte CAS_RECONNECT_WHEN_SERVER_DOWN = (byte) 0x20;
+    /* Announces that a 4-byte CAS-issued session id is appended after the standard 10-byte
+     * query-cancel header sent to BrokerHandler.cancelBroker's "X1" request, so the broker can
+     * verify the cancel request against the session id in addition to source IP/port. This bit
+     * only controls wire framing on that one (unauthenticated) cancel request; whether the check
+     * is actually mandatory is decided by the broker from this connection's own CAS_PROTOCOL_VERSION
+     * (PROTOCOL_V13 or later), recorded at connect time, not from this bit. */
+    public static final byte CAS_SUPPORT_SESSION_CANCEL = (byte) 0x10;
 
     protected static final byte CAS_ORACLE_COMPAT_NUMBER_BEHAVIOR = (byte) 0x01;
 
@@ -1387,7 +1398,10 @@ public abstract class UConnection {
     }
 
     void cancel() throws UJciException, IOException {
-        BrokerHandler.cancelBroker(casIp, casPort, casProcessId, READ_TIMEOUT);
+        byte[] session = new byte[4];
+        for (int i = 0; i < 4; i++) session[i] = sessionId[i + 8];
+
+        BrokerHandler.cancelBroker(casIp, casPort, casProcessId, session, READ_TIMEOUT);
     }
 
     /*

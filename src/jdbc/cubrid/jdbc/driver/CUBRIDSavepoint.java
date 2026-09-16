@@ -29,30 +29,61 @@
  *
  */
 
-package cubrid.jdbc.log;
+package cubrid.jdbc.driver;
 
-public interface Log {
-    void logDebug(String msg);
+import java.sql.SQLException;
+import java.sql.Savepoint;
 
-    void logDebug(String msg, Throwable thrown);
+public class CUBRIDSavepoint implements Savepoint {
+    /* names of unnamed savepoints are generated from this prefix; user names must not use it */
+    static final String UNNAMED_SAVEPOINT_PREFIX = "CUBRID_JDBC_SAVEPOINT_";
 
-    void logError(String msg);
+    private final CUBRIDConnection con;
+    private final boolean isNamed;
+    private final int id;
+    private final String name;
 
-    void logError(String msg, Throwable thrown);
+    CUBRIDSavepoint(CUBRIDConnection con, int id) {
+        this.con = con;
+        this.isNamed = false;
+        this.id = id;
+        this.name = UNNAMED_SAVEPOINT_PREFIX + id;
+    }
 
-    void logFatal(String msg);
+    CUBRIDSavepoint(CUBRIDConnection con, String name) {
+        this.con = con;
+        this.isNamed = true;
+        this.id = 0;
+        this.name = name;
+    }
 
-    void logFatal(String msg, Throwable thrown);
+    @Override
+    public int getSavepointId() throws SQLException {
+        if (isNamed) {
+            throw new CUBRIDException(
+                    CUBRIDJDBCErrorCode.invalid_savepoint,
+                    "cannot retrieve the id of a named savepoint",
+                    null);
+        }
+        return id;
+    }
 
-    void logInfo(String msg);
+    @Override
+    public String getSavepointName() throws SQLException {
+        if (!isNamed) {
+            throw new CUBRIDException(
+                    CUBRIDJDBCErrorCode.invalid_savepoint,
+                    "cannot retrieve the name of an unnamed savepoint",
+                    null);
+        }
+        return name;
+    }
 
-    void logInfo(String msg, Throwable thrown);
+    String getInternalName() {
+        return name;
+    }
 
-    void logTrace(String msg);
-
-    void logTrace(String msg, Throwable thrown);
-
-    void logWarn(String msg);
-
-    void logWarn(String msg, Throwable thrown);
+    boolean isOwnedBy(CUBRIDConnection c) {
+        return con == c;
+    }
 }

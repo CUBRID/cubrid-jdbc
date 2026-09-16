@@ -83,7 +83,7 @@ public class CUBRIDOIDImpl implements CUBRIDOID {
         }
 
         checkError();
-        return new CUBRIDResultSet(u_stmt);
+        return new CUBRIDResultSet(cur_con, u_stmt);
     }
 
     public synchronized void setValues(String[] attrNames, Object[] values) throws SQLException {

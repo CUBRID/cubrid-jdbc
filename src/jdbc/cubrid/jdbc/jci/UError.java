@@ -74,12 +74,7 @@ public class UError {
     public String getErrorMsg(boolean include_con_info) {
         if (connection != null && include_con_info) {
             String sessionInfo = "";
-            if (connection.protoVersionIsAbove(UConnection.PROTOCOL_V3)) {
-                sessionInfo =
-                        String.format("[SESSION-%d],", getSessionNumber(connection.sessionId));
-            } else {
-                sessionInfo = String.format("[SESSION-%d],", connection.oldSessionId);
-            }
+            sessionInfo = String.format("[SESSION-%d],", getSessionNumber(connection.sessionId));
 
             String infoType = "";
             if (connection.isConnectedToProxy()) {
@@ -89,28 +84,16 @@ public class UError {
                 infoType = "CAS INFO";
             }
 
-            if (connection.protoVersionIsAbove(UConnection.PROTOCOL_V4)) {
-                return String.format(
-                        "%s[%s-%s:%d,%d,%d],%s[URL-%s].",
-                        errorMessage,
-                        infoType,
-                        connection.casIp,
-                        connection.casPort,
-                        connection.casId,
-                        connection.casProcessId,
-                        sessionInfo,
-                        connection.url);
-            } else {
-                return String.format(
-                        "%s[%s-%s:%d,%d],%s[URL-%s].",
-                        errorMessage,
-                        infoType,
-                        connection.casIp,
-                        connection.casPort,
-                        connection.casProcessId,
-                        sessionInfo,
-                        connection.url);
-            }
+            return String.format(
+                    "%s[%s-%s:%d,%d,%d],%s[URL-%s].",
+                    errorMessage,
+                    infoType,
+                    connection.casIp,
+                    connection.casPort,
+                    connection.casId,
+                    connection.casProcessId,
+                    sessionInfo,
+                    connection.url);
         }
         return errorMessage;
     }

@@ -266,7 +266,6 @@ public class BrokerHandler {
         }
     }
 
-    private static byte[] CANCEL_INFO = {'C', 'A', 'N', 'C', 'E', 'L'};
     private static byte[] STATUS_INFO = {'S', 'T'};
 
     public static int statusBroker(String ip, int port, int process, byte[] session, int timeout)
@@ -287,16 +286,6 @@ public class BrokerHandler {
     }
 
     public static void cancelBroker(String ip, int port, int process, int timeout)
-            throws IOException, UJciException {
-        ByteArrayOutputStream bao = new ByteArrayOutputStream(10);
-        DataOutputStream dao = new DataOutputStream(bao);
-        dao.write(CANCEL_INFO);
-        dao.writeInt(process);
-
-        cancelRequest(ip, port, bao.toByteArray(), timeout);
-    }
-
-    public static void cancelBrokerEx(String ip, int port, int process, int timeout)
             throws IOException, UJciException {
         ByteArrayOutputStream bao = new ByteArrayOutputStream(10);
         DataOutputStream dao = new DataOutputStream(bao);

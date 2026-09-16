@@ -33,6 +33,7 @@ package cubrid.jdbc.driver;
 
 import cubrid.jdbc.jci.UError;
 import java.sql.SQLException;
+import java.sql.SQLFeatureNotSupportedException;
 
 public class CUBRIDException extends SQLException {
     private static final long serialVersionUID = -1902040094322313271L;
@@ -69,5 +70,42 @@ public class CUBRIDException extends SQLException {
         if (t != null) {
             setStackTrace(t.getStackTrace());
         }
+    }
+
+    /*
+     * Builds the standard exception for a JDBC method that this driver does not support.
+     * Uses the JDBC 4.0 standard type (SQLFeatureNotSupportedException) while carrying
+     * the driver's own reason message and error code (not_supported).
+     */
+    static SQLFeatureNotSupportedException notSupported() {
+        return notSupported("");
+    }
+
+    /* As notSupported(), with a reason saying what in particular was refused. */
+    static SQLFeatureNotSupportedException notSupported(String reason) {
+        return new SQLFeatureNotSupportedException(
+                CUBRIDJDBCErrorCode.getMessage(CUBRIDJDBCErrorCode.not_supported) + reason,
+                null,
+                CUBRIDJDBCErrorCode.not_supported);
+    }
+
+    /*
+     * Reason messages. The caller supplies the error code, so the pairing lives here: the store
+     * message goes with not_supported, the other three with invalid_value.
+     */
+    static String cannotStoreMessage(Class<?> type) {
+        return " - cannot store " + type.getName();
+    }
+
+    static String cannotUnwrapMessage(Class<?> iface) {
+        return " - cannot unwrap to " + iface.getName();
+    }
+
+    static String cannotConvertMessage(Class<?> type) {
+        return " - cannot convert to " + type.getName();
+    }
+
+    static String nullTypeMessage() {
+        return " - type is null";
     }
 }

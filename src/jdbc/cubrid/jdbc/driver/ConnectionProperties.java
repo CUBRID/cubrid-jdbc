@@ -364,15 +364,13 @@ public class ConnectionProperties {
     }
 
     BooleanConnectionProperty logOnException =
-            new BooleanConnectionProperty("logOnException", false);
+            new BooleanConnectionProperty("logOnException", true);
 
     BooleanConnectionProperty logSlowQueries =
             new BooleanConnectionProperty("logSlowQueries", false);
 
     IntegerConnectionProperty slowQueryThresholdMillis =
             new IntegerConnectionProperty("slowQueryThresholdMillis", 60000, 0, Integer.MAX_VALUE);
-
-    StringConnectionProperty logFile = new StringConnectionProperty("logFile", "cubrid_jdbc.log");
 
     CharSetConnectionProperty charSet =
             new CharSetConnectionProperty("charSet", System.getProperty("file.encoding"));
@@ -443,10 +441,6 @@ public class ConnectionProperties {
 
     public int getSlowQueryThresholdMillis() {
         return slowQueryThresholdMillis.getValueAsInteger();
-    }
-
-    public String getLogFile() {
-        return logFile.getValueAsString();
     }
 
     public String getCharSet() {

@@ -102,7 +102,6 @@ public class UClientSideConnection extends UConnection {
     }
 
     public void tryConnect() throws CUBRIDException {
-        initLogger();
         try {
             if (connectionProperties.getUseLazyConnection()) {
                 needReconnection = true;
@@ -423,37 +422,19 @@ public class UClientSideConnection extends UConnection {
 
         /* synchronize with broker_info */
         byte version = brokerInfo[BROKER_INFO_PROTO_VERSION];
-        if ((version & CAS_PROTO_INDICATOR) == CAS_PROTO_INDICATOR) {
-            brokerVersion = makeProtoVersion(version & CAS_PROTO_VER_MASK);
-        } else {
-            brokerVersion =
-                    makeBrokerVersion(
-                            (int) brokerInfo[BROKER_INFO_MAJOR_VERSION],
-                            (int) brokerInfo[BROKER_INFO_MINOR_VERSION],
-                            (int) brokerInfo[BROKER_INFO_PATCH_VERSION]);
-        }
-
         protocolVersion = (int) version & CAS_PROTO_VER_MASK;
 
-        if (protoVersionIsAbove(PROTOCOL_V4)) {
-            casId = is.readInt();
-        } else {
-            casId = -1;
+        /* The driver only supports servers using PROTOCOL_V8 or later. */
+        if (protocolVersion < PROTOCOL_V8) {
+            throw new UJciException(UErrorCode.ER_NOT_SUPPORTED_PROTOCOL);
         }
 
-        if (protoVersionIsAbove(PROTOCOL_V3)) {
-            is.readFully(sessionId);
-        } else {
-            oldSessionId = is.readInt();
-        }
+        casId = is.readInt();
 
-        if (protoVersionIsAbove(PROTOCOL_V7)) {
-            setIsolationLevelMin(CUBRIDIsolationLevel.TRAN_READ_COMMITTED);
-            setIsolationLevelMax(CUBRIDIsolationLevel.TRAN_SERIALIZABLE);
-        } else {
-            setIsolationLevelMin(CUBRIDIsolationLevel.TRAN_COMMIT_CLASS_UNCOMMIT_INSTANCE);
-            setIsolationLevelMax(CUBRIDIsolationLevel.TRAN_SERIALIZABLE);
-        }
+        is.readFully(sessionId);
+
+        setIsolationLevelMin(CUBRIDIsolationLevel.TRAN_READ_COMMITTED);
+        setIsolationLevelMax(CUBRIDIsolationLevel.TRAN_SERIALIZABLE);
     }
 
     private boolean setActiveHost(int hostId) throws UJciException {

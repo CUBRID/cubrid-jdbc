@@ -20,13 +20,15 @@
         <delete failonerror="false" includeEmptyDirs="true">
             <fileset dir="${bin-cubrid}"/>
             <fileset dir="${src-cubrid}"/>
+            <!-- Eclipse/IDE may write broken stubs here; must be wiped or ant compile-test skips javac -->
+            <fileset dir="${output}/bin-test"/>
             <fileset dir="${basedir}">
                 <include name="*.jar"/>
             </fileset>
         </delete>
     </target>
 
-   <target name="src-jar-cubrid" depends="clean">
+    <target name="src-jar-cubrid" depends="clean">
         <mkdir dir="${bin-cubrid}"/>
         <mkdir dir="${src-cubrid}"/>
         <copy file="${output}/CUBRID-JDBC-${version}" tofile="${src-cubrid}/CUBRID-JDBC-${version}"/>
@@ -71,6 +73,133 @@
             <fileset file="${output}/CUBRID-JDBC-${version}"/>
             <service type="java.sql.Driver" provider="cubrid.jdbc.driver.CUBRIDDriver"/>
         </jar>
+    </target>
+
+    <!-- Test targets -->
+    <property name="test.src" value="${basedir}/src/test"/>
+    <property name="bin-test" location="${output}/bin-test"/>
+    <property name="test.lib" value="${basedir}/lib/test"/>
+
+    <path id="test.classpath">
+        <pathelement location="${bin-cubrid}"/>
+        <pathelement location="${bin-test}"/>
+        <fileset dir="${test.lib}">
+            <include name="*.jar"/>
+        </fileset>
+    </path>
+
+    <target name="compile-test" depends="compile-cubrid">
+        <mkdir dir="${bin-test}"/>
+        <javac destdir="${bin-test}" source="1.8" target="1.8" encoding="UTF-8" debug="true" deprecation="off" includeantruntime="no">
+            <src path="${test.src}"/>
+            <classpath refid="test.classpath"/>
+        </javac>
+    </target>
+
+    <!-- Discovers every *Test class under bin-test, so a new test runs without being registered
+         here. ITs (*IT) need a live cluster and are run by the test-it-* targets instead. -->
+    <target name="test" depends="compile-test">
+        <fileset id="test.classes" dir="${bin-test}">
+            <include name="**/*Test.class"/>
+            <exclude name="**/*$$*.class"/>
+        </fileset>
+        <pathconvert property="test.class.names" refid="test.classes" pathsep=" ">
+            <chainedmapper>
+                <globmapper from="${bin-test}/*" to="*"/>
+                <packagemapper from="*.class" to="*"/>
+            </chainedmapper>
+        </pathconvert>
+        <java classname="org.junit.runner.JUnitCore" fork="yes" failonerror="yes">
+            <classpath refid="test.classpath"/>
+            <arg line="${test.class.names}"/>
+        </java>
+        <echo message="OK (ant test passed)"/>
+    </target>
+
+    <target name="test-it-routing" depends="compile-test">
+        <java classname="org.junit.runner.JUnitCore" fork="yes" failonerror="yes">
+            <classpath refid="test.classpath"/>
+            <sysproperty key="lb.it.enabled" value="${lb.it.enabled}"/>
+            <sysproperty key="lb.it.jdbc.url" value="${lb.it.jdbc.url}"/>
+            <sysproperty key="lb.it.jdbc.baseUrl" value="${lb.it.jdbc.baseUrl}"/>
+            <sysproperty key="lb.it.jdbc.user" value="${lb.it.jdbc.user}"/>
+            <sysproperty key="lb.it.jdbc.password" value="${lb.it.jdbc.password}"/>
+            <sysproperty key="lb.it.table" value="${lb.it.table}"/>
+            <sysproperty key="lb.it.fixture.waitMs" value="${lb.it.fixture.waitMs}"/>
+            <arg value="cubrid.jdbc.lb.it.LbRoutingDecisionIT"/>
+        </java>
+    </target>
+
+    <target name="test-it-uri-url" depends="compile-test">
+        <java classname="org.junit.runner.JUnitCore" fork="yes" failonerror="yes">
+            <classpath refid="test.classpath"/>
+            <sysproperty key="lb.it.enabled" value="${lb.it.enabled}"/>
+            <sysproperty key="lb.it.jdbc.url" value="${lb.it.jdbc.url}"/>
+            <sysproperty key="lb.it.jdbc.user" value="${lb.it.jdbc.user}"/>
+            <sysproperty key="lb.it.jdbc.password" value="${lb.it.jdbc.password}"/>
+            <sysproperty key="lb.it.table" value="${lb.it.table}"/>
+            <arg value="cubrid.jdbc.lb.it.LbUriUrlIT"/>
+        </java>
+    </target>
+
+    <target name="test-it-metadata" depends="compile-test">
+        <java classname="org.junit.runner.JUnitCore" fork="yes" failonerror="yes">
+            <classpath refid="test.classpath"/>
+            <sysproperty key="lb.it.enabled" value="${lb.it.enabled}"/>
+            <sysproperty key="lb.it.jdbc.url" value="${lb.it.jdbc.url}"/>
+            <sysproperty key="lb.it.jdbc.baseUrl" value="${lb.it.jdbc.baseUrl}"/>
+            <sysproperty key="lb.it.jdbc.user" value="${lb.it.jdbc.user}"/>
+            <sysproperty key="lb.it.jdbc.password" value="${lb.it.jdbc.password}"/>
+            <sysproperty key="lb.it.table" value="${lb.it.table}"/>
+            <sysproperty key="lb.it.fixture.waitMs" value="${lb.it.fixture.waitMs}"/>
+            <arg value="cubrid.jdbc.lb.it.LbDatabaseMetaDataIT"/>
+        </java>
+    </target>
+
+    <target name="test-it-statement" depends="compile-test">
+        <java classname="org.junit.runner.JUnitCore" fork="yes" failonerror="yes">
+            <classpath refid="test.classpath"/>
+            <sysproperty key="lb.it.enabled" value="${lb.it.enabled}"/>
+            <sysproperty key="lb.it.jdbc.url" value="${lb.it.jdbc.url}"/>
+            <sysproperty key="lb.it.jdbc.baseUrl" value="${lb.it.jdbc.baseUrl}"/>
+            <sysproperty key="lb.it.jdbc.user" value="${lb.it.jdbc.user}"/>
+            <sysproperty key="lb.it.jdbc.password" value="${lb.it.jdbc.password}"/>
+            <sysproperty key="lb.it.table" value="${lb.it.table}"/>
+            <sysproperty key="lb.it.fixture.waitMs" value="${lb.it.fixture.waitMs}"/>
+            <arg value="cubrid.jdbc.lb.it.LbStatementApiIT"/>
+        </java>
+    </target>
+
+    <target name="test-it-prepared" depends="compile-test">
+        <java classname="org.junit.runner.JUnitCore" fork="yes" failonerror="yes">
+            <classpath refid="test.classpath"/>
+            <sysproperty key="lb.it.enabled" value="${lb.it.enabled}"/>
+            <sysproperty key="lb.it.jdbc.url" value="${lb.it.jdbc.url}"/>
+            <sysproperty key="lb.it.jdbc.baseUrl" value="${lb.it.jdbc.baseUrl}"/>
+            <sysproperty key="lb.it.jdbc.user" value="${lb.it.jdbc.user}"/>
+            <sysproperty key="lb.it.jdbc.password" value="${lb.it.jdbc.password}"/>
+            <sysproperty key="lb.it.table" value="${lb.it.table}"/>
+            <sysproperty key="lb.it.fixture.waitMs" value="${lb.it.fixture.waitMs}"/>
+            <arg value="cubrid.jdbc.lb.it.LbPreparedStatementApiIT"/>
+        </java>
+    </target>
+
+    <target name="test-it-vendor-api" depends="compile-test">
+        <java classname="org.junit.runner.JUnitCore" fork="yes" failonerror="yes">
+            <classpath refid="test.classpath"/>
+            <sysproperty key="lb.it.enabled" value="${lb.it.enabled}"/>
+            <sysproperty key="lb.it.jdbc.url" value="${lb.it.jdbc.url}"/>
+            <sysproperty key="lb.it.jdbc.baseUrl" value="${lb.it.jdbc.baseUrl}"/>
+            <sysproperty key="lb.it.jdbc.user" value="${lb.it.jdbc.user}"/>
+            <sysproperty key="lb.it.jdbc.password" value="${lb.it.jdbc.password}"/>
+            <arg value="cubrid.jdbc.lb.it.LbVendorApiInheritanceIT"/>
+        </java>
+    </target>
+
+    <!-- Every IT in one go. -->
+    <target name="test-it-all"
+            depends="test-it-routing, test-it-metadata, test-it-statement, test-it-prepared,
+                     test-it-uri-url, test-it-vendor-api">
     </target>
 
 

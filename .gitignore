@@ -1,3 +1,10 @@
 output/
+*.class
 *.jar
+# JUnit and Hamcrest are required to build and run `ant test`, and the blanket *.jar
+# rule above would otherwise keep them out of the repo. Temporary: to be replaced by a
+# fetch from CUBRID/3rdparty once the jars land there.
+!lib/test/*.jar
+.classpath
+.project
 .vscode/

@@ -58,6 +58,28 @@ public class CUBRIDXADataSource extends CUBRIDPoolDataSourceBase
         setProperties(ref);
     }
 
+    /**
+     * Refuses a {@code loadbalance://} URL at configuration time.
+     *
+     * <p>An XA branch runs with autocommit off, and a load-balance session pins every statement of
+     * an open transaction to the write leg, so an XA data source would distribute nothing: the read
+     * legs would sit idle for the whole branch. Refusing here rather than at {@link
+     * #getXAConnection()} makes the failure land on the JNDI bind or the bean definition that set
+     * the property, which is where the fix belongs.
+     *
+     * <p>This is also the one place where a load-balance URL was previously accepted and then
+     * ignored: {@link #getXAConnection(String, String)} builds its connection from {@code
+     * serverName}/{@code portNumber}/{@code databaseName} and never reads the URL, so the session
+     * silently went to a different host than the one configured.
+     *
+     * @throws IllegalArgumentException if {@code urlString} is a loadbalance:// URL
+     */
+    @Override
+    public void setUrl(String urlString) {
+        rejectLoadBalanceUrl(urlString);
+        super.setUrl(urlString);
+    }
+
     /*
      * javax.sql.XADataSource interface
      */
@@ -68,8 +90,34 @@ public class CUBRIDXADataSource extends CUBRIDPoolDataSourceBase
 
     public synchronized XAConnection getXAConnection(String username, String passwd)
             throws SQLException {
+        // Second gate: this data source is Serializable, and deserialization restores the url field
+        // directly without going through setUrl(). Without this check a serialized-then-restored
+        // data source would keep the silently-ignored loadbalance:// URL.
+        if (getUrl() != null
+                && CUBRIDDriver.detectUrlMode(getUrl()) == CUBRIDDriver.UrlMode.URI_LOADBALANCE) {
+            throw new CUBRIDException(
+                    CUBRIDJDBCErrorCode.invalid_url, loadBalanceRefusalMessage(), null);
+        }
+
         return (new CUBRIDXAConnection(
                 this, getServerName(), getPortNumber(), getDatabaseName(), username, passwd));
+    }
+
+    private static void rejectLoadBalanceUrl(String urlString) {
+        if (urlString == null) {
+            return;
+        }
+        if (CUBRIDDriver.detectUrlMode(urlString) == CUBRIDDriver.UrlMode.URI_LOADBALANCE) {
+            throw new IllegalArgumentException(loadBalanceRefusalMessage());
+        }
+    }
+
+    private static String loadBalanceRefusalMessage() {
+        return "a loadbalance:// URL cannot be used with CUBRIDXADataSource (XA/distributed"
+                + " transactions); an XA branch keeps autocommit off, and a load-balance session"
+                + " pins every statement of an open transaction to the master, so no read would be"
+                + " distributed; configure this XA data source with a classic URL, and use a"
+                + " separate loadbalance:// javax.sql.DataSource for the read paths";
     }
 
     /*

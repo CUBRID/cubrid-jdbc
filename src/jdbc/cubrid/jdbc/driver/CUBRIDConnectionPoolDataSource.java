@@ -69,6 +69,21 @@ public class CUBRIDConnectionPoolDataSource extends CUBRIDPoolDataSourceBase
         PooledConnection poolCon;
 
         if (getUrl() != null) {
+            // A PooledConnection is a reusable handle over one physical connection: it takes a
+            // single UConnection and resets that socket between checkouts (CUBRIDPooledConnection).
+            // A load-balancing connection cannot supply one -- it owns a write leg and a read leg
+            // and rebinds them on failover -- so refuse the URL here instead of failing on the
+            // CUBRIDConnection cast below. A single-node URI URL is fine: it resolves through the
+            // classic path and yields a real CUBRIDConnection.
+            if (CUBRIDDriver.detectUrlMode(getUrl()) == CUBRIDDriver.UrlMode.URI_LOADBALANCE) {
+                throw new CUBRIDException(
+                        CUBRIDJDBCErrorCode.invalid_url,
+                        "a loadbalance:// URL cannot be used with CUBRIDConnectionPoolDataSource"
+                                + " (CUBRID's built-in connection pool); pool it with a standard"
+                                + " javax.sql.DataSource pool instead, or use a classic URL here",
+                        null);
+            }
+
             CUBRIDDriver driver = new CUBRIDDriver();
             Properties props = new Properties();
 

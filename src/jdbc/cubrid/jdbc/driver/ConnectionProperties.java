@@ -381,6 +381,13 @@ public class ConnectionProperties {
     IntegerConnectionProperty queryTimeout =
             new IntegerConnectionProperty("queryTimeout", 0, 0, UConnection.MAX_QUERY_TIMEOUT);
 
+    IntegerConnectionProperty lockTimeout =
+            new IntegerConnectionProperty(
+                    "lockTimeout",
+                    UConnection.LOCK_TIMEOUT_NOT_USED,
+                    UConnection.LOCK_TIMEOUT_NOT_USED,
+                    Integer.MAX_VALUE);
+
     private int getDefaultConnectTimeout() {
         int timeout = java.sql.DriverManager.getLoginTimeout();
         return timeout > 0 ? timeout : 30;
@@ -453,6 +460,10 @@ public class ConnectionProperties {
 
     public int getQueryTimeout() {
         return queryTimeout.getValueAsInteger();
+    }
+
+    public int getLockTimeout() {
+        return lockTimeout.getValueAsInteger();
     }
 
     public int getConnectTimeout() {

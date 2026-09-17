@@ -569,6 +569,14 @@ public class CUBRIDConnection implements Connection {
         }
     }
 
+    public synchronized int getLockTimeout() throws SQLException {
+        checkIsOpen();
+
+        synchronized (u_con) {
+            return u_con.getLockTimeout();
+        }
+    }
+
     public synchronized int setCASChangeMode(int mode) throws SQLException {
         int prev_mode = 0;
 

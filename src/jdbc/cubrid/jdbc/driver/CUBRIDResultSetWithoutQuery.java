@@ -52,6 +52,9 @@ import java.sql.SQLXML;
 import java.sql.Statement;
 import java.sql.Time;
 import java.sql.Timestamp;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Calendar;
@@ -1236,12 +1239,121 @@ class CUBRIDResultSetWithoutQuery implements ResultSet {
     }
 
     /* JDK 1.7 */
-    public <T> T getObject(int columnIndex, Class<T> type) throws SQLException {
-        throw CUBRIDException.notSupported();
+    public synchronized <T> T getObject(int columnIndex, Class<T> type) throws SQLException {
+        checkIsOpen();
+        if (type == null) {
+            throw new CUBRIDException(
+                    CUBRIDJDBCErrorCode.invalid_value, CUBRIDException.nullTypeMessage(), null);
+        }
+
+        if (type == String.class) {
+            return type.cast(getString(columnIndex));
+        }
+        if (type == BigDecimal.class) {
+            return type.cast(getBigDecimal(columnIndex));
+        }
+        if (type == byte[].class) {
+            return type.cast(getBytes(columnIndex));
+        }
+        if (type == Date.class) {
+            return type.cast(getDate(columnIndex));
+        }
+        if (type == Time.class) {
+            return type.cast(getTime(columnIndex));
+        }
+        if (type == Timestamp.class) {
+            return type.cast(getTimestamp(columnIndex));
+        }
+
+        if (type == Boolean.class) {
+            boolean value = getBoolean(columnIndex);
+            return wasNull() ? null : type.cast(value);
+        }
+        if (type == Byte.class) {
+            byte value = getByte(columnIndex);
+            return wasNull() ? null : type.cast(value);
+        }
+        if (type == Short.class) {
+            short value = getShort(columnIndex);
+            return wasNull() ? null : type.cast(value);
+        }
+        if (type == Integer.class) {
+            int value = getInt(columnIndex);
+            return wasNull() ? null : type.cast(value);
+        }
+        if (type == Long.class) {
+            long value = getLong(columnIndex);
+            return wasNull() ? null : type.cast(value);
+        }
+        if (type == Float.class) {
+            float value = getFloat(columnIndex);
+            return wasNull() ? null : type.cast(value);
+        }
+        if (type == Double.class) {
+            double value = getDouble(columnIndex);
+            return wasNull() ? null : type.cast(value);
+        }
+
+        if (type == LocalDate.class) {
+            return type.cast(getLocalDate(columnIndex));
+        }
+        if (type == LocalTime.class) {
+            return type.cast(getLocalTime(columnIndex));
+        }
+        if (type == LocalDateTime.class) {
+            return type.cast(getLocalDateTime(columnIndex));
+        }
+
+        throw new CUBRIDException(
+                CUBRIDJDBCErrorCode.invalid_value,
+                CUBRIDException.cannotConvertMessage(type),
+                null);
     }
 
     /* JDK 1.7 */
-    public <T> T getObject(String columnLabel, Class<T> type) throws SQLException {
-        throw CUBRIDException.notSupported();
+    public synchronized <T> T getObject(String columnLabel, Class<T> type) throws SQLException {
+        return getObject(findColumn(columnLabel), type);
+    }
+
+    /*
+     * The rows of this ResultSet are built in the driver, not decoded from the wire, so there are
+     * no wire fields to read the way CUBRIDResultSet does. Going through the java.sql value is
+     * faithful here: the value was made in this JVM's zone to begin with, so no zone is applied
+     * a second time.
+     */
+    private LocalDate getLocalDate(int columnIndex) throws SQLException {
+        checkJavaTimeColumn(columnIndex, LocalDate.class);
+
+        Date value = getDate(columnIndex);
+        return value == null ? null : value.toLocalDate();
+    }
+
+    private LocalTime getLocalTime(int columnIndex) throws SQLException {
+        checkJavaTimeColumn(columnIndex, LocalTime.class);
+
+        Time value = getTime(columnIndex);
+        return value == null ? null : value.toLocalTime();
+    }
+
+    private LocalDateTime getLocalDateTime(int columnIndex) throws SQLException {
+        checkJavaTimeColumn(columnIndex, LocalDateTime.class);
+
+        Timestamp value = getTimestamp(columnIndex);
+        return value == null ? null : value.toLocalDateTime();
+    }
+
+    /* Which columns a java.time type may be read from follows CUBRIDResultSet. */
+    private void checkJavaTimeColumn(int columnIndex, Class<?> type) throws SQLException {
+        beforeGetValue(columnIndex);
+
+        if (CUBRIDResultSet.isJavaTimeConversionSupported(
+                (byte) this.type[columnIndex - 1], type)) {
+            return;
+        }
+
+        throw new CUBRIDException(
+                CUBRIDJDBCErrorCode.invalid_value,
+                CUBRIDException.cannotConvertMessage(type),
+                null);
     }
 }

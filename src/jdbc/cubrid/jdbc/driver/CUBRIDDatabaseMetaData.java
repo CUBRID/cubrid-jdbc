@@ -222,7 +222,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
 
     public synchronized boolean storesLowerCaseQuotedIdentifiers() throws SQLException {
         checkIsOpen();
-        return false;
+        return true;
     }
 
     public synchronized boolean storesMixedCaseQuotedIdentifiers() throws SQLException {
@@ -276,7 +276,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
 
     public synchronized String getTimeDateFunctions() throws SQLException {
         checkIsOpen();
-        return "ADD_MONTHS, LAST_DAY, MONTH_BETWEEN, SYS_DATE, SYS_TIME, SYS_TIMESTAMP, TO_DATE, TO_TIME, TO_TIMESTAMP, TO_DATETIME";
+        return "ADD_MONTHS, LAST_DAY, MONTHS_BETWEEN, SYS_DATE, SYS_TIME, SYS_TIMESTAMP, TO_DATE, TO_TIME, TO_TIMESTAMP, TO_DATETIME";
     }
 
     public synchronized String getSearchStringEscape() throws SQLException {
@@ -286,7 +286,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
 
     public synchronized String getExtraNameCharacters() throws SQLException {
         checkIsOpen();
-        return "%#";
+        return "#";
     }
 
     public synchronized boolean supportsAlterTableWithAddColumn() throws SQLException {
@@ -301,7 +301,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
 
     public synchronized boolean supportsColumnAliasing() throws SQLException {
         checkIsOpen();
-        return false;
+        return true;
     }
 
     public synchronized boolean nullPlusNonNullIsNull() throws SQLException {
@@ -331,12 +331,12 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
 
     public synchronized boolean supportsExpressionsInOrderBy() throws SQLException {
         checkIsOpen();
-        return false;
+        return true;
     }
 
     public synchronized boolean supportsOrderByUnrelated() throws SQLException {
         checkIsOpen();
-        return false;
+        return true;
     }
 
     public synchronized boolean supportsGroupBy() throws SQLException {
@@ -346,7 +346,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
 
     public synchronized boolean supportsGroupByUnrelated() throws SQLException {
         checkIsOpen();
-        return false;
+        return true;
     }
 
     public synchronized boolean supportsGroupByBeyondSelect() throws SQLException {
@@ -411,7 +411,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
 
     public synchronized boolean supportsOuterJoins() throws SQLException {
         checkIsOpen();
-        return false;
+        return true;
     }
 
     public synchronized boolean supportsFullOuterJoins() throws SQLException {
@@ -421,7 +421,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
 
     public synchronized boolean supportsLimitedOuterJoins() throws SQLException {
         checkIsOpen();
-        return false;
+        return true;
     }
 
     public synchronized String getSchemaTerm() throws SQLException {
@@ -511,7 +511,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
 
     public synchronized boolean supportsSelectForUpdate() throws SQLException {
         checkIsOpen();
-        return false;
+        return true;
     }
 
     public synchronized boolean supportsStoredProcedures() throws SQLException {

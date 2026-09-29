@@ -30,7 +30,9 @@
 
 package cubrid.jdbc.lb.statement;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
@@ -107,6 +109,68 @@ public class ParameterBinderTest {
 
         assertEquals(1, handler.calls.size());
         assertEquals("setInt:2:1", handler.calls.get(0));
+    }
+
+    /**
+     * Core reads the stream inside the setter; LB used to keep the caller's reference and read it
+     * at execute. A stream is readable once, so a second execute, a second batch row sharing the
+     * binding, and an application that closed the stream after the setter each bound something
+     * other than what was set. Materializing at record time turns the parameter into a value -
+     * which is what replay needs, and what core has always sent.
+     */
+    @Test
+    public void assertLengthBoundedStreamParamsAreReadAtSetTimeAndReplayRepeatedly()
+            throws Exception {
+        ParameterBinder binder = new ParameterBinder();
+        ByteArrayInputStream binary = new ByteArrayInputStream(new byte[] {1, 2, 3});
+        ByteArrayInputStream ascii = new ByteArrayInputStream(new byte[] {65, 66});
+        StringReader characters = new StringReader("lb");
+
+        binder.recordSetBinaryStream(1, binary, 3);
+        binder.recordSetAsciiStream(2, ascii, 2);
+        binder.recordSetCharacterStream(3, characters, 2);
+
+        assertEquals("the setter consumed the stream, as core's does", -1, binary.read());
+        assertEquals(-1, ascii.read());
+
+        // JDBC lets the caller drop the stream once the setter returned.
+        characters.close();
+
+        ParameterBinder batched = binder.snapshot();
+        for (int round = 1; round <= 2; round++) {
+            StreamCapturingHandler captured = new StreamCapturingHandler();
+            binder.replay(captured.createProxy());
+
+            assertArrayEquals(new byte[] {1, 2, 3}, captured.bytes("setBinaryStream"));
+            assertArrayEquals(new byte[] {65, 66}, captured.bytes("setAsciiStream"));
+            assertEquals("lb", captured.chars("setCharacterStream"));
+        }
+
+        StreamCapturingHandler fromBatch = new StreamCapturingHandler();
+        batched.replay(fromBatch.createProxy());
+        assertArrayEquals(
+                "a batch row must not share the exhausted stream",
+                new byte[] {1, 2, 3},
+                fromBatch.bytes("setBinaryStream"));
+    }
+
+    /**
+     * The gate that keeps failover from retrying a binding it cannot reproduce. A materialized
+     * parameter is reproducible, so it must no longer close the gate; a LOB stream, which core
+     * copies straight to the server instead of into memory, still does.
+     */
+    @Test
+    public void assertOnlyNonMaterializedStreamParamsBlockFailover() throws Exception {
+        ParameterBinder binder = new ParameterBinder();
+        binder.recordSetBinaryStream(1, new ByteArrayInputStream(new byte[] {1}), 1);
+        binder.recordSetAsciiStream(2, new ByteArrayInputStream(new byte[] {65}), 1);
+        binder.recordSetCharacterStream(3, new StringReader("x"), 1);
+
+        assertFalse(binder.hasNonReplayableParams());
+
+        binder.recordSetBlob(4, new ByteArrayInputStream(new byte[] {1}));
+
+        assertTrue(binder.hasNonReplayableParams());
     }
 
     @Test
@@ -386,6 +450,48 @@ public class ParameterBinderTest {
                     return null;
                 }
             };
+        }
+    }
+
+    /** Keeps the source each length-taking stream setter was replayed with, so it can be read. */
+    private static final class StreamCapturingHandler {
+
+        private final java.util.Map<String, Object> sources =
+                new java.util.HashMap<String, Object>();
+
+        private PreparedStatement createProxy() {
+            return new FakePhysicalPreparedStatement() {
+                @Override
+                protected Object dispatch(final String name, final Object[] args) {
+                    if (name.startsWith("set") && args.length == 3) {
+                        sources.put(name, args[1]);
+                    }
+
+                    return null;
+                }
+            };
+        }
+
+        private byte[] bytes(final String setter) throws java.io.IOException {
+            java.io.InputStream source = (java.io.InputStream) sources.get(setter);
+            assertNotNull(setter + " was not replayed", source);
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            for (int b = source.read(); b >= 0; b = source.read()) {
+                out.write(b);
+            }
+
+            return out.toByteArray();
+        }
+
+        private String chars(final String setter) throws java.io.IOException {
+            java.io.Reader source = (java.io.Reader) sources.get(setter);
+            assertNotNull(setter + " was not replayed", source);
+            StringBuilder text = new StringBuilder();
+            for (int c = source.read(); c >= 0; c = source.read()) {
+                text.append((char) c);
+            }
+
+            return text.toString();
         }
     }
 

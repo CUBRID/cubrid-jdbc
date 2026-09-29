@@ -71,6 +71,18 @@ public final class LbExceptions {
                 null);
     }
 
+    /**
+     * A stream or reader handed to a parameter setter could not be read. Core raises the same
+     * {@code -21112} from inside the setter, so an application catching that code keeps catching it
+     * when the value is bound through an LB statement.
+     *
+     * @param cause the failure the stream reported
+     * @return the exception to throw
+     */
+    public static CUBRIDException streamReadFailed(final java.io.IOException cause) {
+        return withCoreDetail(CUBRIDJDBCErrorCode.ioexception_in_stream, null, cause);
+    }
+
     public static CUBRIDException invalidValue(final String detail) {
         return withCoreDetail(CUBRIDJDBCErrorCode.invalid_value, detail, null);
     }

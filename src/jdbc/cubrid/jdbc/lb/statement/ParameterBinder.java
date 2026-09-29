@@ -49,8 +49,12 @@ import java.util.LinkedHashMap;
 public final class ParameterBinder {
     private final OperationList operations = new OperationList();
 
-    // True once a stream/reader-backed parameter is recorded. Such a value is consumed by the first
-    // execution and cannot be replayed, so failover must not retry a statement bound with one.
+    // True once a parameter is recorded that still holds the caller's stream/reader: the LOB
+    // setters, which core streams straight to the server rather than into memory, and the
+    // overloads core refuses outright. Such a value is consumed by the first execution and cannot
+    // be replayed, so failover must not retry a statement bound with one. The length-taking
+    // ascii/binary/character setters are not among them - they are materialized at record time,
+    // where core materializes them too.
     private boolean hasStreamParam = false;
 
     public void recordSetNull(final int parameterIndex, final int sqlType) {
@@ -136,9 +140,11 @@ public final class ParameterBinder {
     }
 
     public void recordSetCharacterStream(
-            final int parameterIndex, final java.io.Reader reader, final int length) {
-        hasStreamParam = true;
-        operations.add(new SetCharacterStreamLenIntOp(parameterIndex, reader, length));
+            final int parameterIndex, final java.io.Reader reader, final int length)
+            throws SQLException {
+        operations.add(
+                new SetCharacterStreamLenIntOp(
+                        parameterIndex, reader == null ? null : materialize(reader, length)));
     }
 
     public void recordSetCharacterStream(
@@ -154,9 +160,12 @@ public final class ParameterBinder {
     }
 
     public void recordSetBinaryStream(
-            final int parameterIndex, final java.io.InputStream inputStream, final int length) {
-        hasStreamParam = true;
-        operations.add(new SetBinaryStreamLenIntOp(parameterIndex, inputStream, length));
+            final int parameterIndex, final java.io.InputStream inputStream, final int length)
+            throws SQLException {
+        operations.add(
+                new SetBinaryStreamLenIntOp(
+                        parameterIndex,
+                        inputStream == null ? null : materialize(inputStream, length)));
     }
 
     public void recordSetBinaryStream(
@@ -172,9 +181,12 @@ public final class ParameterBinder {
     }
 
     public void recordSetAsciiStream(
-            final int parameterIndex, final java.io.InputStream inputStream, final int length) {
-        hasStreamParam = true;
-        operations.add(new SetAsciiStreamLenIntOp(parameterIndex, inputStream, length));
+            final int parameterIndex, final java.io.InputStream inputStream, final int length)
+            throws SQLException {
+        operations.add(
+                new SetAsciiStreamLenIntOp(
+                        parameterIndex,
+                        inputStream == null ? null : materialize(inputStream, length)));
     }
 
     public void recordSetAsciiStream(
@@ -356,6 +368,74 @@ public final class ParameterBinder {
         if (value instanceof Object[]) {
             return snapshot((Object[]) value);
         }
+
+        return value;
+    }
+
+    /**
+     * Reads the stream the way core's {@code setAsciiStream}/{@code setBinaryStream} reads it - one
+     * {@code read} of at most {@code length} bytes, whatever that returns - so the recorded value
+     * is the one core would have bound.
+     *
+     * <p>Core consumes the stream inside the setter, and a stream can be read once. Keeping the
+     * caller's reference instead leaves it unread until execute, so a second execute of the same
+     * binding, a second batch row sharing it, and an application that closes the stream once the
+     * setter returned (which JDBC permits) would each bind something other than what was set.
+     *
+     * @param stream the caller's stream, known to be non-null
+     * @param length the byte count the caller declared
+     * @return the bytes core would have bound
+     * @throws SQLException if the stream cannot be read
+     */
+    private static byte[] materialize(final java.io.InputStream stream, final int length)
+            throws SQLException {
+        if (length < 0) {
+            // Core's own guard; kept so the caller still meets it at set time.
+            throw new IllegalArgumentException();
+        }
+
+        final byte[] buffer = new byte[length];
+        final int read;
+        try {
+            read = stream.read(buffer);
+        } catch (java.io.IOException e) {
+            throw LbExceptions.streamReadFailed(e);
+        }
+
+        if (read == length) {
+            // The common case: the buffer is exactly full, so it is the value already.
+            return buffer;
+        }
+
+        // A negative count means the stream was already spent. Core fails on that value too, one
+        // step later, where it sizes its own copy of the buffer.
+        final byte[] value = new byte[read];
+        System.arraycopy(buffer, 0, value, 0, read);
+
+        return value;
+    }
+
+    /** The {@link #materialize(java.io.InputStream, int)} counterpart for character data. */
+    private static char[] materialize(final java.io.Reader reader, final int length)
+            throws SQLException {
+        if (length < 0) {
+            throw new IllegalArgumentException();
+        }
+
+        final char[] buffer = new char[length];
+        final int read;
+        try {
+            read = reader.read(buffer);
+        } catch (java.io.IOException e) {
+            throw LbExceptions.streamReadFailed(e);
+        }
+
+        if (read == length) {
+            return buffer;
+        }
+
+        final char[] value = new char[read];
+        System.arraycopy(buffer, 0, value, 0, read);
 
         return value;
     }
@@ -691,19 +771,22 @@ public final class ParameterBinder {
     }
 
     private static final class SetCharacterStreamLenIntOp extends ParameterOperation {
-        private final java.io.Reader reader;
-        private final int length;
+        private final char[] value;
 
-        SetCharacterStreamLenIntOp(
-                final int parameterIndex, final java.io.Reader reader, final int length) {
+        SetCharacterStreamLenIntOp(final int parameterIndex, final char[] value) {
             super(parameterIndex);
-            this.reader = reader;
-            this.length = length;
+            this.value = value;
         }
 
         @Override
         void apply(final PreparedStatement target) throws SQLException {
-            target.setCharacterStream(parameterIndex, reader, length);
+            if (value == null) {
+                target.setCharacterStream(parameterIndex, null, 0);
+                return;
+            }
+
+            target.setCharacterStream(
+                    parameterIndex, new java.io.CharArrayReader(value), value.length);
         }
     }
 
@@ -739,19 +822,22 @@ public final class ParameterBinder {
     }
 
     private static final class SetBinaryStreamLenIntOp extends ParameterOperation {
-        private final java.io.InputStream stream;
-        private final int length;
+        private final byte[] value;
 
-        SetBinaryStreamLenIntOp(
-                final int parameterIndex, final java.io.InputStream stream, final int length) {
+        SetBinaryStreamLenIntOp(final int parameterIndex, final byte[] value) {
             super(parameterIndex);
-            this.stream = stream;
-            this.length = length;
+            this.value = value;
         }
 
         @Override
         void apply(final PreparedStatement target) throws SQLException {
-            target.setBinaryStream(parameterIndex, stream, length);
+            if (value == null) {
+                target.setBinaryStream(parameterIndex, null, 0);
+                return;
+            }
+
+            target.setBinaryStream(
+                    parameterIndex, new java.io.ByteArrayInputStream(value), value.length);
         }
     }
 
@@ -787,19 +873,22 @@ public final class ParameterBinder {
     }
 
     private static final class SetAsciiStreamLenIntOp extends ParameterOperation {
-        private final java.io.InputStream stream;
-        private final int length;
+        private final byte[] value;
 
-        SetAsciiStreamLenIntOp(
-                final int parameterIndex, final java.io.InputStream stream, final int length) {
+        SetAsciiStreamLenIntOp(final int parameterIndex, final byte[] value) {
             super(parameterIndex);
-            this.stream = stream;
-            this.length = length;
+            this.value = value;
         }
 
         @Override
         void apply(final PreparedStatement target) throws SQLException {
-            target.setAsciiStream(parameterIndex, stream, length);
+            if (value == null) {
+                target.setAsciiStream(parameterIndex, null, 0);
+                return;
+            }
+
+            target.setAsciiStream(
+                    parameterIndex, new java.io.ByteArrayInputStream(value), value.length);
         }
     }
 

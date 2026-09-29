@@ -568,8 +568,14 @@ public final class KeywordSqlClassifier implements SqlClassifier {
         return p;
     }
 
+    /**
+     * CUBRID identifiers are not ASCII-only, and an identifier this scanner cannot see is one whose
+     * {@code (} never registers as a call: a SELECT over a user routine with a non-ASCII name read
+     * as a plain READ and routed to RO, while the same routine named in ASCII is UNKNOWN -> RW.
+     * {@link HintParser} already scans words this way.
+     */
     private static boolean isIdentifierStart(final char ch) {
-        return ('A' <= ch && ch <= 'Z') || ('a' <= ch && ch <= 'z') || ch == '_';
+        return Character.isLetter(ch) || ch == '_';
     }
 
     /** Opening delimiter of a quoted identifier: ANSI {@code "}, CUBRID {@code [}, backtick. */
@@ -608,7 +614,7 @@ public final class KeywordSqlClassifier implements SqlClassifier {
     }
 
     private static boolean isIdentifierPart(final char ch) {
-        return isIdentifierStart(ch) || ('0' <= ch && ch <= '9');
+        return Character.isLetterOrDigit(ch) || ch == '_';
     }
 
     private static String normalizeLeading(final String sql) {

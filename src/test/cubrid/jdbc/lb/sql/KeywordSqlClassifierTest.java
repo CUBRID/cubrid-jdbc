@@ -269,6 +269,29 @@ public class KeywordSqlClassifierTest {
         assertEquals(SqlClassification.READ, classifier.classify("SELECT UPPER(name) FROM t"));
     }
 
+    /**
+     * A user routine may carry a non-ASCII name. The scanner recognized ASCII identifiers only, so
+     * such a call was invisible and the SELECT fell through as a plain READ: the conservative "user
+     * routine -> RW" rule was skipped for exactly the routines this classifier cannot see into. The
+     * second half is the negative control - a non-ASCII column or table is not a call and stays
+     * READ, so the fix must not push ordinary reads off the read leg.
+     */
+    @Test
+    public void assertNonAsciiUserRoutineCallIsNotReadOnly() {
+        assertEquals(
+                SqlClassification.UNKNOWN, classifier.classify("SELECT 태스트2(1, 2) FROM db_root"));
+        assertEquals(SqlClassification.UNKNOWN, classifier.classify("SELECT 태스트2(a), b FROM t"));
+        assertEquals(SqlClassification.WRITE, classifier.classify("CALL 태스트2(1, 2)"));
+        assertEquals(
+                SqlClassification.WRITE,
+                classifier.classify(
+                        "CREATE FUNCTION 태스트2 (arg1 INT, arg2 INT) RETURN INT"
+                                + " AS BEGIN RETURN arg1 + arg2; END;"));
+
+        assertEquals(SqlClassification.READ, classifier.classify("SELECT 이름 FROM 사원"));
+        assertEquals(SqlClassification.READ, classifier.classify("SELECT UPPER(이름) FROM 사원"));
+    }
+
     @Test
     public void assertLeadingCallClassifiedAsWrite() {
         assertEquals(SqlClassification.WRITE, classifier.classify("CALL my_proc(?)"));

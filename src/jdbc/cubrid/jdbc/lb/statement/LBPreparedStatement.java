@@ -1085,6 +1085,12 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         validateParamCountCompat();
 
         PreparedStatement physicalStatement = physicalPsForTarget(target);
+        // Physical statements are cached and keep old parameter values from previous executions.
+        // Replay only re-applies parameters currently in the binder, so cleared parameters (via
+        // clearParameters()) would retain stale values and execute silently, where core answers
+        // ER_NOT_BIND. Clearing the physical statement first ensures its parameters match the
+        // binder before replay (same as executeBatch).
+        physicalStatement.clearParameters();
         parameterBinder.replay(physicalStatement);
 
         return physicalStatement;

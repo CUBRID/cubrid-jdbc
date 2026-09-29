@@ -49,6 +49,7 @@ import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Calendar;
 import java.util.List;
 import org.junit.Before;
@@ -587,6 +588,79 @@ public class LBPreparedStatementExecutionTest {
             assertTrue(ex.getMessage().contains("Parameter mismatch"));
             assertFalse(context.calls.contains("executeQuery"));
         }
+    }
+
+    /**
+     * The physical statement is cached per endpoint and SQL, so it reaches replay still holding
+     * what the previous execution bound. Replay re-applies only what the binder holds, so a
+     * parameter the caller dropped with {@code clearParameters()} used to keep its old value and
+     * the statement executed with it; core answers {@code ER_NOT_BIND} for the same sequence.
+     */
+    @Test
+    public void assertReplayClearsThePhysicalStatementSoDroppedParametersDoNotSurvive()
+            throws Exception {
+        LBPreparedStatement statement =
+                (LBPreparedStatement)
+                        connection.prepareStatement("UPDATE t SET a = ? WHERE id = ?");
+        CachedPsContext context = new CachedPsContext();
+        statement.setPsProvider(context);
+
+        statement.setInt(1, 1);
+        statement.setInt(2, 2);
+        statement.executeUpdate();
+
+        statement.clearParameters();
+        statement.setInt(1, 9);
+        statement.executeUpdate();
+
+        assertEquals(
+                Arrays.asList(
+                        "clearParameters",
+                        "setInt:1:1",
+                        "setInt:2:2",
+                        "executeUpdate",
+                        "clearParameters",
+                        "setInt:1:9",
+                        "executeUpdate"),
+                context.calls);
+    }
+
+    /** Mirrors the session cache: one physical statement per SQL, reused across executions. */
+    static final class CachedPsContext implements LBPreparedStatement.PhysicalPsProvider {
+
+        final List<String> calls = new ArrayList<String>();
+
+        private final PreparedStatement statement =
+                new FakePhysicalPreparedStatement() {
+                    @Override
+                    protected Object dispatch(final String name, final Object[] args) {
+                        if ("setInt".equals(name)) {
+                            calls.add("setInt:" + args[0] + ":" + args[1]);
+                            return null;
+                        }
+                        if ("clearParameters".equals(name)) {
+                            calls.add(name);
+                            return null;
+                        }
+                        if ("executeUpdate".equals(name)) {
+                            calls.add(name);
+                            return Integer.valueOf(1);
+                        }
+
+                        return null;
+                    }
+                };
+
+        public PreparedStatement getPreparedStatement(
+                final Router.RouteTarget target, final String rawSql) {
+            return statement;
+        }
+
+        public void prepareOnBoundReadEndpoint(final String rawSql) {}
+
+        public void prepareOnWriteEndpoint(final String rawSql) {}
+
+        public void closePrepStmts() {}
     }
 
     static final class DelegationContext implements LBPreparedStatement.PhysicalPsProvider {

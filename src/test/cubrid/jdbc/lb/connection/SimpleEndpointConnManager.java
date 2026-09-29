@@ -53,6 +53,10 @@ public final class SimpleEndpointConnManager implements EndpointConnManager {
         return true;
     }
 
+    public java.sql.Connection boundConnection(final SessionLeg leg) {
+        return null;
+    }
+
     private final Map<String, Integer> acquireCounts = new HashMap<String, Integer>();
 
     private final Map<String, Integer> releaseCounts = new HashMap<String, Integer>();

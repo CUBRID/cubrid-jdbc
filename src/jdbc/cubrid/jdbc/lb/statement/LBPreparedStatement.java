@@ -1208,6 +1208,15 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         throw unchecked(LbExceptions.notSupportedApi("setReportedConnection(Connection)"));
     }
 
+    /**
+     * See {@link LBStatement#openCursorConnection()}.
+     *
+     * @return the connection holding an open cursor, or null
+     */
+    public Connection openCursorConnection() {
+        return statementDelegate.openCursorConnection();
+    }
+
     public interface PhysicalPsProvider {
 
         PreparedStatement getPreparedStatement(Router.RouteTarget target, String rawSql)

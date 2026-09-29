@@ -31,6 +31,7 @@
 package cubrid.jdbc.lb;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 
 import cubrid.jdbc.jci.UErrorCode;
 import cubrid.jdbc.jci.UUnreachableHostList;
@@ -47,9 +48,12 @@ import java.lang.reflect.Proxy;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Properties;
 import java.util.Set;
 import org.junit.After;
@@ -72,13 +76,91 @@ public class LoadBalanceConnectionRwFailbackTriggerTest {
     private static final Endpoint NODE1_RW = new Endpoint("node1", 33000); // master
     private static final Endpoint NODE2_RW = new Endpoint("node2", 33000); // sibling RW
     private static final Endpoint NODE2_RO = new Endpoint("node2", 33002);
+    private static final Endpoint NODE3_RO = new Endpoint("node3", 33002); // NODE2_RO's sibling
 
     private final Set<String> down = new HashSet<String>();
 
     @After
     public void clearUnreachable() {
-        for (Endpoint ep : new Endpoint[] {NODE1_RW, NODE2_RW, NODE2_RO}) {
+        for (Endpoint ep : new Endpoint[] {NODE1_RW, NODE2_RW, NODE2_RO, NODE3_RO}) {
             UUnreachableHostList.getInstance().remove(ep.getId());
+        }
+    }
+
+    /**
+     * Failback closes the connection it leaves, and with it every result set on it. An outer cursor
+     * iterated around an inner query must survive the inner query triggering failback.
+     */
+    @Test
+    public void failbackWaitsWhileACursorIsOpenOnTheLegItWouldReplace() throws SQLException {
+        List<CursorConnection> opened = new ArrayList<CursorConnection>();
+        LoadBalanceConnection conn = displacedConnection(props(0), false, cursorFactory(opened));
+        try {
+            ResultSet outer = conn.createStatement().executeQuery("SELECT a FROM t");
+            CursorConnection node2 = openedFor(opened, NODE2_RW);
+
+            markUp(NODE1_RW);
+            conn.createStatement().executeQuery("SELECT b FROM t").close();
+
+            assertFalse("the outer cursor's connection was closed under it", node2.closed);
+            assertEquals(NODE2_RW, conn.getCurrentRwEndpoint());
+
+            outer.close();
+            conn.createStatement().executeQuery("SELECT c FROM t").close();
+
+            assertEquals(
+                    "failback resumes once no cursor is open",
+                    NODE1_RW,
+                    conn.getCurrentRwEndpoint());
+        } finally {
+            conn.close();
+        }
+    }
+
+    /** The same on the read leg: returning home must not close a cursor open on the sibling. */
+    @Test
+    public void readFailbackWaitsWhileACursorIsOpenOnTheSibling() throws SQLException {
+        Properties cfg = props(0);
+        cfg.setProperty(LoadBalanceSettings.KEY_READ_FAILBACK_ENABLED, "true");
+        cfg.setProperty(LoadBalanceSettings.KEY_READ_FAILBACK_PROBE_INTERVAL_MS, "0");
+        LoadBalanceSettings config = LoadBalanceSettings.of(cfg);
+        List<CursorConnection> opened = new ArrayList<CursorConnection>();
+        LoadBalanceConnection conn = new LoadBalanceConnection(config);
+        conn.setConnectionManager(
+                new SessionPhysicalConnManager(
+                        LOGICAL_URL, new Properties(), config, cursorFactory(opened)));
+        conn.setSharedSelectorState(new SharedSelectorState());
+        conn.initSessionBindings(
+                new EndpointTopology(
+                        Arrays.asList(NODE1_RW),
+                        Arrays.asList(NODE2_RO, NODE3_RO),
+                        Collections.<Endpoint>emptyList()));
+        try {
+            assertEquals(NODE2_RO, conn.getCurrentRoEndpoint());
+            markDown(NODE2_RO);
+            conn.recoverPhyBinding(
+                    conn.buildRecoveryCtx(Router.RouteTarget.TO_READ_ONLY, NODE2_RO),
+                    new SQLException("comm fail", null, UErrorCode.ER_COMMUNICATION));
+            assertEquals(NODE3_RO, conn.getCurrentRoEndpoint());
+
+            ResultSet outer = conn.createStatement().executeQuery("SELECT a FROM t");
+            CursorConnection node3 = openedFor(opened, NODE3_RO);
+
+            markUp(NODE2_RO);
+            conn.createStatement().executeQuery("SELECT b FROM t").close();
+
+            assertFalse("the outer cursor's connection was closed under it", node3.closed);
+            assertEquals(NODE3_RO, conn.getCurrentRoEndpoint());
+
+            outer.close();
+            conn.createStatement().executeQuery("SELECT c FROM t").close();
+
+            assertEquals(
+                    "read failback resumes once no cursor is open",
+                    NODE2_RO,
+                    conn.getCurrentRoEndpoint());
+        } finally {
+            conn.close();
         }
     }
 
@@ -237,10 +319,16 @@ public class LoadBalanceConnectionRwFailbackTriggerTest {
      */
     private LoadBalanceConnection displacedConnection(
             final Properties cfg, final boolean withRoBroker) throws SQLException {
+        return displacedConnection(cfg, withRoBroker, factory());
+    }
+
+    private LoadBalanceConnection displacedConnection(
+            final Properties cfg, final boolean withRoBroker, final JdbcConnectionFactory factory)
+            throws SQLException {
         LoadBalanceSettings config = LoadBalanceSettings.of(cfg);
         LoadBalanceConnection conn = new LoadBalanceConnection(config);
         conn.setConnectionManager(
-                new SessionPhysicalConnManager(LOGICAL_URL, new Properties(), config, factory()));
+                new SessionPhysicalConnManager(LOGICAL_URL, new Properties(), config, factory));
         conn.setSharedSelectorState(new SharedSelectorState());
 
         markDown(NODE1_RW);
@@ -278,6 +366,130 @@ public class LoadBalanceConnectionRwFailbackTriggerTest {
     private void markUp(final Endpoint ep) {
         down.remove(ep.getId());
         UUnreachableHostList.getInstance().remove(ep.getId());
+    }
+
+    private JdbcConnectionFactory cursorFactory(final List<CursorConnection> opened) {
+        return new JdbcConnectionFactory() {
+            public Connection getConnection(final String url, final Properties info)
+                    throws SQLException {
+                for (String epId : down) {
+                    if (url.contains(":" + epId + ":")) {
+                        throw new SQLException(
+                                "down: " + epId, null, UErrorCode.CAS_ER_FREE_SERVER);
+                    }
+                }
+                CursorConnection conn = new CursorConnection(url);
+                opened.add(conn);
+                return conn.proxy;
+            }
+        };
+    }
+
+    private static CursorConnection openedFor(
+            final List<CursorConnection> opened, final Endpoint ep) {
+        for (CursorConnection conn : opened) {
+            if (conn.url.contains(":" + ep.getId() + ":")) {
+                return conn;
+            }
+        }
+        throw new AssertionError("no physical connection was opened to " + ep.getId());
+    }
+
+    /** A physical connection whose statements open result sets that stay open until closed. */
+    private static final class CursorConnection implements InvocationHandler {
+
+        final String url;
+
+        final Connection proxy;
+
+        boolean closed;
+
+        CursorConnection(final String url) {
+            this.url = url;
+            this.proxy =
+                    (Connection)
+                            Proxy.newProxyInstance(
+                                    Connection.class.getClassLoader(),
+                                    new Class[] {Connection.class},
+                                    this);
+        }
+
+        public Object invoke(final Object p, final Method method, final Object[] args) {
+            String name = method.getName();
+            if ("close".equals(name)) {
+                closed = true;
+                return null;
+            }
+            if ("isClosed".equals(name)) {
+                return Boolean.valueOf(closed);
+            }
+            if ("createStatement".equals(name)) {
+                return statement();
+            }
+            return zeroOf(method.getReturnType());
+        }
+
+        private Statement statement() {
+            return (Statement)
+                    Proxy.newProxyInstance(
+                            Statement.class.getClassLoader(),
+                            new Class[] {Statement.class},
+                            new InvocationHandler() {
+                                private ResultSet current;
+
+                                public Object invoke(
+                                        final Object p, final Method method, final Object[] args) {
+                                    String name = method.getName();
+                                    if ("executeQuery".equals(name)) {
+                                        current = cursor();
+                                        return current;
+                                    }
+                                    if ("getResultSet".equals(name)) {
+                                        return current;
+                                    }
+                                    if ("getConnection".equals(name)) {
+                                        return proxy;
+                                    }
+                                    return zeroOf(method.getReturnType());
+                                }
+                            });
+        }
+
+        private ResultSet cursor() {
+            return (ResultSet)
+                    Proxy.newProxyInstance(
+                            ResultSet.class.getClassLoader(),
+                            new Class[] {ResultSet.class},
+                            new InvocationHandler() {
+                                private boolean rsClosed;
+
+                                public Object invoke(
+                                        final Object p, final Method method, final Object[] args) {
+                                    String name = method.getName();
+                                    if ("close".equals(name)) {
+                                        rsClosed = true;
+                                        return null;
+                                    }
+                                    if ("isClosed".equals(name)) {
+                                        return Boolean.valueOf(rsClosed || closed);
+                                    }
+                                    return zeroOf(method.getReturnType());
+                                }
+                            });
+        }
+
+        private static Object zeroOf(final Class<?> type) {
+            if (Boolean.TYPE.equals(type)) {
+                return Boolean.FALSE;
+            }
+            if (Integer.TYPE.equals(type)) {
+                return Integer.valueOf(0);
+            }
+            if (Long.TYPE.equals(type)) {
+                return Long.valueOf(0L);
+            }
+            return null;
+        }
     }
 
     private static Connection physicalConnection() {

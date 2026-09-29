@@ -859,6 +859,26 @@ public class LBStatement extends CUBRIDStatement {
     }
 
     /**
+     * The physical connection under a result set this statement handed out and the application has
+     * not closed, or null. Failback must not close that connection.
+     *
+     * @return the connection holding an open cursor, or null
+     */
+    public Connection openCursorConnection() {
+        ResultSet rs = lastRs;
+        Statement stmt = lastExecStmt;
+        if (rs == null || stmt == null) {
+            return null;
+        }
+
+        try {
+            return rs.isClosed() ? null : stmt.getConnection();
+        } catch (SQLException unreadable) {
+            return null; // a result set that cannot answer cannot be read either
+        }
+    }
+
+    /**
      * Publishes the physical statement about to execute, so a concurrent cancel() can reach it.
      *
      * @param stmt the physical statement about to execute

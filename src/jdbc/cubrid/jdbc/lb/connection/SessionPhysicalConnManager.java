@@ -756,6 +756,11 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         }
     }
 
+    public synchronized Connection boundConnection(final SessionLeg leg) {
+        Endpoint ep = getSessionEndpoint(leg);
+        return ep == null ? null : connsByEpId.get(ep.getId());
+    }
+
     /** {@inheritDoc} */
     public synchronized boolean isReadOnRwConnection() {
         return roOnRw;

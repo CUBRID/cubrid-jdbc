@@ -113,6 +113,14 @@ public interface EndpointConnManager extends LoadBalanceConnection.PhysicalResou
     Endpoint getSessionEndpoint(SessionLeg leg);
 
     /**
+     * The leg's current physical connection, or null. Unlike {@link #getPhyConn}, never opens one.
+     *
+     * @param leg the session leg
+     * @return the bound physical connection, or null when none is open
+     */
+    Connection boundConnection(SessionLeg leg);
+
+    /**
      * Whether reads currently run on the RW physical connection instead of one of their own - the
      * {@code readReusesRw} state of {@link #bindSessionWithReadTarget}, which failover can also
      * enter when every read endpoint is down. Exported as an operator gauge.

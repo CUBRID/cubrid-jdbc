@@ -3050,6 +3050,9 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         if (now - lastReadFailbackAttemptMs < config.getReadFailbackProbeIntervalMs()) {
             return;
         }
+        if (hasOpenCursorOn(connMgr.boundConnection(SessionLeg.RO))) {
+            return; // retried on a later read, once the cursor is closed
+        }
         lastReadFailbackAttemptMs = now;
 
         try {
@@ -3101,6 +3104,34 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     /**
+     * Whether a result set the application has not closed lives on {@code physical}. Failback
+     * closes the connection it leaves, and every cursor on it with it.
+     */
+    private boolean hasOpenCursorOn(final Connection physical) {
+        if (physical == null) {
+            return false;
+        }
+
+        List<Statement> snapshot;
+        synchronized (openStatements) {
+            snapshot = new ArrayList<Statement>(openStatements);
+        }
+        for (Statement each : snapshot) {
+            Connection underCursor = null;
+            if (each instanceof LBPreparedStatement) {
+                underCursor = ((LBPreparedStatement) each).openCursorConnection();
+            } else if (each instanceof LBStatement) {
+                underCursor = ((LBStatement) each).openCursorConnection();
+            }
+            if (underCursor == physical) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Attempts RW failback at a caller-verified safe boundary: no statement in flight and no
      * transaction work since the last commit/rollback. Throttled per session; a session already on
      * the master returns inside {@code restoreRwIfRecovered()} without opening anything.
@@ -3116,6 +3147,9 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         long now = System.currentTimeMillis();
         if (now - lastRwFailbackAttemptMs < config.getWriteFailbackProbeIntervalMs()) {
             return;
+        }
+        if (hasOpenCursorOn(connMgr.boundConnection(SessionLeg.RW))) {
+            return; // retried at a later trigger, once the cursor is closed
         }
         lastRwFailbackAttemptMs = now;
 

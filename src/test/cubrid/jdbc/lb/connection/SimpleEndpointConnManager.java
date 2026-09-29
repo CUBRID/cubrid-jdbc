@@ -213,6 +213,17 @@ public final class SimpleEndpointConnManager implements EndpointConnManager {
         return prepareStatement(endpoint, sql);
     }
 
+    public synchronized PreparedStatement prepareStatement(
+            final Endpoint endpoint,
+            final String sql,
+            final String ownerId,
+            final int resultSetType,
+            final int resultSetConcurrency,
+            final int resultSetHoldability)
+            throws SQLException {
+        return prepareStatement(endpoint, sql);
+    }
+
     public synchronized void closePrepStmts() throws SQLException {
         preparedStatements.clear();
         closePreparedStatementsCallCount++;

@@ -38,6 +38,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import cubrid.jdbc.driver.CUBRIDConnection;
+import cubrid.jdbc.jci.UConnection;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
@@ -235,6 +236,27 @@ public final class LoadBalanceConnectionCastTest {
     }
 
     /**
+     * Added to {@code CUBRIDConnection} by APIS-1108; inherited, it synchronized on the null {@code
+     * u_con}. The session's lock timeout is the write leg's.
+     */
+    @Test
+    public void getLockTimeoutAsksTheWriteLeg() throws Exception {
+        LoadBalanceConnection conn = boundEx();
+
+        assertEquals(Legs.RW_LOCK_TIMEOUT, conn.getLockTimeout());
+    }
+
+    @Test
+    public void getLockTimeoutBeforeBindingAnswersTheSessionValue() throws Exception {
+        LoadBalanceConnection conn =
+                new LoadBalanceConnection(LoadBalanceSettings.of(sessionModeProperties()));
+
+        assertEquals(UConnection.LOCK_TIMEOUT_NOT_USED, conn.getLockTimeout());
+        conn.setLockTimeout(5);
+        assertEquals(5, conn.getLockTimeout());
+    }
+
+    /**
      * Every {@code public}/{@code protected} method of {@code CUBRIDConnection} must be declared
      * here. An inherited one runs against {@code u_con == null} and against inherited fields this
      * object does not maintain — {@code is_closed} in particular stays false forever, so an
@@ -375,12 +397,27 @@ public final class LoadBalanceConnectionCastTest {
         final AtomicInteger rwLobNews = new AtomicInteger();
         final AtomicInteger roLobNews = new AtomicInteger();
 
+        static final int RW_LOCK_TIMEOUT = 1111;
+        static final int RO_LOCK_TIMEOUT = 2222;
+
         Connection writeLeg() {
-            return leg(rwLockTimeouts, rwCasChangeModes, rwCharsets, rwUConnections, rwLobNews);
+            return leg(
+                    rwLockTimeouts,
+                    rwCasChangeModes,
+                    rwCharsets,
+                    rwUConnections,
+                    rwLobNews,
+                    RW_LOCK_TIMEOUT);
         }
 
         Connection readLeg() {
-            return leg(roLockTimeouts, roCasChangeModes, roCharsets, roUConnections, roLobNews);
+            return leg(
+                    roLockTimeouts,
+                    roCasChangeModes,
+                    roCharsets,
+                    roUConnections,
+                    roLobNews,
+                    RO_LOCK_TIMEOUT);
         }
 
         private static Connection leg(
@@ -388,10 +425,14 @@ public final class LoadBalanceConnectionCastTest {
                 final AtomicInteger casChangeModes,
                 final AtomicInteger charsets,
                 final AtomicInteger uConnections,
-                final AtomicInteger lobNews) {
+                final AtomicInteger lobNews,
+                final int lockTimeout) {
             return new FakePhysicalConnection() {
                 @Override
                 protected Object dispatch(final String name, final Object[] args) {
+                    if ("getLockTimeout".equals(name)) {
+                        return Integer.valueOf(lockTimeout);
+                    }
                     if ("setLockTimeout".equals(name)) {
                         lockTimeouts.incrementAndGet();
                         return null;

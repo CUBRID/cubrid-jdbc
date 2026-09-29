@@ -1570,6 +1570,27 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         recordRwCmd("setLockTimeout");
     }
 
+    /** The write leg's; before binding, the value set here or the core default. */
+    public int getLockTimeout() throws SQLException {
+        checkClosed();
+        if (!isSessionInitialized()) {
+            return lockTimeout != null ? lockTimeout.intValue() : UConnection.LOCK_TIMEOUT_NOT_USED;
+        }
+
+        return runRwCommand(
+                        "getLockTimeout",
+                        new ExecuteFailoverHandler.SqlExecution<Integer>() {
+                            public Integer run() throws SQLException {
+                                return Integer.valueOf(
+                                        extConn(
+                                                        getPhysicalConnForCmd(SessionLeg.RW),
+                                                        "getLockTimeout")
+                                                .getLockTimeout());
+                            }
+                        })
+                .intValue();
+    }
+
     /**
      * Sets the CAS change mode on both session legs. Applications typically call this on every pool
      * checkout, so the read leg is attempted even when the write leg failed - the read leg must not

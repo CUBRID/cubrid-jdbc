@@ -216,6 +216,11 @@ public class FakePhysicalConnection extends CUBRIDConnection {
     }
 
     @Override
+    public int getLockTimeout() throws java.sql.SQLException {
+        return asInt(dispatch("getLockTimeout", NO_ARGS));
+    }
+
+    @Override
     public java.sql.DatabaseMetaData getMetaData() throws java.sql.SQLException {
         return (java.sql.DatabaseMetaData) dispatch("getMetaData", NO_ARGS);
     }

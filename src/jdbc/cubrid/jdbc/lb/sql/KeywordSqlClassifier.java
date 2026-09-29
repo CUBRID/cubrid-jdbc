@@ -122,9 +122,53 @@ public final class KeywordSqlClassifier implements SqlClassifier {
         LEADING_WRITE_KEYWORDS = Collections.unmodifiableMap(write);
     }
 
+    /**
+     * Classifies each statement of a multi-statement string on its own and returns the most
+     * restrictive result, so one write or unrecognized statement sends the whole string to RW while
+     * {@code SELECT 1; SELECT 2} stays READ. Statements are split at {@code ;} outside comments and
+     * quoted regions; empty statements (a trailing {@code ;}) are ignored. A string without {@code
+     * ;} is classified directly, with no extra scan.
+     */
     @Override
     public SqlClassification classify(final String sql) {
-        final String normalized = normalizeLeading(sql);
+        if (sql == null || sql.indexOf(';') < 0) {
+            return classifyNormalized(normalizeLeading(sql));
+        }
+
+        final int len = sql.length();
+        SqlClassification result = null;
+        int start = 0;
+        int i = 0;
+
+        while (i <= len) {
+            if (i < len) {
+                final int after = SqlLexer.skipCommentOrQuoted(sql, i);
+                if (after != i) {
+                    i = after;
+                    continue;
+                }
+                if (sql.charAt(i) != ';') {
+                    i++;
+                    continue;
+                }
+            }
+
+            final String normalized = normalizeLeading(sql.substring(start, i));
+            if (normalized.length() > 0) {
+                final SqlClassification classified = classifyNormalized(normalized);
+                if (classified == SqlClassification.WRITE) {
+                    return SqlClassification.WRITE;
+                }
+                result = result == null ? classified : mostRestrictive(result, classified);
+            }
+            start = i + 1;
+            i++;
+        }
+
+        return result == null ? SqlClassification.UNKNOWN : result;
+    }
+
+    private static SqlClassification classifyNormalized(final String normalized) {
         if (normalized.length() == 0) {
             return SqlClassification.UNKNOWN;
         }
@@ -145,8 +189,8 @@ public final class KeywordSqlClassifier implements SqlClassifier {
 
     /**
      * Classifies a CTE-led statement ({@code WITH [RECURSIVE] cte AS (...) [, ...] <stmt>}) by its
-     * <b>top-level verb</b> (spec 8.2). {@code WITH ... INSERT/UPDATE/DELETE/MERGE} is WRITE; an
-     * unrecognized verb is UNKNOWN (safe side, RW). {@code WITH ... SELECT} goes through {@link
+     * <b>top-level verb</b>. {@code WITH ... INSERT/UPDATE/DELETE/MERGE} is WRITE; an unrecognized
+     * verb is UNKNOWN (safe side, RW). {@code WITH ... SELECT} goes through {@link
      * #classifySelect}, and so does every CTE body: the verb is the top-level one, but a side
      * effect in a body (serial NEXTVAL, write built-in, user routine, session variable, LOB) runs
      * all the same, so it moves the statement off RO just as it would in the main SELECT.

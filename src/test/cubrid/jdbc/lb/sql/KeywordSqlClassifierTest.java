@@ -289,26 +289,71 @@ public class KeywordSqlClassifierTest {
         assertEquals(
                 SqlClassification.UNKNOWN, classifier.classify("SELECT CALL proc_from_select()"));
         assertEquals(
-                SqlClassification.UNKNOWN,
-                classifier.classify("SELECT * FROM t; UPDATE t SET c=1"));
+                SqlClassification.WRITE, classifier.classify("SELECT * FROM t; UPDATE t SET c=1"));
     }
 
     /**
      * INTO-less INSERT ("INSERT tbl VALUES ..."/"INSERT tbl SET ...", CUBRID allows omitting INTO)
      * trailing a SELECT in a multi-statement must not be classified READ, or the write would route
-     * to a slave/replica. It must fall to UNKNOWN → RW.
+     * to a slave/replica. The trailing statement is classified on its own, so it is WRITE → RW.
      */
     @Test
-    public void assertIntolessInsertAfterSelectClassifiedAsUnknown() {
+    public void assertIntolessInsertAfterSelectClassifiedAsWrite() {
         assertEquals(
-                SqlClassification.UNKNOWN,
+                SqlClassification.WRITE,
                 classifier.classify("SELECT 1 FROM t; INSERT t VALUES (1)"));
         assertEquals(
-                SqlClassification.UNKNOWN,
-                classifier.classify("SELECT 1 FROM t; INSERT t SET c=1"));
+                SqlClassification.WRITE, classifier.classify("SELECT 1 FROM t; INSERT t SET c=1"));
+        assertEquals(
+                SqlClassification.WRITE,
+                classifier.classify("SELECT 1 FROM t; INSERT INTO t VALUES (1)"));
+    }
+
+    /**
+     * A multi-statement string is classified statement by statement and takes the most restrictive
+     * result: all reads stay READ, and a statement the classifier does not recognize as a read
+     * (RENAME, COMMIT, SET, PREPARE, SAVEPOINT, ...) sends the whole string to RW, with no keyword
+     * list to keep complete.
+     */
+    @Test
+    public void assertMultiStatementClassifiedPerStatement() {
+        assertEquals(SqlClassification.READ, classifier.classify("SELECT 1; SELECT 2;"));
+        assertEquals(
+                SqlClassification.UNKNOWN, classifier.classify("SELECT 1; RENAME TABLE a AS b"));
+        assertEquals(
+                SqlClassification.UNKNOWN, classifier.classify("SELECT 1 FROM db_root; COMMIT"));
+        assertEquals(SqlClassification.UNKNOWN, classifier.classify("SELECT 1; ROLLBACK"));
+        assertEquals(SqlClassification.UNKNOWN, classifier.classify("SELECT 1; SAVEPOINT a"));
         assertEquals(
                 SqlClassification.UNKNOWN,
-                classifier.classify("SELECT 1 FROM t; INSERT INTO t VALUES (1)"));
+                classifier.classify("SELECT 1; SET SYSTEM PARAMETERS 'xxx=1'"));
+        assertEquals(
+                SqlClassification.UNKNOWN,
+                classifier.classify("SELECT 1; PREPARE s FROM 'SELECT 1'"));
+        assertEquals(
+                SqlClassification.WRITE, classifier.classify("SELECT 1; INSERT INTO t VALUES (1)"));
+        assertEquals(
+                SqlClassification.WRITE,
+                classifier.classify("SELECT 1; COMMIT; DELETE FROM t WHERE id = 1"));
+    }
+
+    /**
+     * Only a {@code ;} outside comments and quoted regions splits statements, and an empty
+     * statement (a trailing {@code ;}, or one holding only a comment) is ignored.
+     */
+    @Test
+    public void assertStatementSeparatorOnlyOutsideLiteralsAndComments() {
+        assertEquals(SqlClassification.READ, classifier.classify("SELECT 1;"));
+        assertEquals(SqlClassification.READ, classifier.classify("SELECT 1; -- done\n"));
+        assertEquals(SqlClassification.READ, classifier.classify("SELECT 1; /* COMMIT */ ;"));
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify("SELECT id FROM t WHERE c = 'a; COMMIT'"));
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify("SELECT id FROM t /* ; COMMIT */ WHERE c = 1"));
+        assertEquals(SqlClassification.READ, classifier.classify("SELECT \"a;COMMIT\" FROM t"));
+        assertEquals(SqlClassification.UNKNOWN, classifier.classify(";"));
     }
 
     @Test

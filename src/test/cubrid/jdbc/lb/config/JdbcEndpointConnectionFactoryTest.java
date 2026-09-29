@@ -73,6 +73,34 @@ public class JdbcEndpointConnectionFactoryTest {
         assertFalse(spec.getJdbcUrl().contains("secret"));
     }
 
+    /**
+     * The broker must get the credentials a classic connection would send: as given - a password
+     * may begin or end with a space - and from {@code info} whenever it has the key, even empty.
+     */
+    @Test
+    public void credentialsFollowTheClassicRules() throws SQLException {
+        Properties info = new Properties();
+
+        info.setProperty("password", " spaced ");
+        assertEquals(" spaced ", physicalPassword(info));
+
+        info.setProperty("password", "");
+        assertEquals(
+                "an empty password in info still wins over the URL's", "", physicalPassword(info));
+
+        info.remove("password");
+        assertEquals("urlpass", physicalPassword(info));
+    }
+
+    private static String physicalPassword(final Properties info) throws SQLException {
+        return JdbcEndpointConnSpecFactory.forEndpoint(
+                        "jdbc:cubrid:localhost:30000:testdb:dba:urlpass:",
+                        info,
+                        new Endpoint("h", 1))
+                .getConnectionProperties()
+                .getProperty("password");
+    }
+
     @Test
     public void stripsLbBootstrapParametersFromQueryString() throws SQLException {
         String url =

@@ -94,12 +94,12 @@ public final class JdbcEndpointConnSpecFactory {
         Properties merged = mergeClientProps(clientInfo);
 
         String user =
-                firstNonEmpty(
+                credential(
                         lbConfig != null ? lbConfig.getPhysicalJdbcUser() : null,
                         merged.getProperty("user"),
                         userInUrl);
         String password =
-                firstNonEmpty(
+                credential(
                         lbConfig != null ? lbConfig.getPhysicalJdbcPassword() : null,
                         merged.getProperty("password"),
                         passInUrl);
@@ -153,12 +153,12 @@ public final class JdbcEndpointConnSpecFactory {
         Properties merged = mergeClientProps(clientInfo);
 
         String user =
-                firstNonEmpty(
+                credential(
                         config.getPhysicalJdbcUser(),
                         merged.getProperty("user"),
                         config.getUrlUser());
         String password =
-                firstNonEmpty(
+                credential(
                         config.getPhysicalJdbcPassword(),
                         merged.getProperty("password"),
                         config.getUrlPassword());
@@ -321,19 +321,15 @@ public final class JdbcEndpointConnSpecFactory {
         return p;
     }
 
-    private static String firstNonEmpty(String a, String b, String c) {
-        if (a != null && a.trim().length() > 0) {
-            return a.trim();
+    /**
+     * The LB override when set, then the classic rule: {@code info} whenever it has the key, even
+     * empty, else the URL. Used as given - a password may begin or end with a space.
+     */
+    private static String credential(String override, String fromInfo, String fromUrl) {
+        if (override != null && override.length() > 0) {
+            return override;
         }
 
-        if (b != null && b.trim().length() > 0) {
-            return b.trim();
-        }
-
-        if (c != null && c.trim().length() > 0) {
-            return c.trim();
-        }
-
-        return null;
+        return fromInfo != null ? fromInfo : fromUrl;
     }
 }

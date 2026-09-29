@@ -50,6 +50,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 public final class CachingSqlClassifier implements SqlClassifier {
     private static final int MIN_MAP_INITIAL_CAPACITY = 16;
     private static final int MAX_MAP_INITIAL_CAPACITY = 4096;
+    // Longer statements are classified each time: the cache is JVM-wide and keyed by the full text,
+    // so keeping distinct bulk INSERTs would hold megabytes of SQL each. One scan costs little
+    // next to sending that much.
+    private static final int MAX_CACHED_SQL_LENGTH = 4096;
     private final SqlClassifier delegate;
     private final int maxEntries;
     private final int initialCapacity;
@@ -82,8 +86,8 @@ public final class CachingSqlClassifier implements SqlClassifier {
 
     @Override
     public SqlClassification classify(final String sql) {
-        if (sql == null) {
-            return delegate.classify(null);
+        if (sql == null || sql.length() > MAX_CACHED_SQL_LENGTH) {
+            return delegate.classify(sql);
         }
 
         SqlClassification hit = hot.get(sql);

@@ -59,6 +59,25 @@ public class CachingSqlClassifierTest {
         assertEquals(1, delegate.count);
     }
 
+    /**
+     * The cache is JVM-wide and keyed by the full text, so every distinct bulk INSERT it kept
+     * stayed on the heap. A statement that long is classified each time instead.
+     */
+    @Test
+    public void longStatementIsNotKept() {
+        StringBuilder bulk = new StringBuilder("INSERT INTO t VALUES (0)");
+        while (bulk.length() < 100 * 1024) {
+            bulk.append(", (0)");
+        }
+        CountingClassifier delegate = new CountingClassifier();
+        CachingSqlClassifier cache = new CachingSqlClassifier(delegate, 8192);
+
+        cache.classify(bulk.toString());
+        cache.classify(bulk.toString());
+
+        assertEquals(2, delegate.count);
+    }
+
     @Test
     public void entrySurvivesOneRotationWithoutFullClear() {
         // maxEntries=2: A,B fill the hot generation; C overflows and rotates {A,B,C} to cold.

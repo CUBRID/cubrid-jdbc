@@ -36,7 +36,6 @@ import cubrid.jdbc.driver.CUBRIDDriver;
 import cubrid.jdbc.driver.CUBRIDOutResultSet;
 import cubrid.jdbc.driver.CUBRIDShardMetaData;
 import cubrid.jdbc.driver.CUBRIDStatement;
-import cubrid.jdbc.jci.ReconnectPolicy;
 import cubrid.jdbc.jci.UConnection;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
@@ -49,7 +48,6 @@ import cubrid.jdbc.lb.connection.SessionPhysicalConnManager;
 import cubrid.jdbc.lb.failover.ExecuteFailoverHandler;
 import cubrid.jdbc.lb.failover.PhysicalRecoveryContext;
 import cubrid.jdbc.lb.failover.PhysicalRecoveryResult;
-import cubrid.jdbc.lb.failover.UnreachableEndpoints;
 import cubrid.jdbc.lb.log.LbFileLogging;
 import cubrid.jdbc.lb.log.LbLog;
 import cubrid.jdbc.lb.log.LbLogDedup;
@@ -146,6 +144,9 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     // The endpoint actually selected for the most recent physical prepare/statement, so failover
     // recovers the endpoint that was really used, not a recomputed preview.
     private Endpoint lastExecEndpoint = null;
+    // Set only while endLostWriteTx rebinds the write leg: the transaction there is known to be
+    // over, although the dead connection's last reply still says it is open.
+    private boolean writeTxLost = false;
     private EndpointTopology sessionTopology = null;
     private final Object recoveryLock = new Object();
     private boolean sessionInitialized;
@@ -552,7 +553,23 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                 // recoverRo already fold it in softly via softExcludedIds(), and hard-excluding it
                 // here would undo the backoff-bypass probe.
                 Collections.<String>emptySet(),
-                sessionState.isTransactionActive());
+                hasUncommittedRwWork());
+    }
+
+    /**
+     * Whether failing over now could lose work the application believes is in its transaction.
+     *
+     * <p>Only a manual-commit session can have such work, and its routing pin ({@code
+     * shouldRouteToRw}) cannot tell: it is re-armed at every boundary to keep reads on the write
+     * connection, so it says "in a transaction" even right after a commit. The server can - it
+     * reports in every reply whether a transaction is open, including work LB never saw.
+     */
+    private boolean hasUncommittedRwWork() throws SQLException {
+        if (sessionState.isAutoCommit() || writeTxLost) {
+            return false;
+        }
+
+        return requireConnMgr().isRwTxOpenOnServer();
     }
 
     /**
@@ -960,7 +977,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         }
 
         synchronized (recoveryLock) {
-            if (ctx.isTxActive() || sessionState.isTransactionActive()) {
+            if (ctx.isTxActive() || hasUncommittedRwWork()) {
                 throw originalEx;
             }
 
@@ -1125,7 +1142,12 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             // the autocommit mode below: if that propagation throws, the session must not be left
             // manual+txActive over an already-committed transaction (a later rollback() would then
             // appear to undo committed work).
-            propagatePhyCommit();
+            try {
+                propagatePhyCommit();
+            } catch (SQLException failure) {
+                endLostWriteTx("implicit commit", failure);
+                throw failure;
+            }
             sessionState.setAutoCommit(true);
             propagatePhyAutoCommit(true);
             logTxBoundary("autoCommit=true during a live transaction (implicit commit)");
@@ -1147,7 +1169,12 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         if (sessionState.isAutoCommit()) {
             throw LbExceptions.txAutocommitOnly();
         }
-        propagatePhyCommit();
+        try {
+            propagatePhyCommit();
+        } catch (SQLException failure) {
+            endLostWriteTx("commit", failure);
+            throw failure;
+        }
         sessionState.onTransactionBoundary();
         logTxBoundary("commit");
         // Transaction boundary: nothing is in flight, so this is the safe point to move a displaced
@@ -1162,10 +1189,41 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         if (sessionState.isAutoCommit()) {
             throw LbExceptions.txAutocommitOnly();
         }
-        propagatePhyRollback();
+        try {
+            propagatePhyRollback();
+        } catch (SQLException failure) {
+            endLostWriteTx("rollback", failure);
+            throw failure;
+        }
         sessionState.onTransactionBoundary();
         logTxBoundary("rollback");
         attemptRwFailback(); // same transaction boundary as commit(); see the comment there
+    }
+
+    /**
+     * A commit or rollback failed because the write connection is gone. The server has aborted the
+     * transaction, but the dead connection still reports it open and would block every later
+     * failover, so rebind the write leg now. The caller still sees the failure.
+     */
+    private void endLostWriteTx(final String event, final SQLException failure) {
+        if (!ExecuteFailoverHandler.isBrokerFailure(failure)) {
+            return; // the transaction may well still be open
+        }
+
+        sessionState.onTransactionBoundary();
+        logTxBoundary(event + " lost with the write connection");
+        writeTxLost = true;
+        try {
+            Endpoint failed = resolveFailedExecEndpoint(Router.RouteTarget.TO_READ_WRITE);
+            recoverPhyBinding(buildRecoveryCtx(Router.RouteTarget.TO_READ_WRITE, failed), failure);
+        } catch (SQLException stillDown) {
+            // Nothing rebound; the next commit or rollback tries again.
+            if (stillDown != failure) {
+                failure.setNextException(stillDown);
+            }
+        } finally {
+            writeTxLost = false;
+        }
     }
 
     /**
@@ -2651,9 +2709,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                                 }
                             });
         } catch (SQLException failure) {
-            if (sessionState.isTransactionActive()
-                    || !(ReconnectPolicy.isRetriableSqlException(failure)
-                            || UnreachableEndpoints.shouldMarkUnreachable(failure))) {
+            if (hasUncommittedRwWork() || !ExecuteFailoverHandler.isBrokerFailure(failure)) {
                 throw failure; // not a broker failure, or failover was forbidden: nothing rebound
             }
 

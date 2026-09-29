@@ -55,6 +55,21 @@ public final class ExecuteFailoverHandler {
         T run() throws SQLException;
     }
 
+    /**
+     * Whether {@code ex} says the broker behind the physical connection went away, rather than that
+     * the statement itself failed: the retriable set, plus the unreachable-host set used by the
+     * core JCI althost reconnect (UClientSideConnection.reconnect) and the LB unreachable filter.
+     * That covers a broker stopped with {@code cubrid broker off}, which surfaces as ER_CONNECTION
+     * - an unreachable-host error ReconnectPolicy alone does not retry.
+     *
+     * @param ex the failure to classify
+     * @return whether the failure is the broker's rather than the statement's
+     */
+    public static boolean isBrokerFailure(final SQLException ex) {
+        return ReconnectPolicy.isRetriableSqlException(ex)
+                || UnreachableEndpoints.shouldMarkUnreachable(ex);
+    }
+
     public <T> T executeWithFailover(
             final LoadBalanceConnection connection,
             final Router.RouteTarget routeTarget,
@@ -142,12 +157,7 @@ public final class ExecuteFailoverHandler {
         try {
             return timedRun(connection, routeTarget, timed, execution);
         } catch (SQLException ex) {
-            // Fail over on the retriable set and on the unreachable-host set used by the core JCI
-            // althost reconnect (UClientSideConnection.reconnect) and the LB unreachable filter.
-            // That covers a broker stopped with `cubrid broker off`, which surfaces as
-            // ER_CONNECTION - an unreachable-host error ReconnectPolicy alone does not retry.
-            if (!ReconnectPolicy.isRetriableSqlException(ex)
-                    && !UnreachableEndpoints.shouldMarkUnreachable(ex)) {
+            if (!isBrokerFailure(ex)) {
                 // Not a broker failure: the statement itself failed and no leg is rebound.
                 // Recorded, so a log showing no failover after an error is explained rather than
                 // silent.

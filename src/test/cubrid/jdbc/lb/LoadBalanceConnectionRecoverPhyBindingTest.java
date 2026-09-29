@@ -36,6 +36,8 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import cubrid.jdbc.jci.ReconnectPolicy;
+import cubrid.jdbc.jci.UConnection;
 import cubrid.jdbc.jci.UErrorCode;
 import cubrid.jdbc.jci.UUnreachableHostList;
 import cubrid.jdbc.lb.config.Endpoint;
@@ -45,6 +47,7 @@ import cubrid.jdbc.lb.connection.JdbcConnectionFactory;
 import cubrid.jdbc.lb.connection.SessionPhysicalConnManager;
 import cubrid.jdbc.lb.failover.PhysicalRecoveryContext;
 import cubrid.jdbc.lb.failover.PhysicalRecoveryResult;
+import cubrid.jdbc.lb.failover.UnreachableEndpoints;
 import cubrid.jdbc.lb.route.Router;
 import cubrid.jdbc.lb.state.SharedSelectorState;
 import java.lang.reflect.InvocationHandler;
@@ -52,8 +55,10 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -98,6 +103,254 @@ public class LoadBalanceConnectionRecoverPhyBindingTest {
         assertEquals("rw:33000", ctx.getFailedEndpoint().getId());
 
         conn.close();
+    }
+
+    /**
+     * A manual-commit session re-arms its transaction pin at every boundary, so its reads never
+     * leave the write connection - and the recovery guard read that same pin. A session that had
+     * just committed, with nothing left on the server to lose, could therefore never fail over;
+     * with a dead master every statement failed and the pool kept the connection. Whether there is
+     * work to lose is the server's answer, not the routing pin's.
+     */
+    @Test
+    public void manualCommitSessionFailsOverWhenTheServerHasNoOpenTransaction()
+            throws SQLException {
+        ServerTxFactory factory = new ServerTxFactory();
+        LoadBalanceConnection conn =
+                newConnection(LoadBalanceSettings.of(sessionProperties()), factory);
+        conn.initSessionBindings(topology("rw", "ro1"));
+        conn.setAutoCommit(false);
+        conn.commit();
+        factory.reportTxOpen(false);
+
+        recoverWriteLeg(conn, brokerFailure());
+
+        conn.close();
+    }
+
+    /** The other half: uncommitted work on the server must still forbid the rebind. */
+    @Test
+    public void manualCommitSessionStaysPinnedWhileTheServerHasAnOpenTransaction()
+            throws SQLException {
+        ServerTxFactory factory = new ServerTxFactory();
+        LoadBalanceConnection conn =
+                newConnection(LoadBalanceSettings.of(sessionProperties()), factory);
+        conn.initSessionBindings(topology("rw", "ro1"));
+        conn.setAutoCommit(false);
+        factory.reportTxOpen(true);
+
+        SQLException original = brokerFailure();
+        try {
+            recoverWriteLeg(conn, original);
+            fail("uncommitted work on the server must forbid failover");
+        } catch (SQLException e) {
+            assertSame(original, e);
+        }
+        conn.close();
+    }
+
+    /**
+     * The master died mid-transaction, so failover was rightly refused and the application rolled
+     * back. That rollback fails too - the connection is gone - but the server aborts a transaction
+     * whose client disconnected, so there is nothing left to protect. Left open, the session would
+     * refuse failover on every later statement, and a pool resetting it with rollback() on return
+     * would hand the same dead session out again.
+     */
+    @Test
+    public void rollbackThatLosesTheWriteConnectionStillEndsTheTransaction() throws SQLException {
+        ServerTxFactory factory = new ServerTxFactory();
+        LoadBalanceConnection conn =
+                newConnection(LoadBalanceSettings.of(sessionProperties()), factory);
+        conn.initSessionBindings(topology("rw", "ro1"));
+        conn.setAutoCommit(false);
+        factory.reportTxOpen(true);
+        SQLException lost = brokerFailure();
+        factory.failRollback(lost);
+
+        try {
+            conn.rollback();
+            fail("the caller must still see the failed rollback");
+        } catch (SQLException e) {
+            assertSame(lost, e);
+        }
+
+        recoverWriteLeg(conn, brokerFailure());
+
+        conn.close();
+    }
+
+    /**
+     * The same for commit, whose outcome is unknown when the connection drops mid-call: the
+     * application must see the failure, but the session must not be left unable to fail over.
+     */
+    @Test
+    public void commitThatLosesTheWriteConnectionStillEndsTheTransaction() throws SQLException {
+        ServerTxFactory factory = new ServerTxFactory();
+        LoadBalanceConnection conn =
+                newConnection(LoadBalanceSettings.of(sessionProperties()), factory);
+        conn.initSessionBindings(topology("rw", "ro1"));
+        conn.setAutoCommit(false);
+        factory.reportTxOpen(true);
+        SQLException lost = brokerFailure();
+        factory.failCommit(lost);
+
+        try {
+            conn.commit();
+            fail("a commit whose outcome is unknown must not report success");
+        } catch (SQLException e) {
+            assertSame(lost, e);
+        }
+
+        recoverWriteLeg(conn, brokerFailure());
+
+        conn.close();
+    }
+
+    /**
+     * Where the server's answer cannot be read - here a physical connection that is no {@code
+     * CUBRIDConnection} - it is taken to be "open": guessing otherwise would let failover drop
+     * uncommitted work.
+     */
+    @Test
+    public void unreadableServerStatusKeepsManualCommitFailoverForbidden() throws SQLException {
+        LoadBalanceConnection conn =
+                newConnection(LoadBalanceSettings.of(sessionProperties()), alwaysOpenFactory());
+        conn.initSessionBindings(topology("rw", "ro1"));
+        conn.setAutoCommit(false);
+        conn.commit();
+
+        SQLException original = brokerFailure();
+        try {
+            recoverWriteLeg(conn, original);
+            fail("an unreadable server status must forbid failover");
+        } catch (SQLException e) {
+            assertSame(original, e);
+        }
+        conn.close();
+    }
+
+    /** A rollback refused for any other reason may leave the transaction open: keep it pinned. */
+    @Test
+    public void rollbackFailingForAnotherReasonLeavesTheTransactionOpen() throws SQLException {
+        SQLException refused = new SQLException("rollback refused", "HY000", -670);
+        assertFalse(
+                "the negative case must not be a broker failure, or it proves nothing",
+                ReconnectPolicy.isRetriableSqlException(refused)
+                        || UnreachableEndpoints.shouldMarkUnreachable(refused));
+
+        ServerTxFactory factory = new ServerTxFactory();
+        LoadBalanceConnection conn =
+                newConnection(LoadBalanceSettings.of(sessionProperties()), factory);
+        conn.initSessionBindings(topology("rw", "ro1"));
+        conn.setAutoCommit(false);
+        factory.reportTxOpen(true);
+        factory.failRollback(refused);
+
+        try {
+            conn.rollback();
+            fail("the caller must see the refused rollback");
+        } catch (SQLException e) {
+            assertSame(refused, e);
+        }
+
+        SQLException original = brokerFailure();
+        try {
+            recoverWriteLeg(conn, original);
+            fail("a transaction that may still be open must forbid failover");
+        } catch (SQLException e) {
+            assertSame(original, e);
+        }
+        conn.close();
+    }
+
+    /** Recovers the write leg the way ExecuteFailoverHandler does after a RW failure. */
+    private static void recoverWriteLeg(
+            final LoadBalanceConnection conn, final SQLException failure) throws SQLException {
+        Endpoint failed = conn.resolveFailedExecEndpoint(Router.RouteTarget.TO_READ_WRITE);
+        conn.recoverPhyBinding(
+                conn.buildRecoveryCtx(Router.RouteTarget.TO_READ_WRITE, failed), failure);
+    }
+
+    private static SQLException brokerFailure() {
+        return new SQLException("comm fail", null, UErrorCode.ER_COMMUNICATION);
+    }
+
+    /** What the server last reported on a connection: whether a transaction is open there. */
+    private static final class ServerTxStatus extends UConnection {
+
+        void report(final boolean txOpen) {
+            casInfo = new byte[] {(byte) (txOpen ? 1 : 0), 0, 0, 0};
+        }
+
+        public void endTransaction(final boolean type) {}
+
+        protected void closeInternal() {}
+
+        public void setAutoCommit(final boolean autoCommit) {}
+
+        public boolean getAutoCommit() {
+            return false;
+        }
+    }
+
+    /** A physical connection that reports its server's transaction status and can fail. */
+    private static final class ServerTxConnection extends FakePhysicalConnection {
+
+        final ServerTxStatus server = new ServerTxStatus();
+
+        SQLException commitFailure;
+
+        SQLException rollbackFailure;
+
+        @Override
+        protected Object dispatch(final String name, final Object[] args) throws SQLException {
+            if ("getUConnection".equals(name)) {
+                return server;
+            }
+            if ("commit".equals(name) && commitFailure != null) {
+                throw commitFailure;
+            }
+            if ("rollback".equals(name) && rollbackFailure != null) {
+                throw rollbackFailure;
+            }
+
+            return null;
+        }
+    }
+
+    /**
+     * Opens {@link ServerTxConnection}s. Each starts with no open transaction, as a fresh CAS does,
+     * and the setters below apply to the connections opened so far - so the one a rebind opens is
+     * the healthy replacement, not a copy of the dead one.
+     */
+    private static final class ServerTxFactory implements JdbcConnectionFactory {
+
+        private final List<ServerTxConnection> opened = new ArrayList<ServerTxConnection>();
+
+        public Connection getConnection(final String url, final Properties info) {
+            ServerTxConnection conn = new ServerTxConnection();
+            opened.add(conn);
+
+            return conn;
+        }
+
+        void reportTxOpen(final boolean txOpen) {
+            for (ServerTxConnection conn : opened) {
+                conn.server.report(txOpen);
+            }
+        }
+
+        void failCommit(final SQLException failure) {
+            for (ServerTxConnection conn : opened) {
+                conn.commitFailure = failure;
+            }
+        }
+
+        void failRollback(final SQLException failure) {
+            for (ServerTxConnection conn : opened) {
+                conn.rollbackFailure = failure;
+            }
+        }
     }
 
     @Test

@@ -761,6 +761,26 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         return roOnRw;
     }
 
+    public synchronized boolean isRwTxOpenOnServer() {
+        if (sessRwEp == null) {
+            return true;
+        }
+
+        Connection rw = connsByEpId.get(sessRwEp.getId());
+        if (!(rw instanceof CUBRIDConnection)) {
+            return true;
+        }
+
+        try {
+            UConnection u = ((CUBRIDConnection) rw).getUConnection();
+            return u == null || u.isActive();
+        } catch (SQLException unreadable) {
+            return true;
+        } catch (RuntimeException unreadable) {
+            return true; // a stub connection may not carry a UConnection at all
+        }
+    }
+
     /**
      * Pool health probe for {@code Connection.isValid()}. Checks only the bound RW physical
      * connection, which every session has (RW-only sessions and the {@code roOnRw} fallback both

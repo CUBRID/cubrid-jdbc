@@ -60,12 +60,17 @@ public final class ExecuteFailoverHandler {
      * the statement itself failed: the retriable set, plus the unreachable-host set used by the
      * core JCI althost reconnect (UClientSideConnection.reconnect) and the LB unreachable filter.
      * That covers a broker stopped with {@code cubrid broker off}, which surfaces as ER_CONNECTION
-     * - an unreachable-host error ReconnectPolicy alone does not retry.
+     * - an unreachable-host error ReconnectPolicy alone does not retry. A timeout is not a broker
+     * failure: the statement ran out of time on a broker that answered, or may yet.
      *
      * @param ex the failure to classify
      * @return whether the failure is the broker's rather than the statement's
      */
     public static boolean isBrokerFailure(final SQLException ex) {
+        if (UnreachableEndpoints.isTimeout(ex)) {
+            return false;
+        }
+
         return ReconnectPolicy.isRetriableSqlException(ex)
                 || UnreachableEndpoints.shouldMarkUnreachable(ex);
     }

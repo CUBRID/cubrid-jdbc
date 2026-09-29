@@ -31,6 +31,7 @@
 package cubrid.jdbc.lb.failover;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.fail;
 
 import cubrid.jdbc.jci.UErrorCode;
@@ -38,6 +39,7 @@ import cubrid.jdbc.lb.LoadBalanceConnection;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.route.Router;
+import java.net.SocketTimeoutException;
 import java.sql.SQLException;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -90,6 +92,42 @@ public class ExecuteFailoverHandlerTest {
                 throw commFail();
             }
             return "ok";
+        }
+    }
+
+    /**
+     * A statement that ran out of time is not a broker that went away. Treated as one, a slow read
+     * moved a healthy session to another node, dropped its cached statements and ran the query
+     * again - waiting twice the timeout.
+     */
+    @Test
+    public void timeoutIsNotABrokerFailure() throws SQLException {
+        SQLException[] timeouts = {
+            new SQLException("Request timed out", null, UErrorCode.ER_TIMEOUT),
+            new SQLException(
+                    "read failed", null, 0, new SocketTimeoutException("Request timed out"))
+        };
+        for (final SQLException timeout : timeouts) {
+            RecoveringConnection conn = new RecoveringConnection();
+            final AtomicInteger runs = new AtomicInteger();
+            try {
+                new ExecuteFailoverHandler()
+                        .executeWithFailover(
+                                conn,
+                                Router.RouteTarget.TO_READ_ONLY,
+                                "SELECT slow",
+                                new ExecuteFailoverHandler.SqlExecution<String>() {
+                                    public String run() throws SQLException {
+                                        runs.incrementAndGet();
+                                        throw timeout;
+                                    }
+                                });
+                fail("the timeout must reach the caller");
+            } catch (SQLException e) {
+                assertSame(timeout, e);
+            }
+            assertEquals("no rebind for " + timeout.getMessage(), 0, conn.recoverCalls.get());
+            assertEquals("no second run for " + timeout.getMessage(), 1, runs.get());
         }
     }
 

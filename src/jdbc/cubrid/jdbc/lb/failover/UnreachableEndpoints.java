@@ -37,6 +37,7 @@ import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.log.LbLog;
 import cubrid.jdbc.lb.log.LbLogDedup;
 import java.io.IOException;
+import java.net.SocketTimeoutException;
 import java.sql.SQLException;
 import java.util.ArrayDeque;
 import java.util.Collections;
@@ -115,6 +116,43 @@ public final class UnreachableEndpoints {
     }
 
     public static boolean shouldMarkUnreachable(final SQLException ex) {
+        return anyInChain(
+                ex,
+                new ChainTest() {
+                    public boolean matches(final Throwable t) {
+                        return t instanceof IOException
+                                || (t instanceof SQLException
+                                        && isUnreachableErrorCode(
+                                                ((SQLException) t).getErrorCode()));
+                    }
+                });
+    }
+
+    /**
+     * Whether {@code ex} is a timeout: the statement ran out of time, which says nothing about the
+     * broker. A failed connect never looks like this - the core reports it as ER_CONNECTION.
+     *
+     * @param ex the failure to classify
+     * @return whether a timeout appears anywhere in the chain
+     */
+    public static boolean isTimeout(final SQLException ex) {
+        return anyInChain(
+                ex,
+                new ChainTest() {
+                    public boolean matches(final Throwable t) {
+                        return t instanceof SocketTimeoutException
+                                || (t instanceof SQLException
+                                        && ((SQLException) t).getErrorCode()
+                                                == UErrorCode.ER_TIMEOUT);
+                    }
+                });
+    }
+
+    private interface ChainTest {
+        boolean matches(Throwable t);
+    }
+
+    private static boolean anyInChain(final SQLException ex, final ChainTest test) {
         if (ex == null) {
             return false;
         }
@@ -134,16 +172,12 @@ public final class UnreachableEndpoints {
                 continue;
             }
 
-            if (current instanceof IOException) {
+            if (test.matches(current)) {
                 return true;
             }
 
             if (current instanceof SQLException) {
-                SQLException sqlEx = (SQLException) current;
-                if (isUnreachableErrorCode(sqlEx.getErrorCode())) {
-                    return true;
-                }
-                SQLException next = sqlEx.getNextException();
+                SQLException next = ((SQLException) current).getNextException();
                 if (next != null) {
                     stack.push(next);
                 }

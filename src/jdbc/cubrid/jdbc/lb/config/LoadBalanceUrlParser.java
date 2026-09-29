@@ -30,6 +30,7 @@
 
 package cubrid.jdbc.lb.config;
 
+import cubrid.jdbc.driver.CUBRIDDriver;
 import cubrid.jdbc.lb.LbExceptions;
 import java.sql.SQLException;
 import java.util.ArrayList;
@@ -78,12 +79,14 @@ public final class LoadBalanceUrlParser {
 
     private LoadBalanceUrlParser() {}
 
-    public static ParsedUrl parse(final String url) throws SQLException {
-        if (url == null || url.trim().length() == 0) {
+    public static ParsedUrl parse(final String rawUrl) throws SQLException {
+        if (rawUrl == null || rawUrl.trim().length() == 0) {
             throw LbExceptions.invalidUrl("URI URL is null or empty", null);
         }
 
-        final String trimmed = url.trim();
+        // Every error below quotes the URL, and it reaches the logs: never with the password.
+        final String url = CUBRIDDriver.maskUriUrlPassword(rawUrl, null);
+        final String trimmed = rawUrl.trim();
 
         final int sep = trimmed.indexOf(SCHEME_SEPARATOR);
         if (sep < 0) {

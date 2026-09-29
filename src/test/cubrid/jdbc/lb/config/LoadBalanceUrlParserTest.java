@@ -44,6 +44,26 @@ import org.junit.Test;
 
 public class LoadBalanceUrlParserTest {
 
+    /** A parse error quotes the URL - never with its password, which then reaches every log. */
+    @Test
+    public void parseErrorDoesNotQuoteThePassword() {
+        String[] malformed = {
+            "jdbc:cubrid:loadbalance://node1,,node2/testdb:dba:s3cret:",
+            "jdbc:cubrid:loadbalance://node1,node2/testdb:dba:s3cret:extra"
+        };
+        for (String url : malformed) {
+            try {
+                LoadBalanceUrlParser.parse(url);
+                fail("must be refused: " + url);
+            } catch (SQLException e) {
+                assertFalse(e.getMessage(), e.getMessage().contains("s3cret"));
+                assertTrue(
+                        "still quoted, masked: " + e.getMessage(),
+                        e.getMessage().contains("********"));
+            }
+        }
+    }
+
     @Test
     public void parsesGlobalPortExampleWithCredsAndOptions() throws SQLException {
         ParsedUrl p =

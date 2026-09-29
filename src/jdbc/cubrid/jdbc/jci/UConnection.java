@@ -44,8 +44,6 @@ import cubrid.jdbc.driver.CUBRIDConnection;
 import cubrid.jdbc.driver.CUBRIDDriver;
 import cubrid.jdbc.driver.CUBRIDXid;
 import cubrid.jdbc.driver.ConnectionProperties;
-import cubrid.jdbc.log.BasicLogger;
-import cubrid.jdbc.log.Log;
 import cubrid.jdbc.net.BrokerHandler;
 import cubrid.sql.CUBRIDOID;
 import java.io.DataOutputStream;
@@ -56,6 +54,8 @@ import java.sql.SQLException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Vector;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import javax.transaction.xa.Xid;
 
 public abstract class UConnection {
@@ -108,15 +108,26 @@ public abstract class UConnection {
 
     public static final int PROTOCOL_V11 = 11;
     public static final int PROTOCOL_V12 = 12;
+    /* CAS-issued session id required (not just optionally checked) for QC/X1 query cancel,
+     * see KVE-2026-1827 and engine ticket CBRD-27389. Mirrors src/broker/cas_protocol.h's
+     * PROTOCOL_V13 (engine) and src/cci/broker_cas_protocol.h's PROTOCOL_V13 (CCI). */
+    public static final int PROTOCOL_V13 = 13;
 
     /* Current protocol version */
-    protected static final byte CAS_PROTOCOL_VERSION = PROTOCOL_V12;
+    protected static final byte CAS_PROTOCOL_VERSION = PROTOCOL_V13;
     protected static final byte CAS_PROTO_INDICATOR = 0x40;
     protected static final byte CAS_PROTO_VER_MASK = 0x3F;
     protected static final byte CAS_RENEWED_ERROR_CODE = (byte) 0x80;
     protected static final byte CAS_SUPPORT_HOLDABLE_RESULT = (byte) 0x40;
     /* Do not remove and rename CAS_RECONNECT_WHEN_SERVER_DOWN */
     protected static final byte CAS_RECONNECT_WHEN_SERVER_DOWN = (byte) 0x20;
+    /* Announces that a 4-byte CAS-issued session id is appended after the standard 10-byte
+     * query-cancel header sent to BrokerHandler.cancelBroker's "X1" request, so the broker can
+     * verify the cancel request against the session id in addition to source IP/port. This bit
+     * only controls wire framing on that one (unauthenticated) cancel request; whether the check
+     * is actually mandatory is decided by the broker from this connection's own CAS_PROTOCOL_VERSION
+     * (PROTOCOL_V13 or later), recorded at connect time, not from this bit. */
+    public static final byte CAS_SUPPORT_SESSION_CANCEL = (byte) 0x10;
 
     protected static final byte CAS_ORACLE_COMPAT_NUMBER_BEHAVIOR = (byte) 0x01;
 
@@ -129,7 +140,7 @@ public abstract class UConnection {
             INSERT_ELEMENT_INTO_SEQUENCE = 6,
             PUT_ELEMENT_ON_SEQUENCE = 7;
     @SuppressWarnings("unused")
-    private static final int DB_PARAM_ISOLATION_LEVEL = 1,
+    protected static final int DB_PARAM_ISOLATION_LEVEL = 1,
             DB_PARAM_LOCK_TIMEOUT = 2,
             DB_PARAM_AUTO_COMMIT = 4;
 
@@ -137,8 +148,8 @@ public abstract class UConnection {
     protected static final byte END_TRAN_COMMIT = 1;
     protected static final byte END_TRAN_ROLLBACK = 2;
 
-    protected static final int LOCK_TIMEOUT_NOT_USED = -2;
-    protected static final int LOCK_TIMEOUT_INFINITE = -1;
+    public static final int LOCK_TIMEOUT_NOT_USED = -2;
+    public static final int LOCK_TIMEOUT_INFINITE = -1;
 
     protected static final int SOCKET_TIMEOUT = 5000;
 
@@ -215,8 +226,9 @@ public abstract class UConnection {
         driverInfossl[9] = 0; // reserved
     }
 
+    private static final Logger LOGGER = Logger.getLogger(UConnection.class.getName());
+
     protected UError errorHandler;
-    protected Log log;
 
     protected ConnectionProperties connectionProperties = new ConnectionProperties();
     protected CUBRIDConnection cubridcon;
@@ -928,11 +940,7 @@ public abstract class UConnection {
             checkReconnect();
             if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR) return;
 
-            outBuffer.newRequest(output, UFunctionCode.SET_DB_PARAMETER);
-            outBuffer.addInt(DB_PARAM_ISOLATION_LEVEL);
-            outBuffer.addInt(level);
-
-            send_recv_msg();
+            sendSetDbParameter(DB_PARAM_ISOLATION_LEVEL, level);
 
             lastIsolationLevel = level;
         } catch (UJciException e) {
@@ -946,6 +954,11 @@ public abstract class UConnection {
 
     public synchronized void setLockTimeout(int timeout) {
         errorHandler = new UError(this);
+
+        if (timeout < LOCK_TIMEOUT_NOT_USED) {
+            errorHandler.setErrorCode(UErrorCode.ER_INVALID_ARGUMENT);
+            return;
+        }
 
         if (lastLockTimeout != LOCK_TIMEOUT_NOT_USED && lastLockTimeout == timeout) {
             return;
@@ -961,14 +974,9 @@ public abstract class UConnection {
             checkReconnect();
             if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR) return;
 
-            outBuffer.newRequest(output, UFunctionCode.SET_DB_PARAMETER);
-            outBuffer.addInt(DB_PARAM_LOCK_TIMEOUT);
-            outBuffer.addInt(timeout);
+            sendSetDbParameter(DB_PARAM_LOCK_TIMEOUT, timeout);
 
-            send_recv_msg();
-
-            if (timeout < 0) lastLockTimeout = LOCK_TIMEOUT_INFINITE;
-            else lastLockTimeout = timeout;
+            lastLockTimeout = timeout;
         } catch (UJciException e) {
             logException(e);
             e.toUError(errorHandler);
@@ -976,6 +984,34 @@ public abstract class UConnection {
             logException(e);
             errorHandler.setErrorCode(UErrorCode.ER_COMMUNICATION);
         }
+    }
+
+    public synchronized void restorePropertyLockTimeout() {
+        int property = connectionProperties.getLockTimeout();
+        if (property == LOCK_TIMEOUT_NOT_USED || lastLockTimeout == property) {
+            return;
+        }
+
+        if (needReconnection) {
+            lastLockTimeout = property;
+            return;
+        }
+
+        try {
+            sendSetDbParameter(DB_PARAM_LOCK_TIMEOUT, property);
+        } catch (UJciException | IOException e) {
+            logException(e);
+            resetConnection();
+        }
+        lastLockTimeout = property;
+    }
+
+    protected void sendSetDbParameter(int paramName, int value) throws UJciException, IOException {
+        outBuffer.newRequest(output, UFunctionCode.SET_DB_PARAMETER);
+        outBuffer.addInt(paramName);
+        outBuffer.addInt(value);
+
+        send_recv_msg();
     }
 
     // UFunctionCode.SET_CAS_CHANGE_MODE
@@ -1386,25 +1422,15 @@ public abstract class UConnection {
     }
 
     void cancel() throws UJciException, IOException {
-        BrokerHandler.cancelBroker(casIp, casPort, casProcessId, READ_TIMEOUT);
+        byte[] session = new byte[4];
+        for (int i = 0; i < 4; i++) session[i] = sessionId[i + 8];
+
+        BrokerHandler.cancelBroker(casIp, casPort, casProcessId, session, READ_TIMEOUT);
     }
 
     /*
      * logger
      */
-    protected Log getLogger() {
-        if (log == null) {
-            log = new BasicLogger(connectionProperties.getLogFile());
-        }
-        return log;
-    }
-
-    protected void initLogger() {
-        if (connectionProperties.getLogOnException() || connectionProperties.getLogSlowQueries()) {
-            log = getLogger();
-        }
-    }
-
     private SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
 
     public void logSlowQuery(long begin, long end, String sql, UBindParameter p) {
@@ -1414,6 +1440,10 @@ public abstract class UConnection {
 
         long elapsed = end - begin;
         if (connectionProperties.getSlowQueryThresholdMillis() > elapsed) {
+            return;
+        }
+
+        if (!LOGGER.isLoggable(Level.FINEST)) {
             return;
         }
 
@@ -1434,9 +1464,7 @@ public abstract class UConnection {
             b.append('\n');
         }
 
-        synchronized (this) {
-            getLogger().logInfo(b.toString());
-        }
+        LOGGER.log(Level.FINEST, b.toString());
     }
 
     /*
@@ -1705,7 +1733,6 @@ public abstract class UConnection {
     public void setCUBRIDConnection(CUBRIDConnection con) {
         cubridcon = con;
         lastIsolationLevel = CUBRIDIsolationLevel.TRAN_UNKNOWN_ISOLATION;
-        lastLockTimeout = LOCK_TIMEOUT_NOT_USED;
     }
 
     public CUBRIDConnection getCUBRIDConnection() {
@@ -1907,11 +1934,14 @@ public abstract class UConnection {
 
     public void setConnectionProperties(ConnectionProperties connProperties) {
         this.connectionProperties = connProperties;
+        this.lastLockTimeout = connProperties.getLockTimeout();
     }
 
     public UJciException createJciException(int err) {
         UJciException e = new UJciException(err);
-        if (connectionProperties == null || !connectionProperties.getLogOnException()) {
+        if (connectionProperties == null
+                || !connectionProperties.getLogOnException()
+                || !LOGGER.isLoggable(Level.FINE)) {
             return e;
         }
 
@@ -1919,9 +1949,7 @@ public abstract class UConnection {
         b.append("DUMP EXCEPTION\n");
         b.append("[JCI EXCEPTION]");
 
-        synchronized (this) {
-            getLogger().logInfo(b.toString(), e);
-        }
+        LOGGER.log(Level.FINE, b.toString(), e);
         return e;
     }
 
@@ -1932,7 +1960,10 @@ public abstract class UConnection {
     }
 
     public void logException(Throwable t) {
-        if (connectionProperties == null || !connectionProperties.getLogOnException()) {
+        if (t == null
+                || connectionProperties == null
+                || !connectionProperties.getLogOnException()
+                || !LOGGER.isLoggable(Level.FINE)) {
             return;
         }
 
@@ -1940,9 +1971,7 @@ public abstract class UConnection {
         b.append("DUMP EXCEPTION\n");
         b.append("[" + t.getClass().getName() + "]");
 
-        synchronized (this) {
-            getLogger().logInfo(b.toString(), t);
-        }
+        LOGGER.log(Level.FINE, b.toString(), t);
     }
 
     public boolean isActive() {

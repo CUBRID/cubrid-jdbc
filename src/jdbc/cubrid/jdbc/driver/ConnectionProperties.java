@@ -364,15 +364,13 @@ public class ConnectionProperties {
     }
 
     BooleanConnectionProperty logOnException =
-            new BooleanConnectionProperty("logOnException", false);
+            new BooleanConnectionProperty("logOnException", true);
 
     BooleanConnectionProperty logSlowQueries =
             new BooleanConnectionProperty("logSlowQueries", false);
 
     IntegerConnectionProperty slowQueryThresholdMillis =
             new IntegerConnectionProperty("slowQueryThresholdMillis", 60000, 0, Integer.MAX_VALUE);
-
-    StringConnectionProperty logFile = new StringConnectionProperty("logFile", "cubrid_jdbc.log");
 
     CharSetConnectionProperty charSet =
             new CharSetConnectionProperty("charSet", System.getProperty("file.encoding"));
@@ -382,6 +380,13 @@ public class ConnectionProperties {
 
     IntegerConnectionProperty queryTimeout =
             new IntegerConnectionProperty("queryTimeout", 0, 0, UConnection.MAX_QUERY_TIMEOUT);
+
+    IntegerConnectionProperty lockTimeout =
+            new IntegerConnectionProperty(
+                    "lockTimeout",
+                    UConnection.LOCK_TIMEOUT_NOT_USED,
+                    UConnection.LOCK_TIMEOUT_NOT_USED,
+                    Integer.MAX_VALUE);
 
     private int getDefaultConnectTimeout() {
         int timeout = java.sql.DriverManager.getLoginTimeout();
@@ -445,10 +450,6 @@ public class ConnectionProperties {
         return slowQueryThresholdMillis.getValueAsInteger();
     }
 
-    public String getLogFile() {
-        return logFile.getValueAsString();
-    }
-
     public String getCharSet() {
         return charSet.getValueAsString();
     }
@@ -459,6 +460,10 @@ public class ConnectionProperties {
 
     public int getQueryTimeout() {
         return queryTimeout.getValueAsInteger();
+    }
+
+    public int getLockTimeout() {
+        return lockTimeout.getValueAsInteger();
     }
 
     public int getConnectTimeout() {

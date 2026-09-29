@@ -31,7 +31,9 @@
 
 package cubrid.jdbc.driver;
 
-import java.util.Hashtable;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Title: CUBRID JDBC Driver Description:
@@ -40,149 +42,128 @@ import java.util.Hashtable;
  */
 public class CUBRIDJDBCErrorCode {
 
-    public static int unknown = -21100;
-    public static int connection_closed = -21101;
-    public static int statement_closed = -21102;
-    public static int prepared_statement_closed = -21103;
-    public static int result_set_closed = -21104;
-    public static int not_supported = -21105;
-    public static int invalid_trans_iso_level = -21106;
-    public static int invalid_url = -21107;
-    public static int no_dbname = -21108;
-    public static int invalid_query_type_for_executeQuery = -21109;
-    public static int invalid_query_type_for_executeUpdate = -21110;
-    public static int negative_value_for_length = -21111;
-    public static int ioexception_in_stream = -21112;
-    public static int deprecated = -21113;
-    public static int not_numerical_object = -21114;
-    public static int invalid_index = -21115;
-    public static int invalid_column_name = -21116;
-    public static int invalid_row = -21117;
-    public static int conversion_error = -21118;
-    public static int invalid_tuple = -21119;
-    public static int invalid_value = -21120;
-    public static int not_collection = -21121;
-    public static int dbmetadata_closed = -21122;
-    public static int non_scrollable = -21123;
-    public static int non_sensitive = -21124;
-    public static int non_updatable = -21125;
-    public static int non_updatable_column = -21126;
-    public static int invalid_query_type_for_executeInsert = -21127;
-    public static int argument_zero = -21128;
-    public static int empty_inputstream = -21129;
-    public static int empty_reader = -21130;
-    public static int insertion_query_fail = -21131;
-    public static int non_scrollable_statement = -21132;
-    public static int iss_fail_login = -21133;
-    public static int pooled_connection_closed = -21134;
-    public static int xa_connection_closed = -21135;
-    public static int xa_illegal_operation = -21136;
-    public static int oid_closed = -21137;
-    public static int invalid_table_name = -21138;
-    public static int lob_pos_invalid = -21139;
-    public static int lob_is_not_writable = -21140;
-    public static int request_timeout = -21141;
-    public static int invalid_prop_file = -21142;
-    public static int file_not_found_prop = -21143;
-    public static int savepoint_in_auto_commit_mode = -21144;
-    public static int invalid_savepoint = -21145;
+    public static final int unknown = -21100;
+    public static final int connection_closed = -21101;
+    public static final int statement_closed = -21102;
+    public static final int prepared_statement_closed = -21103;
+    public static final int result_set_closed = -21104;
+    public static final int not_supported = -21105;
+    public static final int invalid_trans_iso_level = -21106;
+    public static final int invalid_url = -21107;
+    public static final int no_dbname = -21108;
+    public static final int invalid_query_type_for_executeQuery = -21109;
+    public static final int invalid_query_type_for_executeUpdate = -21110;
+    public static final int negative_value_for_length = -21111;
+    public static final int ioexception_in_stream = -21112;
+    public static final int deprecated = -21113;
+    public static final int not_numerical_object = -21114;
+    public static final int invalid_index = -21115;
+    public static final int invalid_column_name = -21116;
+    public static final int invalid_row = -21117;
+    public static final int conversion_error = -21118;
+    public static final int invalid_tuple = -21119;
+    public static final int invalid_value = -21120;
+    public static final int not_collection = -21121;
+    public static final int dbmetadata_closed = -21122;
+    public static final int non_scrollable = -21123;
+    public static final int non_sensitive = -21124;
+    public static final int non_updatable = -21125;
+    public static final int non_updatable_column = -21126;
+    public static final int invalid_query_type_for_executeInsert = -21127;
+    public static final int argument_zero = -21128;
+    public static final int empty_inputstream = -21129;
+    public static final int empty_reader = -21130;
+    public static final int insertion_query_fail = -21131;
+    public static final int non_scrollable_statement = -21132;
+    public static final int iss_fail_login = -21133;
+    public static final int pooled_connection_closed = -21134;
+    public static final int xa_connection_closed = -21135;
+    public static final int xa_illegal_operation = -21136;
+    public static final int oid_closed = -21137;
+    public static final int invalid_table_name = -21138;
+    public static final int lob_pos_invalid = -21139;
+    public static final int lob_is_not_writable = -21140;
+    public static final int request_timeout = -21141;
+    public static final int invalid_prop_file = -21142;
+    public static final int file_not_found_prop = -21143;
+    public static final int savepoint_in_auto_commit_mode = -21144;
+    public static final int invalid_savepoint = -21145;
 
-    private static Hashtable<Integer, String> messageString;
+    private static final Map<Integer, String> messageString = createMessageMap();
 
-    private static void setMessageHash() {
-        messageString = new Hashtable<Integer, String>();
-
-        messageString.put(new Integer(unknown), "");
-        messageString.put(
-                new Integer(connection_closed), "Attempt to operate on a closed Connection.");
-        messageString.put(new Integer(statement_closed), "Attempt to access a closed Statement.");
-        messageString.put(
-                new Integer(prepared_statement_closed),
-                "Attempt to access a closed PreparedStatement.");
-        messageString.put(new Integer(result_set_closed), "Attempt to access a closed ResultSet.");
-        messageString.put(new Integer(not_supported), "Not supported method");
-        messageString.put(
-                new Integer(invalid_trans_iso_level), "Unknown transaction isolation level.");
-        messageString.put(new Integer(invalid_url), "invalid URL - ");
-        messageString.put(new Integer(no_dbname), "The database name should be given.");
-        messageString.put(
-                new Integer(invalid_query_type_for_executeQuery),
+    private static Map<Integer, String> createMessageMap() {
+        Map<Integer, String> m = new HashMap<>();
+        m.put(unknown, "");
+        m.put(connection_closed, "Attempt to operate on a closed Connection.");
+        m.put(statement_closed, "Attempt to access a closed Statement.");
+        m.put(prepared_statement_closed, "Attempt to access a closed PreparedStatement.");
+        m.put(result_set_closed, "Attempt to access a closed ResultSet.");
+        m.put(not_supported, "Not supported method");
+        m.put(invalid_trans_iso_level, "Unknown transaction isolation level.");
+        m.put(invalid_url, "invalid URL - ");
+        m.put(no_dbname, "The database name should be given.");
+        m.put(
+                invalid_query_type_for_executeQuery,
                 "The query is not applicable to the executeQuery(). Use the executeUpdate() instead.");
-        messageString.put(
-                new Integer(invalid_query_type_for_executeUpdate),
+        m.put(
+                invalid_query_type_for_executeUpdate,
                 "The query is not applicable to the executeUpdate(). Use the executeQuery() instead.");
-        messageString.put(
-                new Integer(negative_value_for_length),
-                "The length of the stream cannot be negative.");
-        messageString.put(
-                new Integer(ioexception_in_stream),
-                "An IOException was caught during reading the inputstream.");
-        messageString.put(
-                new Integer(deprecated), "Not supported method, because it is deprecated.");
-        messageString.put(
-                new Integer(not_numerical_object), "The object does not seem to be a number.");
-        messageString.put(
-                new Integer(invalid_index),
-                "Missing or invalid position of the bind variable provided.");
-        messageString.put(new Integer(invalid_column_name), "The column name is invalid.");
-        messageString.put(new Integer(invalid_row), "Invalid cursor position.");
-        messageString.put(new Integer(conversion_error), "Type conversion error.");
-        messageString.put(
-                new Integer(invalid_tuple),
+        m.put(negative_value_for_length, "The length of the stream cannot be negative.");
+        m.put(ioexception_in_stream, "An IOException was caught during reading the inputstream.");
+        m.put(deprecated, "Not supported method, because it is deprecated.");
+        m.put(not_numerical_object, "The object does not seem to be a number.");
+        m.put(invalid_index, "Missing or invalid position of the bind variable provided.");
+        m.put(invalid_column_name, "The column name is invalid.");
+        m.put(invalid_row, "Invalid cursor position.");
+        m.put(conversion_error, "Type conversion error.");
+        m.put(
+                invalid_tuple,
                 "Internal error: The number of attributes is different from the expected.");
-        messageString.put(new Integer(invalid_value), "The argument is invalid.");
-        messageString.put(
-                new Integer(not_collection), "The type of the column should be a collection type.");
-        messageString.put(
-                new Integer(dbmetadata_closed), "Attempt to operate on a closed DatabaseMetaData.");
-        messageString.put(
-                new Integer(non_scrollable),
+        m.put(invalid_value, "The argument is invalid.");
+        m.put(not_collection, "The type of the column should be a collection type.");
+        m.put(dbmetadata_closed, "Attempt to operate on a closed DatabaseMetaData.");
+        m.put(
+                non_scrollable,
                 "Attempt to call a method related to scrollability of non-scrollable ResultSet.");
-        messageString.put(
-                new Integer(non_sensitive),
+        m.put(
+                non_sensitive,
                 "Attempt to call a method related to sensitivity of non-sensitive ResultSet.");
-        messageString.put(
-                new Integer(non_updatable),
+        m.put(
+                non_updatable,
                 "Attempt to call a method related to updatability of non-updatable ResultSet.");
-        messageString.put(
-                new Integer(non_updatable_column),
-                "Attempt to update a column which cannot be updated.");
-        messageString.put(
-                new Integer(invalid_query_type_for_executeInsert),
+        m.put(non_updatable_column, "Attempt to update a column which cannot be updated.");
+        m.put(
+                invalid_query_type_for_executeInsert,
                 "The query is not applicable to the executeInsert().");
-        messageString.put(new Integer(argument_zero), "The argument row can not be zero.");
-        messageString.put(new Integer(empty_inputstream), "Given InputStream object has no data.");
-        messageString.put(new Integer(empty_reader), "Given Reader object has no data.");
-        messageString.put(new Integer(insertion_query_fail), "Insertion query failed.");
-        messageString.put(
-                new Integer(non_scrollable_statement),
+        m.put(argument_zero, "The argument row can not be zero.");
+        m.put(empty_inputstream, "Given InputStream object has no data.");
+        m.put(empty_reader, "Given Reader object has no data.");
+        m.put(insertion_query_fail, "Insertion query failed.");
+        m.put(
+                non_scrollable_statement,
                 "Attempt to call a method related to scrollability of TYPE_FORWARD_ONLY Statement.");
-        messageString.put(new Integer(iss_fail_login), "Authentication failure");
-        messageString.put(
-                new Integer(pooled_connection_closed),
-                "Attempt to operate on a closed PooledConnection.");
-        messageString.put(
-                new Integer(xa_connection_closed), "Attempt to operate on a closed XAConnection.");
-        messageString.put(
-                new Integer(xa_illegal_operation),
-                "Illegal operation in a distributed transaction");
-        messageString.put(
-                new Integer(oid_closed),
+        m.put(iss_fail_login, "Authentication failure");
+        m.put(pooled_connection_closed, "Attempt to operate on a closed PooledConnection.");
+        m.put(xa_connection_closed, "Attempt to operate on a closed XAConnection.");
+        m.put(xa_illegal_operation, "Illegal operation in a distributed transaction");
+        m.put(
+                oid_closed,
                 "Attempt to access a CUBRIDOID associated with a Connection which has been closed.");
-        messageString.put(new Integer(invalid_table_name), "The table name is invalid.");
-        messageString.put(new Integer(lob_pos_invalid), "Lob position to write is invalid.");
-        messageString.put(new Integer(lob_is_not_writable), "Lob is not writable.");
-        messageString.put(new Integer(request_timeout), "Request timed out.");
-        messageString.put(new Integer(invalid_prop_file), "Invalid file - ");
-        messageString.put(new Integer(file_not_found_prop), "File not found - ");
-        messageString.put(
-                new Integer(savepoint_in_auto_commit_mode),
+        m.put(invalid_table_name, "The table name is invalid.");
+        m.put(lob_pos_invalid, "Lob position to write is invalid.");
+        m.put(lob_is_not_writable, "Lob is not writable.");
+        m.put(request_timeout, "Request timed out.");
+        m.put(invalid_prop_file, "Invalid file - ");
+        m.put(file_not_found_prop, "File not found - ");
+        m.put(
+                savepoint_in_auto_commit_mode,
                 "Savepoint cannot be used while auto-commit is enabled.");
-        messageString.put(new Integer(invalid_savepoint), "Invalid savepoint - ");
+        m.put(invalid_savepoint, "Invalid savepoint - ");
+
+        return Collections.unmodifiableMap(m);
     }
 
     public static String getMessage(int code) {
-        if (messageString == null) setMessageHash();
-        return (String) messageString.get(new Integer(code));
+        return messageString.get(code);
     }
 }

@@ -90,6 +90,8 @@ public class CUBRIDPooledConnection implements PooledConnection {
             u_con.resetConnection();
         }
 
+        u_con.restorePropertyLockTimeout();
+
         cubConnection = new CUBRIDConnectionWrapperPooling(u_con, null, null, this);
         return cubConnection;
     }

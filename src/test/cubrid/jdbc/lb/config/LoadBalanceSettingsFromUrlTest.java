@@ -142,4 +142,23 @@ public class LoadBalanceSettingsFromUrlTest {
         } catch (SQLException expected) {
         }
     }
+
+    /**
+     * An option the broker URL cannot carry passed here and then failed every leg's connect with an
+     * invalid URL, far from its cause. It is refused where it was written.
+     */
+    @Test
+    public void rejectsAnOptionTheBrokerUrlCannotCarry() throws SQLException {
+        for (String option : new String[] {"charset=", "logFile=/tmp/a?b", "log-file=x"}) {
+            try {
+                configOf("jdbc:cubrid:loadbalance://node1,node2/testdb?" + option);
+                fail(option + " must be refused while parsing");
+            } catch (SQLException expected) {
+                String key = option.substring(0, option.indexOf('='));
+                assertTrue(expected.getMessage(), expected.getMessage().contains(key));
+            }
+        }
+
+        configOf("jdbc:cubrid:loadbalance://node1,node2/testdb?charset=utf-8&queryTimeout=10");
+    }
 }

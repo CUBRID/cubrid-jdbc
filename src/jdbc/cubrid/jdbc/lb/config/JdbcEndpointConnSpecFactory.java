@@ -47,6 +47,10 @@ import java.util.regex.Pattern;
  * #forEndpointFromConfig} for a URI {@code loadbalance://} config.
  */
 public final class JdbcEndpointConnSpecFactory {
+
+    // The option grammar of the core driver's URL_PATTERN (CUBRIDDriver).
+    private static final Pattern PHYSICAL_OPTION_KEY = Pattern.compile("[a-zA-Z_0-9]+");
+    private static final Pattern PHYSICAL_OPTION_VALUE = Pattern.compile("[^&=?]+");
     private static final Pattern URL_PATTERN =
             Pattern.compile(
                     "jdbc:cubrid(-oracle|-mysql)?:([a-zA-Z_0-9\\.-]*):([0-9]*):([^:]+):([^:]*):([^:]*):(\\?[a-zA-Z_0-9]+=[^&=?]+(&[a-zA-Z_0-9]+=[^&=?]+)*)?",
@@ -189,13 +193,7 @@ public final class JdbcEndpointConnSpecFactory {
         StringBuilder sb = new StringBuilder();
         for (Map.Entry<String, String> e : options.entrySet()) {
             final String key = e.getKey();
-            // Drop LB topology keys (rwPort/...) and LB bootstrap keys (haLb*/altHosts/
-            // cubrid.lb.*). The physical broker ignores them, so propagating them is dead weight
-            // and would leak them into logs. Mirrors stripLbBootstrapQuery on the classic path.
-            if (key == null
-                    || key.length() == 0
-                    || isLbTopologyOption(key)
-                    || isLbBootstrapOrAltHostsKey(key)) {
+            if (!isPropagated(key)) {
                 continue;
             }
             sb.append(sb.length() == 0 ? '?' : '&');
@@ -203,6 +201,43 @@ public final class JdbcEndpointConnSpecFactory {
         }
 
         return sb.toString();
+    }
+
+    /**
+     * Whether the broker URL carries {@code key}. LB topology keys (rwPort/...) and bootstrap keys
+     * (haLb*, altHosts, cubrid.lb.*) stay here: the broker ignores them, and they would only leak
+     * into logs. Mirrors stripLbBootstrapQuery on the classic path.
+     */
+    private static boolean isPropagated(final String key) {
+        return key != null
+                && key.length() > 0
+                && !isLbTopologyOption(key)
+                && !isLbBootstrapOrAltHostsKey(key);
+    }
+
+    /**
+     * Refuses, while the URL is parsed, an option the broker URL could not carry. The core driver
+     * would refuse the URL on every leg's connect instead, far from the option that caused it.
+     *
+     * @param options the options a loadbalance URL propagates
+     * @throws SQLException naming the first option the core URL grammar rejects
+     */
+    static void checkPropagatable(final Map<String, String> options) throws SQLException {
+        for (Map.Entry<String, String> e : options.entrySet()) {
+            if (!isPropagated(e.getKey())) {
+                continue;
+            }
+            final String value = e.getValue() == null ? "" : e.getValue();
+            if (!PHYSICAL_OPTION_KEY.matcher(e.getKey()).matches()
+                    || !PHYSICAL_OPTION_VALUE.matcher(value).matches()) {
+                throw LbExceptions.invalidUrl(
+                        "option '"
+                                + e.getKey()
+                                + "' cannot reach the broker: the name takes letters, digits and"
+                                + " '_', the value must be non-empty without '&', '=' or '?'",
+                        null);
+            }
+        }
     }
 
     private static boolean isLbTopologyOption(final String name) {

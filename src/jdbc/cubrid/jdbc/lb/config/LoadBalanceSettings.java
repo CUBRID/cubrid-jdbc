@@ -219,6 +219,7 @@ public class LoadBalanceSettings {
         final Map<String, String> propagated =
                 LoadBalanceOptionValidator.validate(parsed.isLoadBalance(), parsed.getOptions())
                         .getRetainedOptions();
+        JdbcEndpointConnSpecFactory.checkPropagatable(propagated);
         // Metrics-export options apply only in loadbalance mode; parse() returns DISABLED
         // otherwise, so the exporters can never run outside loadbalance.
         final MetricsConfig metrics =

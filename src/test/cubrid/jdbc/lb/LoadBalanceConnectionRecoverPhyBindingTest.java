@@ -65,6 +65,41 @@ public class LoadBalanceConnectionRecoverPhyBindingTest {
 
     private static final String LOGICAL_URL = "jdbc:cubrid:localhost:30000:testdb:public::";
 
+    /**
+     * A RW command - commit, setAutoCommit, LOB, metadata - never passes through routeStatement, so
+     * {@code lastExecEndpoint} still names the read endpoint of the preceding SELECT. Resolving the
+     * failed endpoint from it alone built a recovery context that says "the RW leg failed" while
+     * pointing at the healthy RO node: recoverRw then closes that RO socket and drops its cached
+     * statements, leaves the dead RW connection in the map, and excludes the wrong node from the
+     * retry. The write leg is pinned to one endpoint, so it is the binding that answers this.
+     */
+    @Test
+    public void resolveFailedExecEndpointNamesTheWriteLegAfterAReadStatement() throws SQLException {
+        EndpointTopology topo = topology("rw", "ro1");
+        LoadBalanceConnection conn =
+                newConnection(LoadBalanceSettings.of(sessionProperties()), alwaysOpenFactory());
+        conn.initSessionBindings(topo);
+
+        // Routing a read statement is what captures lastExecEndpoint, on the read leg.
+        conn.createPsProvider().getPreparedStatement(Router.RouteTarget.TO_READ_ONLY, "SELECT 1");
+
+        assertEquals(
+                "a read still recovers the endpoint the statement actually ran on",
+                "ro1:33000",
+                conn.resolveFailedExecEndpoint(Router.RouteTarget.TO_READ_ONLY).getId());
+
+        Endpoint failedEp = conn.resolveFailedExecEndpoint(Router.RouteTarget.TO_READ_WRITE);
+        assertEquals("rw:33000", failedEp.getId());
+
+        // The pair the failover handler hands to recoverRw must agree on the leg.
+        PhysicalRecoveryContext ctx =
+                conn.buildRecoveryCtx(Router.RouteTarget.TO_READ_WRITE, failedEp);
+        assertEquals(SessionLeg.RW, ctx.getFailedLeg());
+        assertEquals("rw:33000", ctx.getFailedEndpoint().getId());
+
+        conn.close();
+    }
+
     @Test
     public void recoverPhyBindingThrowsOriginalWhenFailoverDisabled() throws SQLException {
         Properties cfg = new Properties();

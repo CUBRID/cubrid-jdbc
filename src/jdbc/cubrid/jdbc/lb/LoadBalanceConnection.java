@@ -494,20 +494,34 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     /**
-     * The endpoint to recover after a failed execution. Prefers the endpoint actually selected for
-     * the most recent physical prepare/statement (captured in {@link #lastExecEndpoint}), falling
-     * back to the routing preview {@link #endpointForTarget} when no execution endpoint was
-     * captured.
+     * The endpoint to recover after a failed execution.
      *
-     * @param target the route target used for the preview fallback
+     * <p>A write resolves to the bound write leg, which is pinned to one endpoint. The RW command
+     * paths ({@code runRwCommand}, {@code runRwMetaQuery}) never pass through {@link
+     * #routeStatement}, so {@link #lastExecEndpoint} can still name the read endpoint of an earlier
+     * SELECT - recovering that one would close a healthy RO connection and leave the dead RW
+     * connection bound.
+     *
+     * <p>A read resolves to {@link #lastExecEndpoint}, the endpoint the statement was actually
+     * prepared on, which a fresh routing preview would not always reproduce.
+     *
+     * @param target the route target of the failed execution
      * @return the endpoint to recover
      * @throws SQLException if the fallback route cannot be resolved
      */
     public Endpoint resolveFailedExecEndpoint(final Router.RouteTarget target) throws SQLException {
-        Endpoint captured = lastExecEndpoint;
-        if (captured != null) {
-            return captured;
+        if (target == Router.RouteTarget.TO_READ_WRITE) {
+            Endpoint rw = getCurrentEp(SessionLeg.RW);
+            if (rw != null) {
+                return rw;
+            }
+        } else {
+            Endpoint captured = lastExecEndpoint;
+            if (captured != null) {
+                return captured;
+            }
         }
+
         return endpointForTarget(target);
     }
 

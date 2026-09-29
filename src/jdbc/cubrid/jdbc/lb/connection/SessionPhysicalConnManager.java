@@ -1142,18 +1142,42 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
     }
 
     /**
-     * Applies the autocommit mode to both session legs; see {@link #applyToBothLegs} for the
-     * one-leg-failure policy.
+     * Applies the autocommit mode, write leg first: its outcome is the session's, and a refusal
+     * there leaves both legs as they were. A read leg that cannot follow is dropped rather than
+     * left in the other mode; it reopens in the session's mode on the next read.
      */
     public synchronized void applyPhyAutoCommit(final boolean autoCommit) throws SQLException {
-        applyToBothLegs(
-                "LB AUTOCOMMIT",
-                "autoCommit=" + autoCommit,
-                new LegOperation() {
-                    public void apply(final Connection physical) throws SQLException {
-                        physical.setAutoCommit(autoCommit);
-                    }
-                });
+        if (sessRwEp == null) {
+            return;
+        }
+
+        Connection rwPhysical = connsByEpId.get(sessRwEp.getId());
+        Connection roPhysical = separateRoPhysicalOrNull(rwPhysical);
+        if (rwPhysical != null) {
+            rwPhysical.setAutoCommit(autoCommit);
+        }
+        if (roPhysical == null) {
+            return;
+        }
+
+        try {
+            roPhysical.setAutoCommit(autoCommit);
+        } catch (SQLException refused) {
+            connsByEpId.remove(sessRoEp.getId());
+            dropPrepForEp(sessRoEp.getId());
+            if (!connInUseElsewhere(roPhysical)) {
+                closeQuietly(roPhysical);
+            }
+            LbLog.warn(
+                    LOGGER,
+                    logContext,
+                    "LB AUTOCOMMIT [RO]: read leg refused autoCommit="
+                            + autoCommit
+                            + "; dropped, reopens in the session's mode | readLeg="
+                            + sessRoEp.getId()
+                            + " | cause: "
+                            + LbLog.cause(refused));
+        }
     }
 
     /** One operation applied to a single physical leg. */

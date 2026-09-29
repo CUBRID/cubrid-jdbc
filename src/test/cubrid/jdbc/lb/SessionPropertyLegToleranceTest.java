@@ -31,13 +31,17 @@
 package cubrid.jdbc.lb;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
+import cubrid.jdbc.lb.connection.JdbcConnectionFactory;
+import cubrid.jdbc.lb.connection.SessionPhysicalConnManager;
 import cubrid.jdbc.lb.connection.SimpleEndpointConnManager;
 import cubrid.jdbc.lb.state.SharedSelectorState;
 import java.io.UnsupportedEncodingException;
@@ -45,6 +49,7 @@ import java.lang.reflect.Field;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -71,6 +76,69 @@ public final class SessionPropertyLegToleranceTest {
             new UnsupportedEncodingException("write leg is gone");
     private volatile boolean rwFails;
     private volatile boolean roFails;
+    private volatile boolean rwRefusesAutoCommit;
+    private volatile boolean roRefusesAutoCommit;
+    private final List<LegConnection> rwOpened = new ArrayList<LegConnection>();
+    private final List<LegConnection> roOpened = new ArrayList<LegConnection>();
+
+    /**
+     * The write leg switched to manual mode but the read leg refused, and the session stayed in
+     * autocommit: writes then ran uncommitted on RW, commit() was refused, and close rolled them
+     * back. The write leg decides the mode; a read leg that cannot follow is dropped instead.
+     */
+    @Test
+    public void autoCommitFollowsTheWriteLegWhenOnlyTheReadLegRefuses() throws Exception {
+        LoadBalanceConnection connection = boundOnSessionManager();
+        LegConnection ro = roOpened.get(0);
+        roRefusesAutoCommit = true;
+
+        connection.setAutoCommit(false);
+
+        assertFalse(
+                "the write leg is in manual mode, so the session is", connection.getAutoCommit());
+        assertFalse(rwOpened.get(0).autoCommit);
+        connection.commit();
+        assertTrue("a read leg left in the other mode must not stay bound", ro.closed);
+    }
+
+    /**
+     * The other way round: a read leg stuck in manual mode would run autocommit reads in a
+     * transaction nobody commits. Dropped, it reopens in the session's mode.
+     */
+    @Test
+    public void readLegReopensInTheSessionsModeAfterRefusingIt() throws Exception {
+        LoadBalanceConnection connection = boundOnSessionManager();
+        connection.setAutoCommit(false);
+        LegConnection ro = roOpened.get(roOpened.size() - 1);
+        roRefusesAutoCommit = true;
+
+        connection.setAutoCommit(true);
+
+        assertTrue(connection.getAutoCommit());
+        assertTrue(ro.closed);
+        roRefusesAutoCommit = false;
+        connection.getPhysicalConnForCmd(SessionLeg.RO);
+        assertTrue(
+                "the reopened read leg must be in autocommit",
+                roOpened.get(roOpened.size() - 1).autoCommit);
+    }
+
+    /** A mode the write leg refused must not reach the read leg either: nothing changes. */
+    @Test
+    public void readLegKeepsItsModeWhenTheWriteLegRefuses() throws Exception {
+        LoadBalanceConnection connection = boundOnSessionManager();
+        rwRefusesAutoCommit = true;
+
+        try {
+            connection.setAutoCommit(false);
+            fail("the write leg's refusal must reach the caller");
+        } catch (SQLException expected) {
+            assertSame(rwBoom, expected);
+        }
+
+        assertTrue(connection.getAutoCommit());
+        assertTrue("the read leg must stay in the session's mode", roOpened.get(0).autoCommit);
+    }
 
     @Test
     public void lockTimeoutReachesTheReadLegWhenTheWriteLegFails() throws Exception {
@@ -277,6 +345,71 @@ public final class SessionPropertyLegToleranceTest {
         manager.setPhysicalConnection(connection.getCurrentEp(SessionLeg.RW), writeLeg());
         manager.setPhysicalConnection(connection.getCurrentEp(SessionLeg.RO), readLeg());
         return connection;
+    }
+
+    /** Bound through the real connection manager, whose legs are {@link LegConnection}s. */
+    private LoadBalanceConnection boundOnSessionManager() throws SQLException {
+        Properties properties = new Properties();
+        properties.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, "session");
+        LoadBalanceSettings config = LoadBalanceSettings.of(properties);
+        LoadBalanceConnection connection = new LoadBalanceConnection(config);
+        connection.setConnectionManager(
+                new SessionPhysicalConnManager(
+                        "jdbc:cubrid:localhost:30000:testdb:public::",
+                        new Properties(),
+                        config,
+                        new JdbcConnectionFactory() {
+                            public Connection getConnection(
+                                    final String url, final Properties info) {
+                                boolean readLeg = url.contains(":ro1:");
+                                LegConnection leg = new LegConnection(readLeg);
+                                (readLeg ? roOpened : rwOpened).add(leg);
+                                return leg;
+                            }
+                        }));
+        connection.setSharedSelectorState(new SharedSelectorState());
+        connection.initSessionBindings(
+                new EndpointTopology(
+                        new Endpoint("rw", 33000),
+                        Arrays.asList(new Endpoint("ro1", 33000)),
+                        null));
+        return connection;
+    }
+
+    /** A physical leg that remembers its autocommit mode and can refuse to change it. */
+    private final class LegConnection extends FakePhysicalConnection {
+
+        private final boolean readLeg;
+
+        boolean autoCommit = true;
+
+        boolean closed;
+
+        LegConnection(final boolean readLeg) {
+            this.readLeg = readLeg;
+        }
+
+        @Override
+        protected Object dispatch(final String name, final Object[] args) throws SQLException {
+            if ("setAutoCommit".equals(name)) {
+                if (readLeg ? roRefusesAutoCommit : rwRefusesAutoCommit) {
+                    throw readLeg ? roBoom : rwBoom;
+                }
+                autoCommit = ((Boolean) args[0]).booleanValue();
+                return null;
+            }
+            if ("getAutoCommit".equals(name)) {
+                return Boolean.valueOf(autoCommit);
+            }
+            if ("close".equals(name)) {
+                closed = true;
+                return null;
+            }
+            if ("isClosed".equals(name)) {
+                return Boolean.valueOf(closed);
+            }
+            return null;
+        }
     }
 
     /** Write leg whose property setters fail on demand. */

@@ -68,8 +68,6 @@ public class SessionPhysicalConnManagerTxLegsTest {
     private final AtomicInteger roRollbacks = new AtomicInteger();
     private final AtomicInteger roAutoCommits = new AtomicInteger();
     private final AtomicInteger rwAutoCommits = new AtomicInteger();
-    private final SQLException roBoom = new SQLException("read leg is gone");
-    private volatile boolean roFails;
     private final SQLException rwBoom = new SQLException("write leg is gone");
     private volatile boolean rwFails;
 
@@ -108,24 +106,17 @@ public class SessionPhysicalConnManagerTxLegsTest {
     }
 
     /**
-     * {@code applyPhyAutoCommit} used to walk every {@code connsByEpId} entry and stop at the first
-     * failure, so whichever leg the map happened to yield second was skipped. It now targets the
-     * two session legs explicitly and, like commit/rollback, reaches the second one even when the
-     * first failed: autocommit decides whether a leg starts a transaction on its next statement, so
-     * leaving a leg on the old mode is the same class of leftover as a skipped rollback.
-     *
-     * <p>Both legs are made to fail on purpose: that is the one assertion the old hash order cannot
-     * satisfy either way round. Under the old loop the first failure ended the walk, so whichever
-     * leg came second stayed at zero attempts.
+     * Unlike commit/rollback, autocommit must not reach the read leg once the write leg refused:
+     * the write leg decides the session's mode, and a read leg moved alone would run autocommit
+     * reads in manual mode - a snapshot on the slave that nobody commits.
      */
     @Test
-    public void autoCommitReachesBothLegsWhenTheWriteLegFails() throws SQLException {
+    public void autoCommitLeavesTheReadLegAloneWhenTheWriteLegRefuses() throws SQLException {
         SessionPhysicalConnManager mgr = bound();
         try {
             rwAutoCommits.set(0);
             roAutoCommits.set(0);
             rwFails = true;
-            roFails = true;
             try {
                 mgr.applyPhyAutoCommit(false);
                 fail("the write leg's failure must still reach the caller");
@@ -133,7 +124,7 @@ public class SessionPhysicalConnManagerTxLegsTest {
                 assertSame("the caller sees the write failure", rwBoom, propagated);
             }
             assertEquals("write leg attempted", 1, rwAutoCommits.get());
-            assertEquals("read leg attempted", 1, roAutoCommits.get());
+            assertEquals("read leg left in the session's mode", 0, roAutoCommits.get());
         } finally {
             mgr.releasePhysicalConnections();
         }
@@ -213,9 +204,6 @@ public class SessionPhysicalConnManagerTxLegsTest {
                         }
                         if ("setAutoCommit".equals(name)) {
                             roAutoCommits.incrementAndGet();
-                            if (roFails) {
-                                throw roBoom;
-                            }
                             return null;
                         }
                         return defaultReturn(method);

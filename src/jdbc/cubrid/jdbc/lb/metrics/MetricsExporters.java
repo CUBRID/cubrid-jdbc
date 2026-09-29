@@ -564,7 +564,11 @@ public final class MetricsExporters {
             String now = ts.format(new Date());
             File parent = file.getParentFile();
             // bound disk use; a rotated-away file makes the next write re-emit the header
-            LbFileRotation.rotateIfOversized(file, maxBytes, maxFiles);
+            try {
+                LbFileRotation.rotateIfOversized(file, maxBytes, maxFiles);
+            } catch (IOException notRotated) {
+                LOGGER.warning("LB metrics: " + notRotated.getMessage());
+            }
             if (parent != null && !parent.exists()) {
                 parent.mkdirs();
             }

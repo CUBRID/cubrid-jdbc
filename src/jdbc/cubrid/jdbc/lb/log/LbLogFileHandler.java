@@ -65,6 +65,8 @@ final class LbLogFileHandler extends StreamHandler {
     private final File file;
     private final long maxBytes;
     private final int maxFiles;
+    // Set once rotation has failed: retrying on every record would only repeat the failure.
+    private boolean rotationFailed;
 
     LbLogFileHandler(
             final File file,
@@ -99,18 +101,27 @@ final class LbLogFileHandler extends StreamHandler {
         super.publish(record);
         flush();
 
-        if (maxBytes <= 0L || file.length() < maxBytes) {
+        if (rotationFailed || maxBytes <= 0L || file.length() < maxBytes) {
             return;
         }
 
+        // close() flushes and closes the stream; the descriptor must be released before the
+        // rename, otherwise this JVM would keep writing into the rotated generation.
+        close();
         try {
-            // close() flushes and closes the stream; the descriptor must be released before the
-            // rename, otherwise this JVM would keep writing into the rotated generation.
-            close();
             LbFileRotation.rotateIfOversized(file, maxBytes, maxFiles);
+        } catch (IOException e) {
+            // Never through a Logger: that record would come back to this handler.
+            rotationFailed = true;
+            reportError(
+                    "LB log rotation failed for " + file + "; rotation disabled",
+                    e,
+                    ErrorManager.WRITE_FAILURE);
+        }
+        try {
             openStream();
         } catch (IOException e) {
-            reportError("LB log rotation failed for " + file, e, ErrorManager.WRITE_FAILURE);
+            reportError("LB log file could not be reopened: " + file, e, ErrorManager.OPEN_FAILURE);
         }
     }
 }

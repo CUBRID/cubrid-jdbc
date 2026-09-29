@@ -78,6 +78,27 @@ public class LbFileLoggingTest {
         deleteRecursively(dir);
     }
 
+    /**
+     * A failed rotation logged a warning through JUL, which came straight back to this handler: the
+     * file was still over the limit, so it rotated again, failed again, and recursed until the
+     * stack ran out on whatever application thread was logging.
+     */
+    @Test
+    public void failedRotationNeitherRecursesNorStopsTheLog() throws IOException {
+        File log = new File(dir, "cubrid_lb.log");
+        // A non-empty directory where the oldest generation goes: File.delete() cannot remove it,
+        // whoever runs the test.
+        assertTrue(new File(new File(dir, "cubrid_lb.log.1"), "keep").mkdirs());
+        fill(log, 1024 * 1024);
+        LbFileLogging.install(config(log.getPath(), 1, 1));
+
+        LB.warning("LB FAILOVER [RO] failed=a -> new=b");
+        LB.warning("LB FAILOVER [RO] failed=b -> new=c");
+        flushHandlers();
+
+        assertEquals("records keep landing in the live file", 2, countMatching(log, "LB FAILOVER"));
+    }
+
     @Test
     public void noFileIsWrittenWhenLbLogFileIsNotSet() {
         LbFileLogging.install(LbLogConfig.parse(new HashMap<String, String>(), true));
@@ -292,6 +313,15 @@ public class LbFileLoggingTest {
         // Keep the surefire console clean; the file is what these tests read.
         options.put(LbLogConfig.OPT_TO_CONSOLE, "false");
         return LbLogConfig.parse(options, true);
+    }
+
+    private static void fill(final File file, final int bytes) throws IOException {
+        java.io.FileOutputStream out = new java.io.FileOutputStream(file);
+        try {
+            out.write(new byte[bytes]);
+        } finally {
+            out.close();
+        }
     }
 
     private static int handlerCount() {

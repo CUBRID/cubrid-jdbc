@@ -31,7 +31,7 @@
 package cubrid.jdbc.lb.log;
 
 import java.io.File;
-import java.util.logging.Logger;
+import java.io.IOException;
 
 /**
  * Generation rotation for the two files the LB layer writes itself: the LB log file and the metrics
@@ -46,8 +46,6 @@ import java.util.logging.Logger;
  */
 public final class LbFileRotation {
 
-    private static final Logger LOGGER = Logger.getLogger(LbFileRotation.class.getName());
-
     private LbFileRotation() {}
 
     /**
@@ -57,33 +55,34 @@ public final class LbFileRotation {
      *
      * <p>No-op when {@code maxBytes <= 0} (rotation disabled) or the file is still under the limit.
      * {@code maxFiles == 0} keeps no history: the oversized file is simply removed. A failed
-     * delete/rename leaves the live file untouched and logs a WARN — losing the newest rows would
-     * be worse than overshooting the size cap.
+     * delete/rename leaves the live file untouched — losing the newest rows would be worse than
+     * overshooting the size cap. It throws rather than logs: the log file handler is a caller, and
+     * a record about its own failure would come straight back to it.
      *
      * @param file the current file to rotate
      * @param maxBytes the size at which the file is rotated; {@code <= 0} disables rotation
      * @param maxFiles how many generations to keep; {@code 0} discards the overflowing file
+     * @throws IOException if a generation could not be deleted or renamed
      */
-    public static void rotateIfOversized(final File file, final long maxBytes, final int maxFiles) {
+    public static void rotateIfOversized(final File file, final long maxBytes, final int maxFiles)
+            throws IOException {
         if (maxBytes <= 0L || !file.exists() || file.length() < maxBytes) {
             return;
         }
         String base = file.getPath();
         File oldest = new File(base + "." + maxFiles);
         if (maxFiles > 0 && oldest.exists() && !oldest.delete()) {
-            LOGGER.warning("LB: cannot delete rotated file " + oldest);
-            return;
+            throw new IOException("cannot delete rotated file " + oldest);
         }
         for (int i = maxFiles - 1; i >= 1; i--) {
             File from = new File(base + "." + i);
             if (from.exists() && !from.renameTo(new File(base + "." + (i + 1)))) {
-                LOGGER.warning("LB: cannot rotate " + from);
-                return;
+                throw new IOException("cannot rotate " + from);
             }
         }
         boolean moved = maxFiles == 0 ? file.delete() : file.renameTo(new File(base + ".1"));
         if (!moved) {
-            LOGGER.warning("LB: cannot rotate " + file + "; it keeps growing");
+            throw new IOException("cannot rotate " + file + "; it keeps growing");
         }
     }
 }

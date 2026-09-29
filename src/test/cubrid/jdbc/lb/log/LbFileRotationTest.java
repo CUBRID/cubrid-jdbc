@@ -33,6 +33,7 @@ package cubrid.jdbc.lb.log;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -84,6 +85,28 @@ public class LbFileRotationTest {
         assertTrue(live.exists());
         assertEquals("keep", read(live));
         deleteRecursively(dir);
+    }
+
+    /** A rotation that cannot proceed tells its caller, and leaves the live file alone. */
+    @Test
+    public void rotationThatCannotProceedThrowsAndKeepsTheLiveFile() throws IOException {
+        File dir = new File(System.getProperty("java.io.tmpdir"), "lb-file-rotation-fail-test");
+        deleteRecursively(dir);
+        // A non-empty directory in the oldest generation's place: File.delete() cannot remove it.
+        File blocker = new File(dir, "rotating.log.1");
+        assertTrue(new File(blocker, "keep").mkdirs());
+        File live = new File(dir, "rotating.log");
+        write(live, "live");
+
+        try {
+            LbFileRotation.rotateIfOversized(live, 1L, 1);
+            fail("a rotation that did not happen must not look like one that did");
+        } catch (IOException expected) {
+            assertEquals("live", read(live));
+        } finally {
+            new File(blocker, "keep").delete();
+            deleteRecursively(dir);
+        }
     }
 
     private static void write(final File f, final String body) throws IOException {

@@ -69,6 +69,7 @@ public final class LoadBalanceOptionValidator {
         MetricsConfig.OPT_ENABLED,
         MetricsConfig.OPT_EXPORT,
         MetricsConfig.OPT_PROMETHEUS_PORT,
+        MetricsConfig.OPT_PROMETHEUS_BIND,
         MetricsConfig.OPT_CSV_PATH,
         MetricsConfig.OPT_INTERVAL_SEC,
         MetricsConfig.OPT_CSV_MAX_SIZE_MB,

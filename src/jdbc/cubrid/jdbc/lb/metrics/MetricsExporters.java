@@ -73,6 +73,7 @@ public final class MetricsExporters {
     private static boolean prometheusStarted;
     private static int prometheusPort;
     private static HttpServer prometheusServer;
+    private static Thread prometheusWatch;
     private static boolean csvStarted;
     private static String csvDir;
     private static Thread csvThread;
@@ -90,7 +91,10 @@ public final class MetricsExporters {
         }
         synchronized (LOCK) {
             if (config.exportsPrometheus()) {
-                startPrometheus(config.getPrometheusPort());
+                startPrometheus(
+                        config.getPrometheusBind(),
+                        config.getPrometheusPort(),
+                        config.getIntervalSec());
             }
             if (config.exportsCsv()) {
                 startCsv(
@@ -115,6 +119,10 @@ public final class MetricsExporters {
             if (prometheusServer != null) {
                 prometheusServer.stop(0);
                 prometheusServer = null;
+            }
+            if (prometheusWatch != null) {
+                prometheusWatch.interrupt();
+                prometheusWatch = null;
             }
             prometheusStarted = false;
 
@@ -141,7 +149,7 @@ public final class MetricsExporters {
         }
     }
 
-    private static void startPrometheus(final int port) {
+    private static void startPrometheus(final String bind, final int port, final int intervalSec) {
         if (prometheusStarted) {
             if (prometheusPort != port) {
                 LOGGER.warning(
@@ -153,14 +161,21 @@ public final class MetricsExporters {
             return;
         }
         try {
-            final HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
+            InetAddress address =
+                    bind == null ? InetAddress.getLoopbackAddress() : InetAddress.getByName(bind);
+            final HttpServer server = HttpServer.create(new InetSocketAddress(address, port), 0);
             server.createContext("/metrics", new MetricsHandler());
             server.setExecutor(null); // default single-threaded executor: scrapes are infrequent
             startAsDaemon(server);
             prometheusServer = server;
             prometheusStarted = true;
             prometheusPort = port;
-            LOGGER.info("LB metrics: Prometheus /metrics endpoint listening on port " + port);
+            watchPrometheusIdle(server, Math.max(1, intervalSec) * 1000L);
+            LOGGER.info(
+                    "LB metrics: Prometheus /metrics endpoint listening on "
+                            + address.getHostAddress()
+                            + ":"
+                            + port);
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, "failed to start Prometheus exporter on port " + port, e);
         } catch (InterruptedException e) {
@@ -192,6 +207,50 @@ public final class MetricsExporters {
         starter.setDaemon(true);
         starter.start();
         starter.join();
+    }
+
+    /**
+     * Stops the Prometheus endpoint once no LB connection has been live for {@link
+     * #IDLE_PERIODS_BEFORE_STOP} periods in a row, as the CSV writer does. Otherwise an undeployed
+     * application keeps the port, and its class loader, for the life of the JVM.
+     */
+    private static void watchPrometheusIdle(final HttpServer server, final long periodMs) {
+        Thread watch =
+                new Thread(
+                        new Runnable() {
+                            public void run() {
+                                int idlePeriods = 0;
+                                while (idlePeriods < IDLE_PERIODS_BEFORE_STOP) {
+                                    try {
+                                        Thread.sleep(periodMs);
+                                    } catch (InterruptedException stopped) {
+                                        return;
+                                    }
+                                    idlePeriods =
+                                            MetricsRegistry.liveCount() == 0 ? idlePeriods + 1 : 0;
+                                }
+                                prometheusIdle(server);
+                            }
+                        },
+                        "lb-metrics-prometheus-idle");
+        watch.setDaemon(true);
+        watch.start();
+        prometheusWatch = watch;
+    }
+
+    private static void prometheusIdle(final HttpServer server) {
+        synchronized (LOCK) {
+            if (prometheusServer != server) {
+                return; // stopped or replaced meanwhile
+            }
+            server.stop(0);
+            prometheusServer = null;
+            prometheusWatch = null;
+            prometheusStarted = false;
+        }
+        LOGGER.info(
+                "LB metrics: no live LB connections -> stopping the Prometheus exporter; it"
+                        + " restarts with the next connection");
     }
 
     private static void startCsv(

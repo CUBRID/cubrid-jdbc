@@ -31,12 +31,24 @@
 package cubrid.jdbc.lb.metrics;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import cubrid.jdbc.jci.UUnreachableHostList;
+import cubrid.jdbc.lb.config.MetricsConfig;
+import java.io.IOException;
+import java.net.Inet4Address;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.NetworkInterface;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.net.SocketException;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.After;
+import org.junit.Assume;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -109,6 +121,124 @@ public class MetricsExportersTest {
 
         assertEquals(1, MetricsRegistry.countRoOnRwSessions());
         assertTrue(MetricsExporters.renderPrometheus().contains("lb_ro_on_rw_sessions 1"));
+    }
+
+    /** Unauthenticated, and it names every broker: by default nobody off this host may read it. */
+    @Test
+    public void prometheusListensOnLoopbackByDefault() throws Exception {
+        InetAddress external = nonLoopbackAddress();
+        Assume.assumeNotNull(external); // a host with no other interface proves nothing
+        int port = freePort();
+        MetricsExporters.configure(prometheus(port, 60));
+        try {
+            assertTrue(accepts(InetAddress.getLoopbackAddress(), port));
+            assertFalse("reachable from " + external.getHostAddress(), accepts(external, port));
+        } finally {
+            MetricsExporters.stop();
+        }
+    }
+
+    /** A Prometheus server on another host is still one option away. */
+    @Test
+    public void prometheusListensOnEveryInterfaceWhenAskedTo() throws Exception {
+        InetAddress external = nonLoopbackAddress();
+        Assume.assumeNotNull(external);
+        int port = freePort();
+        MetricsExporters.configure(prometheus(port, 60, "0.0.0.0"));
+        try {
+            assertTrue(accepts(external, port));
+        } finally {
+            MetricsExporters.stop();
+        }
+    }
+
+    /**
+     * Nothing stopped the server, so an undeployed application kept the port - the redeployed one
+     * then ran without metrics - and its class loader. It now stops like the CSV writer: after a
+     * stretch with no live connection, and the next connection starts it again.
+     */
+    @Test
+    public void prometheusReleasesThePortOnceNoConnectionIsLive() throws Exception {
+        int port = freePort();
+        RuntimeMetrics metrics = new RuntimeMetrics();
+        MetricsRegistry.register(
+                metrics, new HashMap<String, String>(), new FixedProbe(SLAVE, false));
+        MetricsExporters.configure(prometheus(port, 1));
+        try {
+            MetricsRegistry.unregister(metrics);
+
+            long deadline = System.currentTimeMillis() + 15000L;
+            while (accepts(InetAddress.getLoopbackAddress(), port)
+                    && System.currentTimeMillis() < deadline) {
+                Thread.sleep(250L);
+            }
+            assertFalse("the port is released", accepts(InetAddress.getLoopbackAddress(), port));
+
+            MetricsRegistry.register(
+                    metrics, new HashMap<String, String>(), new FixedProbe(SLAVE, false));
+            MetricsExporters.configure(prometheus(port, 1));
+            assertTrue(
+                    "the next connection starts it again",
+                    accepts(InetAddress.getLoopbackAddress(), port));
+        } finally {
+            MetricsExporters.stop();
+        }
+    }
+
+    private static MetricsConfig prometheus(final int port, final int intervalSec) {
+        return prometheus(port, intervalSec, null);
+    }
+
+    private static MetricsConfig prometheus(
+            final int port, final int intervalSec, final String bind) {
+        Map<String, String> options = new HashMap<String, String>();
+        if (bind != null) {
+            options.put(MetricsConfig.OPT_PROMETHEUS_BIND, bind);
+        }
+        options.put(MetricsConfig.OPT_ENABLED, "true");
+        options.put(MetricsConfig.OPT_EXPORT, MetricsConfig.EXPORT_PROMETHEUS);
+        options.put(MetricsConfig.OPT_PROMETHEUS_PORT, String.valueOf(port));
+        options.put(MetricsConfig.OPT_INTERVAL_SEC, String.valueOf(intervalSec));
+        return MetricsConfig.parse(options, true);
+    }
+
+    private static int freePort() throws IOException {
+        ServerSocket probe = new ServerSocket(0);
+        try {
+            return probe.getLocalPort();
+        } finally {
+            probe.close();
+        }
+    }
+
+    private static boolean accepts(final InetAddress address, final int port) {
+        Socket socket = new Socket();
+        try {
+            socket.connect(new InetSocketAddress(address, port), 1000);
+            return true;
+        } catch (IOException refused) {
+            return false;
+        } finally {
+            try {
+                socket.close();
+            } catch (IOException ignored) {
+                // nothing to release
+            }
+        }
+    }
+
+    private static InetAddress nonLoopbackAddress() throws SocketException {
+        for (NetworkInterface nic : Collections.list(NetworkInterface.getNetworkInterfaces())) {
+            if (!nic.isUp() || nic.isLoopback()) {
+                continue;
+            }
+            for (InetAddress address : Collections.list(nic.getInetAddresses())) {
+                if (address instanceof Inet4Address && !address.isLoopbackAddress()) {
+                    return address;
+                }
+            }
+        }
+        return null;
     }
 
     private static void register(

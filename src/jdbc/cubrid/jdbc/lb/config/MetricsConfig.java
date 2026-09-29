@@ -50,9 +50,11 @@ import java.util.logging.Logger;
  *   <li>{@code metricsEnabled} — master on/off for recording + export (default false);
  *   <li>{@code metricsExport} — comma list of {@code prometheus} and/or {@code csv} (default none);
  *   <li>{@code metricsPrometheusPort} — HTTP port for the {@code /metrics} endpoint (default 9400);
+ *   <li>{@code metricsPrometheusBind} — address that endpoint listens on (default loopback; {@code
+ *       0.0.0.0} for every interface). It has no authentication and names every broker;
  *   <li>{@code metricsCsvPath} — local directory for the CSV file (default {@code ./lb-metrics});
- *   <li>{@code metricsIntervalSec} — CSV write period in seconds (default 60; Prometheus is pull,
- *       so this does not affect it);
+ *   <li>{@code metricsIntervalSec} — CSV write period in seconds (default 60), also the idle check
+ *       that stops an exporter once no LB connection is live;
  *   <li>{@code metricsCsvMaxSizeMb} — rotate the CSV past this size (default 100, {@code 0}
  *       disables);
  *   <li>{@code metricsCsvMaxFiles} — rotated generations to keep (default 5).
@@ -67,6 +69,7 @@ public final class MetricsConfig {
     public static final String OPT_ENABLED = "metricsEnabled";
     public static final String OPT_EXPORT = "metricsExport";
     public static final String OPT_PROMETHEUS_PORT = "metricsPrometheusPort";
+    public static final String OPT_PROMETHEUS_BIND = "metricsPrometheusBind";
     public static final String OPT_CSV_PATH = "metricsCsvPath";
     public static final String OPT_INTERVAL_SEC = "metricsIntervalSec";
     public static final String OPT_CSV_MAX_SIZE_MB = "metricsCsvMaxSizeMb";
@@ -95,6 +98,7 @@ public final class MetricsConfig {
                     false,
                     Collections.<String>emptySet(),
                     DEFAULT_PROMETHEUS_PORT,
+                    null,
                     DEFAULT_CSV_PATH,
                     DEFAULT_INTERVAL_SEC,
                     DEFAULT_CSV_MAX_SIZE_MB,
@@ -103,6 +107,7 @@ public final class MetricsConfig {
     private final boolean enabled;
     private final Set<String> exports;
     private final int prometheusPort;
+    private final String prometheusBind;
     private final String csvPath;
     private final int intervalSec;
     private final int csvMaxSizeMb;
@@ -112,6 +117,7 @@ public final class MetricsConfig {
             final boolean enabled,
             final Set<String> exports,
             final int prometheusPort,
+            final String prometheusBind,
             final String csvPath,
             final int intervalSec,
             final int csvMaxSizeMb,
@@ -119,6 +125,7 @@ public final class MetricsConfig {
         this.enabled = enabled;
         this.exports = Collections.unmodifiableSet(new LinkedHashSet<String>(exports));
         this.prometheusPort = prometheusPort;
+        this.prometheusBind = prometheusBind;
         this.csvPath = csvPath;
         this.intervalSec = intervalSec;
         this.csvMaxSizeMb = csvMaxSizeMb;
@@ -169,6 +176,10 @@ public final class MetricsConfig {
                         find(options, OPT_PROMETHEUS_PORT),
                         DEFAULT_PROMETHEUS_PORT,
                         OPT_PROMETHEUS_PORT);
+        String bind = find(options, OPT_PROMETHEUS_BIND);
+        if (bind != null && bind.trim().length() == 0) {
+            bind = null;
+        }
         String csvPath = find(options, OPT_CSV_PATH);
         if (csvPath == null || csvPath.trim().length() == 0) {
             csvPath = DEFAULT_CSV_PATH;
@@ -187,7 +198,14 @@ public final class MetricsConfig {
                         find(options, OPT_CSV_MAX_FILES), DEFAULT_CSV_MAX_FILES, OPT_CSV_MAX_FILES);
 
         return new MetricsConfig(
-                true, exports, port, csvPath.trim(), interval, csvMaxSizeMb, csvMaxFiles);
+                true,
+                exports,
+                port,
+                bind == null ? null : bind.trim(),
+                csvPath.trim(),
+                interval,
+                csvMaxSizeMb,
+                csvMaxFiles);
     }
 
     public boolean isEnabled() {
@@ -204,6 +222,11 @@ public final class MetricsConfig {
 
     public int getPrometheusPort() {
         return prometheusPort;
+    }
+
+    /** The address the Prometheus endpoint binds, or {@code null} for loopback. */
+    public String getPrometheusBind() {
+        return prometheusBind;
     }
 
     public String getCsvPath() {

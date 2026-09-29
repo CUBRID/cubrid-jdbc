@@ -62,6 +62,29 @@ public class CUBRIDDriverUrlModeTest {
                         "jdbc:cubrid:localhost:33000:demodb:dba:pw:?charSet=utf-8"));
     }
 
+    /**
+     * Only the scheme prefix marks a URI URL. A classic URL whose password or option value contains
+     * {@code ://} stays classic, as it was before the URI URL format was added.
+     */
+    @Test
+    public void classicUrlWithSchemeSeparatorInPasswordIsClassic() {
+        assertEquals(
+                UrlMode.CLASSIC,
+                CUBRIDDriver.detectUrlMode("jdbc:cubrid:localhost:33000:demodb:dba://secret:"));
+    }
+
+    @Test
+    public void classicUrlWithSchemeSeparatorInOptionValueIsClassic() {
+        assertEquals(
+                UrlMode.CLASSIC,
+                CUBRIDDriver.detectUrlMode(
+                        "jdbc:cubrid:localhost:33000:demodb:dba::?logFile=file://tmp/x.log"));
+        assertEquals(
+                UrlMode.CLASSIC,
+                CUBRIDDriver.detectUrlMode(
+                        "jdbc:cubrid:localhost:33000:demodb:dba::?logFile=loadbalance://x"));
+    }
+
     @Test
     public void uriUrlWithoutModeIsSingleNode() {
         assertEquals(
@@ -155,6 +178,22 @@ public class CUBRIDDriverUrlModeTest {
             String msg = e.getMessage() == null ? "" : e.getMessage();
             assertFalse(msg, msg.toLowerCase().contains("not implemented"));
             assertFalse(msg, msg.toLowerCase().contains("invalid url"));
+        }
+    }
+
+    /**
+     * A classic URL with {@code ://} in its password takes the classic path: it fails on the
+     * (unreachable) host, not with "invalid URL", and the error does not show the password.
+     */
+    @Test
+    public void connectOnClassicUrlWithSchemeSeparatorInPasswordUsesClassicPath() {
+        try {
+            driver.connect("jdbc:cubrid:localhost:1:demodb:dba://secret:", new Properties());
+            fail("expected SQLException connecting to an unreachable classic host");
+        } catch (SQLException e) {
+            String msg = e.getMessage() == null ? "" : e.getMessage();
+            assertFalse(msg, msg.toLowerCase().contains("invalid url"));
+            assertFalse(msg, msg.contains("secret"));
         }
     }
 

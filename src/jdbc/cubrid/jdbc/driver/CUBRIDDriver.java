@@ -103,7 +103,16 @@ public class CUBRIDDriver implements Driver {
     private static final String CUBRID_JDBC_URL_HEADER = "jdbc:cubrid";
     private static final String ENV_JDBC_PROP_NAME = "CUBRID_JDBC_PROP";
     private static final String URL_SCHEME_SEPARATOR = "://";
-    private static final String LOADBALANCE_MODE_SUFFIX = ":loadbalance";
+
+    /**
+     * The URI URL scheme prefix: {@code jdbc:cubrid[-variant][:loadbalance]://} at the very start
+     * of the URL. Group 2 is the {@code :loadbalance} mode keyword. Anchored to the start so a
+     * {@code ://} later in a classic URL (a password or an option value) does not make it a URI
+     * URL.
+     */
+    private static final Pattern URI_SCHEME_PREFIX =
+            Pattern.compile(
+                    "^jdbc:cubrid(-oracle|-mysql)?(:loadbalance)?://", Pattern.CASE_INSENSITIVE);
 
     /**
      * Internal connect-time property carrying the URL as the user wrote it, independent of the URL
@@ -121,9 +130,9 @@ public class CUBRIDDriver implements Driver {
 
     /**
      * URL dispatch mode, determined purely lexically from the URL scheme per jdbc-loadbalance-spec
-     * §4.1-4.2: a {@code ://} marks a <em>URI</em> URL; {@code loadbalance} immediately before
-     * {@code ://} marks the load-balancing (multi-node) mode, otherwise it is a single-node URI
-     * URL. A URL without {@code ://} is the classic colon-delimited format.
+     * A scheme ending in {@code ://} marks a <em>URI</em> URL; {@code loadbalance}
+     * immediately before {@code ://} marks the load-balancing (multi-node) mode, otherwise it is a
+     * single-node URI URL. Any other URL is the classic colon-delimited format.
      */
     enum UrlMode {
         CLASSIC,
@@ -371,11 +380,11 @@ public class CUBRIDDriver implements Driver {
      * parser.
      *
      * <ul>
-     *   <li>no {@code ://} → {@link UrlMode#CLASSIC} (classic colon-delimited URLs never contain
-     *       {@code //}, so there is no ambiguity)
-     *   <li>{@code loadbalance} as the segment immediately before {@code ://} → {@link
-     *       UrlMode#URI_LOADBALANCE}
-     *   <li>otherwise (a {@code ://} with no mode keyword) → {@link UrlMode#URI_SINGLE}
+     *   <li>{@code jdbc:cubrid[-variant]:loadbalance://} → {@link UrlMode#URI_LOADBALANCE}
+     *   <li>{@code jdbc:cubrid[-variant]://} → {@link UrlMode#URI_SINGLE}
+     *   <li>otherwise → {@link UrlMode#CLASSIC}. Only the scheme prefix is checked: a classic URL
+     *       may still contain {@code ://} in its password or an option value (e.g. {@code
+     *       logFile=file://...}), and it stays classic.
      * </ul>
      */
     static UrlMode detectUrlMode(String url) {
@@ -383,16 +392,12 @@ public class CUBRIDDriver implements Driver {
             return UrlMode.CLASSIC;
         }
 
-        int sep = url.indexOf(URL_SCHEME_SEPARATOR);
-        if (sep < 0) {
+        Matcher matcher = URI_SCHEME_PREFIX.matcher(url);
+        if (!matcher.lookingAt()) {
             return UrlMode.CLASSIC;
         }
 
-        String scheme = url.substring(0, sep).toLowerCase();
-
-        return scheme.endsWith(LOADBALANCE_MODE_SUFFIX)
-                ? UrlMode.URI_LOADBALANCE
-                : UrlMode.URI_SINGLE;
+        return matcher.group(2) != null ? UrlMode.URI_LOADBALANCE : UrlMode.URI_SINGLE;
     }
 
     /**

@@ -131,6 +131,15 @@ public final class KeywordSqlClassifier implements SqlClassifier {
      */
     @Override
     public SqlClassification classify(final String sql) {
+        final SqlClassification result = classifyStatements(sql);
+        if (result == SqlClassification.READ && SqlLexer.dependsOnBackslashEscapes(sql)) {
+            return SqlClassification.UNKNOWN; // what follows a literal may not be what was scanned
+        }
+
+        return result;
+    }
+
+    private SqlClassification classifyStatements(final String sql) {
         if (sql == null || sql.indexOf(';') < 0) {
             return classifyNormalized(normalizeLeading(sql));
         }

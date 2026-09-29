@@ -73,6 +73,61 @@ public final class SqlLexer {
     }
 
     /**
+     * Whether a quoted region would end elsewhere if a backslash escaped the next character, as it
+     * does on a server with {@code no_backslash_escapes=no}. This scanner cannot know the setting,
+     * so it cannot know where such a statement's literals end.
+     *
+     * @param sql the statement text
+     * @return whether the statement's tokens depend on that server setting
+     */
+    public static boolean dependsOnBackslashEscapes(final String sql) {
+        if (sql == null || sql.indexOf('\\') < 0) {
+            return false;
+        }
+
+        final int len = sql.length();
+        int i = 0;
+        while (i < len) {
+            final int after = skipCommentOrQuoted(sql, i);
+            if (after == i) {
+                i++;
+                continue;
+            }
+            final char c = sql.charAt(i);
+            if ((c == '\'' || c == '"') && endWithBackslashEscapes(sql, i) != after) {
+                return true;
+            }
+            i = after;
+        }
+
+        return false;
+    }
+
+    /** The quoted-string end {@link #skipQuoted} finds, if a backslash also escaped. */
+    private static int endWithBackslashEscapes(final String sql, final int pos) {
+        final int len = sql.length();
+        final char quote = sql.charAt(pos);
+        int p = pos + 1;
+        while (p < len) {
+            final char ch = sql.charAt(p);
+            if (ch == '\\') {
+                p += 2;
+                continue;
+            }
+            if (ch == quote) {
+                if (p + 1 < len && sql.charAt(p + 1) == quote) {
+                    p += 2;
+                    continue;
+                }
+                return p + 1;
+            }
+            p++;
+        }
+
+        return len;
+    }
+
+    /**
      * Advances past leading whitespace and comments from {@code pos}. Quoted regions are not
      * skipped: a string or identifier is where a statement token begins.
      *

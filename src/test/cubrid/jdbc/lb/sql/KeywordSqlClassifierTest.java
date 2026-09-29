@@ -292,6 +292,28 @@ public class KeywordSqlClassifierTest {
         assertEquals(SqlClassification.READ, classifier.classify("SELECT UPPER(이름) FROM 사원"));
     }
 
+    /**
+     * With no_backslash_escapes=no the server reads '\'' as one quote, so the literal ends later
+     * than this scanner thinks and NEXTVAL is live. The setting is not known here: a literal whose
+     * end depends on it must not leave the statement READ.
+     */
+    @Test
+    public void assertLiteralEndingDependentOnBackslashEscapesIsNotReadOnly() {
+        assertEquals(
+                SqlClassification.UNKNOWN,
+                classifier.classify("SELECT '\\'' , s.NEXTVAL FROM db_root"));
+        assertEquals(
+                SqlClassification.UNKNOWN,
+                classifier.classify("SELECT 'a\\'b' , s.NEXTVAL FROM db_root"));
+
+        // Same end either way: still a plain read.
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify("SELECT a FROM t WHERE b LIKE '100\\%'"));
+        assertEquals(SqlClassification.READ, classifier.classify("SELECT 'it''s' FROM t"));
+        assertEquals(SqlClassification.WRITE, classifier.classify("INSERT INTO t VALUES ('\\'')"));
+    }
+
     @Test
     public void assertLeadingCallClassifiedAsWrite() {
         assertEquals(SqlClassification.WRITE, classifier.classify("CALL my_proc(?)"));

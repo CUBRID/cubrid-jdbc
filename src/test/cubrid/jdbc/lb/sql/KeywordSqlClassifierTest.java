@@ -129,6 +129,57 @@ public class KeywordSqlClassifierTest {
     }
 
     /**
+     * A side effect in a CTE body runs whatever the top-level verb is, so it moves {@code WITH ...
+     * SELECT} off RO just as it would in the main SELECT: serial increment -> WRITE; user routine,
+     * session variable, CURRVAL -> UNKNOWN. Covers a later CTE and the column-list form too.
+     */
+    @Test
+    public void assertCteBodySideEffectIsNotReadOnly() {
+        assertEquals(
+                SqlClassification.WRITE,
+                classifier.classify("WITH c AS (SELECT s.NEXTVAL v FROM db_root) SELECT v FROM c"));
+        assertEquals(
+                SqlClassification.WRITE,
+                classifier.classify(
+                        "WITH a AS (SELECT 1 x), b AS (SELECT s.NEXTVAL v FROM db_root)"
+                                + " SELECT * FROM a, b"));
+        assertEquals(
+                SqlClassification.UNKNOWN,
+                classifier.classify("WITH c AS (SELECT my_sp(1) v FROM db_root) SELECT v FROM c"));
+        assertEquals(
+                SqlClassification.UNKNOWN,
+                classifier.classify("WITH c AS (SELECT @x v FROM db_root) SELECT v FROM c"));
+        assertEquals(
+                SqlClassification.UNKNOWN,
+                classifier.classify("WITH c AS (SELECT s.CURRVAL v FROM db_root) SELECT v FROM c"));
+        assertEquals(
+                SqlClassification.UNKNOWN,
+                classifier.classify(
+                        "WITH c (v) AS (SELECT my_sp(1) FROM db_root) SELECT v FROM c"));
+    }
+
+    /**
+     * The body check does not over-fire: a column list is not a function call, and a side-effect
+     * spelling inside a literal or comment of the body is skipped.
+     */
+    @Test
+    public void assertReadOnlyCteBodyStaysRead() {
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify("WITH c (a, b) AS (SELECT 1, 2) SELECT a, b FROM c"));
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify("WITH c AS (SELECT 's.NEXTVAL @x' v) SELECT v FROM c"));
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify("WITH c AS (SELECT 1 /* my_sp(1) */ v) SELECT v FROM c"));
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify(
+                        "WITH c AS (SELECT id FROM (SELECT id FROM t) d) SELECT UPPER(id) FROM c"));
+    }
+
+    /**
      * CUBRID does not support the {@code EXPLAIN <statement>} syntax (it errors), so a leading
      * EXPLAIN is an unrecognized statement -> conservative UNKNOWN -> RW.
      */

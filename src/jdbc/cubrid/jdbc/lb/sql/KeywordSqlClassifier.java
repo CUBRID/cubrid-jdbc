@@ -145,11 +145,11 @@ public final class KeywordSqlClassifier implements SqlClassifier {
 
     /**
      * Classifies a CTE-led statement ({@code WITH [RECURSIVE] cte AS (...) [, ...] <stmt>}) by its
-     * <b>top-level verb</b>, not by the CTE body: the SELECT/DML inside {@code AS (...)} is a
-     * subquery and is skipped (spec 8.2). {@code WITH ... SELECT} goes through {@link
-     * #classifySelect}, so a serial NEXTVAL or write built-in in the main statement still forces
-     * WRITE; {@code WITH ... INSERT/UPDATE/DELETE/MERGE} is WRITE; an unrecognized verb is UNKNOWN
-     * (safe side, RW).
+     * <b>top-level verb</b> (spec 8.2). {@code WITH ... INSERT/UPDATE/DELETE/MERGE} is WRITE; an
+     * unrecognized verb is UNKNOWN (safe side, RW). {@code WITH ... SELECT} goes through {@link
+     * #classifySelect}, and so does every CTE body: the verb is the top-level one, but a side
+     * effect in a body (serial NEXTVAL, write built-in, user routine, session variable, LOB) runs
+     * all the same, so it moves the statement off RO just as it would in the main SELECT.
      */
     private static SqlClassification classifyCte(final String sql) {
         final int verbPos = findCteTopLevelVerb(sql);
@@ -159,11 +159,92 @@ public final class KeywordSqlClassifier implements SqlClassifier {
 
         final String verb = extractUpperAscii(sql, verbPos, scanIdentifierEnd(sql, verbPos));
         if ("SELECT".equals(verb)) {
-            return classifySelect(sql.substring(verbPos));
+            return mostRestrictive(
+                    classifySelect(sql.substring(verbPos)), classifyCteBodies(sql, verbPos));
         }
 
         final SqlClassification classified = LEADING_WRITE_KEYWORDS.get(verb);
         return classified != null ? classified : SqlClassification.UNKNOWN;
+    }
+
+    /**
+     * The most restrictive {@link #classifySelect} result over the CTE bodies in the definition
+     * list {@code [WITH, verbPos)}. A body is the parenthesized group that follows {@code AS} at
+     * depth 0; any other depth-0 group is a column list and is skipped.
+     */
+    private static SqlClassification classifyCteBodies(final String sql, final int verbPos) {
+        SqlClassification result = SqlClassification.READ;
+        int i = "WITH".length();
+        boolean prevWasAs = false;
+
+        while (i < verbPos) {
+            final int after = SqlLexer.skipCommentOrQuoted(sql, i);
+            if (after != i) {
+                i = after;
+                continue;
+            }
+
+            final char c = sql.charAt(i);
+            if (c == '(') {
+                final int close = findMatchingParen(sql, i);
+                if (prevWasAs) {
+                    result = mostRestrictive(result, classifySelect(sql.substring(i + 1, close)));
+                }
+                prevWasAs = false;
+                i = close + 1;
+            } else if (isIdentifierStart(c)) {
+                final int end = scanIdentifierEnd(sql, i);
+                prevWasAs = "AS".equals(extractUpperAscii(sql, i, end));
+                i = end;
+            } else {
+                if (!Character.isWhitespace(c)) {
+                    prevWasAs = false;
+                }
+                i++;
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * Index of the {@code ')'} matching the {@code '('} at {@code open}, or {@code sql.length()} if
+     * it is unbalanced. Comments and quoted regions are skipped via {@link SqlLexer}.
+     */
+    private static int findMatchingParen(final String sql, final int open) {
+        final int len = sql.length();
+        int depth = 0;
+        int i = open;
+
+        while (i < len) {
+            final int after = SqlLexer.skipCommentOrQuoted(sql, i);
+            if (after != i) {
+                i = after;
+                continue;
+            }
+
+            final char c = sql.charAt(i);
+            if (c == '(') {
+                depth++;
+            } else if (c == ')' && --depth == 0) {
+                return i;
+            }
+            i++;
+        }
+
+        return len;
+    }
+
+    /** WRITE over UNKNOWN over READ. */
+    private static SqlClassification mostRestrictive(
+            final SqlClassification a, final SqlClassification b) {
+        if (a == SqlClassification.WRITE || b == SqlClassification.WRITE) {
+            return SqlClassification.WRITE;
+        }
+        if (a == SqlClassification.UNKNOWN || b == SqlClassification.UNKNOWN) {
+            return SqlClassification.UNKNOWN;
+        }
+        return SqlClassification.READ;
     }
 
     /**

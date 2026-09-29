@@ -130,9 +130,9 @@ public class CUBRIDDriver implements Driver {
 
     /**
      * URL dispatch mode, determined purely lexically from the URL scheme per jdbc-loadbalance-spec
-     * A scheme ending in {@code ://} marks a <em>URI</em> URL; {@code loadbalance}
-     * immediately before {@code ://} marks the load-balancing (multi-node) mode, otherwise it is a
-     * single-node URI URL. Any other URL is the classic colon-delimited format.
+     * A scheme ending in {@code ://} marks a <em>URI</em> URL; {@code loadbalance} immediately
+     * before {@code ://} marks the load-balancing (multi-node) mode, otherwise it is a single-node
+     * URI URL. Any other URL is the classic colon-delimited format.
      */
     enum UrlMode {
         CLASSIC,
@@ -526,7 +526,9 @@ public class CUBRIDDriver implements Driver {
         Matcher matcher =
                 Pattern.compile(URL_PATTERN_SINGLE, Pattern.CASE_INSENSITIVE).matcher(url);
         if (!matcher.matches()) {
-            throw new CUBRIDException(CUBRIDJDBCErrorCode.invalid_url, url, null);
+            // Applications log this message: quote the URL, not its password.
+            throw new CUBRIDException(
+                    CUBRIDJDBCErrorCode.invalid_url, maskUriUrlPassword(url, null), null);
         }
         return matcher;
     }

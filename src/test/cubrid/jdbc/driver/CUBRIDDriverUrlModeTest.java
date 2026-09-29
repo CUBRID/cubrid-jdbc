@@ -356,4 +356,19 @@ public class CUBRIDDriverUrlModeTest {
             assertTrue(e.getMessage(), e.getMessage().toLowerCase().contains("invalid url"));
         }
     }
+
+    /**
+     * A single-node URI URL that does not match its format is quoted in the invalid-URL error,
+     * which applications log - never with its password.
+     */
+    @Test
+    public void malformedUriUrlErrorDoesNotQuoteThePassword() {
+        try {
+            driver.connect("jdbc:cubrid://node1:abc/testdb:dba:s3cret:", new Properties());
+            fail("a non-numeric port must be refused");
+        } catch (SQLException e) {
+            assertFalse(e.getMessage(), e.getMessage().contains("s3cret"));
+            assertTrue(e.getMessage(), e.getMessage().contains("node1:abc/testdb:dba:********:"));
+        }
+    }
 }

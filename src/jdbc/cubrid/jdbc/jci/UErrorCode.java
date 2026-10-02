@@ -77,6 +77,7 @@ public abstract class UErrorCode {
     public static final int ER_ILLEGAL_TIMESTAMP = -21027;
     public static final int ER_SSL_HANDSHAKE = -21028;
     public static final int ER_NOT_SUPPORTED_PROTOCOL = -21029;
+    public static final int ER_SSL_CERT_VERIFY = -21030;
 
     /* CAS Error Code */
 
@@ -178,6 +179,11 @@ public abstract class UErrorCode {
                 new Integer(ER_NOT_SUPPORTED_PROTOCOL),
                 "The connected server uses an unsupported protocol version. "
                         + "This driver only supports server version 10.2 (PROTOCOL_V8) or later.");
+        messageString.put(
+                new Integer(ER_SSL_CERT_VERIFY),
+                "The server certificate could not be verified. "
+                        + "Check the trust anchor (sslca or trustStore) and the certificate's "
+                        + "validity period and subject alternative names.");
     }
 
     private static void setCASMessageHash() {

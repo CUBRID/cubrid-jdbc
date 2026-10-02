@@ -32,17 +32,32 @@
 package cubrid.jdbc.driver;
 
 import cubrid.jdbc.jci.BrokerHealthCheck;
+import cubrid.jdbc.jci.SslMode;
 import cubrid.jdbc.jci.UConnection;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.io.UnsupportedEncodingException;
 import java.lang.reflect.Field;
+import java.security.GeneralSecurityException;
+import java.security.KeyStore;
+import java.security.cert.Certificate;
+import java.security.cert.CertificateException;
+import java.security.cert.CertificateFactory;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Properties;
 import java.util.StringTokenizer;
 
 public class ConnectionProperties {
     static ArrayList<Field> PROPERTY_LIST = new ArrayList<Field>();
+
+    /* Resolved once by getTrustStore(); not a ConnectionProperty, so the reflection scan below
+     * leaves them alone. */
+    private KeyStore resolvedTrustStore = null;
+    private boolean trustStoreResolved = false;
     public static final String LB_VAL_TRUE = "true";
     public static final String LB_VAL_FALSE = "false";
     public static final String LB_VAL_SHUFFLE = "sh";
@@ -117,6 +132,14 @@ public class ConnectionProperties {
         }
         if (this.getReconnectTime() < (BrokerHealthCheck.MONITORING_INTERVAL / 1000)) {
             this.rcTime.setValue((Integer) (BrokerHealthCheck.MONITORING_INTERVAL / 1000));
+        }
+        /* Refused rather than resolved by precedence: with a security setting, "which one applied?"
+         * is the worst state to leave the operator in. */
+        if (this.getSslCa() != null && this.getTrustStorePath() != null) {
+            throw new CUBRIDException(
+                    CUBRIDJDBCErrorCode.invalid_url,
+                    "sslca and trustStore cannot be used together",
+                    null);
         }
     }
 
@@ -302,6 +325,17 @@ public class ConnectionProperties {
         }
     }
 
+    class SslModeConnectionProperty extends StringConnectionProperty {
+        SslModeConnectionProperty(String propertyName, Object defaultValue) {
+            super(propertyName, defaultValue);
+        }
+
+        @Override
+        boolean validateValue(Object o) {
+            return (o instanceof String) && SslMode.fromLabel((String) o) != null;
+        }
+    }
+
     class ZeroDateTimeBehaviorConnectionProperty extends StringConnectionProperty {
         ZeroDateTimeBehaviorConnectionProperty(String propertyName, Object defaultValue) {
             super(propertyName, defaultValue);
@@ -424,6 +458,17 @@ public class ConnectionProperties {
 
     BooleanConnectionProperty useSSL = new BooleanConnectionProperty("useSSL", false);
 
+    SslModeConnectionProperty sslMode = new SslModeConnectionProperty("sslmode", null);
+
+    StringConnectionProperty sslCa = new StringConnectionProperty("sslca", null);
+
+    StringConnectionProperty trustStore = new StringConnectionProperty("trustStore", null);
+
+    StringConnectionProperty trustStoreType = new StringConnectionProperty("trustStoreType", null);
+
+    StringConnectionProperty trustStorePassword =
+            new StringConnectionProperty("trustStorePassword", null);
+
     IntegerConnectionProperty clientCacheSize =
             new IntegerConnectionProperty("clientCacheSize", 1, 1, 1024);
 
@@ -500,6 +545,130 @@ public class ConnectionProperties {
 
     public boolean getUseSSL() {
         return useSSL.getValueAsBoolean();
+    }
+
+    /**
+     * The TLS mode this connection runs in: {@code sslmode} when given, otherwise derived from
+     * {@code useSSL} so that an URL written before this property existed keeps its behaviour.
+     */
+    public SslMode getSslMode() {
+        SslMode mode = SslMode.fromLabel(sslMode.getValueAsString());
+
+        return (mode != null) ? mode : SslMode.fromUseSSL(getUseSSL());
+    }
+
+    public String getSslCa() {
+        return sslCa.getValueAsString();
+    }
+
+    public String getTrustStorePath() {
+        return trustStore.getValueAsString();
+    }
+
+    /**
+     * The trust anchors to verify the server certificate against, or null to use the JVM default
+     * store ({@code cacerts}).
+     *
+     * <p>Built once and kept: a pooled connection re-opens its socket on every reconnect, and
+     * re-reading the file each time would buy nothing - the anchors are configuration, not state.
+     *
+     * @return the store to hand to a TrustManagerFactory, or null for the JVM default
+     * @throws CUBRIDException if the configured file cannot be read as the format it claims
+     */
+    public KeyStore getTrustStore() throws CUBRIDException {
+        if (!trustStoreResolved) {
+            resolvedTrustStore = buildTrustStore();
+            trustStoreResolved = true;
+        }
+
+        return resolvedTrustStore;
+    }
+
+    private KeyStore buildTrustStore() throws CUBRIDException {
+        String caPath = getSslCa();
+        String storePath = getTrustStorePath();
+
+        if (caPath != null) {
+            return loadPemTrustStore(caPath);
+        }
+        if (storePath != null) {
+            return loadKeyStoreFile(storePath);
+        }
+
+        return null;
+    }
+
+    /** A PEM file, which may hold several concatenated certificates - all of them are anchors. */
+    private KeyStore loadPemTrustStore(String caPath) throws CUBRIDException {
+        try {
+            Collection<? extends Certificate> certs;
+            InputStream in = new FileInputStream(caPath);
+            try {
+                certs = CertificateFactory.getInstance("X.509").generateCertificates(in);
+            } catch (CertificateException e) {
+                /* The file was readable but holds nothing the factory recognises - the same
+                 * mistake as an empty file, so it gets the same message. */
+                throw new CUBRIDException(
+                        CUBRIDJDBCErrorCode.invalid_url, "no certificate found in " + caPath, e);
+            } finally {
+                in.close();
+            }
+
+            if (certs.isEmpty()) {
+                throw new CUBRIDException(
+                        CUBRIDJDBCErrorCode.invalid_url, "no certificate found in " + caPath, null);
+            }
+
+            KeyStore ks = KeyStore.getInstance(KeyStore.getDefaultType());
+            ks.load(null, null);
+            int i = 0;
+            for (Certificate cert : certs) {
+                ks.setCertificateEntry("cubrid-ca-" + (i++), cert);
+            }
+
+            return ks;
+        } catch (IOException e) {
+            throw new CUBRIDException(
+                    CUBRIDJDBCErrorCode.invalid_url, "cannot read sslca file " + caPath, e);
+        } catch (GeneralSecurityException e) {
+            throw new CUBRIDException(
+                    CUBRIDJDBCErrorCode.invalid_url, "cannot read sslca file " + caPath, e);
+        }
+    }
+
+    /**
+     * A Java key store. The type defaults to {@link KeyStore#getDefaultType()} rather than "JKS":
+     * since JDK 9 keytool writes PKCS12 even when the file is named .jks, and hard-coding JKS would
+     * refuse the file the operator actually made.
+     */
+    private KeyStore loadKeyStoreFile(String storePath) throws CUBRIDException {
+        String type =
+                (trustStoreType.getValueAsString() != null)
+                        ? trustStoreType.getValueAsString()
+                        : KeyStore.getDefaultType();
+        String password = trustStorePassword.getValueAsString();
+
+        try {
+            KeyStore ks = KeyStore.getInstance(type);
+            InputStream in = new FileInputStream(storePath);
+            try {
+                ks.load(in, (password == null) ? null : password.toCharArray());
+            } finally {
+                in.close();
+            }
+
+            return ks;
+        } catch (IOException e) {
+            throw new CUBRIDException(
+                    CUBRIDJDBCErrorCode.invalid_url,
+                    "cannot read trustStore file " + storePath + " as " + type,
+                    e);
+        } catch (GeneralSecurityException e) {
+            throw new CUBRIDException(
+                    CUBRIDJDBCErrorCode.invalid_url,
+                    "cannot read trustStore file " + storePath + " as " + type,
+                    e);
+        }
     }
 
     public int getClientCacheSize() {

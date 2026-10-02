@@ -35,6 +35,7 @@ import cubrid.jdbc.net.BrokerHandler;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.Socket;
+import java.security.KeyStore;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -44,7 +45,8 @@ public class UUnreachableHostList {
 
     private static UUnreachableHostList instance = null;
     private List<String> unreachableHosts;
-    private boolean useSSL = false;
+    private SslMode sslMode = SslMode.DISABLED;
+    private KeyStore trustStore = null;
 
     private UUnreachableHostList() {
         unreachableHosts = new CopyOnWriteArrayList<String>();
@@ -108,7 +110,7 @@ public class UUnreachableHostList {
         long startTime = System.currentTimeMillis();
 
         try {
-            toBroker = BrokerHandler.connectBroker(ip, port, useSSL, timeout);
+            toBroker = BrokerHandler.connectBroker(ip, port, sslMode, trustStore, timeout);
             if (timeout > 0) {
                 timeout -= (System.currentTimeMillis() - startTime);
                 if (timeout <= 0) {
@@ -140,6 +142,19 @@ public class UUnreachableHostList {
     }
 
     public void setUseSSL(boolean useSSL) {
-        this.useSSL = useSSL;
+        setSslConfig(SslMode.fromUseSSL(useSSL), null);
+    }
+
+    /**
+     * How the health probe connects. It uses the same mode and anchors as the session that reported
+     * the host, so a probe cannot call a host healthy on a connection the session itself would
+     * refuse.
+     *
+     * @param sslMode the TLS mode to probe with
+     * @param trustStore anchors for the chain check, or null for the JVM default store
+     */
+    public void setSslConfig(SslMode sslMode, KeyStore trustStore) {
+        this.sslMode = (sslMode == null) ? SslMode.DISABLED : sslMode;
+        this.trustStore = trustStore;
     }
 }

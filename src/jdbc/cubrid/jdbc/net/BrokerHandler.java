@@ -31,6 +31,7 @@
 
 package cubrid.jdbc.net;
 
+import cubrid.jdbc.jci.SslMode;
 import cubrid.jdbc.jci.UConnection;
 import cubrid.jdbc.jci.UErrorCode;
 import cubrid.jdbc.jci.UJciException;
@@ -42,21 +43,59 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
-import java.security.KeyManagementException;
-import java.security.NoSuchAlgorithmException;
+import java.security.GeneralSecurityException;
+import java.security.KeyStore;
 import java.security.SecureRandom;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.regex.Pattern;
+import javax.net.ssl.SNIHostName;
+import javax.net.ssl.SNIServerName;
 import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLHandshakeException;
+import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLSocket;
-import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.TrustManager;
+import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509TrustManager;
 
 public class BrokerHandler {
     private static int TIMEOUT_UNIT = 1000;
 
+    /** TLS versions this driver offers, newest first. Anything older is not negotiated. */
+    private static final String[] TLS_PROTOCOLS = {"TLSv1.3", "TLSv1.2"};
+
+    private static final Pattern IPV4_LITERAL =
+            Pattern.compile("\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}");
+
+    /**
+     * Accepts any certificate. Used only below {@code verify-ca}, which is what {@code useSSL=true}
+     * has always meant: encrypt, verify nothing.
+     */
+    private static final X509TrustManager TRUST_ALL_TM =
+            new X509TrustManager() {
+                public void checkClientTrusted(X509Certificate[] chain, String authType)
+                        throws CertificateException {}
+
+                public void checkServerTrusted(X509Certificate[] chain, String authType)
+                        throws CertificateException {}
+
+                public X509Certificate[] getAcceptedIssuers() {
+                    return new X509Certificate[0];
+                }
+            };
+
     public static Socket connectBroker(String ip, int port, boolean useSSL, int timeout)
+            throws IOException, UJciException {
+        return connectBroker(ip, port, SslMode.fromUseSSL(useSSL), null, timeout);
+    }
+
+    public static Socket connectBroker(
+            String ip, int port, SslMode sslMode, KeyStore trustStore, int timeout)
             throws IOException, UJciException {
         Socket toBroker = null;
         Socket toSSLBroker = null;
@@ -83,7 +122,7 @@ public class BrokerHandler {
             in = new UTimedDataInputStream(toBroker.getInputStream(), ip, port, timeout);
             out = new DataOutputStream(toBroker.getOutputStream());
 
-            if (useSSL == true) {
+            if (sslMode.usesSsl()) {
                 out.write(UConnection.driverInfossl);
             } else {
                 out.write(UConnection.driverInfo);
@@ -107,8 +146,8 @@ public class BrokerHandler {
                 }
 
             } else if (code == 0) {
-                if (useSSL == true) {
-                    toSSLBroker = (Socket) createSSLSocket(toBroker, ip, port);
+                if (sslMode.usesSsl()) {
+                    toSSLBroker = (Socket) createSSLSocket(toBroker, ip, port, sslMode, trustStore);
                     return (Socket) toSSLBroker;
                 } else {
                     return toBroker;
@@ -132,8 +171,8 @@ public class BrokerHandler {
             }
 
             toBroker.setKeepAlive(true);
-            if (useSSL == true) {
-                toSSLBroker = (Socket) createSSLSocket(toBroker, ip, code);
+            if (sslMode.usesSsl()) {
+                toSSLBroker = (Socket) createSSLSocket(toBroker, ip, code, sslMode, trustStore);
                 return (Socket) toSSLBroker;
             } else {
                 return toBroker;
@@ -303,50 +342,122 @@ public class BrokerHandler {
         cancelRequest(ip, port, bao.toByteArray(), timeout);
     }
 
-    private static SSLSocket createSSLSocket(Socket plainSocket, String ip, int port)
+    /**
+     * Wraps the connected socket in TLS.
+     *
+     * <p>Below {@code verify-ca} this keeps the historical behaviour - encrypted, unverified - so
+     * that existing {@code useSSL=true} deployments are unaffected. From {@code verify-ca} up, the
+     * trust managers come from a {@link TrustManagerFactory}: its X509ExtendedTrustManager is what
+     * makes {@code setEndpointIdentificationAlgorithm} effective, which a hand-written
+     * X509TrustManager does not reliably do.
+     *
+     * @param plainSocket the connected TCP socket to upgrade
+     * @param host the host as the caller named it - the SNI value and the name checked against the
+     *     certificate
+     * @param port the broker port
+     * @param sslMode how much of the certificate to check
+     * @param trustStore anchors for the chain check, or null for the JVM default store
+     * @return the handshaken TLS socket
+     * @throws UJciException {@code ER_SSL_CERT_VERIFY} when the certificate was rejected, {@code
+     *     ER_SSL_HANDSHAKE} for any other handshake failure
+     */
+    private static SSLSocket createSSLSocket(
+            Socket plainSocket, String host, int port, SslMode sslMode, KeyStore trustStore)
             throws UJciException {
-        SSLSocket sslSocket = null;
-        SSLContext ctx = null;
-        SSLSocketFactory sslsocketfactory = null;
-
-        X509TrustManager tm =
-                new X509TrustManager() {
-                    public void checkClientTrusted(X509Certificate[] chain, String authType)
-                            throws CertificateException {}
-
-                    public void checkServerTrusted(X509Certificate[] xcs, String string)
-                            throws CertificateException {}
-
-                    public X509Certificate[] getAcceptedIssuers() {
-                        return new X509Certificate[0];
-                    }
-                };
-
+        SSLContext ctx;
         try {
             ctx = SSLContext.getInstance("TLS");
-        } catch (NoSuchAlgorithmException e) {
+            if (sslMode.verifiesCertificate()) {
+                TrustManagerFactory tmf =
+                        TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+                tmf.init(trustStore); /* null: the JVM default cacerts */
+                ctx.init(null, tmf.getTrustManagers(), null);
+            } else {
+                ctx.init(null, new TrustManager[] {TRUST_ALL_TM}, new SecureRandom());
+            }
+        } catch (GeneralSecurityException e) {
             throw new UJciException(UErrorCode.ER_CONNECTION, e);
         }
 
+        SSLSocket sslSocket;
         try {
-            ctx.init(null, new TrustManager[] {tm}, new SecureRandom());
-        } catch (KeyManagementException e) {
-            throw new UJciException(UErrorCode.ER_CONNECTION, e);
-        }
-
-        sslsocketfactory = ctx.getSocketFactory();
-        try {
-            sslSocket = (SSLSocket) sslsocketfactory.createSocket(plainSocket, ip, port, true);
+            sslSocket =
+                    (SSLSocket) ctx.getSocketFactory().createSocket(plainSocket, host, port, true);
         } catch (IOException e) {
             throw new UJciException(UErrorCode.ER_CONNECTION, e);
         }
 
+        SSLParameters params = sslSocket.getSSLParameters();
+        String[] protocols = supportedProtocols(sslSocket);
+        if (protocols.length > 0) {
+            params.setProtocols(protocols);
+        }
+        if (!isIpLiteral(host)) {
+            /* RFC 6066 forbids an IP literal in SNI, and a broker addressed by IP has nothing to
+             * match it against anyway. */
+            params.setServerNames(Collections.<SNIServerName>singletonList(new SNIHostName(host)));
+        }
+        if (sslMode.verifiesHostname()) {
+            params.setEndpointIdentificationAlgorithm("HTTPS");
+        }
+        sslSocket.setSSLParameters(params);
+
         try {
             sslSocket.startHandshake();
+        } catch (SSLHandshakeException e) {
+            if (isCertificateFailure(e)) {
+                throw new UJciException(UErrorCode.ER_SSL_CERT_VERIFY, e);
+            }
+            throw new UJciException(UErrorCode.ER_SSL_HANDSHAKE, e);
         } catch (IOException e) {
             throw new UJciException(UErrorCode.ER_SSL_HANDSHAKE, e);
         }
 
         return sslSocket;
+    }
+
+    /**
+     * {@link #TLS_PROTOCOLS} narrowed to what this JRE has. TLS 1.3 arrived in 8u261, so asking for
+     * it unconditionally would throw on an older JRE that TLS 1.2 serves perfectly well.
+     */
+    private static String[] supportedProtocols(SSLSocket socket) {
+        List<String> available = Arrays.asList(socket.getSupportedProtocols());
+        List<String> chosen = new ArrayList<String>(TLS_PROTOCOLS.length);
+        for (String protocol : TLS_PROTOCOLS) {
+            if (available.contains(protocol)) {
+                chosen.add(protocol);
+            }
+        }
+
+        return chosen.toArray(new String[chosen.size()]);
+    }
+
+    private static boolean isIpLiteral(String host) {
+        if (host == null || host.length() == 0) {
+            return false;
+        }
+        if (host.indexOf(':') >= 0) {
+            return true; /* IPv6 literal */
+        }
+
+        return IPV4_LITERAL.matcher(host).matches();
+    }
+
+    /**
+     * Whether the handshake failed because of the certificate rather than the connection.
+     *
+     * <p>Every case the caller must tell apart - chain building, expiry, a missing or mismatched
+     * subject alternative name - reaches the client as a {@link CertificateException} somewhere in
+     * the cause chain. The walk is bounded because a malformed cause chain must not hang a connect.
+     */
+    private static boolean isCertificateFailure(Throwable t) {
+        for (int depth = 0; t != null && depth < 16; depth++) {
+            if (t instanceof CertificateException) {
+                return true;
+            }
+            t = t.getCause();
+        }
+
+        return false;
     }
 }

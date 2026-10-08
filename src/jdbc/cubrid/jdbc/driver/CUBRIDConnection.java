@@ -769,16 +769,27 @@ public class CUBRIDConnection implements Connection {
         outRs.add(rs);
     }
 
-    /* JDK 1.6 */
+    /* JDK 1.6. Its bytes go to the server as they are written, over the connection's only upload
+     * stream: finish one value (bind it or close its stream) before writing the next. */
     public Blob createBlob() throws SQLException {
         Blob blob = new CUBRIDBlob(this);
         return blob;
     }
 
-    /* JDK 1.6 */
+    /* JDK 1.6. Streams like createBlob (), with the same one-value-at-a-time rule. */
     public Clob createClob() throws SQLException {
         Clob clob = new CUBRIDClob(this, getUConnection().getCharset());
         return clob;
+    }
+
+    /* an external LOB (BFILE): its bytes live in a file outside the database */
+    public Blob createBfile() throws SQLException {
+        return new CUBRIDBfile(this);
+    }
+
+    /* an external LOB (CFILE) */
+    public Clob createCfile() throws SQLException {
+        return new CUBRIDCfile(this, getUConnection().getCharset());
     }
 
     private void end(boolean commit) throws SQLException {
@@ -919,7 +930,13 @@ public class CUBRIDConnection implements Connection {
             error = u_con.getRecentError();
         }
         if (error.getErrorCode() != UErrorCode.ER_NO_ERROR) throw createCUBRIDException(error);
+        u_con.noteStreamSessionChange();
         return result;
+    }
+
+    /* an upload compares it to tell its session was dropped or replaced */
+    synchronized long getStreamSessionCount() {
+        return u_con.getStreamSessionCount();
     }
 
     public synchronized int streamData(byte[] data) throws SQLException {

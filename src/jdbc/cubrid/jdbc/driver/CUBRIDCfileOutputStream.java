@@ -32,105 +32,57 @@
 package cubrid.jdbc.driver;
 
 import java.io.IOException;
-import java.io.InputStream;
+import java.io.OutputStream;
 import java.sql.SQLException;
 
-class CUBRIDClobInputStream extends InputStream {
-    private CUBRIDClob clob;
+class CUBRIDCfileOutputStream extends OutputStream {
+    private CUBRIDCfile clob;
     private long lob_pos;
-    private long lob_length;
 
-    CUBRIDClobInputStream(CUBRIDClob clob) throws SQLException {
+    CUBRIDCfileOutputStream(CUBRIDCfile clob, long pos) {
         this.clob = clob;
-        lob_pos = 1;
-        lob_length = clob.getLobHandle().getLobSize();
+        lob_pos = pos;
     }
 
     /*
-     * java.io.InputStream interface
+     * java.io.OutputStream interface
      */
 
-    /*
-    public int available() throws IOException {
-    	return 0;
-    }
-    */
-
-    public synchronized int read() throws IOException {
-        byte[] b = new byte[1];
-        if (read(b, 0, 1) == 1) return (0xff & b[0]);
-        else return -1;
+    public synchronized void write(int b) throws IOException {
+        byte[] buf = new byte[1];
+        buf[0] = (byte) b;
+        write(buf, 0, 1);
     }
 
     /*
-    public synchronized int read(byte[] b) throws IOException {
-    	return read(b, 0, b.length);
+    public synchronized void write(byte[] b) throws IOException {
+    	write(b, 0, b.length);
     }
     */
 
-    public synchronized int read(byte[] b, int off, int len) throws IOException {
-        if (clob == null) return -1;
+    public synchronized void write(byte[] b, int off, int len) throws IOException {
+        if (clob == null) {
+            throw new IOException();
+        }
 
         if (b == null) throw new NullPointerException();
         if (off < 0 || len < 0 || off + len > b.length) throw new IndexOutOfBoundsException();
 
-        int read_len;
-
         try {
-            if (lob_pos - 1 + len > lob_length) {
-                len = (int) (lob_length - lob_pos + 1);
-                if (len < 0) len = 0;
-            }
-
-            byte[] buf = clob.getBytes(lob_pos, len);
-            System.arraycopy(buf, 0, b, off, buf.length);
-            read_len = buf.length;
+            lob_pos += clob.setBytes(lob_pos, b, off, len);
         } catch (SQLException e) {
             throw new IOException(e.getMessage());
         }
-
-        lob_pos += read_len;
-        if (read_len < len || lob_pos > lob_length) {
-            clob = null;
-        }
-
-        return read_len;
     }
 
-    public synchronized long skip(long n) throws IOException {
-        if (n <= 0) return 0;
-
-        if (clob == null) return 0;
-
-        long lob_remains_len = lob_length - lob_pos + 1;
-        if (n > lob_remains_len) {
-            n = lob_remains_len;
-            clob = null;
-        }
-
-        lob_pos += n;
-
-        return n;
+    /*
+    public synchronized void flush() throws IOException {
     }
+    */
 
     public synchronized void close() throws IOException {
+        flush();
+        clob.removeFlushableStream(this);
         clob = null;
     }
-
-    /*
-    public void mark(int readlimit) {
-    }
-    */
-
-    /*
-    public void reset() throws IOException {
-    	throw new IOException("Not supported mark and reset operation");
-    }
-    */
-
-    /*
-    public boolean markSupported() {
-    	return false;
-    }
-    */
 }

@@ -35,11 +35,11 @@ import java.io.IOException;
 import java.io.Writer;
 import java.sql.SQLException;
 
-class CUBRIDClobWriter extends Writer {
-    private CUBRIDClob clob;
+class CUBRIDCfileWriter extends Writer {
+    private CUBRIDCfile clob;
     private long char_pos;
 
-    CUBRIDClobWriter(CUBRIDClob clob, long pos) {
+    CUBRIDCfileWriter(CUBRIDCfile clob, long pos) {
         this.clob = clob;
         char_pos = pos;
     }

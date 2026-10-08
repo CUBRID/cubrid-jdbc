@@ -35,12 +35,12 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.sql.SQLException;
 
-class CUBRIDClobOutputStream extends OutputStream {
-    private CUBRIDClob clob;
+class CUBRIDBfileOutputStream extends OutputStream {
+    private CUBRIDBfile blob;
     private long lob_pos;
 
-    CUBRIDClobOutputStream(CUBRIDClob clob, long pos) {
-        this.clob = clob;
+    CUBRIDBfileOutputStream(CUBRIDBfile blob, long pos) {
+        this.blob = blob;
         lob_pos = pos;
     }
 
@@ -61,7 +61,7 @@ class CUBRIDClobOutputStream extends OutputStream {
     */
 
     public synchronized void write(byte[] b, int off, int len) throws IOException {
-        if (clob == null) {
+        if (blob == null) {
             throw new IOException();
         }
 
@@ -69,7 +69,7 @@ class CUBRIDClobOutputStream extends OutputStream {
         if (off < 0 || len < 0 || off + len > b.length) throw new IndexOutOfBoundsException();
 
         try {
-            lob_pos += clob.setBytes(lob_pos, b, off, len);
+            lob_pos += blob.setBytes(lob_pos, b, off, len);
         } catch (SQLException e) {
             throw new IOException(e.getMessage());
         }
@@ -82,7 +82,7 @@ class CUBRIDClobOutputStream extends OutputStream {
 
     public synchronized void close() throws IOException {
         flush();
-        clob.removeFlushableStream(this);
-        clob = null;
+        blob.removeFlushableStream(this);
+        blob = null;
     }
 }

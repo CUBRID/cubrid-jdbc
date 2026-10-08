@@ -37,10 +37,15 @@ import java.sql.Time;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.util.Arrays;
+import java.util.Calendar;
+import java.util.GregorianCalendar;
+import java.util.Locale;
+import java.util.TimeZone;
 
 /**
- * A date or time value as the server sent it, holding both the calendar fields and the epoch the
- * reader computed from them.
+ * A date or time value as the server sent it, or as a bound value will be sent, holding both the
+ * calendar fields and an epoch.
  *
  * <p>The wire carries year, month, day, hour, minute and second with no time zone. Rebuilding those
  * fields from an epoch applies the JVM default time zone a second time, which shifts values that do
@@ -112,6 +117,29 @@ final class UDateTimeFields {
                 UUType.U_TYPE_DATETIME, epoch, year, month, day, hour, minute, second, millisecond);
     }
 
+    static UDateTimeFields of(java.util.Date value, byte type, TimeZone zone) {
+        Calendar c = new GregorianCalendar(zone);
+        c.setTime(value);
+        long epoch = value.getTime();
+        int year = c.get(Calendar.YEAR);
+        int month = c.get(Calendar.MONTH) + 1;
+        int day = c.get(Calendar.DAY_OF_MONTH);
+        int hour = c.get(Calendar.HOUR_OF_DAY);
+        int minute = c.get(Calendar.MINUTE);
+        int second = c.get(Calendar.SECOND);
+        switch (type) {
+            case UUType.U_TYPE_DATE:
+                return ofDate(epoch, year, month, day);
+            case UUType.U_TYPE_TIME:
+                return ofTime(epoch, hour, minute, second);
+            case UUType.U_TYPE_TIMESTAMP:
+                return ofTimestamp(epoch, year, month, day, hour, minute, second);
+            default:
+                return ofDatetime(
+                        epoch, year, month, day, hour, minute, second, c.get(Calendar.MILLISECOND));
+        }
+    }
+
     private boolean hasDate() {
         return type != UUType.U_TYPE_TIME;
     }
@@ -139,6 +167,78 @@ final class UDateTimeFields {
                 return new CUBRIDTimestamp(epoch, CUBRIDTimestamp.TIMESTAMP);
             default:
                 return new CUBRIDTimestamp(epoch, CUBRIDTimestamp.DATETIME);
+        }
+    }
+
+    Object toSqlValue(TimeZone zone) {
+        return new UDateTimeFields(
+                        type, epochIn(zone), year, month, day, hour, minute, second, millisecond)
+                .toSqlValue();
+    }
+
+    /* The epoch UInputBuffer computes from the fields, but in zone. */
+    private long epochIn(TimeZone zone) {
+        if (type == UUType.U_TYPE_TIMESTAMP && isZeroDate()) {
+            return 0;
+        }
+        Calendar c = new GregorianCalendar(zone);
+        if (isZeroDate()) {
+            c.set(0, 0, 1, 0, 0, 0);
+        } else if (hasDate()) {
+            c.set(year, month - 1, day, hour, minute, second);
+        } else {
+            c.set(1970, 0, 1, hour, minute, second);
+        }
+        c.set(Calendar.MILLISECOND, millisecond);
+        return c.getTimeInMillis();
+    }
+
+    int[] wireFields() {
+        return new int[] {year, month, day, hour, minute, second, millisecond};
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (!(o instanceof UDateTimeFields)) {
+            return false;
+        }
+        UDateTimeFields other = (UDateTimeFields) o;
+        return type == other.type && Arrays.equals(wireFields(), other.wireFields());
+    }
+
+    @Override
+    public int hashCode() {
+        return 31 * type + Arrays.hashCode(wireFields());
+    }
+
+    @Override
+    public String toString() {
+        switch (type) {
+            case UUType.U_TYPE_DATE:
+                return String.format(Locale.ROOT, "%04d-%02d-%02d", year, month, day);
+            case UUType.U_TYPE_TIME:
+                return String.format(Locale.ROOT, "%02d:%02d:%02d", hour, minute, second);
+            case UUType.U_TYPE_TIMESTAMP:
+                return String.format(
+                        Locale.ROOT,
+                        "%04d-%02d-%02d %02d:%02d:%02d",
+                        year,
+                        month,
+                        day,
+                        hour,
+                        minute,
+                        second);
+            default:
+                return String.format(
+                        Locale.ROOT,
+                        "%04d-%02d-%02d %02d:%02d:%02d.%03d",
+                        year,
+                        month,
+                        day,
+                        hour,
+                        minute,
+                        second,
+                        millisecond);
         }
     }
 

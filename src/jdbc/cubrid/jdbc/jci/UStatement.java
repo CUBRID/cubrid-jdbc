@@ -40,8 +40,6 @@
  */
 package cubrid.jdbc.jci;
 
-import cubrid.jdbc.driver.CUBRIDBlob;
-import cubrid.jdbc.driver.CUBRIDClob;
 import cubrid.jdbc.driver.CUBRIDOutResultSet;
 import cubrid.sql.CUBRIDOID;
 import cubrid.sql.CUBRIDTimestamptz;
@@ -507,11 +505,26 @@ public class UStatement {
         bindValue(index, UUType.U_TYPE_OBJECT, oid);
     }
 
-    public void bindBlob(int index, Blob blob) {
-        bindValue(index, UUType.U_TYPE_BLOB, blob);
+    public void bindInternalLobUpload(int index, boolean blob, long token, long dataLength) {
+        String marker =
+                "@internal_lob_upload:"
+                        + (blob ? "B:" : "C:")
+                        + token
+                        + ":"
+                        + dataLength
+                        + ":"
+                        + (blob ? dataLength * 8 : dataLength);
+        bindValue(
+                index,
+                blob ? UUType.U_TYPE_INTERNAL_BLOB_UPLOAD : UUType.U_TYPE_INTERNAL_CLOB_UPLOAD,
+                marker.getBytes(java.nio.charset.Charset.forName("US-ASCII")));
     }
 
-    public void bindClob(int index, Clob clob) {
+    public void bindBfile(int index, Blob bfile) {
+        bindValue(index, UUType.U_TYPE_BFILE, bfile);
+    }
+
+    public void bindCfile(int index, Clob clob) {
         try {
             if (relatedConnection.getOracleStyleEmpltyString()
                     && clob != null
@@ -521,7 +534,7 @@ public class UStatement {
         } catch (SQLException e) {
             relatedConnection.logException(e);
         }
-        bindValue(index, UUType.U_TYPE_CLOB, clob);
+        bindValue(index, UUType.U_TYPE_CFILE, clob);
     }
 
     public void addBatch() {
@@ -1321,7 +1334,7 @@ public class UStatement {
         return (tuples[cursorPosition - currentFirstCursor].getOid());
     }
 
-    public synchronized CUBRIDBlob getBlob(int index) {
+    public synchronized java.sql.Blob getBlob(int index) {
         errorHandler = new UError(relatedConnection);
 
         Object obj = beforeGetXXX(index);
@@ -1335,7 +1348,7 @@ public class UStatement {
         return null;
     }
 
-    public synchronized CUBRIDClob getClob(int index) {
+    public synchronized java.sql.Clob getClob(int index) {
         errorHandler = new UError(relatedConnection);
 
         Object obj = beforeGetXXX(index);
@@ -2273,10 +2286,21 @@ public class UStatement {
                 } else {
                     return new CUBRIDOutResultSet(relatedConnection, inBuffer.readLong());
                 }
+            case UUType.U_TYPE_BFILE:
+                return inBuffer.readBfile(dataSize, relatedConnection.cubridcon);
+            case UUType.U_TYPE_CFILE:
+                return inBuffer.readCfile(dataSize, relatedConnection.cubridcon);
             case UUType.U_TYPE_BLOB:
-                return inBuffer.readBlob(dataSize, relatedConnection.cubridcon);
+                /* an internal LOB arrives as a locator; the pre-V14 wire carried an external LOB handle */
+                if (relatedConnection.brokerProtocolVersion() >= UConnection.PROTOCOL_V14) {
+                    return inBuffer.readInternalBlob(dataSize, relatedConnection.cubridcon);
+                }
+                return inBuffer.readBfile(dataSize, relatedConnection.cubridcon);
             case UUType.U_TYPE_CLOB:
-                return inBuffer.readClob(dataSize, relatedConnection.cubridcon);
+                if (relatedConnection.brokerProtocolVersion() >= UConnection.PROTOCOL_V14) {
+                    return inBuffer.readInternalClob(dataSize, relatedConnection.cubridcon);
+                }
+                return inBuffer.readCfile(dataSize, relatedConnection.cubridcon);
             case UUType.U_TYPE_NULL:
                 return null;
             default:

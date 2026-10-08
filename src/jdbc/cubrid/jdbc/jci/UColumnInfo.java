@@ -270,8 +270,10 @@ public class UColumnInfo {
                 break;
             case UUType.U_TYPE_OBJECT:
                 return "cubrid.sql.CUBRIDOID";
+            case UUType.U_TYPE_BFILE:
             case UUType.U_TYPE_BLOB:
                 return "java.sql.Blob";
+            case UUType.U_TYPE_CFILE:
             case UUType.U_TYPE_CLOB:
                 return "java.sql.Clob";
             default:
@@ -324,8 +326,10 @@ public class UColumnInfo {
                 break;
             case UUType.U_TYPE_OBJECT:
                 return "cubrid.sql.CUBRIDOID[]";
+            case UUType.U_TYPE_BFILE:
             case UUType.U_TYPE_BLOB:
                 return "java.sql.Blob[]";
+            case UUType.U_TYPE_CFILE:
             case UUType.U_TYPE_CLOB:
                 return "java.sql.Clob[]";
             default:

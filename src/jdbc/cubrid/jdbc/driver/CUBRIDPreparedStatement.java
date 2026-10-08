@@ -41,9 +41,7 @@ import cubrid.sql.CUBRIDOID;
 import cubrid.sql.CUBRIDTimestamptz;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.io.Reader;
-import java.io.Writer;
 import java.math.BigDecimal;
 import java.net.URL;
 import java.sql.Array;
@@ -581,100 +579,107 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
         throw CUBRIDException.notSupported();
     }
 
+    /* A Bfile binds its external handle; any other Blob is bound as an internal LOB upload. */
     public void setBlob(int parameterIndex, Blob x) throws SQLException {
         checkIsOpen();
+        if (x == null) {
+            setNull(parameterIndex, java.sql.Types.BLOB);
+            return;
+        }
+        if (x instanceof CUBRIDBfile) {
+            synchronized (u_stmt) {
+                u_stmt.bindBfile(parameterIndex - 1, x);
+                error = u_stmt.getRecentError();
+            }
+            checkBindError();
+            return;
+        }
+        bindInternalLobUpload(parameterIndex, CUBRIDInternalLobUpload.of(con, x));
+    }
+
+    /* Same as setBlob (Blob), with a Cfile in place of a Bfile. */
+    public void setClob(int parameterIndex, Clob x) throws SQLException {
+        checkIsOpen();
+        if (x == null) {
+            setNull(parameterIndex, java.sql.Types.CLOB);
+            return;
+        }
+        if (x instanceof CUBRIDCfile) {
+            synchronized (u_stmt) {
+                u_stmt.bindCfile(parameterIndex - 1, x);
+                error = u_stmt.getRecentError();
+            }
+            checkBindError();
+            return;
+        }
+        bindInternalLobUpload(parameterIndex, CUBRIDInternalLobUpload.of(con, x));
+    }
+
+    private void bindInternalLobUpload(int parameterIndex, CUBRIDInternalLobUpload upload)
+            throws SQLException {
+        long token = upload.finish();
         synchronized (u_stmt) {
-            u_stmt.bindBlob(parameterIndex - 1, x);
+            u_stmt.bindInternalLobUpload(
+                    parameterIndex - 1, upload.isBlob(), token, upload.length());
             error = u_stmt.getRecentError();
         }
         checkBindError();
     }
 
-    public void setClob(int parameterIndex, Clob x) throws SQLException {
-        checkIsOpen();
-        synchronized (u_stmt) {
-            u_stmt.bindClob(parameterIndex - 1, x);
-            error = u_stmt.getRecentError();
+    /* JDBC wants an SQLException for a negative length */
+    private void checkStreamLength(long length) throws SQLException {
+        if (length < 0) {
+            throw con.createCUBRIDException(CUBRIDJDBCErrorCode.negative_value_for_length, null);
         }
-        checkBindError();
+        if (length > CUBRIDInternalLobUpload.MAX_LENGTH) {
+            throw con.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
+        }
     }
 
     /* JDK 1.6 */
     public void setBlob(int parameterIndex, InputStream inputStream) throws SQLException {
+        checkIsOpen();
         if (inputStream == null) {
             setNull(parameterIndex, java.sql.Types.BLOB);
             return;
         }
-
-        checkIsOpen();
-        Blob blob = con.createBlob();
-        OutputStream out = blob.setBinaryStream(1);
-        try {
-            ((CUBRIDBufferedOutputStream) out)
-                    .streamCopyFromInputStream(inputStream, Long.MAX_VALUE);
-        } catch (IOException e) {
-            throw con.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
-        }
-
-        setBlob(parameterIndex, blob);
+        bindInternalLobUpload(
+                parameterIndex, CUBRIDInternalLobUpload.fromStream(con, true, inputStream, -1));
     }
 
     /* JDK 1.6 */
     public void setBlob(int parameterIndex, InputStream inputStream, long length)
             throws SQLException {
+        checkIsOpen();
+        checkStreamLength(length);
         if (inputStream == null) {
             setNull(parameterIndex, java.sql.Types.BLOB);
             return;
         }
-
-        checkIsOpen();
-        Blob blob = con.createBlob();
-        OutputStream out = blob.setBinaryStream(1);
-        try {
-            ((CUBRIDBufferedOutputStream) out).streamCopyFromInputStream(inputStream, length);
-        } catch (IOException e) {
-            throw con.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
-        }
-
-        setBlob(parameterIndex, blob);
+        bindInternalLobUpload(
+                parameterIndex, CUBRIDInternalLobUpload.fromStream(con, true, inputStream, length));
     }
 
     /* JDK 1.6 */
     public void setClob(int parameterIndex, Reader reader) throws SQLException {
+        checkIsOpen();
         if (reader == null) {
             setNull(parameterIndex, java.sql.Types.CLOB);
             return;
         }
-
-        checkIsOpen();
-        Clob clob = con.createClob();
-        Writer out = clob.setCharacterStream(1);
-        try {
-            ((CUBRIDBufferedWriter) out).streamCopyFromReader(reader, Long.MAX_VALUE);
-        } catch (IOException e) {
-            throw con.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
-        }
-
-        setClob(parameterIndex, clob);
+        bindInternalLobUpload(parameterIndex, CUBRIDInternalLobUpload.fromReader(con, reader, -1));
     }
 
     /* JDK 1.6 */
     public void setClob(int parameterIndex, Reader reader, long length) throws SQLException {
+        checkIsOpen();
+        checkStreamLength(length);
         if (reader == null) {
             setNull(parameterIndex, java.sql.Types.CLOB);
             return;
         }
-
-        checkIsOpen();
-        Clob clob = con.createClob();
-        Writer out = clob.setCharacterStream(1);
-        try {
-            ((CUBRIDBufferedWriter) out).streamCopyFromReader(reader, length);
-        } catch (IOException e) {
-            throw con.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
-        }
-
-        setClob(parameterIndex, clob);
+        bindInternalLobUpload(
+                parameterIndex, CUBRIDInternalLobUpload.fromReader(con, reader, length));
     }
 
     public void setArray(int i, Array x) throws SQLException {

@@ -40,8 +40,10 @@
  */
 package cubrid.jdbc.jci;
 
+import cubrid.jdbc.driver.CUBRIDBfile;
 import cubrid.jdbc.driver.CUBRIDBinaryString;
 import cubrid.jdbc.driver.CUBRIDBlob;
+import cubrid.jdbc.driver.CUBRIDCfile;
 import cubrid.jdbc.driver.CUBRIDClob;
 import cubrid.jdbc.driver.CUBRIDConnection;
 import cubrid.jdbc.driver.CUBRIDXid;
@@ -487,19 +489,62 @@ class UInputBuffer {
         return null;
     }
 
-    CUBRIDBlob readBlob(int packedLobHandleSize, CUBRIDConnection conn) throws UJciException {
+    CUBRIDBfile readBfile(int packedLobHandleSize, CUBRIDConnection conn) throws UJciException {
         try {
             byte[] packedLobHandle = readBytes(packedLobHandleSize);
-            return new CUBRIDBlob(conn, packedLobHandle, true);
+            return new CUBRIDBfile(conn, packedLobHandle, true);
         } catch (Exception e) {
             throw uconn.createJciException(UErrorCode.ER_UNKNOWN);
         }
     }
 
-    CUBRIDClob readClob(int packedLobHandleSize, CUBRIDConnection conn) throws UJciException {
+    CUBRIDCfile readCfile(int packedLobHandleSize, CUBRIDConnection conn) throws UJciException {
         try {
             byte[] packedLobHandle = readBytes(packedLobHandleSize);
-            return new CUBRIDClob(conn, packedLobHandle, conn.getUConnection().getCharset(), true);
+            return new CUBRIDCfile(conn, packedLobHandle, conn.getUConnection().getCharset(), true);
+        } catch (Exception e) {
+            throw uconn.createJciException(UErrorCode.ER_UNKNOWN);
+        }
+    }
+
+    /*
+     * An internal LOB column carries a reference, not content: the value's byte length followed by the locator
+     * that names it.  The bytes are pulled afterwards over LOB_STREAM_*, so nothing of the value is buffered here.
+     */
+    CUBRIDBlob readInternalBlob(int dataSize, CUBRIDConnection conn) throws UJciException {
+        try {
+            byte wireKind = readByte();
+            if (wireKind == UConnection.INTERNAL_LOB_WIRE_INLINE) {
+                return new CUBRIDBlob(conn, readBytes(dataSize - 1));
+            }
+            if (wireKind != UConnection.INTERNAL_LOB_WIRE_REF || dataSize < 1 + 8) {
+                throw uconn.createJciException(UErrorCode.ER_COMMUNICATION);
+            }
+            long byteLength = readLong();
+            byte[] locator = readBytes(dataSize - 1 - 8);
+            return new CUBRIDBlob(conn, byteLength, locator);
+        } catch (UJciException e) {
+            throw e;
+        } catch (Exception e) {
+            throw uconn.createJciException(UErrorCode.ER_UNKNOWN);
+        }
+    }
+
+    CUBRIDClob readInternalClob(int dataSize, CUBRIDConnection conn) throws UJciException {
+        try {
+            String charset = conn.getUConnection().getCharset();
+            byte wireKind = readByte();
+            if (wireKind == UConnection.INTERNAL_LOB_WIRE_INLINE) {
+                return new CUBRIDClob(conn, readBytes(dataSize - 1), charset);
+            }
+            if (wireKind != UConnection.INTERNAL_LOB_WIRE_REF || dataSize < 1 + 8) {
+                throw uconn.createJciException(UErrorCode.ER_COMMUNICATION);
+            }
+            long byteLength = readLong();
+            byte[] locator = readBytes(dataSize - 1 - 8);
+            return new CUBRIDClob(conn, byteLength, locator, charset);
+        } catch (UJciException e) {
+            throw e;
         } catch (Exception e) {
             throw uconn.createJciException(UErrorCode.ER_UNKNOWN);
         }

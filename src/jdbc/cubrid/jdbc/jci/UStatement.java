@@ -506,6 +506,22 @@ public class UStatement {
     }
 
     public void bindInternalLobUpload(int index, boolean blob, long token, long dataLength) {
+        InternalLobUpload v = internalLobUpload(blob, token, dataLength);
+        bindValue(index, v.type, v.marker);
+    }
+
+    /* the marker naming an internal LOB already streamed to the server */
+    public static final class InternalLobUpload {
+        final byte type;
+        final byte[] marker;
+
+        InternalLobUpload(byte type, byte[] marker) {
+            this.type = type;
+            this.marker = marker;
+        }
+    }
+
+    public static InternalLobUpload internalLobUpload(boolean blob, long token, long dataLength) {
         String marker =
                 "@internal_lob_upload:"
                         + (blob ? "B:" : "C:")
@@ -514,8 +530,7 @@ public class UStatement {
                         + dataLength
                         + ":"
                         + (blob ? dataLength * 8 : dataLength);
-        bindValue(
-                index,
+        return new InternalLobUpload(
                 blob ? UUType.U_TYPE_INTERNAL_BLOB_UPLOAD : UUType.U_TYPE_INTERNAL_CLOB_UPLOAD,
                 marker.getBytes(java.nio.charset.Charset.forName("US-ASCII")));
     }

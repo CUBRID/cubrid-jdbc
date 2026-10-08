@@ -31,65 +31,65 @@
 
 package cubrid.jdbc.driver;
 
-import cubrid.jdbc.jci.UUType;
-import java.io.Flushable;
+import cubrid.jdbc.jci.UGetTypeConvertedValue;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.charset.Charset;
 import java.sql.Blob;
 import java.sql.SQLException;
-import java.util.ArrayList;
 
+/**
+ * A BLOB value: an internal LOB. An external LOB (BFILE) is {@link CUBRIDBfile}.
+ *
+ * <p>Read from a column it is a reference (the byte length and the locator naming it) whose bytes
+ * are pulled from the server on demand; a scalar function result carries its content inline. Made
+ * by {@link CUBRIDConnection#createBlob()} it is written front to back and the bytes go to the
+ * server as they come, without being held here.
+ */
 public class CUBRIDBlob implements Blob {
-    /*
-     * ======================================================================= |
-     * CONSTANT VALUES
-     * =======================================================================
-     */
-    private static final int BLOB_MAX_IO_LENGTH = 128 * 1024; // 128KB at once
-
-    /*
-     * ======================================================================= |
-     * PRIVATE
-     * =======================================================================
-     */
     private CUBRIDConnection conn;
-    private boolean isWritable;
-    private boolean isLobLocator;
-    private CUBRIDLobHandle lobHandle;
 
-    private ArrayList<java.io.Flushable> streamList = new ArrayList<java.io.Flushable>();
+    private byte[] internalLocator = null;
+    private byte[] internalContent = null;
+    private long internalLength = 0;
+    private CUBRIDInternalLobUpload upload = null;
 
-    /*
-     * ======================================================================= |
-     * CONSTRUCTOR
-     * =======================================================================
-     */
-    // make a new blob
+    /* made by Connection.createBlob (): an empty value to write */
     public CUBRIDBlob(CUBRIDConnection conn) throws SQLException {
         if (conn == null) {
             throw new CUBRIDException(CUBRIDJDBCErrorCode.invalid_value);
         }
 
-        byte[] packedLobHandle = conn.lobNew(UUType.U_TYPE_BLOB);
-
         this.conn = conn;
-        isWritable = true;
-        isLobLocator = true;
-        lobHandle = new CUBRIDLobHandle(UUType.U_TYPE_BLOB, packedLobHandle, isLobLocator);
+        this.upload = new CUBRIDInternalLobUpload(conn, true);
     }
 
-    // get blob from existing result set
-    public CUBRIDBlob(CUBRIDConnection conn, byte[] packedLobHandle, boolean isLobLocator)
-            throws SQLException {
-        if (conn == null || packedLobHandle == null) {
+    /* read from a result set: the column carried a locator, not the content */
+    public CUBRIDBlob(CUBRIDConnection conn, long byteLength, byte[] locator) throws SQLException {
+        if (conn == null || locator == null || byteLength < 0) {
             throw new CUBRIDException(CUBRIDJDBCErrorCode.invalid_value);
         }
 
         this.conn = conn;
-        isWritable = false;
-        this.isLobLocator = isLobLocator;
-        lobHandle = new CUBRIDLobHandle(UUType.U_TYPE_BLOB, packedLobHandle, isLobLocator);
+        this.internalLocator = locator;
+        this.internalLength = byteLength;
+    }
+
+    /* a value with no storage behind it (a scalar function result, or other data read as a Blob) */
+    public CUBRIDBlob(CUBRIDConnection conn, byte[] content) throws SQLException {
+        if (conn == null || content == null) {
+            throw new CUBRIDException(CUBRIDJDBCErrorCode.invalid_value);
+        }
+
+        this.conn = conn;
+        this.internalContent = content;
+        this.internalLength = content.length;
+    }
+
+    /* package-visible for CUBRIDPreparedStatement.setBlob (Blob), which binds the upload token */
+    CUBRIDInternalLobUpload getUpload() {
+        return upload;
     }
 
     /*
@@ -98,65 +98,56 @@ public class CUBRIDBlob implements Blob {
      * =======================================================================
      */
     public long length() throws SQLException {
-        if (lobHandle == null) {
-            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
+        checkFreed();
+        if (upload != null) {
+            return upload.length();
         }
-        return lobHandle.getLobSize();
+        return internalLength;
     }
 
+    /* Reads a window of the value by streaming to it.  The server cursor is forward-only, so a non-zero
+     * start costs a skip; sequential readers should prefer getBinaryStream(). */
     public byte[] getBytes(long pos, int length) throws SQLException {
-        if (lobHandle == null) {
-            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
-        }
+        checkFreed();
         if (pos < 1 || length < 0) {
             throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
         }
-        if (length == 0) {
+        long remaining = length() - (pos - 1);
+        if (length == 0 || remaining <= 0) {
             return new byte[0];
         }
-
-        pos--; // pos is now offset from 0
-        int real_read_len, read_len, total_read_len = 0;
-
-        if (pos + length > length()) {
-            length = (int) (length() - pos);
-        }
-
-        if (length <= 0) {
-            return new byte[0];
+        if (length > remaining) {
+            length = (int) remaining;
         }
 
         byte[] buf = new byte[length];
+        InputStream in = getBinaryStream(pos, length);
+        int total = 0;
 
-        if (isLobLocator) {
-            while (length > 0) {
-                read_len = Math.min(length, BLOB_MAX_IO_LENGTH);
-                real_read_len =
-                        conn.lobRead(
-                                lobHandle.getPackedLobHandle(), pos, buf, total_read_len, read_len);
-
-                pos += real_read_len;
-                length -= real_read_len;
-                total_read_len += real_read_len;
-
-                if (real_read_len == 0) {
+        try {
+            while (total < length) {
+                int got = in.read(buf, total, length - total);
+                if (got <= 0) {
                     break;
                 }
+                total += got;
             }
-        } else {
-            System.arraycopy(lobHandle.getPackedLobHandle(), (int) pos, buf, 0, length);
-            total_read_len = length;
+        } catch (IOException e) {
+            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
+        } finally {
+            try {
+                in.close();
+            } catch (IOException e) {
+                /* the read already produced its result; a failed close adds nothing the caller can act on */
+            }
         }
 
-        if (total_read_len < buf.length) {
-            // In common case, this code cannot be executed
-            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.unknown, null);
-            // byte[]new_buf = new byte[total_read_len];
-            // System.arraycopy (buf, 0, new_buf, 0, total_read_len);
-            // return new_buf;
-        } else {
-            return buf;
+        if (total < buf.length) {
+            byte[] exact = new byte[total];
+            System.arraycopy(buf, 0, exact, 0, total);
+            return exact;
         }
+        return buf;
     }
 
     public InputStream getBinaryStream() throws SQLException {
@@ -165,15 +156,26 @@ public class CUBRIDBlob implements Blob {
 
     /* JDK 1.6 */
     public InputStream getBinaryStream(long pos, long length) throws SQLException {
-        if (lobHandle == null) {
-            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
-        }
+        checkFreed();
         if (pos < 1 || length < 0) {
             throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
         }
+        if (upload != null) {
+            /* the bytes went to the server as they were written; nothing here can read them back */
+            throw CUBRIDException.notSupported();
+        }
 
-        return new CUBRIDBufferedInputStream(
-                new CUBRIDBlobInputStream(this, pos, length), BLOB_MAX_IO_LENGTH);
+        if (internalContent != null) {
+            int from = (int) Math.min(pos - 1, internalContent.length);
+            int avail = internalContent.length - from;
+            int span = (length < avail) ? (int) length : avail;
+            return new java.io.ByteArrayInputStream(internalContent, from, span);
+        }
+
+        /* the server positions its own cursor, so the bytes before pos never cross the network;
+         * length bounds the window per JDBC 4.0 */
+        return new CUBRIDInternalLobInputStream(
+                conn.getUConnection(), internalLocator, internalLength, pos - 1, length);
     }
 
     public long position(byte[] pattern, long start) throws SQLException {
@@ -188,69 +190,24 @@ public class CUBRIDBlob implements Blob {
         return (setBytes(pos, bytes, 0, bytes.length));
     }
 
+    /* only appends: the bytes before pos are already on the server */
     public int setBytes(long pos, byte[] bytes, int offset, int len) throws SQLException {
-        if (lobHandle == null) {
-            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
-        }
-        if (pos < 1 || offset < 0 || len < 0) {
+        checkWritable(pos);
+        if (offset < 0 || len < 0) {
             throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
         }
         if (offset + len > bytes.length) {
             throw new IndexOutOfBoundsException();
         }
 
-        if (isWritable) {
-            if (length() + 1 != pos) {
-                throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.lob_pos_invalid, null);
-            }
-
-            pos--; // pos is now offset from 0
-
-            int real_write_len, write_len, total_write_len = 0;
-
-            while (len > 0) {
-                write_len = Math.min(len, BLOB_MAX_IO_LENGTH);
-                real_write_len =
-                        conn.lobWrite(
-                                lobHandle.getPackedLobHandle(), pos, bytes, offset, write_len);
-
-                pos += real_write_len;
-                len -= real_write_len;
-                offset += real_write_len;
-                total_write_len += real_write_len;
-            }
-
-            if (pos > length()) {
-                lobHandle.setLobSize(pos);
-            }
-
-            return total_write_len;
-        } else {
-            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.lob_is_not_writable, null);
-        }
+        upload.write(bytes, offset, len);
+        return len;
     }
 
+    /* closing the stream finishes the value */
     public OutputStream setBinaryStream(long pos) throws SQLException {
-        if (lobHandle == null) {
-            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
-        }
-        if (pos < 1) {
-            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
-        }
-
-        if (isWritable) {
-            if (length() + 1 != pos) {
-                throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.lob_pos_invalid, null);
-            }
-
-            OutputStream out =
-                    new CUBRIDBufferedOutputStream(
-                            new CUBRIDBlobOutputStream(this, pos), BLOB_MAX_IO_LENGTH);
-            addFlushableStream(out);
-            return out;
-        } else {
-            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.lob_is_not_writable, null);
-        }
+        checkWritable(pos);
+        return upload.outputStream();
     }
 
     public void truncate(long len) throws SQLException {
@@ -259,49 +216,58 @@ public class CUBRIDBlob implements Blob {
 
     /* JDK 1.6 */
     public void free() throws SQLException {
+        if (upload != null) {
+            upload.abort();
+        }
         conn = null;
-        lobHandle = null;
-        streamList = null;
-        isWritable = false;
-        isLobLocator = true;
+        upload = null;
+        internalLocator = null;
+        internalContent = null;
     }
 
-    public CUBRIDLobHandle getLobHandle() {
-        return lobHandle;
-    }
-
-    private void addFlushableStream(Flushable out) {
-        streamList.add(out);
-    }
-
-    public void removeFlushableStream(Flushable out) {
-        streamList.remove(out);
-    }
-
-    public void flushFlushableStreams() {
-        if (!streamList.isEmpty()) {
-            for (Flushable out : streamList) {
-                try {
-                    out.flush();
-                } catch (IOException e) {
-                }
-            }
+    private void checkFreed() throws SQLException {
+        if (conn == null) {
+            throw new CUBRIDException(CUBRIDJDBCErrorCode.invalid_value);
         }
     }
 
-    public String toString() throws RuntimeException {
-        if (isLobLocator == true) {
-            return lobHandle.toString();
-        } else {
-            throw new RuntimeException(
-                    "The lob locator does not exist because the column type has changed.");
+    private void checkWritable(long pos) throws SQLException {
+        checkFreed();
+        if (upload == null || upload.isFinished()) {
+            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.lob_is_not_writable, null);
         }
+        if (pos != upload.length() + 1) {
+            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.lob_pos_invalid, null);
+        }
+    }
+
+    /* like csql: a stored value shows its locator, one with no storage its content in hex */
+    public String toString() {
+        if (internalLocator != null) {
+            return new String(internalLocator, Charset.forName("US-ASCII"));
+        }
+        if (internalContent != null) {
+            return UGetTypeConvertedValue.getHexaDecimalString(internalContent);
+        }
+        return "CUBRIDBlob[internal, length=" + (upload != null ? upload.length() : 0) + "]";
+    }
+
+    public int hashCode() {
+        if (upload != null) {
+            return System.identityHashCode(this);
+        }
+        return 31 * java.util.Arrays.hashCode(internalLocator)
+                + java.util.Arrays.hashCode(internalContent);
     }
 
     public boolean equals(Object obj) {
         if (obj instanceof CUBRIDBlob) {
             CUBRIDBlob that = (CUBRIDBlob) obj;
-            return lobHandle.equals(that.lobHandle);
+            if (upload != null || that.upload != null) {
+                return this == that;
+            }
+            return java.util.Arrays.equals(internalLocator, that.internalLocator)
+                    && java.util.Arrays.equals(internalContent, that.internalContent);
         }
         return false;
     }

@@ -31,93 +31,131 @@
 
 package cubrid.jdbc.driver;
 
-import cubrid.jdbc.jci.UUType;
-import java.io.Flushable;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.io.OutputStreamWriter;
 import java.io.Reader;
-import java.io.UnsupportedEncodingException;
 import java.io.Writer;
+import java.nio.charset.Charset;
 import java.sql.Clob;
 import java.sql.SQLException;
-import java.util.ArrayList;
 
+/**
+ * A CLOB value: an internal LOB. An external LOB (CFILE) is {@link CUBRIDCfile}.
+ *
+ * <p>Read from a column it is a reference (the byte length and the locator naming it) whose
+ * characters are decoded from the server stream on demand; a scalar function result carries its
+ * content inline. Made by {@link CUBRIDConnection#createClob()} it is written front to back and the
+ * encoded text goes to the server as it comes, without being held here.
+ */
 public class CUBRIDClob implements Clob {
+    private static final int CLOB_MAX_IO_CHARS = 128 * 1024;
 
-    /*
-     * ======================================================================= |
-     * CONSTANT VALUES
-     * =======================================================================
-     */
-    private static final int CLOB_MAX_IO_LENGTH = 128 * 1024; // 128kB at once
-    private static final int CLOB_MAX_IO_CHARS = CLOB_MAX_IO_LENGTH / 2;
-
-    /*
-     * ======================================================================= |
-     * PRIVATE
-     * =======================================================================
-     */
     private CUBRIDConnection conn;
-    private boolean isWritable;
-    private boolean isLobLocator;
-    private CUBRIDLobHandle lobHandle;
     private String charsetName;
 
-    private StringBuffer clobCharBuffer = new StringBuffer("");
-    private long clobCharPos;
-    private long clobCharLength;
+    private byte[] internalLocator = null;
+    private byte[] internalContent = null;
+    private long internalLength = 0;
+    private CUBRIDInternalLobUpload upload = null;
+    private Writer uploadWriter = null;
+    private long charsWritten = 0;
 
-    private byte[] clobByteBuffer = new byte[CLOB_MAX_IO_LENGTH];
-    private long clobBytePos;
-    private long clobNextReadBytePos;
-    // no 'clobByteLength' member: USE 'lobHandle.getLobSize()'
+    /* where getSubString () can go on without starting over: its open reader, and the end of its last window */
+    private Reader seqReader = null;
+    private long seqPos = 0;
+    private long lastEnd = 0;
+    private long knownChars = -1;
 
-    private ArrayList<java.io.Flushable> streamList = new ArrayList<java.io.Flushable>();
-
-    /*
-     * ======================================================================= |
-     * CONSTRUCTOR
-     * =======================================================================
-     */
-    // make a new clob
+    /* made by Connection.createClob (): an empty value to write */
     public CUBRIDClob(CUBRIDConnection conn, String charsetName) throws SQLException {
         if (conn == null) {
             throw new CUBRIDException(CUBRIDJDBCErrorCode.invalid_value);
         }
 
-        byte[] packedLobHandle = conn.lobNew(UUType.U_TYPE_CLOB);
-
         this.conn = conn;
-        isWritable = true;
-        isLobLocator = true;
-        lobHandle = new CUBRIDLobHandle(UUType.U_TYPE_CLOB, packedLobHandle, isLobLocator);
         this.charsetName = charsetName;
-
-        clobCharPos = 0;
-        clobCharLength = 0;
-        clobBytePos = 0;
-        clobNextReadBytePos = 0;
+        this.upload = new CUBRIDInternalLobUpload(conn, false);
+        this.uploadWriter =
+                new OutputStreamWriter(upload.outputStream(), Charset.forName(charsetName));
     }
 
-    // get clob from existing result set
-    public CUBRIDClob(
-            CUBRIDConnection conn, byte[] packedLobHandle, String charsetName, boolean isLobLocator)
+    /* read from a result set: the column carried a locator, not the content */
+    public CUBRIDClob(CUBRIDConnection conn, long byteLength, byte[] locator, String charsetName)
             throws SQLException {
-        if (conn == null || packedLobHandle == null) {
+        if (conn == null || locator == null || byteLength < 0) {
             throw new CUBRIDException(CUBRIDJDBCErrorCode.invalid_value);
         }
 
         this.conn = conn;
-        isWritable = false;
-        this.isLobLocator = isLobLocator;
-        lobHandle = new CUBRIDLobHandle(UUType.U_TYPE_CLOB, packedLobHandle, isLobLocator);
+        this.internalLocator = locator;
+        this.internalLength = byteLength;
         this.charsetName = charsetName;
+    }
 
-        clobCharPos = 0;
-        clobCharLength = -1;
-        clobBytePos = 0;
-        clobNextReadBytePos = 0;
+    /* a value with no storage behind it (a scalar function result, or other data read as a Clob) */
+    public CUBRIDClob(CUBRIDConnection conn, byte[] content, String charsetName)
+            throws SQLException {
+        if (conn == null || content == null) {
+            throw new CUBRIDException(CUBRIDJDBCErrorCode.invalid_value);
+        }
+
+        this.conn = conn;
+        this.internalContent = content;
+        this.internalLength = content.length;
+        this.charsetName = charsetName;
+    }
+
+    /* Package-visible for CUBRIDPreparedStatement.setClob (Clob): pushes the text still being encoded
+     * and returns the upload, finished. */
+    CUBRIDInternalLobUpload getUpload() {
+        return upload;
+    }
+
+    synchronized CUBRIDInternalLobUpload finishUpload() throws SQLException {
+        if (upload == null) {
+            return null;
+        }
+        if (!upload.isFinished()) {
+            try {
+                /* close, not flush: it also encodes a dangling high surrogate, and closing the upload
+                 * stream finishes the upload */
+                uploadWriter.close();
+            } catch (IOException e) {
+                upload.abort();
+                if (e.getCause() instanceof SQLException) {
+                    throw (SQLException) e.getCause();
+                }
+                throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
+            }
+        }
+        upload.finish();
+        return upload;
+    }
+
+    /* A failed write leaves the encoder's buffered bytes unknown, so the value is given up, not retried. */
+    private synchronized void writeChars(char[] cbuf, int off, int len) throws IOException {
+        if (upload.isFinished()) {
+            throw new IOException(
+                    conn.createCUBRIDException(CUBRIDJDBCErrorCode.lob_is_not_writable, null));
+        }
+        try {
+            uploadWriter.write(cbuf, off, len);
+        } catch (IOException e) {
+            upload.abort();
+            throw e;
+        }
+        charsWritten += len;
+    }
+
+    /* A charset whose characters are one byte each lets a character offset be used as a byte offset. */
+    private boolean isSingleByteCharset() {
+        return charsetName != null
+                && (charsetName.equalsIgnoreCase("ISO-8859-1")
+                        || charsetName.equalsIgnoreCase("US-ASCII")
+                        || charsetName.equalsIgnoreCase("ASCII"));
     }
 
     /*
@@ -125,24 +163,22 @@ public class CUBRIDClob implements Clob {
      * java.sql.Clob interface
      * =======================================================================
      */
-    public synchronized long length() throws SQLException {
-        if (lobHandle == null) {
-            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
+    /* A value read back is measured in bytes, as the server's CLOB_LENGTH is: a character count would
+     * cost a full read.  A value being written counts the characters written, the unit setString's
+     * position takes. */
+    public long length() throws SQLException {
+        checkFreed();
+        if (upload != null) {
+            return charsWritten;
         }
-        if (clobCharLength < 0) {
-            readClobPartially(Long.MAX_VALUE, 1);
-            if (clobCharLength < 0) {
-                return 0;
-            }
-        }
-
-        return clobCharLength;
+        return internalLength;
     }
 
+    /* Reads a window of the value by streaming to it.  pos counts characters, so for a multi-byte charset
+     * the characters before it are decoded and dropped; windows read in order go on with one reader
+     * instead of starting over each time. */
     public synchronized String getSubString(long pos, int length) throws SQLException {
-        if (lobHandle == null) {
-            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
-        }
+        checkReadable();
         if (pos < 1 || length < 0) {
             throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
         }
@@ -150,150 +186,249 @@ public class CUBRIDClob implements Clob {
             return "";
         }
 
-        int read_len = readClobPartially(pos, length);
-        if (read_len <= 0) {
-            return "";
+        if (internalContent != null || isSingleByteCharset()) {
+            Reader in = getCharacterStream(pos, length);
+            try {
+                return readChars(in, length);
+            } finally {
+                closeQuietly(in);
+            }
         }
 
-        return (clobCharBuffer.substring(0, read_len));
+        if (knownChars >= 0 && pos > knownChars) {
+            return "";
+        }
+        if (seqReader != null && pos == seqPos) {
+            try {
+                return readOn(length);
+            } catch (SQLException e) {
+                /* the cursor is gone with its transaction; start over below */
+                closeSeqReader();
+            }
+        } else {
+            closeSeqReader();
+        }
+
+        Reader in = openReader(pos);
+        if (pos != lastEnd) {
+            /* a lone window keeps no cursor open */
+            try {
+                String s = readChars(in, length);
+                lastEnd = pos + s.length();
+                if (s.length() < length) {
+                    knownChars = lastEnd - 1;
+                }
+                return s;
+            } finally {
+                closeQuietly(in);
+            }
+        }
+        seqReader = in;
+        seqPos = pos;
+        return readOn(length);
+    }
+
+    private String readOn(int length) throws SQLException {
+        String s;
+        try {
+            s = readChars(seqReader, length);
+        } catch (SQLException e) {
+            closeSeqReader();
+            throw e;
+        }
+        seqPos += s.length();
+        lastEnd = seqPos;
+        if (s.length() < length) {
+            knownChars = seqPos - 1;
+            closeSeqReader();
+        }
+        return s;
+    }
+
+    private String readChars(Reader in, int length) throws SQLException {
+        char[] buf = new char[length];
+        int total = 0;
+        try {
+            while (total < length) {
+                int got = in.read(buf, total, length - total);
+                if (got <= 0) {
+                    break;
+                }
+                total += got;
+            }
+        } catch (IOException e) {
+            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
+        }
+        return new String(buf, 0, total);
+    }
+
+    private void closeSeqReader() {
+        if (seqReader != null) {
+            closeQuietly(seqReader);
+            seqReader = null;
+        }
+    }
+
+    private static void closeQuietly(Reader in) {
+        try {
+            in.close();
+        } catch (IOException e) {
+            /* the read already produced its result; a failed close adds nothing the caller can act on */
+        }
     }
 
     public Reader getCharacterStream() throws SQLException {
-        return getCharacterStream(1, Long.MAX_VALUE);
+        return getCharacterStream(1, length());
     }
 
     /* JDK 1.6 */
     public Reader getCharacterStream(long pos, long length) throws SQLException {
-        if (lobHandle == null) {
-            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
-        }
+        checkReadable();
         if (pos < 1 || length < 0) {
             throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
         }
 
-        return new CUBRIDBufferedReader(new CUBRIDClobReader(this, pos, length), CLOB_MAX_IO_CHARS);
-    }
-
-    public InputStream getAsciiStream() throws SQLException {
-        if (lobHandle == null) {
-            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
+        if (internalContent != null) {
+            String whole = new String(internalContent, Charset.forName(charsetName));
+            int from = (int) Math.min(pos - 1, whole.length());
+            String tail = whole.substring(from);
+            if (length < tail.length()) {
+                tail = tail.substring(0, (int) length);
+            }
+            return new java.io.StringReader(tail);
         }
 
-        return new CUBRIDBufferedInputStream(new CUBRIDClobInputStream(this), CLOB_MAX_IO_LENGTH);
+        /* JDBC 4.0: the reader must be exactly `length` characters long. Counting characters is
+         * charset-agnostic, unlike bounding the underlying byte stream. */
+        return new CUBRIDBufferedReader(
+                new BoundedReader(openReader(pos), length), CLOB_MAX_IO_CHARS);
+    }
+
+    /* A reader of the stored value from character pos on.  pos counts characters while the server cursor
+     * counts bytes: for a single-byte charset the server positions itself, otherwise the characters ahead
+     * are read and dropped here. */
+    private Reader openReader(long pos) throws SQLException {
+        boolean bytePerChar = isSingleByteCharset();
+        Reader in =
+                new InputStreamReader(
+                        new CUBRIDInternalLobInputStream(
+                                conn.getUConnection(),
+                                internalLocator,
+                                internalLength,
+                                bytePerChar ? pos - 1 : 0),
+                        Charset.forName(charsetName));
+        if (!bytePerChar && pos > 1) {
+            long toSkip = pos - 1;
+            try {
+                while (toSkip > 0) {
+                    long skipped = in.skip(toSkip);
+                    if (skipped <= 0) {
+                        break;
+                    }
+                    toSkip -= skipped;
+                }
+            } catch (IOException e) {
+                closeQuietly(in);
+                throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
+            }
+        }
+        return in;
+    }
+
+    /* the stored bytes as they are, in the database charset */
+    public InputStream getAsciiStream() throws SQLException {
+        checkReadable();
+        if (internalContent != null) {
+            return new java.io.ByteArrayInputStream(internalContent);
+        }
+        return new CUBRIDInternalLobInputStream(
+                conn.getUConnection(), internalLocator, internalLength, 0);
     }
 
     public long position(String searchstr, long start) throws SQLException {
         throw CUBRIDException.notSupported();
     }
 
-    public long position(Clob searchClob, long start) throws SQLException {
+    public long position(Clob searchstr, long start) throws SQLException {
         throw CUBRIDException.notSupported();
     }
 
-    public synchronized int setString(long pos, String str) throws SQLException {
-        if (lobHandle == null) {
-            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
-        }
-        if (pos < 1) {
-            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
-        }
-        if (!isWritable) {
-            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.lob_is_not_writable, null);
-        }
-        if (str == null || str.length() <= 0) {
-            return 0;
-        }
-
-        if (readClobPartially(pos, 1) != 0) {
-            // only append is allowed.
-            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.lob_pos_invalid, null);
-        }
-
-        byte[] bytes = string2bytes(str);
-        int bytes_len = bytes.length;
-        int bytes_offset = 0;
-
-        while (bytes_len > 0) {
-            int bytesWritten =
-                    conn.lobWrite(
-                            lobHandle.getPackedLobHandle(),
-                            clobBytePos + bytes_offset,
-                            bytes,
-                            bytes_offset,
-                            Math.min(bytes_len, CLOB_MAX_IO_LENGTH));
-
-            bytes_len -= bytesWritten;
-            bytes_offset += bytesWritten;
-        }
-
-        lobHandle.setLobSize(clobBytePos + bytes_offset);
-        clobCharLength = length() + str.length();
-
-        return str.length();
+    public int setString(long pos, String str) throws SQLException {
+        return setString(pos, str, 0, str.length());
     }
 
+    /* only appends: the text before pos is already on its way to the server */
     public int setString(long pos, String str, int offset, int len) throws SQLException {
-        if (lobHandle == null) {
+        checkWritable(pos);
+        if (offset < 0 || len < 0 || offset + len > str.length()) {
             throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
-        }
-        if (pos < 1 || offset < 0 || len < 0) {
-            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
-        }
-        if (offset + len > str.length()) {
-            throw new IndexOutOfBoundsException();
-        }
-        if (!isWritable) {
-            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.lob_is_not_writable, null);
-        }
-        if (str == null || len == 0) {
-            return 0;
         }
 
-        return (setString(pos, str.substring(offset, offset + len)));
+        char[] chars = new char[len];
+        str.getChars(offset, offset + len, chars, 0);
+        try {
+            writeChars(chars, 0, len);
+        } catch (IOException e) {
+            if (e.getCause() instanceof SQLException) {
+                throw (SQLException) e.getCause();
+            }
+            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
+        }
+        return len;
     }
 
-    public synchronized OutputStream setAsciiStream(long pos) throws SQLException {
-        if (lobHandle == null) {
-            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
-        }
-        if (pos < 1) {
-            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
-        }
-        if (!isWritable) {
-            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.lob_is_not_writable, null);
-        }
+    /* closing the stream finishes the value */
+    public OutputStream setAsciiStream(long pos) throws SQLException {
+        checkWritable(pos);
+        final OutputStream raw = upload.outputStream();
+        return new OutputStream() {
+            public void write(int b) throws IOException {
+                write(new byte[] {(byte) b}, 0, 1);
+            }
 
-        if (readClobPartially(pos, 1) != 0) {
-            // only append is allowed.
-            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.lob_pos_invalid, null);
-        }
+            public void write(byte[] b, int off, int len) throws IOException {
+                synchronized (CUBRIDClob.this) {
+                    try {
+                        uploadWriter.flush();
+                        raw.write(b, off, len);
+                    } catch (IOException e) {
+                        upload.abort();
+                        throw e;
+                    }
+                    charsWritten += len;
+                }
+            }
 
-        OutputStream out =
-                new CUBRIDBufferedOutputStream(
-                        new CUBRIDClobOutputStream(this, clobBytePos + 1), CLOB_MAX_IO_LENGTH);
-        addFlushableStream(out);
-        return out;
+            public void close() throws IOException {
+                try {
+                    finishUpload();
+                } catch (SQLException e) {
+                    throw new IOException(e);
+                }
+            }
+        };
     }
 
+    /* closing the stream finishes the value */
     public Writer setCharacterStream(long pos) throws SQLException {
-        if (lobHandle == null) {
-            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
-        }
-        if (pos < 1) {
-            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
-        }
-        if (!isWritable) {
-            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.lob_is_not_writable, null);
-        }
+        checkWritable(pos);
+        return new Writer() {
+            public void write(char[] cbuf, int off, int len) throws IOException {
+                writeChars(cbuf, off, len);
+            }
 
-        if (readClobPartially(pos, 1) != 0) {
-            // only append is allowed.
-            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.lob_pos_invalid, null);
-        }
+            public void flush() throws IOException {
+                /* the upload sends full chunks on its own; finishing pushes the rest */
+            }
 
-        Writer out = new CUBRIDBufferedWriter(new CUBRIDClobWriter(this, pos), CLOB_MAX_IO_CHARS);
-        addFlushableStream(out);
-        return out;
+            public void close() throws IOException {
+                try {
+                    finishUpload();
+                } catch (SQLException e) {
+                    throw new IOException(e);
+                }
+            }
+        };
     }
 
     public void truncate(long len) throws SQLException {
@@ -301,257 +436,106 @@ public class CUBRIDClob implements Clob {
     }
 
     /* JDK 1.6 */
-    public void free() throws SQLException {
+    public synchronized void free() throws SQLException {
+        if (upload != null) {
+            upload.abort();
+        }
+        closeSeqReader();
         conn = null;
-        lobHandle = null;
-        streamList = null;
-        clobCharBuffer = null;
-        clobByteBuffer = null;
-        isWritable = false;
-        isLobLocator = true;
+        upload = null;
+        uploadWriter = null;
+        internalLocator = null;
+        internalContent = null;
     }
 
-    private int readClobPartially(long pos, int length) throws SQLException {
-        if (clobCharLength != -1 && pos > clobCharLength) {
-            clobBytePos = clobNextReadBytePos = lobHandle.getLobSize();
-            clobCharPos = clobCharLength;
-            clobCharBuffer.setLength(0);
-            if (pos == clobCharLength + 1) return 0;
-            else return -1;
-        }
-
-        pos--; // pos is now offset from 0
-
-        if (pos < clobCharPos) {
-            clobBytePos = clobNextReadBytePos = 0;
-            clobCharPos = 0;
-            clobCharBuffer.setLength(0);
-            readClob();
-        }
-
-        while (pos >= clobCharPos + clobCharBuffer.length()) {
-            clobBytePos = clobNextReadBytePos;
-            clobCharPos += clobCharBuffer.length();
-            clobCharBuffer.setLength(0);
-            if (clobNextReadBytePos >= lobHandle.getLobSize()) {
-                return 0;
-            }
-            readClob();
-        }
-
-        int delete_len = (int) (pos - clobCharPos);
-        if (delete_len > 0) {
-            clobCharPos = pos;
-            clobBytePos += string2bytes(clobCharBuffer.substring(0, delete_len)).length;
-            clobCharBuffer.delete(0, delete_len);
-        }
-
-        while (length > clobCharBuffer.length()) {
-            if (clobNextReadBytePos >= lobHandle.getLobSize()) {
-                return clobCharBuffer.length();
-            }
-            readClob();
-        }
-
-        return length;
-    }
-
-    private int lobRead(long offset, byte[] buf, int start, int len) throws SQLException {
-        int read_len;
-        long remaining_size;
-
-        remaining_size = lobHandle.getLobSize() - offset;
-
-        if (remaining_size <= 0) {
-            return 0;
-        }
-
-        read_len = Math.min((int) remaining_size, len);
-
-        System.arraycopy(lobHandle.getPackedLobHandle(), (int) offset, buf, start, read_len);
-
-        return read_len;
-    }
-
-    private void readClob() throws SQLException {
-        int read_len;
-
-        if (conn == null || lobHandle == null) {
-            throw new NullPointerException();
-        }
-
-        if (isLobLocator == true) {
-            read_len =
-                    conn.lobRead(
-                            lobHandle.getPackedLobHandle(),
-                            clobNextReadBytePos,
-                            clobByteBuffer,
-                            0,
-                            CLOB_MAX_IO_LENGTH);
-        } else {
-            read_len = lobRead(clobNextReadBytePos, clobByteBuffer, 0, CLOB_MAX_IO_LENGTH);
-        }
-
-        StringBuffer sb = new StringBuffer(bytes2string(clobByteBuffer, 0, read_len));
-
-        if (clobNextReadBytePos + read_len >= lobHandle.getLobSize()) // End of CLOB
-        {
-            clobNextReadBytePos += read_len;
-            clobCharLength = clobCharPos + clobCharBuffer.length() + sb.length();
-        } else {
-            clobNextReadBytePos += string2bytes(sb.substring(0, sb.length() - 1)).length;
-            sb.setLength(sb.length() - 1);
-        }
-
-        clobCharBuffer.append(sb);
-    }
-
-    private byte[] string2bytes(String s) throws SQLException {
-        try {
-            return (s.getBytes(charsetName));
-        } catch (UnsupportedEncodingException e) {
-            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.unknown, e.getMessage(), e);
+    private void checkFreed() throws SQLException {
+        if (conn == null) {
+            throw new CUBRIDException(CUBRIDJDBCErrorCode.invalid_value);
         }
     }
 
-    private String bytes2string(byte[] b, int start, int len) throws SQLException {
-        try {
-            return (new String(b, start, len, charsetName));
-        } catch (UnsupportedEncodingException e) {
-            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.unknown, e.getMessage(), e);
+    private void checkReadable() throws SQLException {
+        checkFreed();
+        if (upload != null) {
+            /* the text went to the server as it was written; nothing here can read it back */
+            throw CUBRIDException.notSupported();
         }
     }
 
-    public CUBRIDLobHandle getLobHandle() {
-        return lobHandle;
-    }
-
-    private void addFlushableStream(Flushable out) {
-        streamList.add(out);
-    }
-
-    public void removeFlushableStream(Flushable out) {
-        streamList.remove(out);
-    }
-
-    public void flushFlushableStreams() {
-        if (!streamList.isEmpty()) {
-            for (Flushable out : streamList) {
-                try {
-                    out.flush();
-                } catch (IOException e) {
-                }
-            }
+    private void checkWritable(long pos) throws SQLException {
+        checkFreed();
+        if (upload == null || upload.isFinished()) {
+            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.lob_is_not_writable, null);
+        }
+        if (pos != charsWritten + 1) {
+            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.lob_pos_invalid, null);
         }
     }
 
-    public String toString() throws RuntimeException {
-        if (isLobLocator == true) {
-            return lobHandle.toString();
-        } else {
-            throw new RuntimeException(
-                    "The lob locator does not exist because the column type has changed.");
+    /* like csql: a stored value shows its locator, one with no storage its content */
+    public String toString() {
+        if (internalLocator != null) {
+            return new String(internalLocator, Charset.forName("US-ASCII"));
         }
+        if (internalContent != null) {
+            return new String(internalContent, Charset.forName(charsetName));
+        }
+        return "CUBRIDClob[internal, length=" + charsWritten + "]";
+    }
+
+    public int hashCode() {
+        if (upload != null) {
+            return System.identityHashCode(this);
+        }
+        return 31 * java.util.Arrays.hashCode(internalLocator)
+                + java.util.Arrays.hashCode(internalContent);
     }
 
     public boolean equals(Object obj) {
         if (obj instanceof CUBRIDClob) {
             CUBRIDClob that = (CUBRIDClob) obj;
-            return lobHandle.equals(that.lobHandle);
+            if (upload != null || that.upload != null) {
+                return this == that;
+            }
+            return java.util.Arrays.equals(internalLocator, that.internalLocator)
+                    && java.util.Arrays.equals(internalContent, that.internalContent);
         }
         return false;
     }
 
-    public byte[] getBytes(long pos, int length) throws SQLException {
-        if (conn == null || lobHandle == null) {
-            throw new NullPointerException();
-        }
-        if (pos < 1 || length < 0) {
-            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
-        }
-        if (length == 0) {
-            return new byte[0];
-        }
+    /* Caps a Reader at a fixed number of characters, so getCharacterStream(pos, length) yields exactly
+     * `length` characters regardless of the underlying charset's bytes-per-char. */
+    private static class BoundedReader extends java.io.FilterReader {
+        private long remaining;
 
-        pos--; // pos is now offset from 0
-        int real_read_len, read_len, total_read_len = 0;
-
-        if (pos + length > lobHandle.getLobSize()) {
-            length = (int) (lobHandle.getLobSize() - pos);
+        BoundedReader(Reader in, long limit) {
+            super(in);
+            this.remaining = limit;
         }
 
-        byte[] buf = new byte[length];
-
-        while (length > 0) {
-            read_len = Math.min(length, CLOB_MAX_IO_LENGTH);
-
-            if (isLobLocator == true) {
-                real_read_len =
-                        conn.lobRead(
-                                lobHandle.getPackedLobHandle(), pos, buf, total_read_len, read_len);
-            } else {
-                real_read_len = lobRead(pos, buf, total_read_len, read_len);
+        @Override
+        public int read() throws IOException {
+            if (remaining <= 0) {
+                return -1;
             }
-
-            pos += real_read_len;
-            length -= real_read_len;
-            total_read_len += real_read_len;
-
-            if (real_read_len == 0) {
-                break;
+            int c = super.read();
+            if (c >= 0) {
+                remaining--;
             }
+            return c;
         }
 
-        if (total_read_len < buf.length) {
-            // In common case, this code cannot be executed
-            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.unknown, null);
-            // byte[]new_buf = new byte[total_read_len];
-            // System.arraycopy (buf, 0, new_buf, 0, total_read_len);
-            // return new_buf;
-        } else {
-            return buf;
-        }
-    }
-
-    public int setBytes(long pos, byte[] bytes, int offset, int len) throws SQLException {
-        if (conn == null || lobHandle == null) {
-            throw new NullPointerException();
-        }
-        if (pos < 1 || offset < 0 || len < 0) {
-            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
-        }
-        if (offset + len > bytes.length) {
-            throw new IndexOutOfBoundsException();
-        }
-
-        if (isWritable) {
-            if (lobHandle.getLobSize() + 1 != pos) {
-                throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.lob_pos_invalid, null);
+        @Override
+        public int read(char[] cbuf, int off, int len) throws IOException {
+            if (remaining <= 0) {
+                return -1;
             }
-
-            pos--; // pos is now offset from 0
-            int real_write_len, write_len, total_write_len = 0;
-
-            while (len > 0) {
-                write_len = Math.min(len, CLOB_MAX_IO_LENGTH);
-                real_write_len =
-                        conn.lobWrite(
-                                lobHandle.getPackedLobHandle(), pos, bytes, offset, write_len);
-
-                pos += real_write_len;
-                len -= real_write_len;
-                offset += real_write_len;
-                total_write_len += real_write_len;
+            int want = (len < remaining) ? len : (int) remaining;
+            int got = super.read(cbuf, off, want);
+            if (got > 0) {
+                remaining -= got;
             }
-
-            if (pos > lobHandle.getLobSize()) {
-                lobHandle.setLobSize(pos);
-                clobCharLength = -1;
-            }
-
-            return total_write_len;
-        } else {
-            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.lob_is_not_writable, null);
+            return got;
         }
     }
 }

@@ -76,12 +76,12 @@ public abstract class UGetTypeConvertedValue {
         throw new UJciException(UErrorCode.ER_TYPE_CONVERSION);
     }
 
-    public static CUBRIDBlob getBlob(Object data, CUBRIDConnection conn) throws UJciException {
+    public static java.sql.Blob getBlob(Object data, CUBRIDConnection conn) throws UJciException {
         if (data == null) return null;
-        else if (data instanceof CUBRIDBlob) return (CUBRIDBlob) data;
+        else if (data instanceof java.sql.Blob) return (java.sql.Blob) data;
         else if (data instanceof byte[]) {
             try {
-                return new CUBRIDBlob(conn, (byte[]) data, false);
+                return new CUBRIDBlob(conn, (byte[]) data);
             } catch (Exception e) {
                 throw new UJciException(UErrorCode.ER_TYPE_CONVERSION);
             }
@@ -125,16 +125,16 @@ public abstract class UGetTypeConvertedValue {
         throw new UJciException(UErrorCode.ER_TYPE_CONVERSION);
     }
 
-    public static CUBRIDClob getClob(Object data, CUBRIDConnection conn) throws UJciException {
+    public static java.sql.Clob getClob(Object data, CUBRIDConnection conn) throws UJciException {
         if (data == null) return null;
-        else if (data instanceof CUBRIDClob) return (CUBRIDClob) data;
+        else if (data instanceof java.sql.Clob) return (java.sql.Clob) data;
         else if (data instanceof String) {
             try {
+                String charset = conn.getUConnection().getCharset();
                 return new CUBRIDClob(
                         conn,
-                        ((String) data).getBytes(),
-                        conn.getUConnection().getCharset(),
-                        false);
+                        ((String) data).getBytes(java.nio.charset.Charset.forName(charset)),
+                        charset);
             } catch (Exception e) {
                 throw new UJciException(UErrorCode.ER_TYPE_CONVERSION);
             }
@@ -315,37 +315,15 @@ public abstract class UGetTypeConvertedValue {
         throw new UJciException(UErrorCode.ER_TYPE_CONVERSION);
     }
 
-    private static String getHexaDecimalString(byte[] data) {
-        String stringData = "", aByteString;
-        int temp = 0, halfByte;
-        final short aByteSize = 256;
+    private static final char[] HEX_DIGITS = "0123456789abcdef".toCharArray();
 
+    /* lowercase hex, two digits per byte; linear, as a BLOB can be large */
+    public static String getHexaDecimalString(byte[] data) {
+        StringBuilder sb = new StringBuilder(data.length * 2);
         for (int i = 0; i < data.length; i++) {
-            if (data[i] < 0) temp = (short) data[i] + aByteSize;
-            else temp = (short) data[i];
-            aByteString = "";
-            for (int j = 0; j < 2; j++) {
-                halfByte = temp % 16;
-                aByteString =
-                        ((halfByte < 10)
-                                        ? String.valueOf(halfByte)
-                                        : ((halfByte == 10)
-                                                ? "a"
-                                                : ((halfByte == 11)
-                                                        ? "b"
-                                                        : ((halfByte == 12)
-                                                                ? "c"
-                                                                : ((halfByte == 13)
-                                                                        ? "d"
-                                                                        : ((halfByte == 14)
-                                                                                ? "e"
-                                                                                : "f"))))))
-                                + aByteString;
-                temp /= 16;
-            }
-            stringData += aByteString;
+            sb.append(HEX_DIGITS[(data[i] >> 4) & 0x0f]).append(HEX_DIGITS[data[i] & 0x0f]);
         }
-        return stringData;
+        return sb.toString();
     }
 
     /*

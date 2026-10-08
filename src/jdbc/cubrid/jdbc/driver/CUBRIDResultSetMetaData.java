@@ -426,6 +426,18 @@ public class CUBRIDResultSetMetaData implements ResultSetMetaData {
                     }
                     break;
 
+                case UUType.U_TYPE_BFILE:
+                    col_type_name[i] = "BFILE";
+                    col_type[i] = java.sql.Types.BLOB;
+                    ele_type[i] = -1;
+                    break;
+
+                case UUType.U_TYPE_CFILE:
+                    col_type_name[i] = "CFILE";
+                    col_type[i] = java.sql.Types.CLOB;
+                    ele_type[i] = -1;
+                    break;
+
                 case UUType.U_TYPE_BLOB:
                     col_type_name[i] = "BLOB";
                     col_type[i] = java.sql.Types.BLOB;

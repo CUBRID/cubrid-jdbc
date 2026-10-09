@@ -236,7 +236,7 @@ public abstract class UErrorCode {
                 "Proxy refused client connection. max clients exceeded");
         CASMessageString.put(
                 new Integer(CAS_ER_SSL_TYPE_NOT_ALLOWED),
-                "The requested SSL mode is not permitted, the CAS server is running in a different mode (check useSSL property).");
+                "The requested SSL mode is not permitted, the CAS server is running in a different mode (check the sslmode or useSSL property).");
         CASMessageString.put(new Integer(CAS_ER_IS), "Authentication failure");
     }
 }

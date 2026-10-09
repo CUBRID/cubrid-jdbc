@@ -83,6 +83,14 @@ public class BrokerHandler {
                     + " certificate";
 
     /**
+     * Word for word what cci says when the broker refuses what is offered. Both drivers offer only
+     * TLS 1.2 and 1.3 suites, so a broker without them - one that speaks only TLS 1.1 included -
+     * answers with a handshake_failure alert.
+     */
+    private static final String NO_COMMON_TLS =
+            "the driver and the broker have no TLS version or cipher suite in common";
+
+    /**
      * The suites this driver offers, the same set as cci and the broker
      * ("ECDHE+AESGCM:ECDHE+CHACHA20:!aNULL:!kRSA"): every TLS 1.3 suite cci offers, and TLS 1.2
      * with ECDHE key exchange and AES-GCM or ChaCha20-Poly1305 only. The JRE's defaults alone still
@@ -506,7 +514,8 @@ public class BrokerHandler {
      * Why a handshake failed for a reason other than the certificate: {@link
      * #BROKER_DID_NOT_START_TLS} when the connection ended before the broker answered, or what it
      * answered was not TLS ("Unrecognized SSL message" before 8u261, "Unsupported or unrecognized
-     * SSL message" since); otherwise the JSSE message.
+     * SSL message" since); {@link #NO_COMMON_TLS} when the broker refused the versions or suites
+     * offered; otherwise the JSSE message.
      */
     private static String handshakeFailureReason(IOException e) {
         Throwable t = e;
@@ -520,6 +529,9 @@ public class BrokerHandler {
         String message = e.getMessage();
         if (message != null && message.contains("nrecognized SSL message")) {
             return BROKER_DID_NOT_START_TLS;
+        }
+        if ("Received fatal alert: handshake_failure".equals(message)) {
+            return NO_COMMON_TLS;
         }
 
         return (message != null) ? message : "unknown reason";

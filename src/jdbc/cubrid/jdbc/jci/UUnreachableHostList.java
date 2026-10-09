@@ -151,7 +151,7 @@ public class UUnreachableHostList {
      * refuse.
      *
      * @param sslMode the TLS mode to probe with
-     * @param trustStore anchors for the chain check, or null for the JVM default store
+     * @param trustStore anchors for the chain check; null only below {@code verify-ca}
      */
     public void setSslConfig(SslMode sslMode, KeyStore trustStore) {
         this.sslMode = (sslMode == null) ? SslMode.DISABLED : sslMode;

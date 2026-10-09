@@ -566,14 +566,15 @@ public class ConnectionProperties {
     }
 
     /**
-     * The trust anchors to verify the server certificate against, or null to use the JVM default
-     * store ({@code cacerts}).
+     * The trust anchors to verify the server certificate against, or null when the mode does not
+     * verify it.
      *
      * <p>Built once and kept: a pooled connection re-opens its socket on every reconnect, and
      * re-reading the file each time would buy nothing - the anchors are configuration, not state.
      *
-     * @return the store to hand to a TrustManagerFactory, or null for the JVM default
-     * @throws CUBRIDException if the configured file cannot be read as the format it claims
+     * @return the store to hand to a TrustManagerFactory, or null below {@code verify-ca}
+     * @throws CUBRIDException if the configured file cannot be read as the format it claims, or if
+     *     a verifying mode names no anchors
      */
     public KeyStore getTrustStore() throws CUBRIDException {
         if (!trustStoreResolved) {
@@ -593,6 +594,15 @@ public class ConnectionProperties {
         }
         if (storePath != null) {
             return loadKeyStoreFile(storePath);
+        }
+        /* No fallback to the JVM cacerts: any public CA could then vouch for the broker. cci has
+         * the same rule. Checked here rather than in setProperties(), which runs once for the URL
+         * and again for the Properties object, so the anchor may arrive in the second call. */
+        if (getSslMode().verifiesCertificate()) {
+            throw new CUBRIDException(
+                    CUBRIDJDBCErrorCode.invalid_url,
+                    "sslca or trustStore is required for sslmode=" + getSslMode().getLabel(),
+                    null);
         }
 
         return null;

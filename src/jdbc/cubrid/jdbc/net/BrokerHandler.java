@@ -356,7 +356,7 @@ public class BrokerHandler {
      *     certificate
      * @param port the broker port
      * @param sslMode how much of the certificate to check
-     * @param trustStore anchors for the chain check, or null for the JVM default store
+     * @param trustStore anchors for the chain check; null only below {@code verify-ca}
      * @return the handshaken TLS socket
      * @throws UJciException {@code ER_SSL_CERT_VERIFY} when the certificate was rejected, {@code
      *     ER_SSL_HANDSHAKE} for any other handshake failure
@@ -370,7 +370,7 @@ public class BrokerHandler {
             if (sslMode.verifiesCertificate()) {
                 TrustManagerFactory tmf =
                         TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
-                tmf.init(trustStore); /* null: the JVM default cacerts */
+                tmf.init(trustStore); /* never null: getTrustStore() refuses that */
                 ctx.init(null, tmf.getTrustManagers(), null);
             } else {
                 ctx.init(null, new TrustManager[] {TRUST_ALL_TM}, new SecureRandom());

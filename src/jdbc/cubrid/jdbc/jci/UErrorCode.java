@@ -181,9 +181,10 @@ public abstract class UErrorCode {
                         + "This driver only supports server version 10.2 (PROTOCOL_V8) or later.");
         messageString.put(
                 new Integer(ER_SSL_CERT_VERIFY),
+                /* no final period: the reason follows as ": <reason>" */
                 "The server certificate could not be verified. "
                         + "Check the trust anchor (sslca or trustStore) and the certificate's "
-                        + "validity period and subject alternative names.");
+                        + "validity period and subject alternative names");
     }
 
     private static void setCASMessageHash() {

@@ -47,6 +47,8 @@ import java.security.GeneralSecurityException;
 import java.security.KeyStore;
 import java.security.SecureRandom;
 import java.security.cert.CertificateException;
+import java.security.cert.CertificateExpiredException;
+import java.security.cert.CertificateNotYetValidException;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -406,7 +408,8 @@ public class BrokerHandler {
             sslSocket.startHandshake();
         } catch (SSLHandshakeException e) {
             if (isCertificateFailure(e)) {
-                throw new UJciException(UErrorCode.ER_SSL_CERT_VERIFY, e);
+                throw new UJciException(
+                        UErrorCode.ER_SSL_CERT_VERIFY, certificateFailureReason(e), e);
             }
             throw new UJciException(UErrorCode.ER_SSL_HANDSHAKE, e);
         } catch (IOException e) {
@@ -459,5 +462,26 @@ public class BrokerHandler {
         }
 
         return false;
+    }
+
+    /**
+     * Why the certificate was rejected: the innermost message of the cause chain, which names the
+     * mismatching host or the missing certification path. Expiry is spelled out, as its innermost
+     * message is only a date.
+     */
+    private static String certificateFailureReason(Throwable t) {
+        Throwable inner = t;
+        for (int depth = 0; inner.getCause() != null && depth < 16; depth++) {
+            inner = inner.getCause();
+        }
+
+        if (inner instanceof CertificateExpiredException) {
+            return "certificate has expired (" + inner.getMessage() + ")";
+        }
+        if (inner instanceof CertificateNotYetValidException) {
+            return "certificate is not yet valid (" + inner.getMessage() + ")";
+        }
+
+        return inner.getMessage();
     }
 }

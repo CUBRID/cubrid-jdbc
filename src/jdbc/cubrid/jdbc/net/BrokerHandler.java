@@ -82,6 +82,20 @@ public class BrokerHandler {
             "the broker did not start TLS; its CAS log has the cause, such as an expired or unreadable"
                     + " certificate";
 
+    /**
+     * The suites this driver offers, the same set as cci and the broker
+     * ("ECDHE+AESGCM:ECDHE+CHACHA20:!aNULL:!kRSA"): every TLS 1.3 suite cci offers, and TLS 1.2
+     * with ECDHE key exchange and AES-GCM or ChaCha20-Poly1305 only. The JRE's defaults alone still
+     * negotiate static RSA (TLS_RSA_*), which has no forward secrecy, with a server that offers
+     * nothing else. The renegotiation signal is not a cipher and stays.
+     */
+    private static final Pattern ALLOWED_CIPHER_SUITE =
+            Pattern.compile(
+                    "TLS_AES_(128|256)_GCM_SHA(256|384)|TLS_CHACHA20_POLY1305_SHA256"
+                            + "|TLS_ECDHE_(RSA|ECDSA)_WITH_(AES_(128|256)_GCM_SHA(256|384)"
+                            + "|CHACHA20_POLY1305_SHA256)"
+                            + "|TLS_EMPTY_RENEGOTIATION_INFO_SCSV");
+
     private static final Pattern IPV4_LITERAL =
             Pattern.compile("\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}");
 
@@ -405,6 +419,7 @@ public class BrokerHandler {
         if (protocols.length > 0) {
             params.setProtocols(protocols);
         }
+        params.setCipherSuites(allowedCipherSuites(sslSocket));
         if (!isIpLiteral(host)) {
             /* RFC 6066 forbids an IP literal in SNI, and a broker addressed by IP has nothing to
              * match it against anyway. */
@@ -440,6 +455,18 @@ public class BrokerHandler {
         for (String protocol : TLS_PROTOCOLS) {
             if (available.contains(protocol)) {
                 chosen.add(protocol);
+            }
+        }
+
+        return chosen.toArray(new String[chosen.size()]);
+    }
+
+    /** The suites the JRE has enabled that {@link #ALLOWED_CIPHER_SUITE} allows, in its order. */
+    private static String[] allowedCipherSuites(SSLSocket socket) {
+        List<String> chosen = new ArrayList<String>();
+        for (String suite : socket.getEnabledCipherSuites()) {
+            if (ALLOWED_CIPHER_SUITE.matcher(suite).matches()) {
+                chosen.add(suite);
             }
         }
 

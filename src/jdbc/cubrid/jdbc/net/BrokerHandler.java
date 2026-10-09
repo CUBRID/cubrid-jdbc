@@ -39,6 +39,7 @@ import cubrid.jdbc.jci.UTimedDataInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.io.EOFException;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
@@ -70,6 +71,16 @@ public class BrokerHandler {
 
     /** TLS versions this driver offers, newest first. Anything older is not negotiated. */
     private static final String[] TLS_PROTOCOLS = {"TLSv1.3", "TLSv1.2"};
+
+    /**
+     * Word for word what cci says for the same failure (ssl_handshake_failure_reason() in
+     * cci_network.c): a CAS that cannot load its certificate or key closes the connection before
+     * the handshake - an older one first wrote a plaintext CAS error - and the cause is only in the
+     * CAS log.
+     */
+    private static final String BROKER_DID_NOT_START_TLS =
+            "the broker did not start TLS; its CAS log has the cause, such as an expired or unreadable"
+                    + " certificate";
 
     private static final Pattern IPV4_LITERAL =
             Pattern.compile("\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}");
@@ -411,9 +422,9 @@ public class BrokerHandler {
                 throw new UJciException(
                         UErrorCode.ER_SSL_CERT_VERIFY, certificateFailureReason(e), e);
             }
-            throw new UJciException(UErrorCode.ER_SSL_HANDSHAKE, e);
+            throw new UJciException(UErrorCode.ER_SSL_HANDSHAKE, handshakeFailureReason(e), e);
         } catch (IOException e) {
-            throw new UJciException(UErrorCode.ER_SSL_HANDSHAKE, e);
+            throw new UJciException(UErrorCode.ER_SSL_HANDSHAKE, handshakeFailureReason(e), e);
         }
 
         return sslSocket;
@@ -462,6 +473,29 @@ public class BrokerHandler {
         }
 
         return false;
+    }
+
+    /**
+     * Why a handshake failed for a reason other than the certificate: {@link
+     * #BROKER_DID_NOT_START_TLS} when the connection ended before the broker answered, or what it
+     * answered was not TLS ("Unrecognized SSL message" before 8u261, "Unsupported or unrecognized
+     * SSL message" since); otherwise the JSSE message.
+     */
+    private static String handshakeFailureReason(IOException e) {
+        Throwable t = e;
+        for (int depth = 0; t != null && depth < 16; depth++) {
+            if (t instanceof EOFException) {
+                return BROKER_DID_NOT_START_TLS;
+            }
+            t = t.getCause();
+        }
+
+        String message = e.getMessage();
+        if (message != null && message.contains("nrecognized SSL message")) {
+            return BROKER_DID_NOT_START_TLS;
+        }
+
+        return (message != null) ? message : "unknown reason";
     }
 
     /**

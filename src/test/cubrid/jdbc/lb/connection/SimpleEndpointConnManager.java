@@ -277,6 +277,9 @@ public final class SimpleEndpointConnManager implements EndpointConnManager {
         this.failNextApplyPhyAutoCommit = true;
     }
 
+    // Keeps no separate read leg, so there is nothing to apply a session SET to.
+    public void applyToOpenReadLeg(final String opDesc, final SessionStateApplier op) {}
+
     public synchronized void commitPhyTx() throws SQLException {
         commitPhysicalTransactionCallCount++;
     }

@@ -35,12 +35,13 @@ import cubrid.jdbc.lb.sql.HintSet;
 import cubrid.jdbc.lb.state.SessionRoutingState;
 
 /**
- * SQL routing with fixed precedence: {@code Transaction > Hint > Default}.
+ * SQL routing with fixed precedence: {@code Transaction > Hint > Session read pin > Default}.
  *
  * <p>A target hint decides the route, except while a transaction is active: then every target hint
  * is overridden to RW, because a transaction must not leave the bound RW connection. That makes
  * {@code TO_RO} invalid inside a transaction; for {@code TO_RW} the override changes nothing. With
- * no hint, an active transaction pins the statement to RW, otherwise the default advisor
+ * no hint, an active transaction or a session read pin ({@link
+ * SessionRoutingState#isReadsPinnedToRw}) sends the statement to RW, otherwise the default advisor
  * (READ/WRITE classification) decides.
  *
  * <p>Routing is stateless: {@link SessionRoutingState} is only read, and the input SQL is returned
@@ -105,7 +106,7 @@ public final class Router {
             return new RouteDecision(mapped, effectiveSql);
         }
 
-        if (session.shouldRouteToRw()) {
+        if (session.shouldRouteToRw() || session.isReadsPinnedToRw()) {
             return new RouteDecision(RouteTarget.TO_READ_WRITE, effectiveSql);
         }
 
@@ -138,7 +139,7 @@ public final class Router {
             return targetFromHint;
         }
 
-        if (session.shouldRouteToRw()) {
+        if (session.shouldRouteToRw() || session.isReadsPinnedToRw()) {
             return RouteTarget.TO_READ_WRITE;
         }
 

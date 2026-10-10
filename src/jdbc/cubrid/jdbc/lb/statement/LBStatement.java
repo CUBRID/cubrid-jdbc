@@ -80,6 +80,8 @@ public class LBStatement extends CUBRIDStatement {
     private ResultSet lastRs;
     private int lastUpdCnt = -1;
     private PhysicalStmtProvider stmtProvider = new UnsupportedStmtProvider();
+    // True while a READ the read-only broker refused runs again on RW (see executeWithFailover).
+    private boolean rejectedReadRetry = false;
 
     public LBStatement(LoadBalanceConnection lbConnection) {
         this(
@@ -630,15 +632,50 @@ public class LBStatement extends CUBRIDStatement {
         return executeWithFailover(sql, target, true, execution);
     }
 
+    /**
+     * Runs {@code execution} under failover. A READ the read-only broker refuses as a write runs
+     * once more on RW ({@link LoadBalanceConnection#mayRetryRejectedReadOnRw}); a statement that
+     * succeeds is reported to the connection, which tracks the session SETs it ran.
+     */
     protected <T> T executeWithFailover(
             final String sql,
             final Router.RouteTarget target,
             final boolean retrySafe,
             final ExecuteFailoverHandler.SqlExecution<T> execution)
             throws SQLException {
-        return lbConnection
-                .getExecuteFailoverHandler()
-                .executeWithFailover(lbConnection, target, sql, retrySafe, execution);
+        final ExecuteFailoverHandler handler = lbConnection.getExecuteFailoverHandler();
+        T result;
+        try {
+            result = handler.executeWithFailover(lbConnection, target, sql, retrySafe, execution);
+        } catch (SQLException failure) {
+            if (!retrySafe || !lbConnection.mayRetryRejectedReadOnRw(target, sql, failure)) {
+                throw failure;
+            }
+            lbConnection.beginRejectedReadRetry(sql, failure);
+            rejectedReadRetry = true;
+            try {
+                result =
+                        handler.executeWithFailover(
+                                lbConnection,
+                                Router.RouteTarget.TO_READ_WRITE,
+                                sql,
+                                retrySafe,
+                                execution);
+            } finally {
+                rejectedReadRetry = false;
+                lbConnection.endRejectedReadRetry();
+            }
+        }
+        lbConnection.afterStatementSucceeded(sql);
+        return result;
+    }
+
+    /**
+     * The leg a physical statement is created on: RW while a refused read runs again, otherwise
+     * {@code target}. The execution closures capture the target routed before the first attempt.
+     */
+    Router.RouteTarget effectiveTarget(final Router.RouteTarget target) {
+        return rejectedReadRetry ? Router.RouteTarget.TO_READ_WRITE : target;
     }
 
     /**
@@ -674,7 +711,7 @@ public class LBStatement extends CUBRIDStatement {
         currentExecStmt = null;
         lastUpdCnt = -1;
 
-        Statement result = stmtProvider.getStatement(target, sql);
+        Statement result = stmtProvider.getStatement(effectiveTarget(target), sql);
         applyStmtProps(result);
         phyStmts.add(result);
         // Publish before executeQuery/executeUpdate/execute runs so cancel() can reach it.

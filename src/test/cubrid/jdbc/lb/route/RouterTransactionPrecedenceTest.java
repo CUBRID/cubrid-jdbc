@@ -47,6 +47,40 @@ public class RouterTransactionPrecedenceTest {
         session.setAutoCommit(false);
     }
 
+    /** A session SET the read leg cannot replay keeps unhinted reads on RW, in autocommit too. */
+    @Test
+    public void assertSessionReadPinSendsReadsToRw() {
+        SessionRoutingState pinned = new SessionRoutingState();
+        pinned.pinReadsToRw();
+        Router.RouteDecision d = Router.decide("SELECT * FROM t", pinned, readAdvisor());
+        assertEquals(Router.RouteTarget.TO_READ_WRITE, d.getTarget());
+        assertEquals(
+                Router.RouteTarget.TO_READ_WRITE,
+                Router.decide(null, Router.RouteTarget.TO_READ_ONLY, pinned));
+    }
+
+    /** Unlike a transaction, the pin yields to an explicit TO_RO hint: the application chose it. */
+    @Test
+    public void assertToRoHintStillWinsOverSessionReadPin() {
+        SessionRoutingState pinned = new SessionRoutingState();
+        pinned.pinReadsToRw();
+        Router.RouteDecision d =
+                Router.decide("SELECT /*+ TO_RO */ * FROM t", pinned, failingDefaultAdvisor());
+        assertEquals(Router.RouteTarget.TO_READ_ONLY, d.getTarget());
+        pinned.reset();
+        assertEquals(
+                Router.RouteTarget.TO_READ_ONLY,
+                Router.decide("SELECT * FROM t", pinned, readAdvisor()).getTarget());
+    }
+
+    private static Router.DefaultRouteAdvisor readAdvisor() {
+        return new Router.DefaultRouteAdvisor() {
+            public Router.RouteTarget defaultTarget(final String sql) {
+                return Router.RouteTarget.TO_READ_ONLY;
+            }
+        };
+    }
+
     @Test
     public void assertActiveTransactionInvalidatesToRoHint() {
         final String sql = "SELECT /*+ TO_RO */ * FROM t";

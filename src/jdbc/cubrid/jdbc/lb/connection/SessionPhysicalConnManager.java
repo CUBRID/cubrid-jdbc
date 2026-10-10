@@ -1180,6 +1180,45 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         }
     }
 
+    public synchronized void applyToOpenReadLeg(final String opDesc, final SessionStateApplier op)
+            throws SQLException {
+        if (sessRwEp == null) {
+            return;
+        }
+
+        Connection roPhysical = separateRoPhysicalOrNull(connsByEpId.get(sessRwEp.getId()));
+        if (roPhysical == null) {
+            return;
+        }
+
+        try {
+            op.applyTo(roPhysical);
+        } catch (SQLException refused) {
+            if (!UnreachableEndpoints.shouldMarkUnreachable(refused)
+                    && !UnreachableEndpoints.isTimeout(refused)) {
+                throw refused;
+            }
+            connsByEpId.remove(sessRoEp.getId());
+            try {
+                dropPrepForEp(sessRoEp.getId());
+            } catch (SQLException closeFailed) {
+                // The leg is dropped either way; its statements die with the connection below.
+            }
+            if (!connInUseElsewhere(roPhysical)) {
+                closeQuietly(roPhysical);
+            }
+            LbLog.warn(
+                    LOGGER,
+                    logContext,
+                    "LB SESSION SET [RO]: read leg lost during "
+                            + opDesc
+                            + "; dropped, reopens with the session state | readLeg="
+                            + sessRoEp.getId()
+                            + " | cause: "
+                            + LbLog.cause(refused));
+        }
+    }
+
     /** One operation applied to a single physical leg. */
     private interface LegOperation {
         void apply(Connection physical) throws SQLException;

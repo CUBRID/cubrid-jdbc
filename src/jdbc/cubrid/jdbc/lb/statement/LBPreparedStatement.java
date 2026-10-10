@@ -1101,8 +1101,9 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         // Use the target the caller resolved before executeWithFailover rather than re-resolving:
         // the session routing state may have changed in between, and a second resolveRouteTarget()
         // could pick a different target than the failover recovery context was built from, marking
-        // the wrong endpoint role on failure.
-        PreparedStatement ps = phyPsProvider.getPreparedStatement(target, sql);
+        // the wrong endpoint role on failure. A refused read running again on RW is the exception.
+        PreparedStatement ps =
+                phyPsProvider.getPreparedStatement(statementDelegate.effectiveTarget(target), sql);
         // The physical PS comes from the session cache, so statement attributes (queryTimeout,
         // maxRows, fetchSize, maxFieldSize, escapeProcessing, closeOnCompletion) are re-applied on
         // every execution: another logical PS sharing the endpoint may have changed them.

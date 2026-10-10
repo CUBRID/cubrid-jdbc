@@ -39,6 +39,7 @@ import cubrid.jdbc.driver.CUBRIDStatement;
 import cubrid.jdbc.jci.UConnection;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
+import cubrid.jdbc.lb.config.LbLogConfig;
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.config.NodeRole;
 import cubrid.jdbc.lb.config.ResolvedRoleTopology;
@@ -59,8 +60,12 @@ import cubrid.jdbc.lb.report.LbDistLog;
 import cubrid.jdbc.lb.report.LbTopologyLog;
 import cubrid.jdbc.lb.route.RoleReadSelector;
 import cubrid.jdbc.lb.route.Router;
+import cubrid.jdbc.lb.sql.HintParser;
+import cubrid.jdbc.lb.sql.SessionSetStatement;
+import cubrid.jdbc.lb.sql.SqlClassification;
 import cubrid.jdbc.lb.sql.SqlClassifier;
 import cubrid.jdbc.lb.sql.SqlClassifierRegistry;
+import cubrid.jdbc.lb.sql.SqlLiteralMasker;
 import cubrid.jdbc.lb.state.CurrentReadEndpointHolder;
 import cubrid.jdbc.lb.state.RecoveryBackoff;
 import cubrid.jdbc.lb.state.RecoveryBackoffRegistry;
@@ -88,8 +93,10 @@ import java.sql.Savepoint;
 import java.sql.Statement;
 import java.sql.Struct;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -172,7 +179,18 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     // to choose, and LB only says that it holds within one node.
     private boolean isolationSpreadWarned;
     private Integer casChangeMode = null;
+    // SQL SETs re-run on every leg opened later (replay key -> statement), in the order they last
+    // ran, so a newer SET of the same setting replaces the older one.
+    private final Map<String, String> sessionSets = new LinkedHashMap<String, String>();
+    // True while a READ the read-only broker refused runs again on RW, so that route is recorded
+    // with RO_WRITE_REJECTED rather than NONE.
+    private volatile boolean retryingRejectedRead = false;
     private static final Logger LOGGER = Logger.getLogger(LoadBalanceConnection.class.getName());
+    /** CUBRID ER_DB_NO_MODIFICATIONS: a read-only broker refused to write. */
+    private static final int ER_DB_NO_MODIFICATIONS = -581;
+    /** CUBRID ER_SP_EXECUTE_ERROR: a stored routine failed; its write on a read node lands here. */
+    private static final int ER_SP_EXECUTE_ERROR = -889;
+
     private ExecuteFailoverHandler executeFailoverHandler = new ExecuteFailoverHandler();
     // True when this connection's RuntimeMetrics was registered for export; drives unregister
     // (flush of final counts) at close().
@@ -593,9 +611,15 @@ public class LoadBalanceConnection extends CUBRIDConnection {
 
         Endpoint endpoint = endpointSelection.getEndpoint();
         lastExecEndpoint = endpoint;
-        routingMetrics.recordStatementRoute(
-                rawSql, target, endpoint, endpointSelection.getFallbackReason());
-        routingMetrics.logRoute(rawSql, target, endpoint, endpointSelection.getFallbackReason());
+        String fallbackReason = endpointSelection.getFallbackReason();
+        if (target == Router.RouteTarget.TO_READ_WRITE) {
+            fallbackReason =
+                    retryingRejectedRead
+                            ? FallbackReason.RO_WRITE_REJECTED
+                            : readPinReason(rawSql, fallbackReason);
+        }
+        routingMetrics.recordStatementRoute(rawSql, target, endpoint, fallbackReason);
+        routingMetrics.logRoute(rawSql, target, endpoint, fallbackReason);
         // Rides here rather than inside logRoute: that record is FINE and this one is INFO, so
         // gating it on the routing record's level would silence it at the default level.
         LbDistLog.onStatementRouted();
@@ -2929,6 +2953,165 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             }
         }
         physical.setHoldability(holdability);
+        runSessionSets(physical, sessionSetsSnapshot());
+    }
+
+    /**
+     * Records what a statement that just succeeded changed in its session. A SQL {@code SET} ran
+     * only on the leg it was routed to (RW): a session-scoped one is replayed on the read leg now
+     * and on every leg opened later; any other keeps this session's reads on RW.
+     *
+     * @param sql the statement as the application issued it
+     */
+    public void afterStatementSucceeded(final String sql) {
+        final SessionSetStatement set = SessionSetStatement.parse(sql);
+        if (set.getAction() == SessionSetStatement.Action.REPLAY) {
+            replaySessionSet(sql, set.getReplay());
+        } else if (set.getAction() == SessionSetStatement.Action.PIN_TO_RW) {
+            pinReadsToRw(sql);
+        }
+    }
+
+    private void replaySessionSet(final String sql, final Map<String, String> replay) {
+        synchronized (sessionSets) {
+            for (Map.Entry<String, String> each : replay.entrySet()) {
+                sessionSets.remove(each.getKey());
+                sessionSets.put(each.getKey(), each.getValue());
+            }
+        }
+        if (connMgr == null || !isSessionInitialized()) {
+            return;
+        }
+
+        final Collection<String> statements = replay.values();
+        try {
+            connMgr.applyToOpenReadLeg(
+                    "session SET",
+                    new EndpointConnManager.SessionStateApplier() {
+                        public void applyTo(final Connection physical) throws SQLException {
+                            runSessionSets(physical, statements);
+                        }
+                    });
+        } catch (SQLException rejected) {
+            // A reopened leg would reject it again: keep reads where the SET took effect.
+            sessionState.pinReadsToRw();
+            LbLog.warn(
+                    LOGGER,
+                    LbLog.conn(connectionId),
+                    "LB SESSION PIN: the read leg rejected a SET that ran on RW; this session's"
+                            + " reads stay on RW until it closes"
+                            + sqlForLog(sql)
+                            + " | cause: "
+                            + LbLog.cause(rejected));
+        }
+    }
+
+    private void pinReadsToRw(final String sql) {
+        if (sessionState.isReadsPinnedToRw()) {
+            return;
+        }
+        sessionState.pinReadsToRw();
+        LbLog.info(
+                LOGGER,
+                LbLog.conn(connectionId),
+                "LB SESSION PIN: a SET the read leg cannot replay ran on RW; this session's reads"
+                        + " stay on RW until it closes"
+                        + sqlForLog(sql));
+    }
+
+    private List<String> sessionSetsSnapshot() {
+        synchronized (sessionSets) {
+            return new ArrayList<String>(sessionSets.values());
+        }
+    }
+
+    private static void runSessionSets(final Connection physical, final Collection<String> sqls)
+            throws SQLException {
+        for (String sql : sqls) {
+            Statement statement = physical.createStatement();
+            try {
+                statement.execute(sql);
+            } finally {
+                statement.close();
+            }
+        }
+    }
+
+    /**
+     * Whether a statement that failed on the read leg may run once more on RW. The read-only broker
+     * refuses a write hidden from the classifier (a view over NEXTVAL, or over a routine that
+     * writes, which surfaces as -889), and a refused statement changed nothing, so the retry runs
+     * it once. Only in autocommit, and not for an explicit TO_RO hint: that read leg was the
+     * application's choice.
+     *
+     * @param target where the failed execution was routed
+     * @param sql the statement as the application issued it
+     * @param failure the read leg's failure
+     * @return whether the caller should run the statement again on RW
+     */
+    public boolean mayRetryRejectedReadOnRw(
+            final Router.RouteTarget target, final String sql, final SQLException failure) {
+        return target == Router.RouteTarget.TO_READ_ONLY
+                && sessionState.isAutoCommit()
+                && !sessionState.isTransactionActive()
+                && isRefusedOnReadLeg(failure)
+                && !HintParser.parse(sql).hasTargetHint();
+    }
+
+    /**
+     * Marks the RW run of a refused read until {@link #endRejectedReadRetry()}.
+     *
+     * @param sql the statement being run again
+     * @param failure the read leg's refusal
+     */
+    public void beginRejectedReadRetry(final String sql, final SQLException failure) {
+        retryingRejectedRead = true;
+        LbLogDedup.info(
+                LOGGER,
+                LbLog.conn(connectionId),
+                "RO REJECTED|" + SqlLiteralMasker.mask(sql, 200),
+                "LB RO REJECTED: the read-only broker refused a statement classified READ ("
+                        + failure.getErrorCode()
+                        + "); running it on RW"
+                        + sqlForLog(sql));
+    }
+
+    public void endRejectedReadRetry() {
+        retryingRejectedRead = false;
+    }
+
+    private static boolean isRefusedOnReadLeg(final SQLException failure) {
+        for (SQLException e = failure; e != null; e = e.getNextException()) {
+            if (e.getErrorCode() == ER_DB_NO_MODIFICATIONS
+                    || e.getErrorCode() == ER_SP_EXECUTE_ERROR) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** RW route of a READ that only the session read pin moved there, or {@code reason}. */
+    private String readPinReason(final String rawSql, final String reason) {
+        if (!FallbackReason.NONE.equals(reason)
+                || !sessionState.isReadsPinnedToRw()
+                || sessionState.isTransactionActive()
+                || HintParser.parse(rawSql).hasTargetHint()
+                || sqlClassifier.classify(rawSql) != SqlClassification.READ) {
+            return reason;
+        }
+        return FallbackReason.SESSION_SET_PIN;
+    }
+
+    private String sqlForLog(final String sql) {
+        final LbLogConfig logConfig = config.getLbLogConfig();
+        final String mode = logConfig.getSqlMode();
+        if (LbLogConfig.SQL_OFF.equals(mode)) {
+            return "";
+        }
+        return " | sql="
+                + (LbLogConfig.SQL_RAW.equals(mode)
+                        ? SqlLiteralMasker.raw(sql, logConfig.getSqlMaxLen())
+                        : SqlLiteralMasker.mask(sql, logConfig.getSqlMaxLen()));
     }
 
     private EndpointSelection selectionForTarget(final Router.RouteTarget target)

@@ -31,7 +31,8 @@
 package cubrid.jdbc.lb.state;
 
 /**
- * Per-connection routing flags: autocommit and active transaction. Nothing else pins routing.
+ * Per-connection routing flags: autocommit, active transaction, and the read pin a session SET that
+ * cannot be replayed on the read leg leaves behind.
  *
  * <p>Thread contract: these fields are non-volatile and carry the same contract as the owning
  * {@link cubrid.jdbc.lb.LoadBalanceConnection}. A JDBC connection is not meant to be used
@@ -41,6 +42,7 @@ package cubrid.jdbc.lb.state;
 public class SessionRoutingState {
     private boolean autoCommit = true;
     private boolean transactionActive = false;
+    private boolean readsPinnedToRw = false;
 
     public boolean isAutoCommit() {
         return autoCommit;
@@ -88,8 +90,21 @@ public class SessionRoutingState {
         return transactionActive;
     }
 
+    /**
+     * Keeps this session's reads on the write leg until the connection closes: a SET ran there that
+     * the read leg cannot replay. Unlike a transaction, an explicit TO_RO hint still wins.
+     */
+    public void pinReadsToRw() {
+        this.readsPinnedToRw = true;
+    }
+
+    public boolean isReadsPinnedToRw() {
+        return readsPinnedToRw;
+    }
+
     public void reset() {
         this.autoCommit = true;
         this.transactionActive = false;
+        this.readsPinnedToRw = false;
     }
 }

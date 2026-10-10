@@ -198,6 +198,18 @@ public interface EndpointConnManager extends LoadBalanceConnection.PhysicalResou
 
     void applyPhyAutoCommit(boolean autoCommit) throws SQLException;
 
+    /**
+     * Runs {@code op} on the session's read leg if it is open on its own physical connection. A
+     * read leg lost while running it is dropped and reopens on the next read with the session state
+     * re-applied. Any other failure is the broker rejecting {@code op}, which a reopened leg would
+     * do again, so it is thrown and the leg is kept.
+     *
+     * @param opDesc how the operation reads in the drop warning
+     * @param op the operation to run on the read leg
+     * @throws SQLException the read leg's broker rejected {@code op}
+     */
+    void applyToOpenReadLeg(String opDesc, SessionStateApplier op) throws SQLException;
+
     void commitPhyTx() throws SQLException;
 
     void rollbackPhyTx() throws SQLException;

@@ -51,4 +51,10 @@ public final class FallbackReason {
 
     /** RO physical connection was failed over. */
     public static final String RO_PHYSICAL = "RO_PHYSICAL_FAILOVER";
+
+    /** The read-only broker refused a READ as a write (-581), so it ran again on RW. */
+    public static final String RO_WRITE_REJECTED = "RO_WRITE_REJECTED";
+
+    /** A session SET the read leg cannot replay keeps the session's reads on RW. */
+    public static final String SESSION_SET_PIN = "SESSION_SET_PIN";
 }

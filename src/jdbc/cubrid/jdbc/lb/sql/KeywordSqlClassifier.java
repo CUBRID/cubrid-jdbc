@@ -54,6 +54,8 @@ import java.util.Map;
  *       See <a
  *       href="https://www.cubrid.org/manual/ko/11.4/sql/function/information_fn.html#LAST_INSERT_ID">information
  *       functions</a>.
+ *   <li>session ({@code @name}) and host ({@code :name}) variables - they live on the leg that set
+ *       them, and {@code SELECT ... INTO} already goes to RW.
  *   <li>{@code ident(...)} calls whose name is not a CUBRID 11.4 read-only built-in ({@link
  *       BuiltinFunctionCatalog}) — stored procedures, Java SP and user-defined routines route to RW
  *       conservatively.
@@ -360,6 +362,8 @@ public final class KeywordSqlClassifier implements SqlClassifier {
 
         boolean prevWasFor = false;
         boolean prevWasDot = false;
+        // Progress through the click-counter clause WITH {INCREMENT|DECREMENT} FOR col.
+        int clickCounterStep = 0;
 
         boolean sawWrite = false;
         boolean sawUnsafe = false;
@@ -394,6 +398,13 @@ public final class KeywordSqlClassifier implements SqlClassifier {
             if (isIdentifierStart(c)) {
                 final int end = scanIdentifierEnd(sql, i);
                 final String name = extractUpperAscii(sql, i, end);
+
+                // SELECT ... WITH INCREMENT FOR col: the click counter updates col on every read
+                // row, a write just like INCR(col).
+                if (clickCounterStep == 2 && "FOR".equals(name)) {
+                    sawWrite = true;
+                }
+                clickCounterStep = nextClickCounterStep(clickCounterStep, name);
 
                 // serial pseudo-column seq.NEXTVAL / .CURRVAL (no parens) — write/session → RW.
                 if (prevWasDot) {
@@ -452,12 +463,14 @@ public final class KeywordSqlClassifier implements SqlClassifier {
 
             if (c == '.') {
                 prevWasDot = true;
+                clickCounterStep = 0;
             } else if (!Character.isWhitespace(c)) {
-                if (c == SESSION_VARIABLE_SIGIL) {
+                if (c == SESSION_VARIABLE_SIGIL || isHostVariableAt(sql, i)) {
                     sawUnsafe = true;
                 }
                 prevWasFor = false;
                 prevWasDot = false;
+                clickCounterStep = 0;
             }
             i++;
         }
@@ -487,6 +500,28 @@ public final class KeywordSqlClassifier implements SqlClassifier {
      * holds.
      */
     private static final char SESSION_VARIABLE_SIGIL = '@';
+
+    /**
+     * Whether a host variable {@code :name} starts at {@code pos}. {@code SELECT ... INTO :v} is
+     * already UNKNOWN, so it runs on the RW leg and the variable lives there; a later read of
+     * {@code :v} has to follow it, or the read leg answers that the variable is not set.
+     */
+    private static boolean isHostVariableAt(final String sql, final int pos) {
+        return sql.charAt(pos) == ':'
+                && pos + 1 < sql.length()
+                && isIdentifierStart(sql.charAt(pos + 1));
+    }
+
+    /** Next step through {@code WITH {INCREMENT|DECREMENT} FOR}: 1 after WITH, 2 after its verb. */
+    private static int nextClickCounterStep(final int step, final String upperName) {
+        if ("WITH".equals(upperName)) {
+            return 1;
+        }
+        if (step == 1 && ("INCREMENT".equals(upperName) || "DECREMENT".equals(upperName))) {
+            return 2;
+        }
+        return 0;
+    }
 
     private static final int SERIAL_NONE = 0;
     private static final int SERIAL_WRITE = 1;
@@ -539,10 +574,24 @@ public final class KeywordSqlClassifier implements SqlClassifier {
         return new String(buf);
     }
 
+    /**
+     * Whether {@code (} follows the identifier ending at {@code afterIdentifier}. An index hint
+     * {@code USING INDEX idx(+)} is not a call: no routine takes a bare {@code +} as its argument.
+     */
     private static boolean isFunctionCallAt(final String sql, final int afterIdentifier) {
+        final int len = sql.length();
         final int paren = skipWhitespaceAndSkippable(sql, afterIdentifier);
+        if (paren >= len || sql.charAt(paren) != '(') {
+            return false;
+        }
 
-        return paren < sql.length() && sql.charAt(paren) == '(';
+        final int plus = skipWhitespaceAndSkippable(sql, paren + 1);
+        if (plus < len && sql.charAt(plus) == '+') {
+            final int close = skipWhitespaceAndSkippable(sql, plus + 1);
+            return close >= len || sql.charAt(close) != ')';
+        }
+
+        return true;
     }
 
     private static int skipWhitespaceAndSkippable(final String sql, int pos) {

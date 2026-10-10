@@ -80,6 +80,7 @@ public final class BuiltinFunctionCatalog {
         "ATAN",
         "ATAN2",
         "CEIL",
+        "CEILING",
         "CONV",
         "COS",
         "COT",
@@ -128,6 +129,9 @@ public final class BuiltinFunctionCatalog {
         "FROM_BASE64",
         "INSERT",
         "INSTR",
+        "INSTRB",
+        "INDEX_PREFIX",
+        "COLLECTION_TO_STRING",
         "LCASE",
         "LOWER",
         "LEFT",
@@ -148,6 +152,7 @@ public final class BuiltinFunctionCatalog {
         "SUBSTR",
         "SUBSTRING",
         "SUBSTRING_INDEX",
+        "SUBSTRB",
         "TO_BASE64",
         "TRANSLATE",
         "TRIM",
@@ -167,6 +172,8 @@ public final class BuiltinFunctionCatalog {
         "CURTIME",
         "CURRENT_TIME",
         "CURRENT_TIMESTAMP",
+        "CONV_TZ",
+        "DATE",
         "LOCALTIME",
         "LOCALTIMESTAMP",
         "DATEDIFF",
@@ -208,6 +215,7 @@ public final class BuiltinFunctionCatalog {
         "UNIX_TIMESTAMP",
         "UTC_DATE",
         "UTC_TIME",
+        "UTC_TIMESTAMP",
         "WEEK",
         "WEEKDAY",
         "YEAR"
@@ -231,7 +239,11 @@ public final class BuiltinFunctionCatalog {
         "BIT_AND",
         "BIT_OR",
         "BIT_XOR",
-        "MEDIAN"
+        "MEDIAN",
+        "PERCENTILE_CONT",
+        "PERCENTILE_DISC",
+        "JSON_ARRAYAGG",
+        "JSON_OBJECTAGG"
     };
 
     private static final String[] INFORMATION = {
@@ -250,6 +262,7 @@ public final class BuiltinFunctionCatalog {
         "LIST_DBS",
         "USER",
         "SYSTEM_USER",
+        "TYPEOF",
         "VERSION"
     };
 
@@ -274,7 +287,53 @@ public final class BuiltinFunctionCatalog {
     };
 
     private static final String[] CONDITIONAL = {
-        "NVL", "NVL2", "DECODE", "IF", "IFNULL", "COALESCE"
+        "NVL", "NVL2", "DECODE", "IF", "IFNULL", "ISNULL", "NULLIF", "COALESCE", "GREATEST", "LEAST"
+    };
+
+    private static final String[] HASH_AND_ID = {
+        "MD5", "SHA1", "SHA2", "SYS_GUID", "UUID", "UUID_FORMAT"
+    };
+
+    private static final String[] JSON = {
+        "JSON_ARRAY",
+        "JSON_ARRAY_APPEND",
+        "JSON_ARRAY_INSERT",
+        "JSON_CONTAINS",
+        "JSON_CONTAINS_PATH",
+        "JSON_DEPTH",
+        "JSON_EXTRACT",
+        "JSON_GET_ALL_PATHS",
+        "JSON_INSERT",
+        "JSON_KEYS",
+        "JSON_LENGTH",
+        "JSON_MERGE",
+        "JSON_MERGE_PATCH",
+        "JSON_MERGE_PRESERVE",
+        "JSON_OBJECT",
+        "JSON_PRETTY",
+        "JSON_QUOTE",
+        "JSON_REMOVE",
+        "JSON_REPLACE",
+        "JSON_SEARCH",
+        "JSON_SET",
+        "JSON_TABLE",
+        "JSON_TYPE",
+        "JSON_UNQUOTE",
+        "JSON_VALID"
+    };
+
+    /**
+     * Query-row pseudo functions, hierarchical-query helpers and {@code SLEEP}: they read or wait,
+     * never write. {@code JSON_SET}/{@code JSON_INSERT}/... above likewise return a new document.
+     */
+    private static final String[] QUERY_MISC = {
+        "INST_NUM",
+        "ORDERBY_NUM",
+        "GROUPBY_NUM",
+        "SYS_CONNECT_BY_PATH",
+        "LIKE_MATCH_LOWER_BOUND",
+        "LIKE_MATCH_UPPER_BOUND",
+        "SLEEP"
     };
 
     private static final String[] WINDOW = {
@@ -364,10 +423,38 @@ public final class BuiltinFunctionCatalog {
         "UNION",
         "INTERSECT",
         "EXCEPT",
+        "INTERSECTION",
+        "DIFFERENCE",
         "MINUS",
         "WHEN",
         "VALUES",
-        "BETWEEN"
+        "BETWEEN",
+        // Other reserved words a SELECT can put right before "(": a scalar subquery "SELECT (...)",
+        // "AS (" of a nested CTE, "count(DISTINCT (a))", "WITHIN GROUP (", "ORDER BY (a)",
+        // "USE INDEX (i)", "FROM t PARTITION (p)", "TABLE (set_expr)", "CONNECT BY PRIOR (a)", and
+        // the type names of "CAST(x AS NUMERIC(10,2))". Being reserved, none can name a routine.
+        "SELECT",
+        "AS",
+        "DISTINCT",
+        "UNIQUE",
+        "GROUP",
+        "BY",
+        "INDEX",
+        "PARTITION",
+        "TABLE",
+        "PRIOR",
+        "NUMERIC",
+        "DECIMAL",
+        "CHAR",
+        "VARCHAR",
+        "VARYING",
+        "NCHAR",
+        "BIT",
+        "ENUM",
+        "SET",
+        "MULTISET",
+        "SEQUENCE",
+        "LIST"
     };
 
     static {
@@ -382,6 +469,9 @@ public final class BuiltinFunctionCatalog {
         addAll(ro, REGEX);
         addAll(ro, CONDITIONAL);
         addAll(ro, WINDOW);
+        addAll(ro, HASH_AND_ID);
+        addAll(ro, JSON);
+        addAll(ro, QUERY_MISC);
         RO_BUILTINS = Collections.unmodifiableSet(ro);
 
         final HashSet<String> rw = new HashSet<String>(32);

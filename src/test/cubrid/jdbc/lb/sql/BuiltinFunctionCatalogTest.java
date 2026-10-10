@@ -50,6 +50,49 @@ public class BuiltinFunctionCatalogTest {
         assertTrue(BuiltinFunctionCatalog.isReadOnlyBuiltin("ROW_NUMBER"));
     }
 
+    /** Read-only built-ins from the engine's function table that the testcase corpus uses. */
+    @Test
+    public void engineReadOnlyBuiltinsAreRoSafe() {
+        String[] names = {
+            "GREATEST",
+            "LEAST",
+            "NULLIF",
+            "ISNULL",
+            "TYPEOF",
+            "MD5",
+            "SHA1",
+            "SHA2",
+            "SYS_GUID",
+            "DATE",
+            "UTC_TIMESTAMP",
+            "PERCENTILE_CONT",
+            "PERCENTILE_DISC",
+            "INST_NUM",
+            "ORDERBY_NUM",
+            "GROUPBY_NUM",
+            "SYS_CONNECT_BY_PATH",
+            "INDEX_PREFIX",
+            "SLEEP",
+            "JSON_EXTRACT",
+            "JSON_TABLE",
+            "JSON_SET",
+            "JSON_ARRAYAGG"
+        };
+        for (String name : names) {
+            assertTrue(name, BuiltinFunctionCatalog.isReadOnlyBuiltin(name));
+        }
+    }
+
+    /** Reserved words, so no routine can carry these names. */
+    @Test
+    public void reservedWordsBeforeParenthesisAreSyntax() {
+        String[] names = {"SELECT", "AS", "DISTINCT", "INDEX", "PARTITION", "NUMERIC", "VARCHAR"};
+        for (String name : names) {
+            assertTrue(name, BuiltinFunctionCatalog.isSqlSyntax(name));
+            assertFalse(name, BuiltinFunctionCatalog.isWriteBuiltin(name));
+        }
+    }
+
     @Test
     public void readOnlyBuiltinsExcludeRwAndUserRoutines() {
         assertFalse(BuiltinFunctionCatalog.isReadOnlyBuiltin("SERIAL_NEXT_VALUE"));

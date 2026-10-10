@@ -813,4 +813,113 @@ public class KeywordSqlClassifierTest {
         assertEquals(SqlClassification.READ, classifier.classify("SELECT `update` FROM t"));
         assertEquals(SqlClassification.READ, classifier.classify("SELECT [drop] AS c FROM t"));
     }
+
+    /**
+     * The click counter clause updates the column on every row it reads, so a read-only broker
+     * refuses it (-581). Seen in the testcase corpus as {@code select a from xoo where c = 2 WITH
+     * INCREMENT FOR b}, which the classifier used to send to RO.
+     */
+    @Test
+    public void assertClickCounterClauseClassifiedAsWrite() {
+        assertEquals(
+                SqlClassification.WRITE,
+                classifier.classify("SELECT a FROM xoo WHERE c = 2 WITH INCREMENT FOR b"));
+        assertEquals(
+                SqlClassification.WRITE,
+                classifier.classify("select a from xoo where c = 2 with decrement for b;"));
+        assertEquals(
+                SqlClassification.WRITE,
+                classifier.classify("SELECT * FROM t WHERE k = 1 WITH /* c */ INCREMENT FOR t.v"));
+        assertEquals(
+                SqlClassification.WRITE,
+                classifier.classify(
+                        "WITH c AS (SELECT v FROM t WHERE k = 1 WITH INCREMENT FOR v)"
+                                + " SELECT * FROM c"));
+    }
+
+    @Test
+    public void assertWithClauseThatIsNotAClickCounterStaysRead() {
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify("SELECT a, SUM(b) FROM t GROUP BY a WITH ROLLUP"));
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify("WITH x AS (SELECT 1 AS v) SELECT v FROM x"));
+        assertEquals(
+                SqlClassification.READ, classifier.classify("SELECT 'with increment for' FROM t"));
+        assertEquals(
+                SqlClassification.READ, classifier.classify("SELECT increment, decrement FROM t"));
+    }
+
+    /**
+     * {@code SELECT ... INTO :v} is UNKNOWN and runs on RW, so the host variable lives there; a
+     * later read of {@code :v} routed to RO fails with "variable is not set".
+     */
+    @Test
+    public void assertHostVariableReferenceIsNotReadOnly() {
+        assertEquals(SqlClassification.UNKNOWN, classifier.classify("SELECT :v + 1 FROM db_root"));
+        assertEquals(SqlClassification.UNKNOWN, classifier.classify("SELECT :a.s1 FROM t"));
+        assertEquals(
+                SqlClassification.UNKNOWN,
+                classifier.classify("SELECT id FROM t WHERE i = :expected"));
+    }
+
+    @Test
+    public void assertColonOutsideHostVariableStaysRead() {
+        assertEquals(SqlClassification.READ, classifier.classify("SELECT '10:30' FROM t"));
+        assertEquals(SqlClassification.READ, classifier.classify("SELECT TIME '10:30:00'"));
+        assertEquals(SqlClassification.READ, classifier.classify("SELECT a FROM t WHERE b = ?"));
+        assertEquals(SqlClassification.READ, classifier.classify("SELECT \"a:b\" FROM t"));
+    }
+
+    /** Reserved words a SELECT puts before "(" are syntax, not routine calls. */
+    @Test
+    public void assertReservedWordBeforeParenthesisIsNotARoutineCall() {
+        assertEquals(SqlClassification.READ, classifier.classify("SELECT (1 + 2) FROM db_root"));
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify(
+                        "SELECT CAST(a AS NUMERIC(10,2)), CAST(b AS VARCHAR(8)) FROM t"));
+        assertEquals(
+                SqlClassification.READ, classifier.classify("SELECT COUNT(DISTINCT(a)) FROM t"));
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify("SELECT a FROM t USE INDEX (i_t_a) WHERE a > 0"));
+        assertEquals(SqlClassification.READ, classifier.classify("SELECT * FROM t PARTITION (p0)"));
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify("SELECT a FROM t1 DIFFERENCE (SELECT a FROM t2)"));
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify(
+                        "SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY a) FROM t"));
+    }
+
+    @Test
+    public void assertIndexHintPlusIsNotARoutineCall() {
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify("SELECT a FROM t USING INDEX i_t_a(+) WHERE a > 0"));
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify("SELECT a FROM t USING INDEX i_t_a( + ) WHERE a > 0"));
+        // A routine called with a signed argument is still a call.
+        assertEquals(SqlClassification.UNKNOWN, classifier.classify("SELECT my_fn(+1) FROM t"));
+    }
+
+    @Test
+    public void assertCatalogedReadOnlyBuiltinsStayRead() {
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify(
+                        "SELECT GREATEST(a, b), LEAST(a, b), NULLIF(a, b), TYPEOF(a) FROM t"));
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify("SELECT JSON_EXTRACT(j, '$.a'), MD5(s), SHA2(s, 256) FROM t"));
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify("SELECT a FROM t WHERE INST_NUM() < 3"));
+        assertEquals(SqlClassification.READ, classifier.classify("SELECT DATE(d), SYS_GUID()"));
+        assertEquals(SqlClassification.UNKNOWN, classifier.classify("SELECT my_routine(a) FROM t"));
+    }
 }

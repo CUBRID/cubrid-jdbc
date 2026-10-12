@@ -56,17 +56,17 @@ public enum SslMode {
     }
 
     /**
-     * The mode written as {@code sslmode=...}, or null when the text names no mode. Callers turn
-     * null into the error they report; this class does not know about error codes.
+     * The mode written as {@code sslmode=...}, or null when the text names no mode. Case does not
+     * matter; surrounding spaces do, as for every other property and in cci. Callers turn null into
+     * the error they report; this class does not know about error codes.
      */
     public static SslMode fromLabel(String label) {
         if (label == null) {
             return null;
         }
 
-        String trimmed = label.trim();
         for (SslMode mode : values()) {
-            if (mode.label.equalsIgnoreCase(trimmed)) {
+            if (mode.label.equalsIgnoreCase(label)) {
                 return mode;
             }
         }

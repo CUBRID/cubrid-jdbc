@@ -35,6 +35,7 @@ import cubrid.jdbc.jci.BrokerHealthCheck;
 import cubrid.jdbc.jci.SslMode;
 import cubrid.jdbc.jci.UConnection;
 import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UnsupportedEncodingException;
@@ -621,15 +622,13 @@ public class ConnectionProperties {
             } catch (CertificateException e) {
                 /* The file was readable but holds nothing the factory recognises - the same
                  * mistake as an empty file, so it gets the same message. */
-                throw new CUBRIDException(
-                        CUBRIDJDBCErrorCode.invalid_url, "no certificate found in " + caPath, e);
+                throw sslCaError(caPath, NO_CERTIFICATE, e);
             } finally {
                 in.close();
             }
 
             if (certs.isEmpty()) {
-                throw new CUBRIDException(
-                        CUBRIDJDBCErrorCode.invalid_url, "no certificate found in " + caPath, null);
+                throw sslCaError(caPath, NO_CERTIFICATE, null);
             }
 
             KeyStore ks = KeyStore.getInstance(KeyStore.getDefaultType());
@@ -641,12 +640,43 @@ public class ConnectionProperties {
 
             return ks;
         } catch (IOException e) {
-            throw new CUBRIDException(
-                    CUBRIDJDBCErrorCode.invalid_url, "cannot read sslca file " + caPath, e);
+            throw sslCaError(caPath, fileErrorReason(e), e);
         } catch (GeneralSecurityException e) {
-            throw new CUBRIDException(
-                    CUBRIDJDBCErrorCode.invalid_url, "cannot read sslca file " + caPath, e);
+            throw sslCaError(caPath, e.getMessage(), e);
         }
+    }
+
+    /** OpenSSL's words for a file with no certificate in it, as cci reports the same file. */
+    private static final String NO_CERTIFICATE = "no certificate or crl found";
+
+    /**
+     * Word for word what cci says when it cannot use the sslca file (cci_url_check_sslca()): the
+     * path, then the reason in parentheses.
+     */
+    private static CUBRIDException sslCaError(String caPath, String reason, Throwable cause) {
+        return new CUBRIDException(
+                CUBRIDJDBCErrorCode.invalid_url,
+                "Cannot read sslca file " + caPath + " (" + reason + ")",
+                cause);
+    }
+
+    /**
+     * The operating system's reason a file could not be opened - "No such file or directory",
+     * "Permission denied" - which a FileNotFoundException carries in parentheses after the path,
+     * and which cci prints from errno. Any other I/O error gives its message as it is.
+     */
+    private static String fileErrorReason(IOException e) {
+        String message = e.getMessage();
+        if (message == null) {
+            return "unknown reason";
+        }
+
+        int open = message.lastIndexOf(" (");
+        if (e instanceof FileNotFoundException && open >= 0 && message.endsWith(")")) {
+            return message.substring(open + 2, message.length() - 1);
+        }
+
+        return message;
     }
 
     /**

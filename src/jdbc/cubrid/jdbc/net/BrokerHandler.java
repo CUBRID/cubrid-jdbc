@@ -46,7 +46,9 @@ import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.security.GeneralSecurityException;
 import java.security.KeyStore;
+import java.security.KeyStoreException;
 import java.security.SecureRandom;
+import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateExpiredException;
 import java.security.cert.CertificateNotYetValidException;
@@ -54,16 +56,19 @@ import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Enumeration;
 import java.util.List;
 import java.util.regex.Pattern;
 import javax.net.ssl.SNIHostName;
 import javax.net.ssl.SNIServerName;
 import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLHandshakeException;
 import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLSocket;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
+import javax.net.ssl.X509ExtendedTrustManager;
 import javax.net.ssl.X509TrustManager;
 
 public class BrokerHandler {
@@ -406,7 +411,7 @@ public class BrokerHandler {
                 TrustManagerFactory tmf =
                         TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
                 tmf.init(trustStore); /* never null: getTrustStore() refuses that */
-                ctx.init(null, tmf.getTrustManagers(), null);
+                ctx.init(null, withDateCheck(tmf.getTrustManagers(), trustStore), null);
             } else {
                 ctx.init(null, new TrustManager[] {TRUST_ALL_TM}, new SecureRandom());
             }
@@ -574,5 +579,137 @@ public class BrokerHandler {
         }
 
         return inner.getMessage();
+    }
+
+    /** The factory's trust managers, each one wrapped in a {@link DateCheckingTrustManager}. */
+    private static TrustManager[] withDateCheck(TrustManager[] managers, KeyStore trustStore)
+            throws KeyStoreException {
+        List<X509Certificate> trusted = new ArrayList<X509Certificate>();
+        for (Enumeration<String> aliases = trustStore.aliases(); aliases.hasMoreElements(); ) {
+            Certificate cert = trustStore.getCertificate(aliases.nextElement());
+            if (cert instanceof X509Certificate) {
+                trusted.add((X509Certificate) cert);
+            }
+        }
+
+        TrustManager[] wrapped = new TrustManager[managers.length];
+        for (int i = 0; i < managers.length; i++) {
+            wrapped[i] =
+                    (managers[i] instanceof X509ExtendedTrustManager)
+                            ? new DateCheckingTrustManager(
+                                    (X509ExtendedTrustManager) managers[i], trusted)
+                            : managers[i];
+        }
+
+        return wrapped;
+    }
+
+    /**
+     * Also rejects a chain the PKIX trust manager accepted when a certificate on it, or the trusted
+     * certificate it ends at, is outside its validity period - the check OpenSSL makes for cci.
+     * JSSE checks the dates of the certificates below the trust anchor only: an anchor, and a
+     * certificate that is itself in the trust store, pass whatever their dates. So an expired CA in
+     * sslca, or a pinned certificate sent with an expired issuer, would connect here and fail in
+     * cci.
+     */
+    private static final class DateCheckingTrustManager extends X509ExtendedTrustManager {
+        private final X509ExtendedTrustManager delegate;
+        private final List<X509Certificate> trusted;
+
+        DateCheckingTrustManager(X509ExtendedTrustManager delegate, List<X509Certificate> trusted) {
+            this.delegate = delegate;
+            this.trusted = trusted;
+        }
+
+        public void checkServerTrusted(X509Certificate[] chain, String authType, Socket socket)
+                throws CertificateException {
+            delegate.checkServerTrusted(chain, authType, socket);
+            checkDates(chain);
+        }
+
+        public void checkServerTrusted(X509Certificate[] chain, String authType, SSLEngine engine)
+                throws CertificateException {
+            delegate.checkServerTrusted(chain, authType, engine);
+            checkDates(chain);
+        }
+
+        public void checkServerTrusted(X509Certificate[] chain, String authType)
+                throws CertificateException {
+            delegate.checkServerTrusted(chain, authType);
+            checkDates(chain);
+        }
+
+        public void checkClientTrusted(X509Certificate[] chain, String authType, Socket socket)
+                throws CertificateException {
+            delegate.checkClientTrusted(chain, authType, socket);
+        }
+
+        public void checkClientTrusted(X509Certificate[] chain, String authType, SSLEngine engine)
+                throws CertificateException {
+            delegate.checkClientTrusted(chain, authType, engine);
+        }
+
+        public void checkClientTrusted(X509Certificate[] chain, String authType)
+                throws CertificateException {
+            delegate.checkClientTrusted(chain, authType);
+        }
+
+        public X509Certificate[] getAcceptedIssuers() {
+            return delegate.getAcceptedIssuers();
+        }
+
+        /**
+         * Walks up from the leaf as OpenSSL builds the chain - through the certificates the broker
+         * sent while each issued the one before, until one was issued by a trusted certificate -
+         * and checks the dates of every certificate on the way and of that trusted one.
+         */
+        private void checkDates(X509Certificate[] chain) throws CertificateException {
+            for (int i = 0; i < chain.length; i++) {
+                chain[i].checkValidity();
+                X509Certificate issuer = trustedIssuer(chain[i]);
+                if (issuer != null) {
+                    issuer.checkValidity();
+                    return;
+                }
+                if (i + 1 < chain.length && !issued(chain[i + 1], chain[i])) {
+                    return;
+                }
+            }
+        }
+
+        /**
+         * The trusted certificate that issued cert, null if none. One within its dates is
+         * preferred, as OpenSSL does when an old and a renewed CA certificate are both trusted.
+         */
+        private X509Certificate trustedIssuer(X509Certificate cert) {
+            X509Certificate outOfDate = null;
+            for (X509Certificate candidate : trusted) {
+                if (!issued(candidate, cert)) {
+                    continue;
+                }
+                try {
+                    candidate.checkValidity();
+                    return candidate;
+                } catch (CertificateException e) {
+                    if (outOfDate == null) {
+                        outOfDate = candidate;
+                    }
+                }
+            }
+
+            return outOfDate;
+        }
+
+        private static boolean issued(X509Certificate issuer, X509Certificate cert) {
+            if (!issuer.getSubjectX500Principal().equals(cert.getIssuerX500Principal())) {
+                return false;
+            }
+            try {
+                cert.verify(issuer.getPublicKey());
+                return true;
+            } catch (GeneralSecurityException e) {
+                return false;
+            }
+        }
     }
 }

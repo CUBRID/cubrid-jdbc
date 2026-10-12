@@ -31,27 +31,38 @@
 
 package cubrid.jdbc.driver;
 
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.Reader;
 import java.io.Writer;
+import java.lang.ref.PhantomReference;
+import java.lang.ref.Reference;
+import java.lang.ref.ReferenceQueue;
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
+import java.nio.file.Files;
 import java.sql.Blob;
 import java.sql.Clob;
 import java.sql.SQLException;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
- * Sends the bytes written into a Blob or Clob made by {@link CUBRIDConnection#createBlob()} or
- * {@link CUBRIDConnection#createClob()} to the server as they come, like csql's LOB insert, instead
- * of holding the value in the driver.
+ * Uploads a BLOB/CLOB bind value through the connection's stream session; {@link #finish()} ends
+ * the stream and hands back the upload token a statement binds.
  *
- * <p>The connection's stream session opens on the first write and ends on {@link #finish()}, which
- * hands back the upload token a statement binds. Only one stream session can be open on a
- * connection, and a transaction end drops an open one, so the value should be finished (its stream
- * closed, or the Blob/Clob set as a parameter) before other LOB uploads or a commit.
+ * <p>A value read from an InputStream or Reader is sent as it is read. A Blob or Clob made by
+ * {@link CUBRIDConnection#createBlob()} or {@link CUBRIDConnection#createClob()} is held until it
+ * is bound (up to one chunk in memory, the rest in a temporary file): the application fills it with
+ * other statements in between, and the server admits only the stream's own requests while it is
+ * open.
  */
 class CUBRIDInternalLobUpload {
     static final long MAX_LENGTH = 0x100000000L;
@@ -62,16 +73,38 @@ class CUBRIDInternalLobUpload {
     private final boolean blob;
     private byte[] chunk = null;
     private int filled = 0;
-    private long sent = 0;
+    private long sent = 0; // bytes out of the chunk: sent, or spilled while held
     private boolean started = false;
     private boolean finished = false;
     private boolean aborted = false;
     private long session = 0;
     private long token = 0;
+    private final boolean held;
+    private File spill = null;
+    private Spill spillRef = null;
+
+    /* the spill of a held value dropped without being bound or freed, deleted after it is collected */
+    private static final ReferenceQueue<CUBRIDInternalLobUpload> DROPPED = new ReferenceQueue<>();
+    private static final Set<Spill> SPILLS = Collections.synchronizedSet(new HashSet<Spill>());
+
+    private static final class Spill extends PhantomReference<CUBRIDInternalLobUpload> {
+        private final File file;
+
+        Spill(CUBRIDInternalLobUpload owner, File file) {
+            super(owner, DROPPED);
+            this.file = file;
+        }
+    }
 
     CUBRIDInternalLobUpload(CUBRIDConnection conn, boolean blob) {
+        this(conn, blob, false);
+    }
+
+    /* held: a createBlob ()/createClob () value, sent only when it is bound */
+    CUBRIDInternalLobUpload(CUBRIDConnection conn, boolean blob, boolean held) {
         this.conn = conn;
         this.blob = blob;
+        this.held = held;
     }
 
     long length() {
@@ -82,8 +115,8 @@ class CUBRIDInternalLobUpload {
         return blob;
     }
 
-    /* The upload a BLOB/CLOB parameter binds: a value made by createBlob ()/createClob () hands over
-     * the one it already streamed, any other value is streamed now. */
+    /* The upload a BLOB/CLOB parameter binds: a value made by createBlob ()/createClob () sends what
+     * it holds, any other value is streamed now. */
     static CUBRIDInternalLobUpload of(CUBRIDConnection conn, Object value) throws SQLException {
         CUBRIDInternalLobUpload made = null;
         if (value instanceof CUBRIDBlob) {
@@ -208,15 +241,29 @@ class CUBRIDInternalLobUpload {
         if (length() > MAX_LENGTH - len) {
             throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
         }
-        start();
+        if (!held) {
+            start();
+        }
         while (len > 0) {
+            if (held && (chunk == null || filled + len > chunk.length)) {
+                /* grown as it fills, so many small held values stay small */
+                long size = Math.max(filled + (long) len, chunk == null ? 0 : 2L * chunk.length);
+                chunk =
+                        Arrays.copyOf(
+                                chunk == null ? new byte[0] : chunk,
+                                (int) Math.min(CHUNK_SIZE, size));
+            }
             int n = Math.min(len, chunk.length - filled);
             System.arraycopy(b, off, chunk, filled, n);
             filled += n;
             off += n;
             len -= n;
-            if (filled == chunk.length) {
-                sendChunk();
+            if (filled == CHUNK_SIZE) {
+                if (held) {
+                    spillChunk();
+                } else {
+                    sendChunk();
+                }
             }
         }
     }
@@ -230,8 +277,14 @@ class CUBRIDInternalLobUpload {
         if (finished) {
             return token;
         }
+        /* allocated before the stream opens, so nothing but a send can fail with it open */
+        byte[] buf = spill != null ? new byte[CHUNK_SIZE] : null;
         start();
+        boolean done = false;
         try {
+            if (spill != null) {
+                sendSpill(buf);
+            }
             if (filled > 0) {
                 sendChunk();
             }
@@ -239,9 +292,11 @@ class CUBRIDInternalLobUpload {
                 checkSession();
                 token = conn.streamEndResult();
             }
-        } catch (SQLException e) {
-            abort();
-            throw e;
+            done = true;
+        } finally {
+            if (!done) {
+                abort();
+            }
         }
         finished = true;
         chunk = null;
@@ -261,6 +316,7 @@ class CUBRIDInternalLobUpload {
                 }
             }
         }
+        dropSpill();
         aborted = true;
         finished = true;
         chunk = null;
@@ -302,7 +358,10 @@ class CUBRIDInternalLobUpload {
             conn.streamInit(STREAM_KIND, config);
             session = conn.getStreamSessionCount();
         }
-        chunk = new byte[CHUNK_SIZE];
+        if (chunk == null) {
+            /* a held value keeps the bytes it has not spilled */
+            chunk = new byte[CHUNK_SIZE];
+        }
         started = true;
     }
 
@@ -325,5 +384,55 @@ class CUBRIDInternalLobUpload {
         }
         sent += filled;
         filled = 0;
+    }
+
+    private void spillChunk() throws SQLException {
+        try {
+            if (spill == null) {
+                for (Reference<?> r = DROPPED.poll(); r != null; r = DROPPED.poll()) {
+                    SPILLS.remove(r);
+                    ((Spill) r).file.delete();
+                }
+                /* owner-only on POSIX, unlike File.createTempFile */
+                spill = Files.createTempFile("cubrid_lob", null).toFile();
+                spillRef = new Spill(this, spill);
+                SPILLS.add(spillRef);
+            }
+            /* opened per chunk, so a value waiting to be bound holds no file handle */
+            try (OutputStream out = new FileOutputStream(spill, true)) {
+                out.write(chunk, 0, filled);
+            }
+        } catch (IOException e) {
+            abort();
+            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
+        }
+        sent += filled;
+        filled = 0;
+    }
+
+    /* sends what a held value spilled, ahead of the bytes still in the chunk */
+    private void sendSpill(byte[] buf) throws SQLException {
+        try (InputStream in = new FileInputStream(spill)) {
+            int n;
+            while ((n = in.read(buf)) > 0) {
+                synchronized (conn) {
+                    checkSession();
+                    conn.streamData(buf, 0, n);
+                }
+            }
+        } catch (IOException e) {
+            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
+        }
+        dropSpill();
+    }
+
+    private void dropSpill() {
+        if (spill != null) {
+            SPILLS.remove(spillRef);
+            spillRef.clear();
+            spill.delete();
+            spill = null;
+            spillRef = null;
+        }
     }
 }

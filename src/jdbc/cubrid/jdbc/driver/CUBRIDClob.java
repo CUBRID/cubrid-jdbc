@@ -48,7 +48,7 @@ import java.sql.SQLException;
  * <p>Read from a column it is a reference (the byte length and the locator naming it) whose
  * characters are decoded from the server stream on demand; a scalar function result carries its
  * content inline. Made by {@link CUBRIDConnection#createClob()} it is written front to back and the
- * encoded text goes to the server as it comes, without being held here.
+ * encoded text is held (past one chunk in a temporary file) until it is bound.
  */
 public class CUBRIDClob implements Clob {
     private static final int CLOB_MAX_IO_CHARS = 128 * 1024;
@@ -77,7 +77,7 @@ public class CUBRIDClob implements Clob {
 
         this.conn = conn;
         this.charsetName = charsetName;
-        this.upload = new CUBRIDInternalLobUpload(conn, false);
+        this.upload = new CUBRIDInternalLobUpload(conn, false, true);
         this.uploadWriter =
                 new OutputStreamWriter(upload.outputStream(), Charset.forName(charsetName));
     }
@@ -357,7 +357,7 @@ public class CUBRIDClob implements Clob {
         return setString(pos, str, 0, str.length());
     }
 
-    /* only appends: the text before pos is already on its way to the server */
+    /* only appends: the text before pos is already written out */
     public int setString(long pos, String str, int offset, int len) throws SQLException {
         checkWritable(pos);
         if (offset < 0 || len < 0 || offset + len > str.length()) {
@@ -418,7 +418,7 @@ public class CUBRIDClob implements Clob {
             }
 
             public void flush() throws IOException {
-                /* the upload sends full chunks on its own; finishing pushes the rest */
+                /* the upload moves full chunks on its own; finishing pushes the rest */
             }
 
             public void close() throws IOException {
@@ -457,7 +457,7 @@ public class CUBRIDClob implements Clob {
     private void checkReadable() throws SQLException {
         checkFreed();
         if (upload != null) {
-            /* the text went to the server as it was written; nothing here can read it back */
+            /* an upload is write-only; its text is read back once stored */
             throw CUBRIDException.notSupported();
         }
     }

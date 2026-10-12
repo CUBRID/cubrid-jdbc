@@ -44,8 +44,8 @@ import java.sql.SQLException;
  *
  * <p>Read from a column it is a reference (the byte length and the locator naming it) whose bytes
  * are pulled from the server on demand; a scalar function result carries its content inline. Made
- * by {@link CUBRIDConnection#createBlob()} it is written front to back and the bytes go to the
- * server as they come, without being held here.
+ * by {@link CUBRIDConnection#createBlob()} it is written front to back and held (past one chunk in
+ * a temporary file) until it is bound.
  */
 public class CUBRIDBlob implements Blob {
     private CUBRIDConnection conn;
@@ -62,7 +62,7 @@ public class CUBRIDBlob implements Blob {
         }
 
         this.conn = conn;
-        this.upload = new CUBRIDInternalLobUpload(conn, true);
+        this.upload = new CUBRIDInternalLobUpload(conn, true, true);
     }
 
     /* read from a result set: the column carried a locator, not the content */
@@ -161,7 +161,7 @@ public class CUBRIDBlob implements Blob {
             throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
         }
         if (upload != null) {
-            /* the bytes went to the server as they were written; nothing here can read them back */
+            /* an upload is write-only; its bytes are read back once stored */
             throw CUBRIDException.notSupported();
         }
 
@@ -190,7 +190,7 @@ public class CUBRIDBlob implements Blob {
         return (setBytes(pos, bytes, 0, bytes.length));
     }
 
-    /* only appends: the bytes before pos are already on the server */
+    /* only appends: the bytes before pos are already written out */
     public int setBytes(long pos, byte[] bytes, int offset, int len) throws SQLException {
         checkWritable(pos);
         if (offset < 0 || len < 0) {

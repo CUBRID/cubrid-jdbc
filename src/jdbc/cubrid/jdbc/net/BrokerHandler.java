@@ -428,10 +428,9 @@ public class BrokerHandler {
             params.setProtocols(protocols);
         }
         params.setCipherSuites(allowedCipherSuites(sslSocket));
-        if (!isIpLiteral(host)) {
-            /* RFC 6066 forbids an IP literal in SNI, and a broker addressed by IP has nothing to
-             * match it against anyway. */
-            params.setServerNames(Collections.<SNIServerName>singletonList(new SNIHostName(host)));
+        SNIHostName serverName = sniHostName(host);
+        if (serverName != null) {
+            params.setServerNames(Collections.<SNIServerName>singletonList(serverName));
         }
         if (sslMode.verifiesHostname()) {
             params.setEndpointIdentificationAlgorithm("HTTPS");
@@ -479,6 +478,25 @@ public class BrokerHandler {
         }
 
         return chosen.toArray(new String[chosen.size()]);
+    }
+
+    /**
+     * The SNI value for the host, or null when none is sent. RFC 6066 forbids an IP literal, and a
+     * broker addressed by IP has nothing to match it against anyway. A name SNIHostName refuses - a
+     * trailing dot, an underscore, a label over 63 characters - also goes without SNI, as the JRE's
+     * own default does, so such a host connects as it did before the driver set SNI. verify-full
+     * still checks the host against the certificate.
+     */
+    private static SNIHostName sniHostName(String host) {
+        if (host == null || isIpLiteral(host)) {
+            return null;
+        }
+
+        try {
+            return new SNIHostName(host);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     private static boolean isIpLiteral(String host) {

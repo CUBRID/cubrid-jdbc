@@ -769,14 +769,14 @@ public class CUBRIDConnection implements Connection {
         outRs.add(rs);
     }
 
-    /* JDK 1.6. Its bytes go to the server as they are written, over the connection's only upload
-     * stream: finish one value (bind it or close its stream) before writing the next. */
+    /* JDK 1.6. Its bytes are held in the driver and sent when it is bound (or its stream is
+     * closed), so other statements may run while it is filled. */
     public Blob createBlob() throws SQLException {
         Blob blob = new CUBRIDBlob(this);
         return blob;
     }
 
-    /* JDK 1.6. Streams like createBlob (), with the same one-value-at-a-time rule. */
+    /* JDK 1.6. Held and sent like createBlob (). */
     public Clob createClob() throws SQLException {
         Clob clob = new CUBRIDClob(this, getUConnection().getCharset());
         return clob;
@@ -979,8 +979,8 @@ public class CUBRIDConnection implements Connection {
     }
 
     /**
-     * Returns the loader for COPY ... FROM STDIN, which runs the statement,
-     * chunks the source and ends the stream in one call.
+     * Returns the loader for COPY ... FROM STDIN, which runs the statement, chunks the source and
+     * ends the stream in one call.
      */
     public synchronized CUBRIDCopyLoader getCopyLoader() throws SQLException {
         checkIsOpen();

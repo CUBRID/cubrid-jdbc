@@ -90,6 +90,9 @@ public final class KeywordSqlClassifier implements SqlClassifier {
         kw.put("GRANT", CAT_UNSAFE);
         kw.put("REVOKE", CAT_UNSAFE);
         kw.put("INTO", CAT_UNSAFE);
+        // SELECT ... TO v is the legacy form of SELECT ... INTO v: both create a session variable,
+        // so both must run where later statements naming the variable will be sent.
+        kw.put("TO", CAT_UNSAFE);
         // CUBRID allows INTO-less INSERT ("INSERT tbl VALUES ..."/"INSERT tbl SET ..."), so a
         // trailing write in a multi-statement SELECT cannot rely on INTO detection. Registering
         // INSERT as CAT_UNSAFE catches it; the CAT_UNSAFE branch's isFunctionCallAt && isRoSafeName
@@ -121,6 +124,7 @@ public final class KeywordSqlClassifier implements SqlClassifier {
         // Stored procedure / routine call: body side effects are not statically known, so a
         // leading CALL (or JDBC escape {call ...}, normalized in normalizeLeading) is WRITE -> RW.
         write.put("CALL", SqlClassification.WRITE);
+        write.put("RENAME", SqlClassification.WRITE);
         LEADING_WRITE_KEYWORDS = Collections.unmodifiableMap(write);
     }
 
@@ -364,6 +368,12 @@ public final class KeywordSqlClassifier implements SqlClassifier {
         boolean prevWasDot = false;
         // Progress through the click-counter clause WITH {INCREMENT|DECREMENT} FOR col.
         int clickCounterStep = 0;
+        // The two tokens before the current one, for telling a column list from a call: the last
+        // word (null if the last token was not a word), the word before it, and whether the last
+        // token was a value (a string literal or '?').
+        String prevWord = null;
+        String wordBefore = null;
+        boolean prevWasValue = false;
 
         boolean sawWrite = false;
         boolean sawUnsafe = false;
@@ -384,12 +394,22 @@ public final class KeywordSqlClassifier implements SqlClassifier {
                 }
                 prevWasFor = false;
                 prevWasDot = false;
+                wordBefore = prevWord;
+                prevWord = null;
+                prevWasValue = false;
                 i = qend;
                 continue;
             }
 
             final int after = SqlLexer.skipCommentOrQuoted(sql, i);
             if (after != i) {
+                // A string literal or quoted name is a token; a comment is not.
+                final char first = sql.charAt(i);
+                if (first == '\'' || isQuotedIdentifierStart(first)) {
+                    wordBefore = prevWord;
+                    prevWord = null;
+                    prevWasValue = first == '\'';
+                }
                 i = after;
                 continue;
             }
@@ -398,6 +418,10 @@ public final class KeywordSqlClassifier implements SqlClassifier {
             if (isIdentifierStart(c)) {
                 final int end = scanIdentifierEnd(sql, i);
                 final String name = extractUpperAscii(sql, i, end);
+                final boolean columnList = isColumnListAt(name, prevWord, wordBefore, prevWasValue);
+                wordBefore = prevWord;
+                prevWord = name;
+                prevWasValue = false;
 
                 // SELECT ... WITH INCREMENT FOR col: the click counter updates col on every read
                 // row, a write just like INCR(col).
@@ -443,7 +467,7 @@ public final class KeywordSqlClassifier implements SqlClassifier {
                         prevWasFor = true;
                         break;
                     default:
-                        if (isFunctionCallAt(sql, end) && !isRoSafeName(name)) {
+                        if (isFunctionCallAt(sql, end) && !isRoSafeName(name) && !columnList) {
                             // Non-RO-safe ident(...): RW built-in or user routine.
                             // Write-effect built-ins (SERIAL_NEXT_VALUE/INCR/DECR) → WRITE;
                             // session-dependent built-ins / LOB / user routines → UNKNOWN.
@@ -471,6 +495,11 @@ public final class KeywordSqlClassifier implements SqlClassifier {
                 prevWasFor = false;
                 prevWasDot = false;
                 clickCounterStep = 0;
+            }
+            if (!Character.isWhitespace(c)) {
+                wordBefore = prevWord;
+                prevWord = null;
+                prevWasValue = c == '?';
             }
             i++;
         }
@@ -555,6 +584,33 @@ public final class KeywordSqlClassifier implements SqlClassifier {
                 || BuiltinFunctionCatalog.isSqlSyntax(name);
     }
 
+    /**
+     * Whether {@code name (} is a column list, not a routine call: a derived-table alias {@code AS
+     * t(a)}, a CTE {@code WITH [RECURSIVE] cte(a)}, or JSON_TABLE's {@code 'path' COLUMNS (...)}.
+     * Valid SQL cannot call a routine right after {@code AS}, the {@code WITH} that opens a CTE, or
+     * a value. {@code START WITH f(x) = 1} of a hierarchical query is a call and stays one.
+     *
+     * @param name the upper-cased identifier before {@code (}
+     * @param prevWord the word right before it, or {@code null} if that token was not a word
+     * @param wordBefore the word before {@code prevWord}, or {@code null}
+     * @param prevWasValue whether the token right before it was a string literal or {@code ?}
+     * @return whether the parenthesis opens a column list
+     */
+    private static boolean isColumnListAt(
+            final String name,
+            final String prevWord,
+            final String wordBefore,
+            final boolean prevWasValue) {
+        if ("AS".equals(prevWord) || "RECURSIVE".equals(prevWord)) {
+            return true;
+        }
+        if ("WITH".equals(prevWord)) {
+            return !"START".equals(wordBefore);
+        }
+        // COLUMNS is not reserved, so it is the column clause only where JSON_TABLE puts it.
+        return prevWasValue && "COLUMNS".equals(name);
+    }
+
     private static String extractUpperAscii(final String s, final int start, final int end) {
         final int len = end - start;
         if (len == 0) {
@@ -576,7 +632,8 @@ public final class KeywordSqlClassifier implements SqlClassifier {
 
     /**
      * Whether {@code (} follows the identifier ending at {@code afterIdentifier}. An index hint
-     * {@code USING INDEX idx(+)} is not a call: no routine takes a bare {@code +} as its argument.
+     * {@code USING INDEX idx(+)} or {@code idx(-)} is not a call: no routine takes a bare sign as
+     * its argument.
      */
     private static boolean isFunctionCallAt(final String sql, final int afterIdentifier) {
         final int len = sql.length();
@@ -585,9 +642,9 @@ public final class KeywordSqlClassifier implements SqlClassifier {
             return false;
         }
 
-        final int plus = skipWhitespaceAndSkippable(sql, paren + 1);
-        if (plus < len && sql.charAt(plus) == '+') {
-            final int close = skipWhitespaceAndSkippable(sql, plus + 1);
+        final int sign = skipWhitespaceAndSkippable(sql, paren + 1);
+        if (sign < len && (sql.charAt(sign) == '+' || sql.charAt(sign) == '-')) {
+            final int close = skipWhitespaceAndSkippable(sql, sign + 1);
             return close >= len || sql.charAt(close) != ')';
         }
 
@@ -614,7 +671,7 @@ public final class KeywordSqlClassifier implements SqlClassifier {
         return pos;
     }
 
-    private static int scanIdentifierEnd(final String sql, final int pos) {
+    static int scanIdentifierEnd(final String sql, final int pos) {
         final int len = sql.length();
 
         int p = pos + 1;
@@ -632,12 +689,12 @@ public final class KeywordSqlClassifier implements SqlClassifier {
      * as a plain READ and routed to RO, while the same routine named in ASCII is UNKNOWN -> RW.
      * {@link HintParser} already scans words this way.
      */
-    private static boolean isIdentifierStart(final char ch) {
+    static boolean isIdentifierStart(final char ch) {
         return Character.isLetter(ch) || ch == '_';
     }
 
     /** Opening delimiter of a quoted identifier: ANSI {@code "}, CUBRID {@code [}, backtick. */
-    private static boolean isQuotedIdentifierStart(final char ch) {
+    static boolean isQuotedIdentifierStart(final char ch) {
         return ch == '"' || ch == '[' || ch == '`';
     }
 

@@ -357,14 +357,13 @@ public class KeywordSqlClassifierTest {
     /**
      * A multi-statement string is classified statement by statement and takes the most restrictive
      * result: all reads stay READ, and a statement the classifier does not recognize as a read
-     * (RENAME, COMMIT, SET, PREPARE, SAVEPOINT, ...) sends the whole string to RW, with no keyword
-     * list to keep complete.
+     * (COMMIT, SET, PREPARE, SAVEPOINT, ...) sends the whole string to RW, with no keyword list to
+     * keep complete.
      */
     @Test
     public void assertMultiStatementClassifiedPerStatement() {
         assertEquals(SqlClassification.READ, classifier.classify("SELECT 1; SELECT 2;"));
-        assertEquals(
-                SqlClassification.UNKNOWN, classifier.classify("SELECT 1; RENAME TABLE a AS b"));
+        assertEquals(SqlClassification.WRITE, classifier.classify("SELECT 1; RENAME TABLE a AS b"));
         assertEquals(
                 SqlClassification.UNKNOWN, classifier.classify("SELECT 1 FROM db_root; COMMIT"));
         assertEquals(SqlClassification.UNKNOWN, classifier.classify("SELECT 1; ROLLBACK"));
@@ -893,6 +892,82 @@ public class KeywordSqlClassifierTest {
                 SqlClassification.READ,
                 classifier.classify(
                         "SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY a) FROM t"));
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify("SELECT a FROM t WHERE s LIKE ('%ab%') LIMIT (1+1)*2, 5"));
+    }
+
+    /** A derived-table, CTE or JSON_TABLE column list is not a routine call. */
+    @Test
+    public void assertColumnListIsNotARoutineCall() {
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify("SELECT * FROM t, TABLE(t.s) AS x(a) ORDER BY 1"));
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify(
+                        "SELECT y.* FROM (WITH RECURSIVE c(n) AS (SELECT 1 UNION ALL SELECT n + 1"
+                                + " FROM c WHERE n < 3) SELECT n FROM c) y"));
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify(
+                        "SELECT * FROM (WITH c(n) AS (SELECT 1) SELECT n FROM c) /* AS */ y"));
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify(
+                        "SELECT * FROM JSON_TABLE(j, '$[*]' COLUMNS (a INT PATH '$.a')) AS jt"));
+        // The same words in a calling position still call a routine.
+        assertEquals(
+                SqlClassification.UNKNOWN,
+                classifier.classify(
+                        "SELECT * FROM t START WITH my_fn(a) = 1 CONNECT BY PRIOR id = pid"));
+        assertEquals(SqlClassification.UNKNOWN, classifier.classify("SELECT columns(a) FROM t"));
+        assertEquals(SqlClassification.UNKNOWN, classifier.classify("SELECT my_fn(a) AS c FROM t"));
+        assertEquals(
+                SqlClassification.UNKNOWN,
+                classifier.classify("SELECT a /* AS */ my_fn(a) FROM t"));
+    }
+
+    @Test
+    public void assertIndexHintMinusIsNotARoutineCall() {
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify("SELECT a FROM t WHERE a > 0 USING INDEX i_t_a(-), i_t_b(+)"));
+        assertEquals(SqlClassification.UNKNOWN, classifier.classify("SELECT my_fn(-1) FROM t"));
+    }
+
+    /**
+     * SHOW, DESC, EXPLAIN and VALUES stay on RW: SHOW TRACE reports the session's last query, and
+     * SHOW LOG HEADER and the like report the node they run on.
+     */
+    @Test
+    public void assertShowDescExplainValuesAreNotReadOnly() {
+        String[] sqls = {
+            "SHOW TRACE",
+            "SHOW LOG HEADER",
+            "SHOW COLUMNS FROM t",
+            "DESC t",
+            "DESCRIBE t",
+            "EXPLAIN t",
+            "VALUES (1, 2)"
+        };
+        for (String sql : sqls) {
+            assertEquals(sql, SqlClassification.UNKNOWN, classifier.classify(sql));
+        }
+    }
+
+    /** SELECT ... TO v creates a session variable, like SELECT ... INTO v. */
+    @Test
+    public void assertSelectToVariableIsNotReadOnly() {
+        assertEquals(SqlClassification.UNKNOWN, classifier.classify("select i to i1 from n"));
+        assertEquals(SqlClassification.UNKNOWN, classifier.classify("SELECT 1 TO :v FROM db_root"));
+        assertEquals(SqlClassification.READ, classifier.classify("SELECT TO_CHAR(d) FROM t"));
+    }
+
+    @Test
+    public void assertLeadingRenameClassifiedAsWrite() {
+        assertEquals(SqlClassification.WRITE, classifier.classify("RENAME TABLE a AS b"));
+        assertEquals(SqlClassification.WRITE, classifier.classify("rename a to b"));
     }
 
     @Test
@@ -920,6 +995,9 @@ public class KeywordSqlClassifierTest {
                 SqlClassification.READ,
                 classifier.classify("SELECT a FROM t WHERE INST_NUM() < 3"));
         assertEquals(SqlClassification.READ, classifier.classify("SELECT DATE(d), SYS_GUID()"));
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify("SELECT CURRENT_USER(), BENCHMARK(10, SUM(a)) FROM t"));
         assertEquals(SqlClassification.UNKNOWN, classifier.classify("SELECT my_routine(a) FROM t"));
     }
 }

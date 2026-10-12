@@ -73,6 +73,8 @@ public class BuiltinFunctionCatalogTest {
             "SYS_CONNECT_BY_PATH",
             "INDEX_PREFIX",
             "SLEEP",
+            "BENCHMARK",
+            "CURRENT_USER",
             "JSON_EXTRACT",
             "JSON_TABLE",
             "JSON_SET",
@@ -86,7 +88,9 @@ public class BuiltinFunctionCatalogTest {
     /** Reserved words, so no routine can carry these names. */
     @Test
     public void reservedWordsBeforeParenthesisAreSyntax() {
-        String[] names = {"SELECT", "AS", "DISTINCT", "INDEX", "PARTITION", "NUMERIC", "VARCHAR"};
+        String[] names = {
+            "SELECT", "AS", "DISTINCT", "INDEX", "PARTITION", "NUMERIC", "VARCHAR", "LIKE", "LIMIT"
+        };
         for (String name : names) {
             assertTrue(name, BuiltinFunctionCatalog.isSqlSyntax(name));
             assertFalse(name, BuiltinFunctionCatalog.isWriteBuiltin(name));

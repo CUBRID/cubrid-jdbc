@@ -261,6 +261,7 @@ public final class BuiltinFunctionCatalog {
         "INET_NTOA",
         "LIST_DBS",
         "USER",
+        "CURRENT_USER",
         "SYSTEM_USER",
         "TYPEOF",
         "VERSION"
@@ -323,8 +324,9 @@ public final class BuiltinFunctionCatalog {
     };
 
     /**
-     * Query-row pseudo functions, hierarchical-query helpers and {@code SLEEP}: they read or wait,
-     * never write. {@code JSON_SET}/{@code JSON_INSERT}/... above likewise return a new document.
+     * Query-row pseudo functions, hierarchical-query helpers, {@code SLEEP} and {@code BENCHMARK}:
+     * they read or wait, never write. {@code JSON_SET}/{@code JSON_INSERT}/... above likewise
+     * return a new document.
      */
     private static final String[] QUERY_MISC = {
         "INST_NUM",
@@ -333,7 +335,8 @@ public final class BuiltinFunctionCatalog {
         "SYS_CONNECT_BY_PATH",
         "LIKE_MATCH_LOWER_BOUND",
         "LIKE_MATCH_UPPER_BOUND",
-        "SLEEP"
+        "SLEEP",
+        "BENCHMARK"
     };
 
     private static final String[] WINDOW = {
@@ -432,8 +435,11 @@ public final class BuiltinFunctionCatalog {
         // Other reserved words a SELECT can put right before "(": a scalar subquery "SELECT (...)",
         // "AS (" of a nested CTE, "count(DISTINCT (a))", "WITHIN GROUP (", "ORDER BY (a)",
         // "USE INDEX (i)", "FROM t PARTITION (p)", "TABLE (set_expr)", "CONNECT BY PRIOR (a)", and
-        // the type names of "CAST(x AS NUMERIC(10,2))". Being reserved, none can name a routine.
+        // the type names of "CAST(x AS NUMERIC(10,2))", "a LIKE ('x%')", "LIMIT (n)". Being
+        // reserved, none can name a routine.
         "SELECT",
+        "LIKE",
+        "LIMIT",
         "AS",
         "DISTINCT",
         "UNIQUE",

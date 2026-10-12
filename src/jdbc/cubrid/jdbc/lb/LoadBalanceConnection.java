@@ -61,6 +61,7 @@ import cubrid.jdbc.lb.report.LbTopologyLog;
 import cubrid.jdbc.lb.route.RoleReadSelector;
 import cubrid.jdbc.lb.route.Router;
 import cubrid.jdbc.lb.sql.HintParser;
+import cubrid.jdbc.lb.sql.IntoVariables;
 import cubrid.jdbc.lb.sql.SessionSetStatement;
 import cubrid.jdbc.lb.sql.SqlClassification;
 import cubrid.jdbc.lb.sql.SqlClassifier;
@@ -98,6 +99,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.Executor;
@@ -151,6 +153,9 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     // The endpoint actually selected for the most recent physical prepare/statement, so failover
     // recovers the endpoint that was really used, not a recomputed preview.
     private Endpoint lastExecEndpoint = null;
+    // Where that statement ran: lastExecEndpoint, except a read on the shared RW connection
+    // (roOnRw) ran on the RW endpoint. Metrics and logs report this one.
+    private Endpoint lastExecRanOn = null;
     // Set only while endLostWriteTx rebinds the write leg: the transaction there is known to be
     // over, although the dead connection's last reply still says it is open.
     private boolean writeTxLost = false;
@@ -184,12 +189,17 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     private final Map<String, String> sessionSets = new LinkedHashMap<String, String>();
     // True while a READ the read-only broker refused runs again on RW, so that route is recorded
     // with RO_WRITE_REJECTED rather than NONE.
-    private volatile boolean retryingRejectedRead = false;
+    // Why a read the read leg could not serve is running again on RW, or null when none is.
+    private volatile String rejectedReadReason = null;
     private static final Logger LOGGER = Logger.getLogger(LoadBalanceConnection.class.getName());
     /** CUBRID ER_DB_NO_MODIFICATIONS: a read-only broker refused to write. */
     private static final int ER_DB_NO_MODIFICATIONS = -581;
     /** CUBRID ER_SP_EXECUTE_ERROR: a stored routine failed; its write on a read node lands here. */
     private static final int ER_SP_EXECUTE_ERROR = -889;
+    /** CUBRID ER_ES_FILE_NOT_FOUND: a LOB's external file, which HA does not replicate. */
+    private static final int ER_ES_FILE_NOT_FOUND = -1020;
+    /** CUBRID ER_TP_CANT_COERCE: how reading a LOB column's content fails on a read node. */
+    private static final int ER_TP_CANT_COERCE = -181;
 
     private ExecuteFailoverHandler executeFailoverHandler = new ExecuteFailoverHandler();
     // True when this connection's RuntimeMetrics was registered for export; drives unregister
@@ -485,8 +495,8 @@ public class LoadBalanceConnection extends CUBRIDConnection {
 
     /**
      * Records the wall-clock latency of a just-completed physical execution against the endpoint it
-     * ran on ({@link #lastExecEndpoint}, set at prepare/resolve time). Read vs write is taken from
-     * the route target. No-op unless metrics recording is enabled. Called by {@link
+     * ran on ({@link #lastExecRanOn}, set at prepare/resolve time). Read vs write is taken from the
+     * route target. No-op unless metrics recording is enabled. Called by {@link
      * ExecuteFailoverHandler}.
      *
      * @param target the route target the execution ran under
@@ -497,7 +507,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         if (!metrics.isEnabled()) {
             return;
         }
-        Endpoint ep = lastExecEndpoint;
+        Endpoint ep = lastExecRanOn;
         if (ep == null) {
             return;
         }
@@ -612,14 +622,20 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         Endpoint endpoint = endpointSelection.getEndpoint();
         lastExecEndpoint = endpoint;
         String fallbackReason = endpointSelection.getFallbackReason();
+        // A read on the shared RW connection (roOnRw) stays bound to its RO endpoint, which is
+        // what failover recovers; the records name the endpoint it actually ran on.
+        lastExecRanOn =
+                FallbackReason.RO_PHYSICAL.equals(fallbackReason)
+                        ? currentOrManagerEndpoint(SessionLeg.RW)
+                        : endpoint;
         if (target == Router.RouteTarget.TO_READ_WRITE) {
             fallbackReason =
-                    retryingRejectedRead
-                            ? FallbackReason.RO_WRITE_REJECTED
+                    rejectedReadReason != null
+                            ? rejectedReadReason
                             : readPinReason(rawSql, fallbackReason);
         }
-        routingMetrics.recordStatementRoute(rawSql, target, endpoint, fallbackReason);
-        routingMetrics.logRoute(rawSql, target, endpoint, fallbackReason);
+        routingMetrics.recordStatementRoute(rawSql, target, lastExecRanOn, fallbackReason);
+        routingMetrics.logRoute(rawSql, target, lastExecRanOn, fallbackReason);
         // Rides here rather than inside logRoute: that record is FINE and this one is INFO, so
         // gating it on the routing record's level would silence it at the default level.
         LbDistLog.onStatementRouted();
@@ -977,7 +993,16 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         return currentRwEndpoint;
     }
 
+    /**
+     * The endpoint reads run on. While they share the RW connection (roOnRw) that is the RW
+     * endpoint, although the session stays bound to its RO endpoint for failback.
+     *
+     * @return the endpoint serving reads, or {@code null} before the session is bound
+     */
     public Endpoint getCurrentRoEndpoint() {
+        if (connMgr != null && FallbackReason.RO_PHYSICAL.equals(connMgr.getRoFallbackReason())) {
+            return currentRwEndpoint;
+        }
         return currentRoEndpoint;
     }
 
@@ -1552,6 +1577,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             this.transactionIsolation = previous;
         }
         outcome.rethrow();
+        forgetSessionSet(SessionSetStatement.ISOLATION_LEVEL_KEY);
         if (isSessionInitialized()) {
             recordRwCmd("setTransactionIsolation");
         }
@@ -1588,6 +1614,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             this.lockTimeout = previous;
         }
         outcome.rethrow();
+        forgetSessionSet(SessionSetStatement.LOCK_TIMEOUT_KEY);
         if (!isSessionInitialized()) {
             return;
         }
@@ -2959,11 +2986,18 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     /**
      * Records what a statement that just succeeded changed in its session. A SQL {@code SET} ran
      * only on the leg it was routed to (RW): a session-scoped one is replayed on the read leg now
-     * and on every leg opened later; any other keeps this session's reads on RW.
+     * and on every leg opened later; any other keeps this session's reads on RW. Variables an
+     * {@code INTO/TO} clause created on RW are remembered so reads naming them follow, until a
+     * {@code DROP VARIABLE} removes them.
      *
      * @param sql the statement as the application issued it
+     * @param ranOn the leg it ran on
      */
-    public void afterStatementSucceeded(final String sql) {
+    public void afterStatementSucceeded(final String sql, final Router.RouteTarget ranOn) {
+        if (ranOn == Router.RouteTarget.TO_READ_WRITE) {
+            sessionState.addSessionVariables(IntoVariables.assignedBy(sql));
+            sessionState.removeSessionVariables(IntoVariables.droppedBy(sql));
+        }
         final SessionSetStatement set = SessionSetStatement.parse(sql);
         if (set.getAction() == SessionSetStatement.Action.REPLAY) {
             replaySessionSet(sql, set.getReplay());
@@ -3011,12 +3045,22 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             return;
         }
         sessionState.pinReadsToRw();
-        LbLog.info(
+        LbLog.warn(
                 LOGGER,
                 LbLog.conn(connectionId),
                 "LB SESSION PIN: a SET the read leg cannot replay ran on RW; this session's reads"
                         + " stay on RW until it closes"
                         + sqlForLog(sql));
+    }
+
+    /**
+     * A JDBC setter now owns {@code key}'s setting: drop the SQL {@code SET} of it, or a leg opened
+     * later would get the older SQL value on top of the setter's.
+     */
+    private void forgetSessionSet(final String key) {
+        synchronized (sessionSets) {
+            sessionSets.remove(key);
+        }
     }
 
     private List<String> sessionSetsSnapshot() {
@@ -3040,9 +3084,9 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     /**
      * Whether a statement that failed on the read leg may run once more on RW. The read-only broker
      * refuses a write hidden from the classifier (a view over NEXTVAL, or over a routine that
-     * writes, which surfaces as -889), and a refused statement changed nothing, so the retry runs
-     * it once. Only in autocommit, and not for an explicit TO_RO hint: that read leg was the
-     * application's choice.
+     * writes, which surfaces as -889), and a read node has no LOB files to read; either way the
+     * failed statement changed nothing, so the retry runs it once. Only in autocommit, and not for
+     * an explicit TO_RO hint: that read leg was the application's choice.
      *
      * @param target where the failed execution was routed
      * @param sql the statement as the application issued it
@@ -3054,7 +3098,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         return target == Router.RouteTarget.TO_READ_ONLY
                 && sessionState.isAutoCommit()
                 && !sessionState.isTransactionActive()
-                && isRefusedOnReadLeg(failure)
+                && readLegRefusal(failure) != null
                 && !HintParser.parse(sql).hasTargetHint();
     }
 
@@ -3065,41 +3109,65 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      * @param failure the read leg's refusal
      */
     public void beginRejectedReadRetry(final String sql, final SQLException failure) {
-        retryingRejectedRead = true;
+        final String reason = readLegRefusal(failure);
+        rejectedReadReason = reason != null ? reason : FallbackReason.RO_WRITE_REJECTED;
         LbLogDedup.info(
                 LOGGER,
                 LbLog.conn(connectionId),
                 "RO REJECTED|" + SqlLiteralMasker.mask(sql, 200),
-                "LB RO REJECTED: the read-only broker refused a statement classified READ ("
+                "LB RO REJECTED: the read leg could not serve a statement classified READ ("
                         + failure.getErrorCode()
                         + "); running it on RW"
                         + sqlForLog(sql));
     }
 
     public void endRejectedReadRetry() {
-        retryingRejectedRead = false;
+        rejectedReadReason = null;
     }
 
-    private static boolean isRefusedOnReadLeg(final SQLException failure) {
+    /** Why the read leg cannot serve the failed read, or {@code null} if the failure is its own. */
+    private static String readLegRefusal(final SQLException failure) {
         for (SQLException e = failure; e != null; e = e.getNextException()) {
-            if (e.getErrorCode() == ER_DB_NO_MODIFICATIONS
-                    || e.getErrorCode() == ER_SP_EXECUTE_ERROR) {
-                return true;
+            final int code = e.getErrorCode();
+            if (code == ER_DB_NO_MODIFICATIONS || code == ER_SP_EXECUTE_ERROR) {
+                return FallbackReason.RO_WRITE_REJECTED;
+            }
+            if (code == ER_ES_FILE_NOT_FOUND
+                    || (code == ER_TP_CANT_COERCE && namesLobDomain(e.getMessage()))) {
+                return FallbackReason.RO_LOB_UNAVAILABLE;
             }
         }
-        return false;
+        return null;
     }
 
-    /** RW route of a READ that only the session read pin moved there, or {@code reason}. */
+    /** The domain names are not translated, so this holds for a localized message too. */
+    private static boolean namesLobDomain(final String message) {
+        if (message == null) {
+            return false;
+        }
+        final String lower = message.toLowerCase(Locale.ROOT);
+        return lower.contains("\"clob\"") || lower.contains("\"blob\"");
+    }
+
+    /**
+     * RW route of a READ that only the session read pin or a session variable moved there, or
+     * {@code reason}.
+     */
     private String readPinReason(final String rawSql, final String reason) {
+        final boolean pinned = sessionState.isReadsPinnedToRw();
         if (!FallbackReason.NONE.equals(reason)
-                || !sessionState.isReadsPinnedToRw()
+                || (!pinned && sessionState.getSessionVariables().isEmpty())
                 || sessionState.isTransactionActive()
                 || HintParser.parse(rawSql).hasTargetHint()
                 || sqlClassifier.classify(rawSql) != SqlClassification.READ) {
             return reason;
         }
-        return FallbackReason.SESSION_SET_PIN;
+        if (pinned) {
+            return FallbackReason.SESSION_SET_PIN;
+        }
+        return IntoVariables.isReferencedIn(rawSql, sessionState.getSessionVariables())
+                ? FallbackReason.SESSION_VARIABLE
+                : reason;
     }
 
     private String sqlForLog(final String sql) {

@@ -276,6 +276,183 @@ public class ReadLegSafetyTest {
         assertEquals(Arrays.asList("SELECT 1"), legs.log("ro"));
     }
 
+    @Test
+    public void optimizationLevelIsReplayedOnReadLeg() throws SQLException {
+        Statement st = conn.createStatement();
+        st.executeQuery("SELECT 1");
+        st.execute("SET OPTIMIZATION LEVEL 2");
+        st.executeQuery("SELECT 2");
+
+        assertEquals(
+                Arrays.asList("SELECT 1", "SET OPTIMIZATION LEVEL 2", "SELECT 2"), legs.log("ro"));
+    }
+
+    @Test
+    public void queryTraceKeepsReadsWithTheTrace() throws SQLException {
+        Statement st = conn.createStatement();
+        st.execute("SET TRACE ON");
+        st.executeQuery("SELECT 1");
+
+        assertEquals(1, legs.count("rw", "SELECT 1"));
+        assertTrue(lastRouteEvent().contains("fallbackReason=SESSION_SET_PIN"));
+    }
+
+    @Test
+    public void parameterThatChangesNoReadNeitherReplaysNorPins() throws SQLException {
+        Statement st = conn.createStatement();
+        st.execute("set system parameters 'xasl_debug_dump=yes'");
+        st.executeQuery("SELECT 1");
+
+        assertEquals(Arrays.asList("SELECT 1"), legs.log("ro"));
+    }
+
+    /** A JDBC isolation setter after a SQL one wins on a leg opened later too. */
+    @Test
+    public void jdbcIsolationSetterReplacesSqlIsolationForLaterLegs() throws SQLException {
+        Statement st = conn.createStatement();
+        st.executeQuery("SELECT 1");
+        st.execute("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE");
+        assertEquals(1, legs.count("ro", "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE"));
+
+        conn.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
+        legs.refuseNextSetsOnRo(1);
+        st.execute("SET NAMES euckr");
+        st.executeQuery("SELECT 2");
+
+        assertEquals(2, legs.roOpens.get());
+        assertEquals(Arrays.asList("SET NAMES euckr", "SELECT 2"), tail(legs.log("ro"), 2));
+        assertEquals(1, legs.count("ro", "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE"));
+    }
+
+    @Test
+    public void setInStatementBatchIsReplayed() throws SQLException {
+        Statement st = conn.createStatement();
+        st.executeQuery("SELECT 1");
+        st.addBatch("SET NAMES euckr");
+        st.executeBatch();
+
+        assertEquals(Arrays.asList("SELECT 1", "SET NAMES euckr"), legs.log("ro"));
+    }
+
+    @Test
+    public void setInPreparedBatchWithBoundValuePins() throws SQLException {
+        PreparedStatement ps = conn.prepareStatement("SET TIMEZONE ?");
+        ps.setString(1, "UTC");
+        ps.addBatch();
+        ps.executeBatch();
+
+        conn.createStatement().executeQuery("SELECT 1");
+        assertEquals(1, legs.count("rw", "SELECT 1"));
+        assertTrue(lastRouteEvent().contains("fallbackReason=SESSION_SET_PIN"));
+    }
+
+    /** A read naming a SELECT INTO variable runs on RW, where it lives; other reads stay on RO. */
+    @Test
+    public void readNamingSelectIntoVariableFollowsItToRw() throws SQLException {
+        Statement st = conn.createStatement();
+        st.execute("select x into set1 from xoo");
+        st.executeQuery("select t from table(set1) as tbl(t)");
+
+        assertEquals(1, legs.count("rw", "select t from table(set1) as tbl(t)"));
+        assertTrue(lastRouteEvent().contains("fallbackReason=SESSION_VARIABLE"));
+
+        st.executeQuery("SELECT 1");
+        assertEquals(Arrays.asList("SELECT 1"), legs.log("ro"));
+    }
+
+    @Test
+    public void selectToVariableRunsOnRwAndReadsOfItFollow() throws SQLException {
+        Statement st = conn.createStatement();
+        st.execute("select i to i1 from n");
+        st.executeQuery("select i from n where i1 = 3");
+
+        assertEquals(1, legs.count("rw", "select i to i1 from n"));
+        assertEquals(1, legs.count("rw", "select i from n where i1 = 3"));
+    }
+
+    /** A variable the application put on the read leg with a hint stays there, with its reads. */
+    @Test
+    public void variableCreatedOnReadLegByHintIsNotFollowedToRw() throws SQLException {
+        Statement st = conn.createStatement();
+        st.execute("SELECT /*+ TO_RO */ x INTO v FROM t");
+        st.executeQuery("SELECT v");
+
+        assertEquals(
+                Arrays.asList("SELECT /*+ TO_RO */ x INTO v FROM t", "SELECT v"), legs.log("ro"));
+    }
+
+    /** The check runs at execute time: the statement was prepared before the variable existed. */
+    @Test
+    public void preparedReadNamingVariableFollowsIt() throws SQLException {
+        PreparedStatement ps = conn.prepareStatement("SELECT v FROM db_root");
+        conn.createStatement().execute("SELECT 1 INTO v FROM db_root");
+        ps.executeQuery();
+
+        assertEquals(1, legs.count("rw", "SELECT v FROM db_root"));
+    }
+
+    /**
+     * HA does not replicate LOB files, so a read that touches LOB content fails on the read leg.
+     */
+    @Test
+    public void lobReadTheReadLegCannotServeRunsOnRw() throws SQLException {
+        legs.refuseOnRo(
+                "REVERSE(c)",
+                -181,
+                "Cannot coerce value of domain \"clob\" to domain \"character varying\".");
+        conn.createStatement().executeQuery("SELECT REVERSE(c) FROM t");
+
+        assertEquals(1, legs.count("rw", "SELECT REVERSE(c) FROM t"));
+        assertTrue(lastRouteEvent().contains("fallbackReason=RO_LOB_UNAVAILABLE"));
+    }
+
+    @Test
+    public void missingLobFileOnReadLegRunsOnRw() throws SQLException {
+        legs.refuseOnRo("FROM lobs", -1020, "External file \"ces_1/t.0001\" was not found.");
+        conn.createStatement().executeQuery("SELECT c FROM lobs");
+
+        assertEquals(1, legs.count("rw", "SELECT c FROM lobs"));
+    }
+
+    /** A coercion failure that names no LOB is the statement's own error, the same on RW. */
+    @Test
+    public void coercionFailureWithoutLobIsNotRetried() throws SQLException {
+        legs.refuseOnRo(
+                "CAST(s",
+                -181,
+                "Cannot coerce value of domain \"character varying\" to domain \"integer\".");
+        try {
+            conn.createStatement().executeQuery("SELECT CAST(s AS INT) FROM t");
+            fail("the read leg's own error must reach the caller");
+        } catch (SQLException expected) {
+            assertEquals(-181, expected.getErrorCode());
+        }
+        assertEquals(0, legs.count("rw", "SELECT CAST(s AS INT) FROM t"));
+    }
+
+    @Test
+    public void droppedVariableNoLongerSendsReadsToRw() throws SQLException {
+        Statement st = conn.createStatement();
+        st.execute("SELECT 1 INTO v FROM db_root");
+        st.executeQuery("SELECT v FROM db_root");
+        st.execute("DROP VARIABLE v");
+        st.executeQuery("SELECT v + 1 FROM db_root");
+
+        assertEquals(1, legs.count("rw", "SELECT v FROM db_root"));
+        assertEquals(1, legs.count("ro", "SELECT v + 1 FROM db_root"));
+    }
+
+    /** DEALLOCATE VARIABLE drops @session variables, a different namespace from INTO variables. */
+    @Test
+    public void deallocatingSessionVariableKeepsIntoVariableTracked() throws SQLException {
+        Statement st = conn.createStatement();
+        st.execute("SELECT 1 INTO v FROM db_root");
+        st.execute("DEALLOCATE VARIABLE @v");
+        st.executeQuery("SELECT v FROM db_root");
+
+        assertEquals(1, legs.count("rw", "SELECT v FROM db_root"));
+    }
+
     private static List<String> tail(final List<String> list, final int n) {
         return list.subList(Math.max(0, list.size() - n), list.size());
     }
@@ -297,10 +474,16 @@ public class ReadLegSafetyTest {
         private final List<String> entries = Collections.synchronizedList(new ArrayList<String>());
         private volatile String refuseRo;
         private volatile int refuseRoCode;
+        private volatile String refuseRoMessage = "refused on ro";
         private volatile String refuseRw;
         private volatile int refuseRwCode;
         private final AtomicInteger roSetRefusals = new AtomicInteger();
         private volatile int roSetRefusalCode;
+
+        void refuseOnRo(final String fragment, final int code, final String message) {
+            refuseOnRo(fragment, code);
+            refuseRoMessage = message;
+        }
 
         void refuseOnRo(final String fragment, final int code) {
             refuseRo = fragment;
@@ -357,7 +540,7 @@ public class ReadLegSafetyTest {
             }
             entries.add(role + "|" + sql);
             if ("ro".equals(role) && refuseRo != null && sql.indexOf(refuseRo) >= 0) {
-                throw new SQLException("refused on ro", null, refuseRoCode);
+                throw new SQLException(refuseRoMessage, null, refuseRoCode);
             }
             if ("rw".equals(role) && refuseRw != null && sql.indexOf(refuseRw) >= 0) {
                 throw new SQLException("refused on rw", null, refuseRwCode);

@@ -34,6 +34,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 
 import cubrid.jdbc.lb.state.SessionRoutingState;
+import java.util.Collections;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -56,7 +57,7 @@ public class RouterTransactionPrecedenceTest {
         assertEquals(Router.RouteTarget.TO_READ_WRITE, d.getTarget());
         assertEquals(
                 Router.RouteTarget.TO_READ_WRITE,
-                Router.decide(null, Router.RouteTarget.TO_READ_ONLY, pinned));
+                Router.decide(null, Router.RouteTarget.TO_READ_ONLY, pinned, "SELECT * FROM t"));
     }
 
     /** Unlike a transaction, the pin yields to an explicit TO_RO hint: the application chose it. */
@@ -71,6 +72,30 @@ public class RouterTransactionPrecedenceTest {
         assertEquals(
                 Router.RouteTarget.TO_READ_ONLY,
                 Router.decide("SELECT * FROM t", pinned, readAdvisor()).getTarget());
+    }
+
+    /** Only the reads naming a variable the session created on RW follow it there. */
+    @Test
+    public void assertReadNamingSessionVariableGoesToRw() {
+        SessionRoutingState withVariable = new SessionRoutingState();
+        withVariable.addSessionVariables(Collections.singleton("SET1"));
+        assertEquals(
+                Router.RouteTarget.TO_READ_WRITE,
+                Router.decide("SELECT set1 FROM db_root", withVariable, readAdvisor()).getTarget());
+        assertEquals(
+                Router.RouteTarget.TO_READ_WRITE,
+                Router.decide(null, Router.RouteTarget.TO_READ_ONLY, withVariable, "SELECT set1"));
+        assertEquals(
+                Router.RouteTarget.TO_READ_ONLY,
+                Router.decide("SELECT a FROM t", withVariable, readAdvisor()).getTarget());
+        assertEquals(
+                Router.RouteTarget.TO_READ_ONLY,
+                Router.decide("SELECT /*+ TO_RO */ set1", withVariable, failingDefaultAdvisor())
+                        .getTarget());
+        withVariable.reset();
+        assertEquals(
+                Router.RouteTarget.TO_READ_ONLY,
+                Router.decide("SELECT set1 FROM db_root", withVariable, readAdvisor()).getTarget());
     }
 
     private static Router.DefaultRouteAdvisor readAdvisor() {

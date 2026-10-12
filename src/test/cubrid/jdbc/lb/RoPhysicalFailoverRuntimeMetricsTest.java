@@ -30,6 +30,7 @@
 
 package cubrid.jdbc.lb;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import cubrid.jdbc.lb.config.Endpoint;
@@ -103,10 +104,13 @@ public final class RoPhysicalFailoverRuntimeMetricsTest {
         for (String event : metrics.getEvents()) {
             if (event.contains("fallbackReason=RO_PHYSICAL_FAILOVER")) {
                 found = true;
+                // The read ran on the RW connection, so the record names RW, not ro1.
+                assertTrue(event, event.contains("endpointId=rw:33000"));
                 break;
             }
         }
         assertTrue(found);
+        assertEquals("rw:33000", conn.getCurrentRoEndpoint().getId());
         conn.close();
     }
 

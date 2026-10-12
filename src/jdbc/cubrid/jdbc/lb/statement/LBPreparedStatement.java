@@ -71,6 +71,7 @@ import java.sql.Time;
 import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -276,7 +277,8 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         }
 
         try {
-            PreparedStatement physicalStatement = physicalPsForTarget(resolveRouteTarget());
+            final Router.RouteTarget target = resolveRouteTarget();
+            PreparedStatement physicalStatement = physicalPsForTarget(target);
 
             for (int i = 0; i < batchedBinders.size(); i++) {
                 physicalStatement.clearParameters();
@@ -285,6 +287,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
             }
 
             int[] result = physicalStatement.executeBatch();
+            statementDelegate.afterBatchSucceeded(Collections.singletonList(sql), target);
             statementDelegate.recordExec(physicalStatement, null, -1);
 
             return result;
@@ -1077,7 +1080,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         // Routing precedence lives in Router.decide(); this only supplies the per-instance caches
         // (hint and classification precomputed at prepare time) so the hot execute path avoids
         // re-running HintParser.parse() and SqlClassifier.classify().
-        return Router.decide(sqlCaches.targetFromHint, sqlCaches.defaultTarget, sessState);
+        return Router.decide(sqlCaches.targetFromHint, sqlCaches.defaultTarget, sessState, sql);
     }
 
     private PreparedStatement physicalPsWithParams(final Router.RouteTarget target)

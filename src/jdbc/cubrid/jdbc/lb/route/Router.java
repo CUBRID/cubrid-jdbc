@@ -32,7 +32,9 @@ package cubrid.jdbc.lb.route;
 
 import cubrid.jdbc.lb.sql.HintParser;
 import cubrid.jdbc.lb.sql.HintSet;
+import cubrid.jdbc.lb.sql.IntoVariables;
 import cubrid.jdbc.lb.state.SessionRoutingState;
+import java.util.Set;
 
 /**
  * SQL routing with fixed precedence: {@code Transaction > Hint > Session read pin > Default}.
@@ -42,7 +44,8 @@ import cubrid.jdbc.lb.state.SessionRoutingState;
  * {@code TO_RO} invalid inside a transaction; for {@code TO_RW} the override changes nothing. With
  * no hint, an active transaction or a session read pin ({@link
  * SessionRoutingState#isReadsPinnedToRw}) sends the statement to RW, otherwise the default advisor
- * (READ/WRITE classification) decides.
+ * (READ/WRITE classification) decides. A read naming a variable an {@code INTO/TO} clause left on
+ * the write leg ({@link SessionRoutingState#getSessionVariables}) goes to RW, where it lives.
  *
  * <p>Routing is stateless: {@link SessionRoutingState} is only read, and the input SQL is returned
  * verbatim on the decision.
@@ -110,7 +113,10 @@ public final class Router {
             return new RouteDecision(RouteTarget.TO_READ_WRITE, effectiveSql);
         }
 
-        return new RouteDecision(defaultAdvisor.defaultTarget(effectiveSql), effectiveSql);
+        return new RouteDecision(
+                followSessionVariables(
+                        defaultAdvisor.defaultTarget(effectiveSql), effectiveSql, session),
+                effectiveSql);
     }
 
     /**
@@ -122,12 +128,14 @@ public final class Router {
      * @param targetFromHint target-hint already mapped via {@link #mapTargetHint}, or {@code null}
      * @param defaultTarget target to use when there is no hint and no active transaction
      * @param session the session routing state consulted for an active transaction
+     * @param sql the statement, checked for session variables only when the session has some
      * @return the resolved route target
      */
     public static RouteTarget decide(
             final RouteTarget targetFromHint,
             final RouteTarget defaultTarget,
-            final SessionRoutingState session) {
+            final SessionRoutingState session,
+            final String sql) {
         if (session == null) {
             throw new IllegalArgumentException("SessionRoutingState must not be null");
         }
@@ -143,7 +151,19 @@ public final class Router {
             return RouteTarget.TO_READ_WRITE;
         }
 
-        return defaultTarget;
+        return followSessionVariables(defaultTarget, sql, session);
+    }
+
+    /** RW for a read that names a variable the session created on the write leg. */
+    private static RouteTarget followSessionVariables(
+            final RouteTarget target, final String sql, final SessionRoutingState session) {
+        final Set<String> variables = session.getSessionVariables();
+        if (target == RouteTarget.TO_READ_ONLY
+                && !variables.isEmpty()
+                && IntoVariables.isReferencedIn(sql, variables)) {
+            return RouteTarget.TO_READ_WRITE;
+        }
+        return target;
     }
 
     public static RouteTarget mapTargetHint(final HintSet.TargetHint hint) {

@@ -66,9 +66,17 @@ public final class SessionSetStatement {
 
     static final String NAMES_KEY = "NAMES";
 
+    /** Replay key of a SQL-set isolation level, which a later JDBC setter replaces. */
+    public static final String ISOLATION_LEVEL_KEY = "PARAM:ISOLATION_LEVEL";
+
+    /** Replay key of a SQL-set lock timeout, which a later JDBC setter replaces. */
+    public static final String LOCK_TIMEOUT_KEY = "PARAM:LOCK_TIMEOUT";
+
+    private static final String OPTIMIZATION_LEVEL_KEY = "PARAM:OPTIMIZATION_LEVEL";
+
     /**
      * Session parameters (PRM_FOR_SESSION | PRM_USER_CHANGE in the engine's system_parameter.c)
-     * that change what a query parses, plans or returns.
+     * that change what a query parses, plans or returns, or how it waits.
      */
     private static final Set<String> REPLAYED_PARAMS =
             names(
@@ -86,6 +94,9 @@ public final class SessionSetStatement {
                     "intl_collation",
                     "intl_date_lang",
                     "intl_number_lang",
+                    "isolation_level",
+                    "lock_timeout",
+                    "lock_timeout_in_secs",
                     "max_hash_list_scan_size",
                     "memoize_memory_limit",
                     "multi_range_optimization_limit",
@@ -94,7 +105,6 @@ public final class SessionSetStatement {
                     "optimization_level",
                     "pl_transaction_control",
                     "print_index_detail",
-                    "query_trace",
                     "query_trace_format",
                     "regexp_engine",
                     "return_null_on_function_errors",
@@ -105,14 +115,17 @@ public final class SessionSetStatement {
                     "update_use_attribute_references");
 
     /**
-     * Session parameters left alone: isolation and lock timeout follow the JDBC setters LB already
-     * applies to both legs, and the rest configure csql or the connection, not query results.
+     * Parameters that change nothing a read returns: an XASL debug dump, how INSERT runs, plan
+     * choice, index builds, csql and connection settings. They are not copied to the read leg -
+     * several live in the CAS process and would outlast the session there - and need no pin.
      */
     private static final Set<String> IGNORED_PARAMS =
             names(
-                    "isolation_level",
-                    "lock_timeout",
-                    "lock_timeout_in_secs",
+                    "xasl_debug_dump",
+                    "insert_execution_mode",
+                    "like_term_selectivity",
+                    "optimizer_enable_merge_join",
+                    "deduplicate_key_level",
                     "csql_auto_commit",
                     "csql_history_num",
                     "csql_single_line_mode",
@@ -122,6 +135,14 @@ public final class SessionSetStatement {
                     "commit_on_shutdown",
                     "communication_histogram",
                     "garbage_collection");
+
+    /**
+     * Query tracing pins instead of replaying: {@code SHOW TRACE} reports the last query of the
+     * session it runs on, so the traced query and the {@code SHOW TRACE} must share a leg.
+     */
+    private static final String QUERY_TRACE = "query_trace";
+
+    private static final Set<String> FALSE_WORDS = names("no", "n", "0", "false", "off");
 
     private static final SessionSetStatement NONE_RESULT =
             new SessionSetStatement(Action.NONE, Collections.<String, String>emptyMap());
@@ -233,8 +254,37 @@ public final class SessionSetStatement {
                 return parseParameters(stmt, skipWord(stmt, pos));
             }
         }
-        // SET @var, SET TRANSACTION, SET OPTIMIZATION LEVEL, SET TRIGGER ...: not tracked.
+        if ("OPTIMIZATION".equals(target)) {
+            // SET OPTIMIZATION LEVEL n sets optimization_level; levels 2/258/514 skip execution.
+            final boolean level = "LEVEL".equals(wordAt(stmt, skipWord(stmt, pos)));
+            return level && replayable(text) ? replay(OPTIMIZATION_LEVEL_KEY, text) : PIN_RESULT;
+        }
+        if ("TRACE".equals(target)) {
+            // SET TRACE ON sets query_trace=y.
+            return "OFF".equals(wordAt(stmt, skipWord(stmt, pos))) ? NONE_RESULT : PIN_RESULT;
+        }
+        if ("TRANSACTION".equals(target)) {
+            return parseTransaction(text);
+        }
+        // SET @var, SET TRIGGER ...: not tracked.
         return NONE_RESULT;
+    }
+
+    /**
+     * {@code SET TRANSACTION ISOLATION LEVEL ...} or {@code SET TRANSACTION LOCK TIMEOUT ...}. A
+     * statement setting both pins, since one replay key cannot hold it.
+     */
+    private static SessionSetStatement parseTransaction(final String text) {
+        final String upper = text.toUpperCase(Locale.ROOT);
+        final boolean isolation = upper.contains("ISOLATION");
+        final boolean lockTimeout = upper.contains("TIMEOUT");
+        if (!isolation && !lockTimeout) {
+            return NONE_RESULT;
+        }
+        if ((isolation && lockTimeout) || !replayable(text)) {
+            return PIN_RESULT;
+        }
+        return replay(isolation ? ISOLATION_LEVEL_KEY : LOCK_TIMEOUT_KEY, text);
     }
 
     /** {@code SET SYSTEM PARAMETERS 'name=value[; name=value...]'} from {@code pos}. */
@@ -263,21 +313,36 @@ public final class SessionSetStatement {
                 return PIN_RESULT;
             }
             final String name = trimmed.substring(0, eq).trim().toLowerCase(Locale.ROOT);
+            final String value = trimmed.substring(eq + 1).trim();
+            if (QUERY_TRACE.equals(name)) {
+                if (FALSE_WORDS.contains(value.toLowerCase(Locale.ROOT))) {
+                    continue;
+                }
+                return PIN_RESULT;
+            }
             if (IGNORED_PARAMS.contains(name)) {
                 continue;
             }
             if (!REPLAYED_PARAMS.contains(name)) {
                 return PIN_RESULT;
             }
-            final String value = trimmed.substring(eq + 1).trim();
             replay.put(
-                    "PARAM:" + name.toUpperCase(Locale.ROOT),
+                    replayKey(name),
                     "SET SYSTEM PARAMETERS '" + name + "=" + value.replace("'", "''") + "'");
         }
 
         return replay.isEmpty()
                 ? NONE_RESULT
                 : new SessionSetStatement(Action.REPLAY, Collections.unmodifiableMap(replay));
+    }
+
+    /**
+     * The deprecated {@code lock_timeout_in_secs} sets the same timeout as {@code lock_timeout}.
+     */
+    private static String replayKey(final String name) {
+        return "lock_timeout_in_secs".equals(name)
+                ? LOCK_TIMEOUT_KEY
+                : "PARAM:" + name.toUpperCase(Locale.ROOT);
     }
 
     /** A statement with a bound {@code ?} cannot be replayed from its text alone. */

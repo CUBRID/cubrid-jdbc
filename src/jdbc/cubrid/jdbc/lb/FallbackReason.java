@@ -55,6 +55,12 @@ public final class FallbackReason {
     /** The read-only broker refused a READ as a write (-581), so it ran again on RW. */
     public static final String RO_WRITE_REJECTED = "RO_WRITE_REJECTED";
 
+    /** A read touched LOB content, whose files HA does not replicate, and ran again on RW. */
+    public static final String RO_LOB_UNAVAILABLE = "RO_LOB_UNAVAILABLE";
+
     /** A session SET the read leg cannot replay keeps the session's reads on RW. */
     public static final String SESSION_SET_PIN = "SESSION_SET_PIN";
+
+    /** A read named a variable an {@code INTO/TO} clause created on the write leg. */
+    public static final String SESSION_VARIABLE = "SESSION_VARIABLE";
 }

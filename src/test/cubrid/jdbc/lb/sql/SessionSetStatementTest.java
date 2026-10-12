@@ -89,21 +89,68 @@ public class SessionSetStatementTest {
     }
 
     @Test
-    public void parametersLbAlreadyOwnsAreIgnored() {
-        assertEquals(Action.NONE, action("set system parameters 'isolation_level=4'"));
+    public void parametersThatChangeNoReadAreIgnored() {
+        assertEquals(Action.NONE, action("set system parameters 'xasl_debug_dump=yes'"));
         assertEquals(
-                Action.NONE, action("set system parameters 'lock_timeout=5; csql_auto_commit=no'"));
+                Action.NONE,
+                action("set system parameters 'insert_execution_mode=1; csql_auto_commit=no'"));
+        assertEquals(Action.NONE, action("set system parameters 'deduplicate_key_level=10'"));
         assertEquals(
                 Arrays.asList("SET SYSTEM PARAMETERS 'timezone=UTC'"),
                 new ArrayList<String>(
-                        replay("set system parameters 'lock_timeout=5; timezone=UTC'").values()));
+                        replay("set system parameters 'like_term_selectivity=0.1; timezone=UTC'")
+                                .values()));
+    }
+
+    @Test
+    public void transactionSettingsAreReplayedUnderOneKeyEach() {
+        assertEquals(
+                "SET TRANSACTION ISOLATION LEVEL READ COMMITTED",
+                replay("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
+                        .get(SessionSetStatement.ISOLATION_LEVEL_KEY));
+        assertTrue(
+                replay("set system parameters 'isolation_level=4'")
+                        .containsKey(SessionSetStatement.ISOLATION_LEVEL_KEY));
+        assertEquals(
+                "set transaction lock timeout 5",
+                replay("set transaction lock timeout 5;")
+                        .get(SessionSetStatement.LOCK_TIMEOUT_KEY));
+        // lock_timeout_in_secs is the deprecated half of the lock_timeout pair.
+        assertTrue(
+                replay("set system parameters 'lock_timeout_in_secs=5'")
+                        .containsKey(SessionSetStatement.LOCK_TIMEOUT_KEY));
+        assertEquals(
+                Action.PIN_TO_RW,
+                action("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE, LOCK TIMEOUT 5"));
+    }
+
+    @Test
+    public void optimizationLevelIsReplayedLikeItsParameter() {
+        // Levels 2/258/514 plan without executing, so a read leg left at 1 would return rows.
+        assertEquals(
+                "SET OPTIMIZATION LEVEL 2",
+                replay("SET OPTIMIZATION LEVEL 2").get("PARAM:OPTIMIZATION_LEVEL"));
+        assertTrue(
+                replay("set system parameters 'optimization_level=1'")
+                        .containsKey("PARAM:OPTIMIZATION_LEVEL"));
+        assertEquals(Action.PIN_TO_RW, action("SET OPTIMIZATION LEVEL ?"));
+        assertEquals(Action.PIN_TO_RW, action("SET OPTIMIZATION COST 'iscan' '0'"));
+    }
+
+    /** SHOW TRACE reports the last query of its own session, so tracing keeps reads on RW. */
+    @Test
+    public void queryTracePins() {
+        assertEquals(Action.PIN_TO_RW, action("SET TRACE ON"));
+        assertEquals(Action.PIN_TO_RW, action("set trace on output json"));
+        assertEquals(Action.NONE, action("SET TRACE OFF"));
+        assertEquals(Action.PIN_TO_RW, action("set system parameters 'query_trace=yes'"));
+        assertEquals(Action.NONE, action("set system parameters 'query_trace=no'"));
+        assertEquals(Action.REPLAY, action("set system parameters 'query_trace_format=json'"));
     }
 
     @Test
     public void otherStatementsAreNotTracked() {
         assertEquals(Action.NONE, action("SET @v = 1"));
-        assertEquals(Action.NONE, action("SET TRANSACTION ISOLATION LEVEL READ COMMITTED"));
-        assertEquals(Action.NONE, action("SET OPTIMIZATION LEVEL 1"));
         assertEquals(Action.NONE, action("SELECT 'set names utf8' FROM t"));
         assertEquals(Action.NONE, action("SETTINGS"));
         assertEquals(Action.NONE, action(null));

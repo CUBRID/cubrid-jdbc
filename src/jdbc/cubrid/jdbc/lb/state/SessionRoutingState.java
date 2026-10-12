@@ -30,9 +30,14 @@
 
 package cubrid.jdbc.lb.state;
 
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
+
 /**
- * Per-connection routing flags: autocommit, active transaction, and the read pin a session SET that
- * cannot be replayed on the read leg leaves behind.
+ * Per-connection routing flags: autocommit, active transaction, the read pin a session SET that
+ * cannot be replayed on the read leg leaves behind, and the variables an INTO/TO clause created on
+ * the write leg.
  *
  * <p>Thread contract: these fields are non-volatile and carry the same contract as the owning
  * {@link cubrid.jdbc.lb.LoadBalanceConnection}. A JDBC connection is not meant to be used
@@ -43,6 +48,7 @@ public class SessionRoutingState {
     private boolean autoCommit = true;
     private boolean transactionActive = false;
     private boolean readsPinnedToRw = false;
+    private Set<String> sessionVariables = Collections.emptySet();
 
     public boolean isAutoCommit() {
         return autoCommit;
@@ -102,9 +108,45 @@ public class SessionRoutingState {
         return readsPinnedToRw;
     }
 
+    /**
+     * Records variables an {@code INTO/TO} clause created on the write leg. They last as long as
+     * that server session, so a read naming one is sent there until the connection closes.
+     *
+     * @param upperNames upper-cased variable names
+     */
+    public void addSessionVariables(final Set<String> upperNames) {
+        if (upperNames.isEmpty() || sessionVariables.containsAll(upperNames)) {
+            return;
+        }
+        final Set<String> merged = new HashSet<String>(sessionVariables);
+        merged.addAll(upperNames);
+        this.sessionVariables = Collections.unmodifiableSet(merged);
+    }
+
+    /**
+     * Forgets variables {@code DROP VARIABLE} removed from the write leg, so reads naming them are
+     * routed as usual again.
+     *
+     * @param upperNames upper-cased variable names
+     */
+    public void removeSessionVariables(final Set<String> upperNames) {
+        if (upperNames.isEmpty() || Collections.disjoint(sessionVariables, upperNames)) {
+            return;
+        }
+        final Set<String> remaining = new HashSet<String>(sessionVariables);
+        remaining.removeAll(upperNames);
+        this.sessionVariables = Collections.unmodifiableSet(remaining);
+    }
+
+    /** Upper-cased names of the variables this session created on the write leg. */
+    public Set<String> getSessionVariables() {
+        return sessionVariables;
+    }
+
     public void reset() {
         this.autoCommit = true;
         this.transactionActive = false;
         this.readsPinnedToRw = false;
+        this.sessionVariables = Collections.emptySet();
     }
 }

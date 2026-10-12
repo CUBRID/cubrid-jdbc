@@ -198,6 +198,7 @@ public class LBStatement extends CUBRIDStatement {
             }
 
             int[] result = statement.executeBatch();
+            afterBatchSucceeded(batchedSql, target);
             lastExecStmt = statement;
             lastRs = null;
             lastUpdCnt = -1;
@@ -645,6 +646,7 @@ public class LBStatement extends CUBRIDStatement {
             throws SQLException {
         final ExecuteFailoverHandler handler = lbConnection.getExecuteFailoverHandler();
         T result;
+        Router.RouteTarget ranOn = target;
         try {
             result = handler.executeWithFailover(lbConnection, target, sql, retrySafe, execution);
         } catch (SQLException failure) {
@@ -653,6 +655,7 @@ public class LBStatement extends CUBRIDStatement {
             }
             lbConnection.beginRejectedReadRetry(sql, failure);
             rejectedReadRetry = true;
+            ranOn = Router.RouteTarget.TO_READ_WRITE;
             try {
                 result =
                         handler.executeWithFailover(
@@ -666,8 +669,18 @@ public class LBStatement extends CUBRIDStatement {
                 lbConnection.endRejectedReadRetry();
             }
         }
-        lbConnection.afterStatementSucceeded(sql);
+        lbConnection.afterStatementSucceeded(sql, ranOn);
         return result;
+    }
+
+    /**
+     * Records a batch that ran outside {@link #executeWithFailover}: a {@code SET} in it changed
+     * the session just as a single statement would.
+     */
+    void afterBatchSucceeded(final List<String> sqls, final Router.RouteTarget ranOn) {
+        for (String each : sqls) {
+            lbConnection.afterStatementSucceeded(each, ranOn);
+        }
     }
 
     /**

@@ -573,8 +573,8 @@ public class ConnectionProperties {
      * re-reading the file each time would buy nothing - the anchors are configuration, not state.
      *
      * @return the store to hand to a TrustManagerFactory, or null below {@code verify-ca}
-     * @throws CUBRIDException if the configured file cannot be read as the format it claims, or if
-     *     a verifying mode names no anchors
+     * @throws CUBRIDException if a verifying mode names no anchors, or the file it names cannot be
+     *     read as the format it claims
      */
     public KeyStore getTrustStore() throws CUBRIDException {
         if (!trustStoreResolved) {
@@ -586,6 +586,13 @@ public class ConnectionProperties {
     }
 
     private KeyStore buildTrustStore() throws CUBRIDException {
+        /* Below verify-ca the anchors are not read at all, so an sslca or trustStore left in a
+         * required URL cannot stop the connect, even when its file is gone - cci ignores it the
+         * same way. */
+        if (!getSslMode().verifiesCertificate()) {
+            return null;
+        }
+
         String caPath = getSslCa();
         String storePath = getTrustStorePath();
 
@@ -598,14 +605,10 @@ public class ConnectionProperties {
         /* No fallback to the JVM cacerts: any public CA could then vouch for the broker. cci has
          * the same rule. Checked here rather than in setProperties(), which runs once for the URL
          * and again for the Properties object, so the anchor may arrive in the second call. */
-        if (getSslMode().verifiesCertificate()) {
-            throw new CUBRIDException(
-                    CUBRIDJDBCErrorCode.invalid_url,
-                    "sslca or trustStore is required for sslmode=" + getSslMode().getLabel(),
-                    null);
-        }
-
-        return null;
+        throw new CUBRIDException(
+                CUBRIDJDBCErrorCode.invalid_url,
+                "sslca or trustStore is required for sslmode=" + getSslMode().getLabel(),
+                null);
     }
 
     /** A PEM file, which may hold several concatenated certificates - all of them are anchors. */

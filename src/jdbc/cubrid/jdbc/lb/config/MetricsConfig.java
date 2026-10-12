@@ -224,7 +224,11 @@ public final class MetricsConfig {
         return prometheusPort;
     }
 
-    /** The address the Prometheus endpoint binds, or {@code null} for loopback. */
+    /**
+     * The address the Prometheus endpoint binds.
+     *
+     * @return the bind address, or {@code null} for loopback
+     */
     public String getPrometheusBind() {
         return prometheusBind;
     }

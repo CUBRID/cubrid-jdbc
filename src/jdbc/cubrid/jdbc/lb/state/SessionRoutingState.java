@@ -138,7 +138,11 @@ public class SessionRoutingState {
         this.sessionVariables = Collections.unmodifiableSet(remaining);
     }
 
-    /** Upper-cased names of the variables this session created on the write leg. */
+    /**
+     * Variables this session created on the write leg.
+     *
+     * @return their upper-cased names
+     */
     public Set<String> getSessionVariables() {
         return sessionVariables;
     }

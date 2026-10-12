@@ -634,9 +634,19 @@ public class LBStatement extends CUBRIDStatement {
     }
 
     /**
-     * Runs {@code execution} under failover. A READ the read-only broker refuses as a write runs
-     * once more on RW ({@link LoadBalanceConnection#mayRetryRejectedReadOnRw}); a statement that
-     * succeeds is reported to the connection, which tracks the session SETs it ran.
+     * Runs {@code execution} under failover. A READ the read leg cannot serve (a hidden write, or
+     * LOB content) runs once more on RW ({@link LoadBalanceConnection#mayRetryRejectedReadOnRw}); a
+     * statement that succeeds is reported to the connection, which tracks the session SETs and
+     * variables it created.
+     *
+     * @param <T> the execution's result type
+     * @param sql the statement as the application issued it
+     * @param target the route target the statement was classified to
+     * @param retrySafe whether re-running {@code execution} is safe with respect to the statement's
+     *     parameters; a consumed stream parameter cannot be replayed
+     * @param execution the physical execution to run
+     * @return the execution's result
+     * @throws SQLException if the execution fails and cannot be recovered or retried
      */
     protected <T> T executeWithFailover(
             final String sql,

@@ -771,16 +771,43 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
     }
 
     public synchronized void setDate(int parameterIndex, Date x, Calendar cal) throws SQLException {
-        setDate(parameterIndex, x);
+        if (cal == null || x == null) {
+            setDate(parameterIndex, x);
+            return;
+        }
+        checkIsOpen();
+        synchronized (u_stmt) {
+            u_stmt.bind(parameterIndex - 1, x, cal.getTimeZone());
+            error = u_stmt.getRecentError();
+        }
+        checkBindError();
     }
 
     public synchronized void setTime(int parameterIndex, Time x, Calendar cal) throws SQLException {
-        setTime(parameterIndex, x);
+        if (cal == null || x == null) {
+            setTime(parameterIndex, x);
+            return;
+        }
+        checkIsOpen();
+        synchronized (u_stmt) {
+            u_stmt.bind(parameterIndex - 1, x, cal.getTimeZone());
+            error = u_stmt.getRecentError();
+        }
+        checkBindError();
     }
 
     public synchronized void setTimestamp(int parameterIndex, Timestamp x, Calendar cal)
             throws SQLException {
-        setTimestamp(parameterIndex, x);
+        if (cal == null || x == null) {
+            setTimestamp(parameterIndex, x);
+            return;
+        }
+        checkIsOpen();
+        synchronized (u_stmt) {
+            u_stmt.bind(parameterIndex - 1, x, cal.getTimeZone());
+            error = u_stmt.getRecentError();
+        }
+        checkBindError();
     }
 
     public synchronized void setTimestamptz(int parameterIndex, CUBRIDTimestamptz x, Calendar cal)

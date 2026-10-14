@@ -1512,28 +1512,67 @@ public class CUBRIDResultSet implements ResultSet {
     }
 
     public synchronized Date getDate(int columnIndex, Calendar cal) throws SQLException {
-        return getDate(columnIndex);
+        if (cal == null) {
+            return getDate(columnIndex);
+        }
+        checkIsOpen();
+        beforeGetValue(columnIndex);
+
+        Date value;
+        synchronized (u_stmt) {
+            value = u_stmt.getDate(columnIndex - 1, cal.getTimeZone());
+            error = u_stmt.getRecentError();
+        }
+
+        checkGetXXXError();
+        return value;
     }
 
     public synchronized Date getDate(String columnName, Calendar cal) throws SQLException {
-        return getDate(columnName);
+        return getDate(findColumn(columnName), cal);
     }
 
     public synchronized Time getTime(int columnIndex, Calendar cal) throws SQLException {
-        return getTime(columnIndex);
+        if (cal == null) {
+            return getTime(columnIndex);
+        }
+        checkIsOpen();
+        beforeGetValue(columnIndex);
+
+        Time value;
+        synchronized (u_stmt) {
+            value = u_stmt.getTime(columnIndex - 1, cal.getTimeZone());
+            error = u_stmt.getRecentError();
+        }
+
+        checkGetXXXError();
+        return value;
     }
 
     public synchronized Time getTime(String columnName, Calendar cal) throws SQLException {
-        return getTime(columnName);
+        return getTime(findColumn(columnName), cal);
     }
 
     public synchronized Timestamp getTimestamp(int columnIndex, Calendar cal) throws SQLException {
-        return getTimestamp(columnIndex);
+        if (cal == null) {
+            return getTimestamp(columnIndex);
+        }
+        checkIsOpen();
+        beforeGetValue(columnIndex);
+
+        Timestamp value;
+        synchronized (u_stmt) {
+            value = u_stmt.getTimestamp(columnIndex - 1, cal.getTimeZone());
+            error = u_stmt.getRecentError();
+        }
+
+        checkGetXXXError();
+        return value;
     }
 
     public synchronized Timestamp getTimestamp(String columnName, Calendar cal)
             throws SQLException {
-        return getTimestamp(columnName);
+        return getTimestamp(findColumn(columnName), cal);
     }
 
     // 3.0

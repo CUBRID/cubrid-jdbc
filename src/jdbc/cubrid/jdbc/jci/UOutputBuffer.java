@@ -303,6 +303,14 @@ class UOutputBuffer {
         return 18;
     }
 
+    int addFields(UDateTimeFields value) throws IOException {
+        dataBuffer.writeInt(14);
+        for (int field : value.wireFields()) {
+            dataBuffer.writeShort(field);
+        }
+        return 18;
+    }
+
     int addDatetimetz(CUBRIDTimestamptz value) throws IOException {
         int timezone_len;
         String timezone_str;
@@ -427,6 +435,8 @@ class UOutputBuffer {
             case UUType.U_TYPE_DATE:
                 if (value == null) {
                     return addDate(UGetTypeConvertedValue.getDate(new Timestamp(0)));
+                } else if (value instanceof UDateTimeFields) {
+                    return addFields((UDateTimeFields) value);
                 } else if (value instanceof LocalDate) {
                     return addDate((LocalDate) value);
                 } else if (value instanceof LocalDateTime) {
@@ -437,6 +447,8 @@ class UOutputBuffer {
             case UUType.U_TYPE_TIME:
                 if (value == null) {
                     return addTime(UGetTypeConvertedValue.getTime(new Timestamp(0)));
+                } else if (value instanceof UDateTimeFields) {
+                    return addFields((UDateTimeFields) value);
                 } else if (value instanceof LocalTime) {
                     return addTime((LocalTime) value);
                 } else if (value instanceof LocalDateTime) {
@@ -448,6 +460,8 @@ class UOutputBuffer {
             case UUType.U_TYPE_TIMESTAMP:
                 if (value == null) {
                     return addTimestamp(UGetTypeConvertedValue.getTimestamp(new Timestamp(0)));
+                } else if (value instanceof UDateTimeFields) {
+                    return addFields((UDateTimeFields) value);
                 } else if (value instanceof LocalDateTime) {
                     return addTimestamp((LocalDateTime) value);
                 } else if (value instanceof LocalDate) {
@@ -469,6 +483,8 @@ class UOutputBuffer {
             case UUType.U_TYPE_DATETIME:
                 if (value == null) {
                     return addDatetime(UGetTypeConvertedValue.getTimestamp(new Timestamp(0)));
+                } else if (value instanceof UDateTimeFields) {
+                    return addFields((UDateTimeFields) value);
                 } else if (value instanceof LocalDateTime) {
                     return addDatetime((LocalDateTime) value);
                 } else if (value instanceof LocalDate) {

@@ -392,8 +392,8 @@ public class BrokerHandler {
      * X509TrustManager does not reliably do.
      *
      * @param plainSocket the connected TCP socket to upgrade
-     * @param host the host as the caller named it - the SNI value and the name checked against the
-     *     certificate
+     * @param host the host as the caller named it - less a trailing dot, the SNI value and the name
+     *     checked against the certificate
      * @param port the broker port
      * @param sslMode how much of the certificate to check
      * @param trustStore anchors for the chain check; null only below {@code verify-ca}
@@ -419,10 +419,17 @@ public class BrokerHandler {
             throw new UJciException(UErrorCode.ER_CONNECTION, e);
         }
 
+        /* An absolute name ("db.example.com.") is the same host without its trailing dot, and SNI and
+         * the certificate check take it without: RFC 6066 writes SNI so, and cci does the same. JSSE
+         * drops the dot itself only from 8u372, 11.0.19 and 17.0.6; before, it refused the name.
+         * The socket is already connected, so the address came from the name as written. */
+        String name =
+                (host != null && host.endsWith(".")) ? host.substring(0, host.length() - 1) : host;
+
         SSLSocket sslSocket;
         try {
             sslSocket =
-                    (SSLSocket) ctx.getSocketFactory().createSocket(plainSocket, host, port, true);
+                    (SSLSocket) ctx.getSocketFactory().createSocket(plainSocket, name, port, true);
         } catch (IOException e) {
             throw new UJciException(UErrorCode.ER_CONNECTION, e);
         }
@@ -433,7 +440,7 @@ public class BrokerHandler {
             params.setProtocols(protocols);
         }
         params.setCipherSuites(allowedCipherSuites(sslSocket));
-        SNIHostName serverName = sniHostName(host);
+        SNIHostName serverName = sniHostName(name);
         if (serverName != null) {
             params.setServerNames(Collections.<SNIServerName>singletonList(serverName));
         }
@@ -487,10 +494,10 @@ public class BrokerHandler {
 
     /**
      * The SNI value for the host, or null when none is sent. RFC 6066 forbids an IP literal, and a
-     * broker addressed by IP has nothing to match it against anyway. A name SNIHostName refuses - a
-     * trailing dot, an underscore, a label over 63 characters - also goes without SNI, as the JRE's
-     * own default does, so such a host connects as it did before the driver set SNI. verify-full
-     * still checks the host against the certificate.
+     * broker addressed by IP has nothing to match it against anyway. A name SNIHostName refuses -
+     * an underscore, a label over 63 characters - also goes without SNI, as the JRE's own default
+     * does, so such a host connects as it did before the driver set SNI. verify-full still checks
+     * the host against the certificate.
      */
     private static SNIHostName sniHostName(String host) {
         if (host == null || isIpLiteral(host)) {

@@ -48,16 +48,14 @@ import java.util.logging.Logger;
  *
  * <ul>
  *   <li>{@code metricsEnabled} — master on/off for recording + export (default false);
- *   <li>{@code metricsExport} — comma list of {@code prometheus} and/or {@code csv} (default none);
+ *   <li>{@code metricsExport} — comma list of {@code prometheus} and/or {@code csv} (default none).
+ *       CSV rows go to the {@code cubrid.jdbc.lb.metrics.csv} logger; the file is configured in
+ *       logging.properties (see {@code cubrid.jdbc.lb.metrics.MetricsFileHandler});
  *   <li>{@code metricsPrometheusPort} — HTTP port for the {@code /metrics} endpoint (default 9400);
  *   <li>{@code metricsPrometheusBind} — address that endpoint listens on (default loopback; {@code
  *       0.0.0.0} for every interface). It has no authentication and names every broker;
- *   <li>{@code metricsCsvPath} — local directory for the CSV file (default {@code ./lb-metrics});
  *   <li>{@code metricsIntervalSec} — CSV write period in seconds (default 60), also the idle check
- *       that stops an exporter once no LB connection is live;
- *   <li>{@code metricsCsvMaxSizeMb} — rotate the CSV past this size (default 100, {@code 0}
- *       disables);
- *   <li>{@code metricsCsvMaxFiles} — rotated generations to keep (default 5).
+ *       that stops an exporter once no LB connection is live.
  * </ul>
  */
 public final class MetricsConfig {
@@ -70,27 +68,13 @@ public final class MetricsConfig {
     public static final String OPT_EXPORT = "metricsExport";
     public static final String OPT_PROMETHEUS_PORT = "metricsPrometheusPort";
     public static final String OPT_PROMETHEUS_BIND = "metricsPrometheusBind";
-    public static final String OPT_CSV_PATH = "metricsCsvPath";
     public static final String OPT_INTERVAL_SEC = "metricsIntervalSec";
-    public static final String OPT_CSV_MAX_SIZE_MB = "metricsCsvMaxSizeMb";
-    public static final String OPT_CSV_MAX_FILES = "metricsCsvMaxFiles";
 
     public static final String EXPORT_PROMETHEUS = "prometheus";
     public static final String EXPORT_CSV = "csv";
 
     private static final int DEFAULT_PROMETHEUS_PORT = 9400;
-    private static final String DEFAULT_CSV_PATH = "./lb-metrics";
     private static final int DEFAULT_INTERVAL_SEC = 60;
-
-    /**
-     * CSV rotation defaults. The writer appends forever, so an unbounded file would fill the disk
-     * on a long-running service (4 endpoints at metricsIntervalSec=15 is roughly 1.2 GB/year).
-     * Rotating at 100 MB and keeping 5 generations caps the total at 600 MB. {@code
-     * metricsCsvMaxSizeMb=0} disables rotation.
-     */
-    private static final int DEFAULT_CSV_MAX_SIZE_MB = 100;
-
-    private static final int DEFAULT_CSV_MAX_FILES = 5;
 
     /** Feature-off singleton used for every non-loadbalance / property-built config. */
     public static final MetricsConfig DISABLED =
@@ -99,37 +83,25 @@ public final class MetricsConfig {
                     Collections.<String>emptySet(),
                     DEFAULT_PROMETHEUS_PORT,
                     null,
-                    DEFAULT_CSV_PATH,
-                    DEFAULT_INTERVAL_SEC,
-                    DEFAULT_CSV_MAX_SIZE_MB,
-                    DEFAULT_CSV_MAX_FILES);
+                    DEFAULT_INTERVAL_SEC);
 
     private final boolean enabled;
     private final Set<String> exports;
     private final int prometheusPort;
     private final String prometheusBind;
-    private final String csvPath;
     private final int intervalSec;
-    private final int csvMaxSizeMb;
-    private final int csvMaxFiles;
 
     private MetricsConfig(
             final boolean enabled,
             final Set<String> exports,
             final int prometheusPort,
             final String prometheusBind,
-            final String csvPath,
-            final int intervalSec,
-            final int csvMaxSizeMb,
-            final int csvMaxFiles) {
+            final int intervalSec) {
         this.enabled = enabled;
         this.exports = Collections.unmodifiableSet(new LinkedHashSet<String>(exports));
         this.prometheusPort = prometheusPort;
         this.prometheusBind = prometheusBind;
-        this.csvPath = csvPath;
         this.intervalSec = intervalSec;
-        this.csvMaxSizeMb = csvMaxSizeMb;
-        this.csvMaxFiles = csvMaxFiles;
     }
 
     /**
@@ -180,32 +152,11 @@ public final class MetricsConfig {
         if (bind != null && bind.trim().length() == 0) {
             bind = null;
         }
-        String csvPath = find(options, OPT_CSV_PATH);
-        if (csvPath == null || csvPath.trim().length() == 0) {
-            csvPath = DEFAULT_CSV_PATH;
-        }
         int interval =
                 parsePositiveInt(
                         find(options, OPT_INTERVAL_SEC), DEFAULT_INTERVAL_SEC, OPT_INTERVAL_SEC);
 
-        int csvMaxSizeMb =
-                parseNonNegativeInt(
-                        find(options, OPT_CSV_MAX_SIZE_MB),
-                        DEFAULT_CSV_MAX_SIZE_MB,
-                        OPT_CSV_MAX_SIZE_MB);
-        int csvMaxFiles =
-                parseNonNegativeInt(
-                        find(options, OPT_CSV_MAX_FILES), DEFAULT_CSV_MAX_FILES, OPT_CSV_MAX_FILES);
-
-        return new MetricsConfig(
-                true,
-                exports,
-                port,
-                bind == null ? null : bind.trim(),
-                csvPath.trim(),
-                interval,
-                csvMaxSizeMb,
-                csvMaxFiles);
+        return new MetricsConfig(true, exports, port, bind == null ? null : bind.trim(), interval);
     }
 
     public boolean isEnabled() {
@@ -233,30 +184,8 @@ public final class MetricsConfig {
         return prometheusBind;
     }
 
-    public String getCsvPath() {
-        return csvPath;
-    }
-
     public int getIntervalSec() {
         return intervalSec;
-    }
-
-    /**
-     * Rotate the CSV once it exceeds this many megabytes; {@code 0} disables rotation.
-     *
-     * @return the CSV rotation threshold in megabytes, or {@code 0}
-     */
-    public int getCsvMaxSizeMb() {
-        return csvMaxSizeMb;
-    }
-
-    /**
-     * How many rotated generations ({@code .1} ... {@code .N}) to keep; the oldest is deleted.
-     *
-     * @return the number of rotated CSV generations to keep
-     */
-    public int getCsvMaxFiles() {
-        return csvMaxFiles;
     }
 
     private static String find(final Map<String, String> options, final String key) {
@@ -273,33 +202,6 @@ public final class MetricsConfig {
             return defaultValue;
         }
         return "true".equalsIgnoreCase(value.trim());
-    }
-
-    /**
-     * Like {@link #parsePositiveInt} but accepts 0, which the rotation options use as "disabled".
-     */
-    private static int parseNonNegativeInt(
-            final String value, final int defaultValue, final String key) {
-        if (value == null || value.trim().length() == 0) {
-            return defaultValue;
-        }
-        try {
-            int parsed = Integer.parseInt(value.trim());
-            if (parsed >= 0) {
-                return parsed;
-            }
-            LOGGER.warning(
-                    "option '" + key + "' must not be negative; using default " + defaultValue);
-        } catch (NumberFormatException e) {
-            LOGGER.warning(
-                    "option '"
-                            + key
-                            + "' is not an integer ('"
-                            + value
-                            + "'); using default "
-                            + defaultValue);
-        }
-        return defaultValue;
     }
 
     private static int parsePositiveInt(

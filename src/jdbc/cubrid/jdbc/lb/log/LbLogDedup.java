@@ -55,11 +55,10 @@ import java.util.logging.Logger;
  * 13:25:49.902|WARN |conn#7|LB FAILOVER [RO] failed=… -&gt; new=… &lt;== REBOUND | SQLState=…  (+99 more in the previous 10s)
  * </pre>
  *
- * <p>A tally still pending when the JVM exits is flushed by {@link #drain()}, which {@link
- * LbFileLogging} calls from a shutdown hook. Without it, a burst never followed by another
- * transition - the common case once a cluster settles - would report "1" for an event that hit
- * every connection. A timer thread would close the gap sooner, but a JDBC driver should not start
- * one for logging.
+ * <p>A tally still pending is flushed by {@link #drain()} when the last LB connection closes, and
+ * again from a shutdown hook. Without it, a burst never followed by another transition - the common
+ * case once a cluster settles - would report "1" for an event that hit every connection. A timer
+ * thread would close the gap sooner, but a JDBC driver should not start one for logging.
  *
  * <p>Keys are transitions ({@code role|from|to}), so the map is bounded by the topology, not by
  * traffic. The cap is a backstop for a caller that keys on something unbounded.
@@ -75,6 +74,9 @@ public final class LbLogDedup {
     private static final int MAX_KEYS = 256;
 
     private static final Map<String, Pending> STATE = new LinkedHashMap<String, Pending>();
+
+    // Guarded by the class monitor, like STATE.
+    private static boolean hookInstalled;
 
     private LbLogDedup() {}
 
@@ -191,6 +193,7 @@ public final class LbLogDedup {
 
         if (now - pending.windowStartMs < windowMs) {
             pending.suppressed++;
+            installShutdownHook();
             return null;
         }
 
@@ -204,8 +207,33 @@ public final class LbLogDedup {
     }
 
     /**
-     * Writes a summary for every key still holding a suppressed tally, then clears the state.
-     * Called from the JVM shutdown hook so a burst that never recurred is still reported.
+     * Best effort only: {@code java.util.logging} removes every handler from a shutdown hook of its
+     * own, and hooks run concurrently, so a record written from this one can be lost. The drain on
+     * the last connection close is the one that can be relied on.
+     */
+    private static void installShutdownHook() {
+        if (hookInstalled) {
+            return;
+        }
+        hookInstalled = true;
+        try {
+            Runtime.getRuntime()
+                    .addShutdownHook(
+                            new Thread("lb-log-flush") {
+                                @Override
+                                public void run() {
+                                    drain();
+                                }
+                            });
+        } catch (Exception e) {
+            // A container may forbid shutdown hooks, or the JVM is already exiting; the last-close
+            // drain still runs.
+        }
+    }
+
+    /**
+     * Writes a summary for every key still holding a suppressed tally, then clears the state, so a
+     * burst that never recurred is still reported.
      */
     public static void drain() {
         List<Pending> flush = new ArrayList<Pending>();
@@ -224,9 +252,7 @@ public final class LbLogDedup {
 
         for (int i = 0; i < flush.size(); i++) {
             Pending p = flush.get(i);
-            // Written straight to the file: drain() runs from a shutdown hook, where the logger may
-            // already be gone. See LbFileLogging#appendDirect.
-            LbLog.atShutdown(
+            LbLog.at(
                     p.logger,
                     p.level,
                     null,

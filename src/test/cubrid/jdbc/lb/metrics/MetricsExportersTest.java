@@ -36,6 +36,7 @@ import static org.junit.Assert.assertTrue;
 
 import cubrid.jdbc.jci.UUnreachableHostList;
 import cubrid.jdbc.lb.config.MetricsConfig;
+import cubrid.jdbc.lb.sql.SqlClassification;
 import java.io.IOException;
 import java.net.Inet4Address;
 import java.net.InetAddress;
@@ -44,9 +45,14 @@ import java.net.NetworkInterface;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.logging.Handler;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 import org.junit.After;
 import org.junit.Assume;
 import org.junit.Before;
@@ -183,6 +189,53 @@ public class MetricsExportersTest {
         } finally {
             MetricsExporters.stop();
         }
+    }
+
+    @Test
+    public void csvRowsGoToTheCsvLoggerOneFieldPerHeaderColumn() throws Exception {
+        RuntimeMetrics metrics = new RuntimeMetrics();
+        metrics.setEnabled(true);
+        MetricsRegistry.register(
+                metrics, Collections.singletonMap(SLAVE, "slave"), new FixedProbe(SLAVE, false));
+        metrics.recordExec(SLAVE, SqlClassification.READ, false);
+
+        final List<String> rows = Collections.synchronizedList(new ArrayList<String>());
+        Handler capture =
+                new Handler() {
+                    @Override
+                    public void publish(final LogRecord record) {
+                        rows.add(record.getMessage());
+                    }
+
+                    @Override
+                    public void flush() {}
+
+                    @Override
+                    public void close() {}
+                };
+        Logger csv = Logger.getLogger("cubrid.jdbc.lb.metrics.csv");
+        csv.addHandler(capture);
+        csv.setUseParentHandlers(false);
+        Map<String, String> options = new HashMap<String, String>();
+        options.put(MetricsConfig.OPT_ENABLED, "true");
+        options.put(MetricsConfig.OPT_EXPORT, MetricsConfig.EXPORT_CSV);
+        options.put(MetricsConfig.OPT_INTERVAL_SEC, "1");
+        MetricsExporters.configure(MetricsConfig.parse(options, true));
+        try {
+            long deadline = System.currentTimeMillis() + 5000L;
+            while (rows.isEmpty() && System.currentTimeMillis() < deadline) {
+                Thread.sleep(50L);
+            }
+        } finally {
+            MetricsExporters.stop();
+            csv.removeHandler(capture);
+            csv.setUseParentHandlers(true);
+        }
+
+        assertFalse("no CSV row within a few intervals", rows.isEmpty());
+        String row = rows.get(0);
+        assertEquals(row, MetricsFormatter.HEADER.trim().split(",").length, row.split(",").length);
+        assertTrue(row, row.contains("," + SLAVE + ",slave,1,0,"));
     }
 
     private static MetricsConfig prometheus(final int port, final int intervalSec) {

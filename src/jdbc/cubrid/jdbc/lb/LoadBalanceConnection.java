@@ -49,7 +49,6 @@ import cubrid.jdbc.lb.connection.SessionPhysicalConnManager;
 import cubrid.jdbc.lb.failover.ExecuteFailoverHandler;
 import cubrid.jdbc.lb.failover.PhysicalRecoveryContext;
 import cubrid.jdbc.lb.failover.PhysicalRecoveryResult;
-import cubrid.jdbc.lb.log.LbFileLogging;
 import cubrid.jdbc.lb.log.LbLog;
 import cubrid.jdbc.lb.log.LbLogDedup;
 import cubrid.jdbc.lb.metrics.BindingView;
@@ -103,6 +102,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Logger;
 
@@ -125,6 +125,8 @@ import java.util.logging.Logger;
  */
 public class LoadBalanceConnection extends CUBRIDConnection {
     private static final AtomicLong CONNECTION_SEQUENCE = new AtomicLong(1L);
+    // Open LB connections in this JVM; the last close flushes the held-back log records.
+    private static final AtomicInteger LIVE_CONNECTIONS = new AtomicInteger();
     // Monotonic id source for per-logical-PreparedStatement prep-cache ownership.
     private static final AtomicLong PS_OWNER_SEQ = new AtomicLong(0L);
     private final LoadBalanceSettings config;
@@ -247,15 +249,13 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         // super() must come first, so the config null check moves into the argument helper.
         super(CUBRIDDriver.maskUriUrlPassword(userUrl, info), userOf(config));
         this.config = config;
-        // Before anything that can log: the handler must be in place for this connection's own
-        // binding/failure records, and install() is a no-op after the first connection.
-        LbFileLogging.install(config.getLbLogConfig());
         this.sqlClassifier = SqlClassifierRegistry.forConfig(config);
         this.sessionState = new SessionRoutingState();
         this.routingMetrics =
                 new RoutingMetricsRecorder(connectionId, config, sessionState, sqlClassifier);
         this.boundReadEndpoint = new CurrentReadEndpointHolder();
         maybeStartMetrics(config);
+        LIVE_CONNECTIONS.incrementAndGet();
         LbLog.fine(LOGGER, LbLog.conn(connectionId), "LB CONN: opened");
     }
 
@@ -1393,6 +1393,12 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             currentRoEndpoint = null;
             sessionTopology = null;
             sessionInitialized = false;
+        }
+        // The shutdown hooks that also flush these race java.util.logging's own, which removes
+        // every handler first; a pool closing its last connection is the dependable point.
+        if (LIVE_CONNECTIONS.decrementAndGet() == 0) {
+            LbLogDedup.drain();
+            LbDistLog.drainFinal();
         }
     }
 

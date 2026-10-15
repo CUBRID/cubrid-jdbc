@@ -38,8 +38,8 @@ import java.util.Map;
 import java.util.logging.Logger;
 
 /**
- * Mode-based option allow-list. An option that does not apply to the URL's mode is <b>ignored with
- * a WARN</b> (the pgJDBC / Connector-J convention), never a hard failure.
+ * Mode-based option allow-list. An option incompatible with the URL's mode is <b>ignored with a
+ * WARN</b>, never causing a hard failure.
  *
  * <ul>
  *   <li>loadbalance-only ({@code rwPort}/{@code roPort}/{@code soPort}/{@code readWeight}, plus the
@@ -47,8 +47,9 @@ import java.util.logging.Logger;
  *   <li>classic-only ({@code altHosts}/{@code loadBalance}/{@code useLazyConnection}) &rarr;
  *       ignored in loadbalance mode;
  *   <li>keys nothing reads any more ({@code hostBalance}/{@code weights}/{@code readWeights}/{@code
- *       hostWeights}, and every {@code cubrid.lb.*} key) &rarr; ignored in both modes, so they are
- *       not propagated onto physical broker URLs;
+ *       hostWeights}, the log and CSV file options now set in logging.properties, and every {@code
+ *       cubrid.lb.*} key) &rarr; ignored in both modes, so they are not propagated onto physical
+ *       broker URLs;
  *   <li>common and unknown keys are kept, so they reach every physical connection. A bad
  *       <em>value</em> still fails later; this validator only checks mode applicability.
  * </ul>
@@ -70,17 +71,8 @@ public final class LoadBalanceOptionValidator {
         MetricsConfig.OPT_EXPORT,
         MetricsConfig.OPT_PROMETHEUS_PORT,
         MetricsConfig.OPT_PROMETHEUS_BIND,
-        MetricsConfig.OPT_CSV_PATH,
         MetricsConfig.OPT_INTERVAL_SEC,
-        MetricsConfig.OPT_CSV_MAX_SIZE_MB,
-        MetricsConfig.OPT_CSV_MAX_FILES,
-        // LB file-logging options: same treatment. They configure the LB layer only.
-        LbLogConfig.OPT_FILE,
-        LbLogConfig.OPT_LEVEL,
-        LbLogConfig.OPT_MAX_SIZE_MB,
-        LbLogConfig.OPT_MAX_FILES,
-        LbLogConfig.OPT_TO_CONSOLE,
-        LbLogConfig.OPT_THREAD,
+        // LB log options: same treatment. They configure the LB layer only.
         LbLogConfig.OPT_SQL,
         LbLogConfig.OPT_SQL_MAX_LEN,
         LbLogConfig.OPT_DIST_INTERVAL_SEC
@@ -90,6 +82,19 @@ public final class LoadBalanceOptionValidator {
     // them, so ignore (WARN) in both modes instead of letting them pass as unknown keys.
     private static final String[] REMOVED_KEYS = {
         "hostBalance", "weights", "readWeights", "hostWeights"
+    };
+    // Log and CSV file options, now logging.properties keys of LbFileHandler / MetricsFileHandler.
+    // Ignored (WARN) in both modes, so a file path never reaches a broker URL.
+    private static final String[] LOGGING_PROPERTIES_KEYS = {
+        "lbLogFile",
+        "lbLogLevel",
+        "lbLogMaxSizeMb",
+        "lbLogMaxFiles",
+        "lbLogToConsole",
+        "lbLogThread",
+        "metricsCsvPath",
+        "metricsCsvMaxSizeMb",
+        "metricsCsvMaxFiles"
     };
     private static final String CUBRID_LB_PREFIX = "cubrid.lb.";
 
@@ -118,6 +123,8 @@ public final class LoadBalanceOptionValidator {
                     ignore(key, ignoredKeys, "is not read (loadbalance uses fixed defaults)");
                 } else if (OptionKeys.containsIgnoreCase(REMOVED_KEYS, key)) {
                     ignore(key, ignoredKeys, "was removed in the role-based readWeight redesign");
+                } else if (OptionKeys.containsIgnoreCase(LOGGING_PROPERTIES_KEYS, key)) {
+                    ignore(key, ignoredKeys, "is configured in logging.properties instead");
                 } else if (loadBalanceMode && OptionKeys.containsIgnoreCase(CLASSIC_ONLY, key)) {
                     ignore(key, ignoredKeys, "is not applicable in loadbalance mode");
                 } else if (!loadBalanceMode

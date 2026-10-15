@@ -188,7 +188,7 @@ public class LoadBalanceSettings {
     private final boolean urlDerived;
     // Metrics export settings; DISABLED for property-built and non-loadbalance configs.
     private final MetricsConfig metricsConfig;
-    // LB file-logging settings; DISABLED for property-built and non-loadbalance configs.
+    // LB log-record settings; DEFAULTS for property-built and non-loadbalance configs.
     private final LbLogConfig lbLogConfig;
 
     public static LoadBalanceSettings of(Properties properties) {
@@ -224,8 +224,8 @@ public class LoadBalanceSettings {
         // otherwise, so the exporters can never run outside loadbalance.
         final MetricsConfig metrics =
                 MetricsConfig.parse(parsed.getOptions(), parsed.isLoadBalance());
-        // Same scoping as metrics: file logging is a loadbalance-only feature, so parse() returns
-        // DISABLED elsewhere and the lbLog* options can never reach a physical broker URL.
+        // Same scoping as metrics: the lbLog* options are loadbalance-only, so parse() returns
+        // DEFAULTS elsewhere.
         final LbLogConfig lbLog = LbLogConfig.parse(parsed.getOptions(), parsed.isLoadBalance());
 
         return new LoadBalanceSettings(
@@ -256,7 +256,7 @@ public class LoadBalanceSettings {
                 null,
                 false,
                 MetricsConfig.DISABLED,
-                LbLogConfig.DISABLED);
+                LbLogConfig.DEFAULTS);
     }
 
     private LoadBalanceSettings(
@@ -339,7 +339,7 @@ public class LoadBalanceSettings {
                         : Collections.<String, String>emptyMap();
         this.urlDerived = urlDerived;
         this.metricsConfig = metricsConfig != null ? metricsConfig : MetricsConfig.DISABLED;
-        this.lbLogConfig = lbLogConfig != null ? lbLogConfig : LbLogConfig.DISABLED;
+        this.lbLogConfig = lbLogConfig != null ? lbLogConfig : LbLogConfig.DEFAULTS;
     }
 
     static int clampSqlClassifyCacheMaxEntries(final int parsed) {
@@ -523,10 +523,9 @@ public class LoadBalanceSettings {
     }
 
     /**
-     * LB file-logging settings; {@link LbLogConfig#DISABLED} unless a loadbalance URL named an
-     * {@code lbLogFile}.
+     * LB log-record settings; {@link LbLogConfig#DEFAULTS} outside a loadbalance URL.
      *
-     * @return the LB file-logging settings
+     * @return the LB log-record settings
      */
     public LbLogConfig getLbLogConfig() {
         return lbLogConfig;

@@ -58,9 +58,9 @@ import java.util.logging.Logger;
  *       off".
  * </ol>
  *
- * <p>This cannot go in the {@link cubrid.jdbc.lb.log.LbFileLogging} banner, which fires once per
- * JVM: a JVM may hold several DataSources on different clusters, and all but the first URL would be
- * lost. It cannot be written per connection either, because {@code LoadBalanceSettings.fromUrl}
+ * <p>This cannot go in the {@link cubrid.jdbc.lb.log.LbLogFormatter} banner: it is written whenever
+ * a log file opens and knows nothing of the DataSources, while a JVM may hold several on different
+ * clusters. It cannot be written per connection either, because {@code LoadBalanceSettings.fromUrl}
  * runs on every {@code getConnection} and a hundred-connection pool would repeat the three lines a
  * hundred times. Hence the once-per-configuration gate below.
  *

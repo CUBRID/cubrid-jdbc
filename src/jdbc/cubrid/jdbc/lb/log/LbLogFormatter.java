@@ -30,12 +30,17 @@
 
 package cubrid.jdbc.lb.log;
 
+import cubrid.jdbc.driver.CUBRIDDriver;
+import java.io.File;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.security.CodeSource;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.logging.Formatter;
+import java.util.logging.Handler;
 import java.util.logging.Level;
+import java.util.logging.LogManager;
 import java.util.logging.LogRecord;
 
 /**
@@ -43,8 +48,10 @@ import java.util.logging.LogRecord;
  *
  * <p>The leading field is a sortable timestamp so {@code sort}/{@code grep}/{@code awk -F'|'} all
  * work on the file directly; a thrown exception follows on tab-indented continuation lines, so
- * {@code grep '^20'} still isolates the records. The delimiter and timestamp shape match {@code
- * cubrid.jdbc.log.BasicLogger} so CUBRID's driver-side logs read alike.
+ * {@code grep '^20'} still isolates the records.
+ *
+ * <p>The thread name is added as a field when logging.properties sets {@code
+ * cubrid.jdbc.lb.log.LbLogFormatter.thread = true}.
  *
  * <p>{@code ctx} is the per-connection identifier ({@code conn#7}) supplied by {@link LbLog}; call
  * sites with no connection in scope (URL/option parsing, exporter setup) log through the plain
@@ -68,8 +75,27 @@ public final class LbLogFormatter extends Formatter {
     // ever touched by one thread at a time.
     private final SimpleDateFormat timestamp = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
 
-    public LbLogFormatter(final boolean withThread) {
+    public LbLogFormatter() {
+        this(
+                Boolean.parseBoolean(
+                        LogManager.getLogManager()
+                                .getProperty(LbLogFormatter.class.getName() + ".thread")));
+    }
+
+    LbLogFormatter(final boolean withThread) {
         this.withThread = withThread;
+    }
+
+    /**
+     * Every file opens with the build that wrote it, rotated generations included. Without it, a
+     * stale driver jar reproducing a fixed defect cannot be told from a regression.
+     */
+    @Override
+    public String getHead(final Handler h) {
+        return format(
+                new LogRecord(
+                        Level.INFO,
+                        "LB LOG: driver=" + CUBRIDDriver.version_string + " | " + codeSource()));
     }
 
     @Override
@@ -109,8 +135,7 @@ public final class LbLogFormatter extends Formatter {
     /**
      * Fixed-width level names, so the message column lines up when the file is read directly. The
      * JUL names are mapped to the shorter conventional ones ({@code WARNING} → {@code WARN}, {@code
-     * SEVERE} → {@code ERROR}, {@code FINE} → {@code DEBUG}) that CUBRID's other driver-side log
-     * already uses.
+     * SEVERE} → {@code ERROR}, {@code FINE} → {@code DEBUG}).
      */
     private static String levelName(final Level level) {
         if (level == null) {
@@ -133,6 +158,29 @@ public final class LbLogFormatter extends Formatter {
             return name.substring(0, 5);
         }
         return (name + "     ").substring(0, 5);
+    }
+
+    /**
+     * Which artefact the driver classes were loaded from, and when it was written. Two builds of
+     * one version share the version string, so the path and timestamp are what tell them apart.
+     */
+    private static String codeSource() {
+        try {
+            CodeSource cs = CUBRIDDriver.class.getProtectionDomain().getCodeSource();
+            if (cs == null || cs.getLocation() == null) {
+                return "from=unknown";
+            }
+            File f = new File(cs.getLocation().toURI());
+            return "from="
+                    + f.getPath()
+                    + " ("
+                    + new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date(f.lastModified()))
+                    + ")";
+        } catch (Exception e) {
+            // A security manager, or a location that is not a plain file (a jar inside a war, an
+            // OSGi bundle URL). The version string still identifies the release.
+            return "from=unknown";
+        }
     }
 
     /**

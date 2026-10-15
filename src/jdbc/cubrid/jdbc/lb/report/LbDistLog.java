@@ -101,7 +101,7 @@ public final class LbDistLog {
     /**
      * Arms the record for {@code config} if it asked for one and none is armed yet.
      *
-     * <p>First configuration wins, as with the file handler: the counters this reads from are
+     * <p>First configuration wins, as with the metrics exporters: the counters this reads from are
      * JVM-wide, so a second interval could not give a second cluster its own window anyway.
      *
      * @param config the settings whose {@code lbLogDistIntervalSec} may arm this; ignored when null
@@ -155,23 +155,21 @@ public final class LbDistLog {
     }
 
     /**
-     * Writes the window that was still open at shutdown. Without this the interval before traffic
-     * stopped — often the one being investigated — would never be written, because the emission
-     * needs a statement to ride on and there are no more statements.
+     * Writes the window still open when the last LB connection closes, and again from a shutdown
+     * hook. Without this the interval before traffic stopped — often the one being investigated —
+     * would never be written, because the emission needs a statement to ride on.
      */
     public static void drainFinal() {
         if (!armed) {
             return;
         }
-        long elapsed = (System.currentTimeMillis() - lastEmitMs.get()) / 1000L;
-        emit(elapsed, true);
+        // Restart the window: if connections are opened again, the next one starts from here.
+        long now = System.currentTimeMillis();
+        emit((now - lastEmitMs.getAndSet(now)) / 1000L, true);
     }
 
     private static synchronized void emit(final long windowSec, final boolean isFinal) {
-        // The final emission runs from a shutdown hook, where LogManager.reset() may already have
-        // cleared the logger's level and removed its handlers; the record would be dropped before
-        // being rendered. write() below takes it straight to the file.
-        if (!isFinal && !LOGGER.isLoggable(Level.INFO)) {
+        if (!LOGGER.isLoggable(Level.INFO)) {
             return;
         }
 
@@ -194,26 +192,15 @@ public final class LbDistLog {
             }
 
             String suffix = isFinal ? " (final)" : "";
-            write(isFinal, connLine(endpoints, bound) + suffix);
-            write(isFinal, queryLine(endpoints, delta, windowSec) + suffix);
+            LbLog.info(LOGGER, null, connLine(endpoints, bound) + suffix);
+            LbLog.info(LOGGER, null, queryLine(endpoints, delta, windowSec) + suffix);
 
             String roleLine = roleLine(endpoints, delta, windowSec);
             if (roleLine != null) {
-                write(isFinal, roleLine + suffix);
+                LbLog.info(LOGGER, null, roleLine + suffix);
             }
         } catch (Exception e) {
             LOGGER.warning("LB DIST: cannot render the distribution: " + e);
-        }
-    }
-
-    /**
-     * Periodic records go through the logger; the final one cannot rely on it still being there.
-     */
-    private static void write(final boolean isFinal, final String message) {
-        if (isFinal) {
-            LbLog.atShutdown(LOGGER, Level.INFO, null, message);
-        } else {
-            LbLog.info(LOGGER, null, message);
         }
     }
 

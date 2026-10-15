@@ -106,27 +106,6 @@ public final class LbLog {
         log(logger, level, ctx, message, null);
     }
 
-    /**
-     * Logs a record produced while the JVM is shutting down.
-     *
-     * <p>Prefers a direct append to the LB log file, because by then {@code java.util.logging} may
-     * already have torn the logger down from its own shutdown hook - see {@link
-     * LbFileLogging#appendDirect}. Falls back to the logger when no LB log file is installed, which
-     * is the case when LB records are wired to a container's handler instead.
-     *
-     * @param logger logger to fall back to when no LB log file is installed
-     * @param level level to log at
-     * @param ctx context string (see {@link #conn}), or {@code null}
-     * @param message message to log
-     */
-    public static void atShutdown(
-            final Logger logger, final Level level, final String ctx, final String message) {
-        if (LbFileLogging.appendDirect(level, ctx, message)) {
-            return;
-        }
-        log(logger, level, ctx, message, null);
-    }
-
     private static void log(
             final Logger logger,
             final Level level,

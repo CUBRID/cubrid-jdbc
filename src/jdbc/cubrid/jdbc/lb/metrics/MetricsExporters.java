@@ -35,13 +35,8 @@ import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 import cubrid.jdbc.lb.config.MetricsConfig;
 import cubrid.jdbc.lb.failover.UnreachableEndpoints;
-import cubrid.jdbc.lb.log.LbFileRotation;
-import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.io.OutputStreamWriter;
-import java.io.Writer;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.text.SimpleDateFormat;
@@ -61,9 +56,9 @@ import java.util.logging.Logger;
  *   <li><b>Prometheus</b> is a passive {@code /metrics} HTTP endpoint (pull): it does no work until
  *       a Prometheus server scrapes it, then reads {@link MetricsRegistry} and renders the text
  *       exposition format. The scrape period is the Prometheus server's {@code scrape_interval}.
- *   <li><b>CSV</b> is an active daemon thread that appends one row per endpoint every {@code
- *       metricsIntervalSec} to a local file. Reads/writes happen off the application's query
- *       threads.
+ *   <li><b>CSV</b> is an active daemon thread that logs one row per endpoint every {@code
+ *       metricsIntervalSec} to the {@code cubrid.jdbc.lb.metrics.csv} logger, off the application's
+ *       query threads. Where the rows land is set in logging.properties.
  * </ul>
  */
 public final class MetricsExporters {
@@ -75,7 +70,6 @@ public final class MetricsExporters {
     private static HttpServer prometheusServer;
     private static Thread prometheusWatch;
     private static boolean csvStarted;
-    private static String csvDir;
     private static Thread csvThread;
 
     private MetricsExporters() {}
@@ -97,11 +91,7 @@ public final class MetricsExporters {
                         config.getIntervalSec());
             }
             if (config.exportsCsv()) {
-                startCsv(
-                        config.getCsvPath(),
-                        config.getIntervalSec(),
-                        config.getCsvMaxSizeMb(),
-                        config.getCsvMaxFiles());
+                startCsv(config.getIntervalSec());
             }
         }
     }
@@ -131,7 +121,6 @@ public final class MetricsExporters {
                 csvThread = null;
             }
             csvStarted = false;
-            csvDir = null;
         }
     }
 
@@ -144,7 +133,6 @@ public final class MetricsExporters {
             if (csvThread == self) {
                 csvThread = null;
                 csvStarted = false;
-                csvDir = null;
             }
         }
     }
@@ -253,38 +241,20 @@ public final class MetricsExporters {
                         + " restarts with the next connection");
     }
 
-    private static void startCsv(
-            final String dir, final int intervalSec, final int maxSizeMb, final int maxFiles) {
+    private static void startCsv(final int intervalSec) {
         if (csvStarted) {
-            if (dir != null && !dir.equals(csvDir)) {
-                LOGGER.warning(
-                        "CSV exporter already writing to '"
-                                + csvDir
-                                + "'; ignoring conflicting metricsCsvPath="
-                                + dir);
-            }
             return;
         }
-        Thread t =
-                new Thread(new CsvWriter(dir, intervalSec, maxSizeMb, maxFiles), "lb-metrics-csv");
+        Thread t = new Thread(new CsvWriter(intervalSec), "lb-metrics-csv");
         t.setDaemon(true);
         t.start();
         csvThread = t;
         csvStarted = true;
-        csvDir = dir;
         LOGGER.info(
-                "LB metrics: CSV exporter writing to '"
-                        + dir
-                        + "' every "
+                "LB metrics: CSV rows every "
                         + intervalSec
-                        + "s"
-                        + (maxSizeMb > 0
-                                ? " (rotate at "
-                                        + maxSizeMb
-                                        + "MB, keeping "
-                                        + maxFiles
-                                        + " generations)"
-                                : " (rotation disabled)"));
+                        + "s to the logger "
+                        + CsvWriter.CSV_LOGGER.getName());
     }
 
     private static String localHost() {
@@ -544,26 +514,16 @@ public final class MetricsExporters {
     private static final int IDLE_PERIODS_BEFORE_STOP = 5;
 
     private static final class CsvWriter implements Runnable {
-        private static final String HEADER =
-                "ts,host,endpoint,role,read,write,fallback,bound,up,failover_in,failback_in,"
-                        + "ro_on_rw_sessions,"
-                        + "read_p50_ms,read_p95_ms,read_p99_ms,read_avg_ms,"
-                        + "write_p50_ms,write_p95_ms,write_p99_ms,write_avg_ms\n";
-        private final File file;
+        // Not under cubrid.jdbc.lb.metrics.MetricsExporters, whose records are not CSV rows.
+        static final Logger CSV_LOGGER = Logger.getLogger("cubrid.jdbc.lb.metrics.csv");
+
         private final long periodMs;
         private final String host;
-        private final long maxBytes;
-        private final int maxFiles;
         private final SimpleDateFormat ts = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 
-        CsvWriter(
-                final String dir, final int intervalSec, final int maxSizeMb, final int maxFiles) {
+        CsvWriter(final int intervalSec) {
             this.host = localHost();
             this.periodMs = Math.max(1, intervalSec) * 1000L;
-            File d = new File(dir == null ? "." : dir);
-            this.file = new File(d, "lb-metrics-" + this.host + ".csv");
-            this.maxBytes = maxSizeMb <= 0 ? 0L : maxSizeMb * 1024L * 1024L;
-            this.maxFiles = Math.max(0, maxFiles);
         }
 
         public void run() {
@@ -605,8 +565,10 @@ public final class MetricsExporters {
             }
         }
 
-        private void writeOnce() throws IOException {
-            // Snapshot first (the registry copies under its own lock), then do file I/O unlocked.
+        private void writeOnce() {
+            if (!CSV_LOGGER.isLoggable(Level.INFO)) {
+                return;
+            }
             Map<String, long[]> byEndpoint = MetricsRegistry.aggregateByEndpoint();
             if (byEndpoint.isEmpty()) {
                 return;
@@ -621,58 +583,28 @@ public final class MetricsExporters {
             // Session-wide gauge, repeated on every row so a single row is self-contained.
             String roOnRw = Integer.toString(MetricsRegistry.countRoOnRwSessions());
             String now = ts.format(new Date());
-            File parent = file.getParentFile();
-            // bound disk use; a rotated-away file makes the next write re-emit the header
-            try {
-                LbFileRotation.rotateIfOversized(file, maxBytes, maxFiles);
-            } catch (IOException notRotated) {
-                LOGGER.warning("LB metrics: " + notRotated.getMessage());
-            }
-            if (parent != null && !parent.exists()) {
-                parent.mkdirs();
-            }
-            boolean fresh = !file.exists() || file.length() == 0;
-            OutputStream out = new FileOutputStream(file, true);
-            Writer w = new OutputStreamWriter(out, "UTF-8");
-            try {
-                if (fresh) {
-                    w.write(HEADER);
-                }
-                for (Map.Entry<String, long[]> e : byEndpoint.entrySet()) {
-                    String id = e.getKey();
-                    long[] v = e.getValue();
-                    Integer bound = boundByEndpoint.get(id);
-                    w.write(now);
-                    w.write(',');
-                    w.write(host);
-                    w.write(',');
-                    w.write(id);
-                    w.write(',');
-                    w.write(MetricsRegistry.roleOf(id));
-                    w.write(',');
-                    w.write(Long.toString(v[0]));
-                    w.write(',');
-                    w.write(Long.toString(v[1]));
-                    w.write(',');
-                    w.write(Long.toString(v[2]));
-                    w.write(',');
-                    w.write(Integer.toString(bound == null ? 0 : bound.intValue()));
-                    w.write(',');
-                    w.write(UnreachableEndpoints.isEndpointIdUnreachable(id) ? "0" : "1");
-                    w.write(',');
-                    w.write(Long.toString(count(failoverIn, id)));
-                    w.write(',');
-                    w.write(Long.toString(count(failbackIn, id)));
-                    w.write(',');
-                    w.write(roOnRw);
-                    MetricsRegistry.EndpointLatency lat = latByEndpoint.get(id);
-                    appendLatencyCols(w, lat, true); // read p50,p95,p99,avg
-                    appendLatencyCols(w, lat, false); // write p50,p95,p99,avg
-                    w.write('\n');
-                }
-                w.flush();
-            } finally {
-                w.close();
+            for (Map.Entry<String, long[]> e : byEndpoint.entrySet()) {
+                String id = e.getKey();
+                long[] v = e.getValue();
+                Integer bound = boundByEndpoint.get(id);
+                StringBuilder row = new StringBuilder(160);
+                row.append(now).append(',');
+                row.append(host).append(',');
+                row.append(id).append(',');
+                row.append(MetricsRegistry.roleOf(id)).append(',');
+                row.append(v[0]).append(',');
+                row.append(v[1]).append(',');
+                row.append(v[2]).append(',');
+                row.append(bound == null ? 0 : bound.intValue()).append(',');
+                row.append(UnreachableEndpoints.isEndpointIdUnreachable(id) ? "0" : "1")
+                        .append(',');
+                row.append(count(failoverIn, id)).append(',');
+                row.append(count(failbackIn, id)).append(',');
+                row.append(roOnRw);
+                MetricsRegistry.EndpointLatency lat = latByEndpoint.get(id);
+                appendLatencyCols(row, lat, true); // read p50,p95,p99,avg
+                appendLatencyCols(row, lat, false); // write p50,p95,p99,avg
+                CSV_LOGGER.info(row.toString());
             }
         }
 
@@ -697,8 +629,9 @@ public final class MetricsExporters {
 
         /** Appends {@code ,p50,p95,p99,avg} (ms) for the read or write latency of one endpoint. */
         private static void appendLatencyCols(
-                final Writer w, final MetricsRegistry.EndpointLatency lat, final boolean read)
-                throws IOException {
+                final StringBuilder row,
+                final MetricsRegistry.EndpointLatency lat,
+                final boolean read) {
             long[] buckets = null;
             long count = 0L;
             double sumMs = 0.0d;
@@ -707,14 +640,14 @@ public final class MetricsExporters {
                 count = read ? lat.getReadCount() : lat.getWriteCount();
                 sumMs = read ? lat.getReadSumMs() : lat.getWriteSumMs();
             }
-            w.write(',');
-            w.write(csvNum(histoQuantile(buckets, count, 50.0d)));
-            w.write(',');
-            w.write(csvNum(histoQuantile(buckets, count, 95.0d)));
-            w.write(',');
-            w.write(csvNum(histoQuantile(buckets, count, 99.0d)));
-            w.write(',');
-            w.write(csvNum(count == 0L ? 0.0d : sumMs / count));
+            row.append(',');
+            row.append(csvNum(histoQuantile(buckets, count, 50.0d)));
+            row.append(',');
+            row.append(csvNum(histoQuantile(buckets, count, 95.0d)));
+            row.append(',');
+            row.append(csvNum(histoQuantile(buckets, count, 99.0d)));
+            row.append(',');
+            row.append(csvNum(count == 0L ? 0.0d : sumMs / count));
         }
 
         /**

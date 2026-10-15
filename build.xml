@@ -85,8 +85,6 @@
 
     <!-- Test targets -->
     <property name="test.src" value="${basedir}/src/test"/>
-    <!-- ant's own: an IDE writing to output/bin-test (as a local .classpath may) overwrites it with
-         classes of the IDE's JDK, which the Java 8 test run cannot load -->
     <property name="bin-test" location="${output}/ant-bin-test"/>
     <property name="test.lib" value="${basedir}/lib/test"/>
 

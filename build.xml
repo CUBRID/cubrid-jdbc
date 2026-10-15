@@ -4,6 +4,14 @@
 <project default="dist-cubrid" name="CUBRID JDBC Driver">
     <property name="output" value="${basedir}/output"/>
     <property file="${output}/build.properties" />
+    <!-- Without build.sh (e.g. `ant test` right after a clone) there is no build.properties: fall
+         back to VERSION with serial 0000, as gen_version.cmake does when git gives no count. -->
+    <loadfile property="base-version" srcFile="${basedir}/VERSION">
+        <filterchain>
+            <striplinebreaks/>
+        </filterchain>
+    </loadfile>
+    <property name="version" value="${base-version}.0000"/>
     <property name="cubrid-jar-file" value="${basedir}/cubrid-jdbc-${version}.jar"/>
     <property name="cubrid-src-jar-file" value="${basedir}/cubrid-jdbc-${version}-sources.jar"/>
     <property name="cubrid-doc-jar-file" value="${basedir}/cubrid-jdbc-${version}-javadoc.jar"/>
@@ -20,8 +28,7 @@
         <delete failonerror="false" includeEmptyDirs="true">
             <fileset dir="${bin-cubrid}"/>
             <fileset dir="${src-cubrid}"/>
-            <!-- Eclipse/IDE may write broken stubs here; must be wiped or ant compile-test skips javac -->
-            <fileset dir="${output}/bin-test"/>
+            <fileset dir="${bin-test}"/>
             <fileset dir="${basedir}">
                 <include name="*.jar"/>
             </fileset>
@@ -31,6 +38,7 @@
     <target name="src-jar-cubrid" depends="clean">
         <mkdir dir="${bin-cubrid}"/>
         <mkdir dir="${src-cubrid}"/>
+        <touch file="${output}/CUBRID-JDBC-${version}" mkdirs="true"/>
         <copy file="${output}/CUBRID-JDBC-${version}" tofile="${src-cubrid}/CUBRID-JDBC-${version}"/>
         <copy todir="${src-cubrid}" filtering="true">
             <fileset dir="${src}/jdbc">
@@ -77,7 +85,9 @@
 
     <!-- Test targets -->
     <property name="test.src" value="${basedir}/src/test"/>
-    <property name="bin-test" location="${output}/bin-test"/>
+    <!-- ant's own: an IDE writing to output/bin-test (as a local .classpath may) overwrites it with
+         classes of the IDE's JDK, which the Java 8 test run cannot load -->
+    <property name="bin-test" location="${output}/ant-bin-test"/>
     <property name="test.lib" value="${basedir}/lib/test"/>
 
     <path id="test.classpath">

@@ -35,6 +35,7 @@ import cubrid.jdbc.jci.UColumnInfo;
 import cubrid.jdbc.jci.UError;
 import cubrid.jdbc.jci.UErrorCode;
 import cubrid.jdbc.jci.UStatement;
+import cubrid.jdbc.jci.UUType;
 import cubrid.sql.CUBRIDOID;
 import java.io.Closeable;
 import java.io.IOException;
@@ -1351,7 +1352,7 @@ public class CUBRIDResultSet implements ResultSet {
         for (int i = 0; i < column_info.length; i++) {
             if (!updated[i]) continue;
             indices[j] = i;
-            values[j++] = updates[i];
+            values[j++] = internalLobUpdateValue(i, updates[i]);
         }
 
         u_stmt.updateRows(current_row, indices, values);
@@ -1369,6 +1370,17 @@ public class CUBRIDResultSet implements ResultSet {
         } else {
             clearCurrentRow();
         }
+    }
+
+    /* a Blob/Clob for a BLOB/CLOB column goes to the server as an internal LOB upload */
+    private Object internalLobUpdateValue(int column, Object value) throws SQLException {
+        byte type = column_info[column].getColumnType();
+        if ((type == UUType.U_TYPE_BLOB && value instanceof Blob)
+                || (type == UUType.U_TYPE_CLOB && value instanceof Clob)) {
+            CUBRIDInternalLobUpload upload = CUBRIDInternalLobUpload.of(con, value);
+            return UStatement.internalLobUpload(upload.isBlob(), upload.finish(), upload.length());
+        }
+        return value;
     }
 
     public synchronized void deleteRow() throws SQLException {

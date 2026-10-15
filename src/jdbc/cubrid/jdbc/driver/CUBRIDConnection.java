@@ -618,7 +618,11 @@ public class CUBRIDConnection implements Connection {
 
     protected void autoCommit() throws SQLException {
         checkIsOpen();
-        if (auto_commit) commit();
+        /* A statement that opened a stream session is not finished when execute
+         * returns -- the bytes still have to be sent -- so committing here would
+         * end the stream before the first chunk. The CAS holds this commit and
+         * pays it at the stream's END, with the mode the statement ran in. */
+        if (auto_commit && !u_con.isStreamOpen()) commit();
     }
 
     protected void autoRollback() throws SQLException {
@@ -762,16 +766,27 @@ public class CUBRIDConnection implements Connection {
         outRs.add(rs);
     }
 
-    /* JDK 1.6 */
+    /* JDK 1.6. Its bytes are held in the driver and sent when it is bound (or its stream is
+     * closed), so other statements may run while it is filled. */
     public Blob createBlob() throws SQLException {
         Blob blob = new CUBRIDBlob(this);
         return blob;
     }
 
-    /* JDK 1.6 */
+    /* JDK 1.6. Held and sent like createBlob (). */
     public Clob createClob() throws SQLException {
         Clob clob = new CUBRIDClob(this, getUConnection().getCharset());
         return clob;
+    }
+
+    /* an external LOB (BFILE): its bytes live in a file outside the database */
+    public Blob createBfile() throws SQLException {
+        return new CUBRIDBfile(this);
+    }
+
+    /* an external LOB (CFILE) */
+    public Clob createCfile() throws SQLException {
+        return new CUBRIDCfile(this, getUConnection().getCharset());
     }
 
     private void end(boolean commit) throws SQLException {
@@ -896,6 +911,78 @@ public class CUBRIDConnection implements Connection {
                 throw createCUBRIDException(error);
         }
 
+        return result;
+    }
+
+    /*
+     * Shared client->server byte-stream transport. Used after executing
+     * COPY <table> FROM STDIN: send the encoded payload with streamData(),
+     * then streamEnd() to finish; streamEnd() returns the number of rows loaded.
+     */
+    public synchronized int streamInit(int streamKind, byte[] config) throws SQLException {
+        checkIsOpen();
+        int result;
+        synchronized (u_con) {
+            result = u_con.streamInit(streamKind, config);
+            error = u_con.getRecentError();
+        }
+        if (error.getErrorCode() != UErrorCode.ER_NO_ERROR) throw createCUBRIDException(error);
+        u_con.noteStreamSessionChange();
+        return result;
+    }
+
+    /* an upload compares it to tell its session was dropped or replaced */
+    synchronized long getStreamSessionCount() {
+        return u_con.getStreamSessionCount();
+    }
+
+    public synchronized int streamData(byte[] data) throws SQLException {
+        return streamData(data, 0, data.length);
+    }
+
+    public synchronized int streamData(byte[] data, int start, int len) throws SQLException {
+        checkIsOpen();
+        int result;
+
+        synchronized (u_con) {
+            result = u_con.streamSendData(data, start, len);
+            error = u_con.getRecentError();
+        }
+
+        switch (error.getErrorCode()) {
+            case UErrorCode.ER_NO_ERROR:
+                break;
+            default:
+                throw createCUBRIDException(error);
+        }
+
+        return result;
+    }
+
+    public synchronized long streamEndResult() throws SQLException {
+        checkIsOpen();
+        long result;
+        synchronized (u_con) {
+            result = u_con.streamEndResult();
+            error = u_con.getRecentError();
+        }
+        if (error.getErrorCode() != UErrorCode.ER_NO_ERROR) throw createCUBRIDException(error);
+        return result;
+    }
+
+    public synchronized int streamEnd() throws SQLException {
+        long result = streamEndResult();
+        return result > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) result;
+    }
+
+    public synchronized int streamAbort() throws SQLException {
+        checkIsOpen();
+        int result;
+        synchronized (u_con) {
+            result = u_con.streamAbort();
+            error = u_con.getRecentError();
+        }
+        if (error.getErrorCode() != UErrorCode.ER_NO_ERROR) throw createCUBRIDException(error);
         return result;
     }
 

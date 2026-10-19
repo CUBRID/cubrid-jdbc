@@ -227,6 +227,17 @@ public class BrokerHandler {
                 toBroker.close();
             }
             throw new UJciException(UErrorCode.ER_CONNECTION, e);
+        } catch (UJciException e) {
+            /* An error code from the broker, or a TLS handshake that failed, leaves the socket open:
+             * JSSE closes it on a fatal alert but not on a read timeout (JDK 11 and later). A close
+             * that fails must not hide the error. */
+            if (toBroker != null) {
+                try {
+                    toBroker.close();
+                } catch (IOException ignored) {
+                }
+            }
+            throw e;
         } finally {
         }
     }

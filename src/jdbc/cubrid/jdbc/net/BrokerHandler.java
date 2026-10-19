@@ -419,9 +419,14 @@ public class BrokerHandler {
         try {
             ctx = SSLContext.getInstance("TLS");
             if (sslMode.verifiesCertificate()) {
+                /* getTrustStore() never gives null here, but connectBroker() is public: null would
+                 * make tmf.init() take the JVM cacerts, and withDateCheck() throw an NPE. */
+                if (trustStore == null) {
+                    throw new UJciException(UErrorCode.ER_CONNECTION);
+                }
                 TrustManagerFactory tmf =
                         TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
-                tmf.init(trustStore); /* never null: getTrustStore() refuses that */
+                tmf.init(trustStore);
                 ctx.init(null, withDateCheck(tmf.getTrustManagers(), trustStore), null);
             } else {
                 ctx.init(null, new TrustManager[] {TRUST_ALL_TM}, new SecureRandom());

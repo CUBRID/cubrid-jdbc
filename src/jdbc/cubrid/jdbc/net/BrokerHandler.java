@@ -285,6 +285,8 @@ public class BrokerHandler {
         return status;
     }
 
+    /* session is null when the broker is older than PROTOCOL_V13; such a broker reads only the
+     * 10-byte header and would leave an appended session id unread in its socket. */
     public static void cancelBroker(String ip, int port, int process, byte[] session, int timeout)
             throws IOException, UJciException {
         ByteArrayOutputStream bao = new ByteArrayOutputStream(14);
@@ -292,13 +294,19 @@ public class BrokerHandler {
         dao.write('X');
         dao.write('1');
         dao.write(UConnection.driverInfo[6]);
-        /* Set the session-cancel capability bit only on this cancel request, not on the shared
-         * driverInfo array used for the main connect handshake, matching cubrid-cci's approach. */
-        dao.write(UConnection.driverInfo[7] | UConnection.CAS_SUPPORT_SESSION_CANCEL);
+        if (session != null) {
+            /* Set the session-cancel capability bit only on this cancel request, not on the shared
+             * driverInfo array used for the main connect handshake, matching cubrid-cci's approach. */
+            dao.write(UConnection.driverInfo[7] | UConnection.CAS_SUPPORT_SESSION_CANCEL);
+        } else {
+            dao.write(UConnection.driverInfo[7]);
+        }
         dao.write(UConnection.driverInfo[8]);
         dao.write(UConnection.driverInfo[9]);
         dao.writeInt(process);
-        dao.write(session);
+        if (session != null) {
+            dao.write(session);
+        }
 
         cancelRequest(ip, port, bao.toByteArray(), timeout);
     }

@@ -1398,8 +1398,13 @@ public abstract class UConnection {
     }
 
     void cancel() throws UJciException, IOException {
-        byte[] session = new byte[4];
-        for (int i = 0; i < 4; i++) session[i] = sessionId[i + 8];
+        byte[] session = null;
+
+        /* Only a PROTOCOL_V13 or later broker reads the session id appended to the cancel request. */
+        if (brokerProtocolVersion() >= PROTOCOL_V13) {
+            session = new byte[4];
+            for (int i = 0; i < 4; i++) session[i] = sessionId[i + 8];
+        }
 
         BrokerHandler.cancelBroker(casIp, casPort, casProcessId, session, READ_TIMEOUT);
     }

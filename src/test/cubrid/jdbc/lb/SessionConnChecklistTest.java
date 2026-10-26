@@ -32,6 +32,7 @@ package cubrid.jdbc.lb;
 
 import static org.junit.Assert.assertEquals;
 
+import cubrid.jdbc.lb.LoadBalanceConnection.PhysicalResourceReleaser;
 import cubrid.jdbc.lb.connection.SimpleEndpointConnManager;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
@@ -49,7 +50,7 @@ public final class SessionConnChecklistTest {
         LoadBalanceConnection connection = createSessionConnection("round_robin", null);
         connection.trackStatement(createTrackingStatement(events));
         connection.setPhysicalResourceReleaser(
-                new LoadBalanceConnection.PhysicalResourceReleaser() {
+                new PhysicalResourceReleaser() {
                     public void releasePreparedStatements() {
                         events.add("releasePrepared");
                     }

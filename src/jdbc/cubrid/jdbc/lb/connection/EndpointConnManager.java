@@ -31,6 +31,7 @@
 package cubrid.jdbc.lb.connection;
 
 import cubrid.jdbc.lb.LoadBalanceConnection;
+import cubrid.jdbc.lb.LoadBalanceConnection.PhysicalResourceReleaser;
 import cubrid.jdbc.lb.SessionLeg;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
@@ -47,7 +48,7 @@ import java.sql.SQLException;
  * <p>Implementations: {@link SessionPhysicalConnManager}. {@link #bindSession} may try alternate
  * brokers from {@link cubrid.jdbc.lb.config.EndpointTopology} on connect failure.
  */
-public interface EndpointConnManager extends LoadBalanceConnection.PhysicalResourceReleaser {
+public interface EndpointConnManager extends PhysicalResourceReleaser {
 
     /** Applies the owning session's state (autoCommit/isolation/schema/...) to a physical conn. */
     interface SessionStateApplier {

@@ -46,17 +46,11 @@ import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.math.BigDecimal;
-import java.net.URL;
-import java.sql.Array;
 import java.sql.Blob;
 import java.sql.Clob;
 import java.sql.Date;
-import java.sql.NClob;
 import java.sql.PreparedStatement;
-import java.sql.Ref;
-import java.sql.RowId;
 import java.sql.SQLException;
-import java.sql.SQLXML;
 import java.sql.Time;
 import java.sql.Timestamp;
 import java.sql.Types;
@@ -195,7 +189,6 @@ public class ParameterBinderTest {
         ByteArrayInputStream binaryStream = new ByteArrayInputStream(new byte[] {1, 2, 3});
         ByteArrayInputStream asciiStream = new ByteArrayInputStream(new byte[] {65, 66});
         StringReader reader = new StringReader("lb-jdbc");
-        URL url = new URL("http://localhost/test");
         Blob blob =
                 (Blob)
                         Proxy.newProxyInstance(
@@ -207,36 +200,6 @@ public class ParameterBinderTest {
                         Proxy.newProxyInstance(
                                 Clob.class.getClassLoader(),
                                 new Class[] {Clob.class},
-                                new NoOpHandler());
-        NClob nclob =
-                (NClob)
-                        Proxy.newProxyInstance(
-                                NClob.class.getClassLoader(),
-                                new Class[] {NClob.class},
-                                new NoOpHandler());
-        Ref ref =
-                (Ref)
-                        Proxy.newProxyInstance(
-                                Ref.class.getClassLoader(),
-                                new Class[] {Ref.class},
-                                new NoOpHandler());
-        Array array =
-                (Array)
-                        Proxy.newProxyInstance(
-                                Array.class.getClassLoader(),
-                                new Class[] {Array.class},
-                                new NoOpHandler());
-        RowId rowId =
-                (RowId)
-                        Proxy.newProxyInstance(
-                                RowId.class.getClassLoader(),
-                                new Class[] {RowId.class},
-                                new NoOpHandler());
-        SQLXML sqlxml =
-                (SQLXML)
-                        Proxy.newProxyInstance(
-                                SQLXML.class.getClassLoader(),
-                                new Class[] {SQLXML.class},
                                 new NoOpHandler());
 
         binder.recordSetNull(1, Types.INTEGER);
@@ -258,35 +221,17 @@ public class ParameterBinderTest {
         binder.recordSetTimestamp(17, timestamp);
         binder.recordSetTimestamp(18, timestamp, calendar);
         binder.recordSetAsciiStream(19, asciiStream, 2);
-        binder.recordSetAsciiStream(20, asciiStream, 2L);
-        binder.recordSetAsciiStream(21, asciiStream);
-        binder.recordSetUnicodeStream(22, binaryStream, 3);
         binder.recordSetBinaryStream(23, binaryStream, 3);
-        binder.recordSetBinaryStream(24, binaryStream, 3L);
-        binder.recordSetBinaryStream(25, binaryStream);
         binder.recordSetObject(26, "obj", Types.VARCHAR);
         binder.recordSetObject(27, "obj");
         binder.recordSetObject(28, "obj", Types.VARCHAR, 10);
         binder.recordSetCharacterStream(29, reader, 4);
-        binder.recordSetCharacterStream(30, reader, 4L);
-        binder.recordSetCharacterStream(31, reader);
-        binder.recordSetRef(32, ref);
         binder.recordSetBlob(33, blob);
         binder.recordSetBlob(34, binaryStream, 3L);
         binder.recordSetBlob(35, binaryStream);
         binder.recordSetClob(36, clob);
         binder.recordSetClob(37, reader, 4L);
         binder.recordSetClob(38, reader);
-        binder.recordSetArray(39, array);
-        binder.recordSetURL(40, url);
-        binder.recordSetRowId(41, rowId);
-        binder.recordSetNString(42, "nstr");
-        binder.recordSetNCharacterStream(43, reader, 4L);
-        binder.recordSetNCharacterStream(44, reader);
-        binder.recordSetNClob(45, nclob);
-        binder.recordSetNClob(46, reader, 4L);
-        binder.recordSetNClob(47, reader);
-        binder.recordSetSQLXML(48, sqlxml);
         binder.recordSetOID(49, (CUBRIDOID) null);
         binder.recordSetCollection(50, new Object[] {"a", Integer.valueOf(1)});
         binder.recordSetTimestamptz(51, (CUBRIDTimestamptz) null);
@@ -296,7 +241,7 @@ public class ParameterBinderTest {
         PreparedStatement target = handler.createProxy();
         binder.replay(target);
 
-        assertEquals(52, handler.calls.size());
+        assertEquals(34, handler.calls.size());
         assertTrue(handler.calls.contains("setCollection:2:50"));
         assertTrue(handler.calls.contains("setTimestamptz:2:51"));
         assertTrue(handler.calls.contains("setTimestamptz:3:52"));

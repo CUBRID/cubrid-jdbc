@@ -37,6 +37,7 @@ import static org.junit.Assert.assertTrue;
 import cubrid.jdbc.driver.CUBRIDException;
 import cubrid.jdbc.driver.CUBRIDJDBCErrorCode;
 import java.sql.SQLException;
+import java.sql.SQLFeatureNotSupportedException;
 import org.junit.Test;
 
 public class LbExceptionsTest {
@@ -98,10 +99,23 @@ public class LbExceptionsTest {
     }
 
     @Test
-    public void notSupportedUsesCoreErrorCode() {
-        CUBRIDException ex = LbExceptions.notSupported();
+    public void featureNotSupportedMatchesCore() {
+        SQLFeatureNotSupportedException ex = LbExceptions.featureNotSupported();
 
         assertEquals(CUBRIDJDBCErrorCode.not_supported, ex.getErrorCode());
+        assertEquals(
+                CUBRIDJDBCErrorCode.getMessage(CUBRIDJDBCErrorCode.not_supported), ex.getMessage());
+    }
+
+    @Test
+    public void cannotUnwrapMatchesCore() {
+        CUBRIDException ex = LbExceptions.cannotUnwrap(java.sql.Array.class);
+
+        assertEquals(CUBRIDJDBCErrorCode.invalid_value, ex.getErrorCode());
+        assertEquals(
+                CUBRIDJDBCErrorCode.getMessage(CUBRIDJDBCErrorCode.invalid_value)
+                        + " - cannot unwrap to java.sql.Array",
+                ex.getMessage());
     }
 
     @Test

@@ -144,7 +144,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     private PhysicalResourceReleaser physicalResourceReleaser = new NoOpPhysicalResourceReleaser();
     private SharedSelectorState selState = null;
     // The role whose weighted-home slot this session holds in selState, so close() can give it
-    // back. volatile for the same reason as `closed`: close()/abort() may run on another thread.
+    // back. volatile for the same reason as `closed`: close() may run on another thread.
     private volatile NodeRole homeReadRole = null;
     private Endpoint currentRwEndpoint = null;
     private Endpoint currentRoEndpoint = null;
@@ -162,15 +162,13 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     private boolean sessionInitialized;
     private long lastReadFailbackAttemptMs = 0L;
     private long lastRwFailbackAttemptMs = 0L;
-    // volatile: close()/abort() may run on a pool-eviction or abort() thread other than the one
-    // using the connection, so the closed flag must be visible across threads.
+    // volatile: close() may run on a pool-eviction thread other than the one using the
+    // connection, so the closed flag must be visible across threads.
     private volatile boolean closed = false;
     private int transactionIsolation = Connection.TRANSACTION_READ_COMMITTED;
     private int holdability = ResultSet.HOLD_CURSORS_OVER_COMMIT;
-    private int networkTimeout;
     private boolean readOnly = false;
     private String catalog = null;
-    private String schema = null;
     private Integer lockTimeout = null;
     private String charset = null;
 
@@ -396,7 +394,8 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                 new SessionPhysicalConnManager(
                         url, LbProps.copy(info), config, connectionFactory, backoff));
         // initSessionBindings opens physical connections and then applies session state
-        // (isolation/schema/...). If a post-bind step throws, the bound physical connections would
+        // (isolation/holdability/...). If a post-bind step throws, the bound physical connections
+        // would
         // leak, because this half-built LoadBalanceConnection is never returned and the caller
         // never close()s it. Close it here before propagating.
         try {
@@ -835,7 +834,6 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         mgr.applyPhyAutoCommit(sessionState.isAutoCommit());
         if (tryMaterializeBothLegs()) {
             applyTxnIsolation().rethrow();
-            applySchema().rethrow();
             applyLockTimeout().rethrow();
             applyCasChangeMode().rethrow();
             applyHoldability().rethrow();
@@ -1300,7 +1298,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             return;
         }
         // Publish closed before releasing, so a concurrent user thread's checkClosed() sees it and
-        // does not start new work against half-released state. abort() delegates here.
+        // does not start new work against half-released state.
         closed = true;
         // Logged before the release work and with the endpoints still readable: a pool discarding
         // healthy connections shows up as many very short lifetimes on particular endpoints, and
@@ -1353,7 +1351,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
 
     private void closeOpenStatements() {
         // Snapshot-and-clear under the list monitor so a concurrent trackStatement() (app thread)
-        // cannot corrupt the list or trigger ConcurrentModificationException while close()/abort()
+        // cannot corrupt the list or trigger ConcurrentModificationException while close()
         // (possibly another thread) drains it. Close outside the lock: each stmt.close() calls back
         // into untrackStatement(), and the list is already cleared so that remove is a no-op.
         List<Statement> snapshot;
@@ -1852,36 +1850,11 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     public void setSchema(String schema) throws SQLException {
-        checkClosed();
-        final String previous = this.schema;
-        this.schema = schema;
-        LegOutcome outcome = applySchema();
-        if (outcome.rwFailed()) {
-            this.schema = previous;
-        }
-        outcome.rethrow();
-        if (isSessionInitialized()) {
-            recordRwCmd("setSchema");
-        }
+        throw LbExceptions.featureNotSupported();
     }
 
     public String getSchema() throws SQLException {
-        checkClosed();
-        if (isSessionInitialized()) {
-            String delegated =
-                    runRwCommand(
-                            "getSchema",
-                            new ExecuteFailoverHandler.SqlExecution<String>() {
-                                public String run() throws SQLException {
-                                    return getPhysicalConnForCmd(SessionLeg.RW).getSchema();
-                                }
-                            });
-            schema = delegated;
-
-            return delegated;
-        }
-
-        return schema;
+        throw LbExceptions.featureNotSupported();
     }
 
     public int getHoldability() throws SQLException {
@@ -1950,51 +1923,19 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     public Map<String, Class<?>> getTypeMap() throws SQLException {
-        checkClosed();
-
         throw LbExceptions.featureNotSupported();
     }
 
     public void setTypeMap(Map<String, Class<?>> map) throws SQLException {
-        checkClosed();
-
         throw LbExceptions.featureNotSupported();
     }
 
     public void setNetworkTimeout(Executor executor, int milliseconds) throws SQLException {
-        checkClosed();
-        final int previous = networkTimeout;
-        networkTimeout = milliseconds;
-        LegOutcome outcome = applyNetTimeout();
-        if (outcome.rwFailed()) {
-            networkTimeout = previous;
-        }
-        outcome.rethrow();
-        if (isSessionInitialized()) {
-            recordRwCmd("setNetworkTimeout");
-        }
+        throw LbExceptions.featureNotSupported();
     }
 
     public int getNetworkTimeout() throws SQLException {
-        checkClosed();
-        if (isSessionInitialized()) {
-            int delegated =
-                    runRwCommand(
-                                    "getNetworkTimeout",
-                                    new ExecuteFailoverHandler.SqlExecution<Integer>() {
-                                        public Integer run() throws SQLException {
-                                            return Integer.valueOf(
-                                                    getPhysicalConnForCmd(SessionLeg.RW)
-                                                            .getNetworkTimeout());
-                                        }
-                                    })
-                            .intValue();
-            networkTimeout = delegated;
-
-            return delegated;
-        }
-
-        return networkTimeout;
+        throw LbExceptions.featureNotSupported();
     }
 
     /**
@@ -2011,9 +1952,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     public String nativeSQL(String sql) throws SQLException {
-        checkClosed();
-
-        return sql;
+        throw LbExceptions.featureNotSupported();
     }
 
     /* ===== Connection: unsupported deferred API =====*/
@@ -2121,9 +2060,9 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     public void releaseSavepoint(Savepoint savepoint) throws SQLException {
+        // Unlike the other refusals, core checks the connection first here.
         checkClosed();
-        getPhysicalConnForCmd(SessionLeg.RW).releaseSavepoint(savepoint);
-        recordRwCmd("releaseSavepoint");
+        throw LbExceptions.featureNotSupported();
     }
 
     public Clob createClob() throws SQLException {
@@ -2207,27 +2146,11 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     public NClob createNClob() throws SQLException {
-        checkClosed();
-
-        return runRwCommand(
-                "createNClob",
-                new ExecuteFailoverHandler.SqlExecution<NClob>() {
-                    public NClob run() throws SQLException {
-                        return getPhysicalConnForCmd(SessionLeg.RW).createNClob();
-                    }
-                });
+        throw LbExceptions.featureNotSupported();
     }
 
     public SQLXML createSQLXML() throws SQLException {
-        checkClosed();
-
-        return runRwCommand(
-                "createSQLXML",
-                new ExecuteFailoverHandler.SqlExecution<SQLXML>() {
-                    public SQLXML run() throws SQLException {
-                        return getPhysicalConnForCmd(SessionLeg.RW).createSQLXML();
-                    }
-                });
+        throw LbExceptions.featureNotSupported();
     }
 
     public boolean isValid(int timeout) throws SQLException {
@@ -2265,14 +2188,10 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     public Array createArrayOf(String typeName, Object[] elements) throws SQLException {
-        checkClosed();
-
         throw LbExceptions.featureNotSupported();
     }
 
     public Struct createStruct(String typeName, Object[] attributes) throws SQLException {
-        checkClosed();
-
         throw LbExceptions.featureNotSupported();
     }
 
@@ -2362,6 +2281,11 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         }
     }
 
+    /**
+     * Core's internal hooks for its own statement execution. They dereference {@code u_con}, which
+     * is null here, and LB never runs that execution path, so reaching one means a public entry
+     * point was left inherited: refuse loudly rather than throw a NullPointerException.
+     */
     @Override
     protected void clear() throws SQLException {
         throw LbExceptions.notSupportedApi("clear()");
@@ -2413,21 +2337,18 @@ public class LoadBalanceConnection extends CUBRIDConnection {
 
     /* ===== CUBRID SHARD / driver-internal API: not supported =====*/
     /**
-     * CUBRID SHARD APIs and the driver-internal OUT-ResultSet hook, refused explicitly. A
-     * load-balance session spans several brokers of one HA cluster and has no shard behind it, so
-     * there is no shard id, shard metadata or per-shard connection to report; {@code
-     * addOutResultSet} is plumbing that {@link CUBRIDOutResultSet} only calls on the physical
-     * connection it was created from. They are declared rather than absent, so a caster gets a
-     * named "not supported" error instead of a {@code NoSuchMethodError}.
+     * CUBRID SHARD APIs, refused explicitly. A load-balance session spans several brokers of one HA
+     * cluster and has no shard behind it, so there is no shard id or shard metadata to report. They
+     * are declared rather than absent, so a caster gets a named "not supported" error instead of a
+     * {@code NoSuchMethodError}.
      *
      * <p>The refusals come in two forms, and the difference is not a choice: an override cannot
      * widen the inherited {@code throws} clause. {@code CUBRIDConnection} declares {@code
-     * getShardMetaData()} with {@code SQLException} and {@code isShard()} / {@code getShardId()} /
-     * {@code addOutResultSet()} without it, so only the first can refuse with a checked exception.
-     * The rest go through {@link #unchecked(SQLException)}, which keeps the original as the cause.
-     * The rule is the same for all four: refuse with the widest form the inherited signature
-     * allows. Do not unify them by making {@code getShardMetaData()} unchecked; that would take
-     * away the one refusal a caller can still catch as {@code SQLException}.
+     * getShardMetaData()} with {@code SQLException} and {@code isShard()} / {@code getShardId()}
+     * without it, so only the first can refuse with a checked exception. The other two go through
+     * {@link #unchecked(SQLException)}, which keeps the original as the cause. Do not unify them by
+     * making {@code getShardMetaData()} unchecked; that would take away the one refusal a caller
+     * can still catch as {@code SQLException}.
      */
     @Override
     public boolean isShard() {
@@ -2486,23 +2407,17 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     public void abort(Executor executor) throws SQLException {
-        // abort() may be invoked from a thread other than the one using the connection. close()
-        // publishes closed=true (volatile) before best-effort release, so in-flight callers observe
-        // the close and stop issuing new work.
-        close();
+        throw LbExceptions.featureNotSupported();
     }
 
     /* ===== Wrapper =====*/
     public <T> T unwrap(Class<T> iface) throws SQLException {
         checkClosed();
-        if (iface == null) {
-            throw LbExceptions.notSupported();
-        }
         if (iface.isAssignableFrom(getClass())) {
             return iface.cast(this);
         }
 
-        throw LbExceptions.notSupported();
+        throw LbExceptions.cannotUnwrap(iface);
     }
 
     public boolean isWrapperFor(Class<?> iface) throws SQLException {
@@ -2789,30 +2704,6 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                 });
     }
 
-    private LegOutcome applySchema() {
-        if (schema == null || !isSessionInitialized()) {
-            return LegOutcome.OK;
-        }
-        return forEachSessPhyConn(
-                new PhyConnAction() {
-                    public void apply(Connection physical) throws SQLException {
-                        physical.setSchema(schema);
-                    }
-                });
-    }
-
-    private LegOutcome applyNetTimeout() {
-        if (!isSessionInitialized()) {
-            return LegOutcome.OK;
-        }
-        return forEachSessPhyConn(
-                new PhyConnAction() {
-                    public void apply(Connection physical) throws SQLException {
-                        physical.setNetworkTimeout(null, networkTimeout);
-                    }
-                });
-    }
-
     private LegOutcome applyLockTimeout() {
         if (null == lockTimeout || !isSessionInitialized()) {
             return LegOutcome.OK;
@@ -2837,13 +2728,6 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                 });
     }
 
-    /**
-     * Applies the current logical session state to a single freshly opened physical connection.
-     * Invoked by {@link SessionPhysicalConnManager} for every connection it opens, so a connection
-     * created mid-session (failover, recovery, failback, reopen) matches the session instead of
-     * running at driver defaults. Mirrors the per-property setters used at initial binding;
-     * nullable properties (schema/lockTimeout/casChangeMode) are applied only when set.
-     */
     /**
      * Claim ownership of the value objects a leg produces.
      *
@@ -2881,13 +2765,17 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         }
     }
 
+    /**
+     * Applies the current logical session state to a single freshly opened physical connection.
+     * Invoked by {@link SessionPhysicalConnManager} for every connection it opens, so a connection
+     * created mid-session (failover, recovery, failback, reopen) matches the session instead of
+     * running at driver defaults. Mirrors the per-property setters used at initial binding;
+     * nullable properties (lockTimeout/casChangeMode) are applied only when set.
+     */
     private void applySessionStateTo(final Connection physical) throws SQLException {
         claimValueObjectOwnership(physical);
         physical.setAutoCommit(sessionState.isAutoCommit());
         physical.setTransactionIsolation(transactionIsolation);
-        if (schema != null) {
-            physical.setSchema(schema);
-        }
         if (lockTimeout != null) {
             extConn(physical, "setLockTimeout").setLockTimeout(lockTimeout.intValue());
         }

@@ -48,10 +48,6 @@ public final class LbExceptions {
         return new CUBRIDException(CUBRIDJDBCErrorCode.statement_closed);
     }
 
-    static CUBRIDException notSupported() {
-        return new CUBRIDException(CUBRIDJDBCErrorCode.not_supported);
-    }
-
     /**
      * A JDBC API the core driver does not support either. Same type, message and code as {@code
      * CUBRIDException.notSupported()}, so the refusal looks the same on both connections.
@@ -63,6 +59,17 @@ public final class LbExceptions {
                 CUBRIDJDBCErrorCode.getMessage(CUBRIDJDBCErrorCode.not_supported),
                 null,
                 CUBRIDJDBCErrorCode.not_supported);
+    }
+
+    /**
+     * {@code unwrap} to a type this object is not. Same code and message as the core driver.
+     *
+     * @param iface the requested type
+     * @return the exception to throw
+     */
+    public static CUBRIDException cannotUnwrap(final Class<?> iface) {
+        return new CUBRIDException(
+                CUBRIDJDBCErrorCode.invalid_value, " - cannot unwrap to " + iface.getName(), null);
     }
 
     /**

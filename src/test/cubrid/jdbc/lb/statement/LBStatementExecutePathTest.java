@@ -346,14 +346,12 @@ public final class LBStatementExecutePathTest {
         statement.setMaxRows(100);
         statement.setMaxFieldSize(256);
         statement.setFetchDirection(ResultSet.FETCH_FORWARD);
-        statement.closeOnCompletion();
 
         statement.executeQuery("SELECT 1");
 
         assertTrue(context.indexOf("setFetchSize:64") < context.indexOf("executeQuery:SELECT 1"));
         assertTrue(context.indexOf("setQueryTimeout:5") < context.indexOf("executeQuery:SELECT 1"));
         assertTrue(context.indexOf("setMaxRows:100") < context.indexOf("executeQuery:SELECT 1"));
-        assertTrue(context.calls.contains("closeOnCompletion"));
     }
 
     @Test

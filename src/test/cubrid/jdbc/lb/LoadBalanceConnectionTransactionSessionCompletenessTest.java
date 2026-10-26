@@ -73,17 +73,6 @@ public final class LoadBalanceConnectionTransactionSessionCompletenessTest {
     }
 
     @Test
-    public void assertReleaseSavepointDelegatesToOwningPhysicalConnection() throws Exception {
-        Fixture fixture = createFixture();
-        Savepoint savepoint = fixture.connection.setSavepoint("sp2");
-
-        fixture.connection.releaseSavepoint(savepoint);
-
-        assertEquals(1, fixture.masterReleaseSavepointCalls.get());
-        assertEquals(0, fixture.readOnlyReleaseSavepointCalls.get());
-    }
-
-    @Test
     public void assertSetReadOnlyPolicyIsConsistentWithRoutingRules() throws Exception {
         Fixture fixture = createFixture();
 

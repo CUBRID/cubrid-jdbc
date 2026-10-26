@@ -119,7 +119,7 @@ public final class FailoverCoverageArchitectureTest {
         },
         {
             "LBPreparedStatement#physicalPsForMetadata", "1",
-            "HELPER", "called only from the getMetaData/getParameterMetaData closures"
+            "HELPER", "called only from the getMetaData closure"
         },
 
         // --- EXEMPT: transaction-scoped, so the tx rule already forbids failover ---
@@ -135,10 +135,6 @@ public final class FailoverCoverageArchitectureTest {
             "1",
             "EXEMPT",
             "rollback(Savepoint): same as setSavepoint"
-        },
-        {
-            "LoadBalanceConnection#releaseSavepoint", "1",
-            "EXEMPT", "same as setSavepoint"
         },
 
         // --- EXEMPT: session-property propagation, both legs, per-leg error isolation ---

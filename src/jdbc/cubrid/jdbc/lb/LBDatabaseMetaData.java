@@ -82,12 +82,11 @@ class LBDatabaseMetaData extends CUBRIDDatabaseMetaData {
      */
     @Override
     public <T> T unwrap(final Class<T> iface) throws SQLException {
-        if (iface != null && iface.isInstance(this)) {
+        if (iface.isAssignableFrom(getClass())) {
             return iface.cast(this);
         }
 
-        throw LbExceptions.notSupportedApi(
-                "DatabaseMetaData.unwrap(" + (iface == null ? "null" : iface.getName()) + ")");
+        throw LbExceptions.cannotUnwrap(iface);
     }
 
     @Override
@@ -172,8 +171,7 @@ class LBDatabaseMetaData extends CUBRIDDatabaseMetaData {
 
     @Override
     public boolean autoCommitFailureClosesAllResultSets() throws SQLException {
-        return rwMeta("autoCommitFailureClosesAllResultSets")
-                .autoCommitFailureClosesAllResultSets();
+        throw LbExceptions.featureNotSupported();
     }
 
     @Override
@@ -199,7 +197,7 @@ class LBDatabaseMetaData extends CUBRIDDatabaseMetaData {
 
     @Override
     public boolean generatedKeyAlwaysReturned() throws SQLException {
-        return rwMeta("generatedKeyAlwaysReturned").generatedKeyAlwaysReturned();
+        throw LbExceptions.featureNotSupported();
     }
 
     @Override
@@ -240,7 +238,7 @@ class LBDatabaseMetaData extends CUBRIDDatabaseMetaData {
 
     @Override
     public ResultSet getClientInfoProperties() throws SQLException {
-        return rwMeta("getClientInfoProperties").getClientInfoProperties();
+        throw LbExceptions.featureNotSupported();
     }
 
     @Override
@@ -364,13 +362,13 @@ class LBDatabaseMetaData extends CUBRIDDatabaseMetaData {
     public ResultSet getFunctionColumns(
             final String a0, final String a1, final String a2, final String a3)
             throws SQLException {
-        return rwMeta("getFunctionColumns").getFunctionColumns(a0, a1, a2, a3);
+        throw LbExceptions.featureNotSupported();
     }
 
     @Override
     public ResultSet getFunctions(final String a0, final String a1, final String a2)
             throws SQLException {
-        return rwMeta("getFunctions").getFunctions(a0, a1, a2);
+        throw LbExceptions.featureNotSupported();
     }
 
     @Override
@@ -552,7 +550,7 @@ class LBDatabaseMetaData extends CUBRIDDatabaseMetaData {
     public ResultSet getPseudoColumns(
             final String a0, final String a1, final String a2, final String a3)
             throws SQLException {
-        return rwMeta("getPseudoColumns").getPseudoColumns(a0, a1, a2, a3);
+        throw LbExceptions.featureNotSupported();
     }
 
     @Override
@@ -562,7 +560,7 @@ class LBDatabaseMetaData extends CUBRIDDatabaseMetaData {
 
     @Override
     public RowIdLifetime getRowIdLifetime() throws SQLException {
-        return rwMeta("getRowIdLifetime").getRowIdLifetime();
+        throw LbExceptions.featureNotSupported();
     }
 
     @Override
@@ -587,7 +585,7 @@ class LBDatabaseMetaData extends CUBRIDDatabaseMetaData {
 
     @Override
     public ResultSet getSchemas(final String a0, final String a1) throws SQLException {
-        return rwMeta("getSchemas").getSchemas(a0, a1);
+        throw LbExceptions.featureNotSupported();
     }
 
     @Override
@@ -665,7 +663,7 @@ class LBDatabaseMetaData extends CUBRIDDatabaseMetaData {
     @Override
     public ResultSet getUDTs(final String a0, final String a1, final String a2, final int[] a3)
             throws SQLException {
-        return rwMeta("getUDTs").getUDTs(a0, a1, a2, a3);
+        throw LbExceptions.featureNotSupported();
     }
 
     @Override
@@ -1078,8 +1076,7 @@ class LBDatabaseMetaData extends CUBRIDDatabaseMetaData {
 
     @Override
     public boolean supportsStoredFunctionsUsingCallSyntax() throws SQLException {
-        return rwMeta("supportsStoredFunctionsUsingCallSyntax")
-                .supportsStoredFunctionsUsingCallSyntax();
+        throw LbExceptions.featureNotSupported();
     }
 
     @Override

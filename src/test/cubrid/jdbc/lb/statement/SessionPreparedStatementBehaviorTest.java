@@ -93,21 +93,6 @@ public final class SessionPreparedStatementBehaviorTest {
         assertTrue(provider.calls.contains("get:TO_READ_WRITE:INSERT INTO t(id) VALUES (?)"));
     }
 
-    @Test
-    public void assertReadParameterMetaDataUsesBoundReadEndpoint() throws Exception {
-        LBPreparedStatement statement =
-                createSessionPreparedStatement("SELECT * FROM t WHERE id = ?");
-        SessionPrepareProvider provider = new SessionPrepareProvider();
-        statement.setPsProvider(provider);
-
-        statement.getParameterMetaData();
-
-        // READ getParameterMetaData resolves to the bound read endpoint — no eager RW
-        // prepare side effect (cleanup follows from T2's physicalPsForMetadata change).
-        assertEquals(Router.RouteTarget.TO_READ_ONLY, provider.lastGetTarget);
-        assertFalse(provider.calls.contains("get:TO_READ_WRITE:SELECT * FROM t WHERE id = ?"));
-    }
-
     private static LBPreparedStatement createSessionPreparedStatement(final String sql)
             throws Exception {
         LoadBalanceConnection connection =

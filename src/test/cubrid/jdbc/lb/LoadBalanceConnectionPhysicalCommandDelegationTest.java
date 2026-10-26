@@ -194,58 +194,6 @@ public final class LoadBalanceConnectionPhysicalCommandDelegationTest {
     }
 
     @Test
-    public void assertConnectionSchemaDelegatesToPhysicalConnection() throws Exception {
-        LoadBalanceConnection connection = createBoundConnection();
-        AtomicInteger masterGetIsolationCalls = new AtomicInteger();
-        AtomicInteger readOnlyGetIsolationCalls = new AtomicInteger();
-        AtomicInteger masterSetIsolationCalls = new AtomicInteger();
-        AtomicInteger readOnlySetIsolationCalls = new AtomicInteger();
-        AtomicInteger masterSetLockTimeoutCalls = new AtomicInteger();
-        AtomicInteger readOnlySetLockTimeoutCalls = new AtomicInteger();
-        AtomicInteger masterSetSchemaCalls = new AtomicInteger();
-        AtomicInteger readOnlySetSchemaCalls = new AtomicInteger();
-        AtomicInteger masterGetSchemaCalls = new AtomicInteger();
-        AtomicInteger readOnlyGetSchemaCalls = new AtomicInteger();
-        AtomicInteger masterGetWarningsCalls = new AtomicInteger();
-        AtomicInteger readOnlyGetWarningsCalls = new AtomicInteger();
-        AtomicInteger masterClearWarningsCalls = new AtomicInteger();
-        AtomicInteger readOnlyClearWarningsCalls = new AtomicInteger();
-
-        Connection master =
-                newPhysicalConnection(
-                        7,
-                        "master_schema",
-                        masterGetIsolationCalls,
-                        masterSetIsolationCalls,
-                        masterSetLockTimeoutCalls,
-                        masterSetSchemaCalls,
-                        masterGetSchemaCalls,
-                        masterGetWarningsCalls,
-                        masterClearWarningsCalls);
-        Connection readOnly =
-                newPhysicalConnection(
-                        11,
-                        "readonly_schema",
-                        readOnlyGetIsolationCalls,
-                        readOnlySetIsolationCalls,
-                        readOnlySetLockTimeoutCalls,
-                        readOnlySetSchemaCalls,
-                        readOnlyGetSchemaCalls,
-                        readOnlyGetWarningsCalls,
-                        readOnlyClearWarningsCalls);
-        bindPhysicalConnections(connection, master, readOnly);
-
-        connection.setSchema("app_schema");
-        String actual = connection.getSchema();
-
-        assertEquals("master_schema", actual);
-        assertEquals(1, masterSetSchemaCalls.get());
-        assertEquals(1, readOnlySetSchemaCalls.get());
-        assertEquals(1, masterGetSchemaCalls.get());
-        assertEquals(0, readOnlyGetSchemaCalls.get());
-    }
-
-    @Test
     public void assertConnectionWarningsDelegateToPhysicalConnection() throws Exception {
         LoadBalanceConnection connection = createBoundConnection();
         AtomicInteger masterGetIsolationCalls = new AtomicInteger();
@@ -338,55 +286,6 @@ public final class LoadBalanceConnectionPhysicalCommandDelegationTest {
 
         assertEquals(1, masterSetHoldabilityCalls.get());
         assertEquals(1, readOnlySetHoldabilityCalls.get());
-    }
-
-    @Test
-    public void assertConnectionNetworkTimeoutDelegatesToPhysicalConnection() throws Exception {
-        LoadBalanceConnection connection = createBoundConnection();
-        AtomicInteger masterSetNetworkTimeoutCalls = new AtomicInteger();
-        AtomicInteger readOnlySetNetworkTimeoutCalls = new AtomicInteger();
-        AtomicInteger masterGetNetworkTimeoutCalls = new AtomicInteger();
-        AtomicInteger readOnlyGetNetworkTimeoutCalls = new AtomicInteger();
-        Connection master =
-                newPhysicalConnection(
-                        7,
-                        "master_schema",
-                        new AtomicInteger(),
-                        new AtomicInteger(),
-                        new AtomicInteger(),
-                        new AtomicInteger(),
-                        new AtomicInteger(),
-                        new AtomicInteger(),
-                        new AtomicInteger(),
-                        new AtomicInteger(),
-                        masterSetNetworkTimeoutCalls,
-                        masterGetNetworkTimeoutCalls,
-                        new AtomicInteger());
-        Connection readOnly =
-                newPhysicalConnection(
-                        11,
-                        "readonly_schema",
-                        new AtomicInteger(),
-                        new AtomicInteger(),
-                        new AtomicInteger(),
-                        new AtomicInteger(),
-                        new AtomicInteger(),
-                        new AtomicInteger(),
-                        new AtomicInteger(),
-                        new AtomicInteger(),
-                        readOnlySetNetworkTimeoutCalls,
-                        readOnlyGetNetworkTimeoutCalls,
-                        new AtomicInteger());
-        bindPhysicalConnections(connection, master, readOnly);
-
-        connection.setNetworkTimeout(null, 321);
-        int actual = connection.getNetworkTimeout();
-
-        assertEquals(321, actual);
-        assertEquals(1, masterSetNetworkTimeoutCalls.get());
-        assertEquals(1, readOnlySetNetworkTimeoutCalls.get());
-        assertEquals(1, masterGetNetworkTimeoutCalls.get());
-        assertEquals(0, readOnlyGetNetworkTimeoutCalls.get());
     }
 
     @Test

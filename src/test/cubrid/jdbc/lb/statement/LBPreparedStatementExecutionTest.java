@@ -222,17 +222,11 @@ public class LBPreparedStatementExecutionTest {
         statement.setDate(3, new java.sql.Date(3L), calendar);
         statement.setBigDecimal(4, new java.math.BigDecimal("12.5"));
         statement.setBytes(5, new byte[] {1, 2, 3});
-        statement.setCharacterStream(1, new java.io.StringReader("v"));
-        statement.setBinaryStream(2, new java.io.ByteArrayInputStream(new byte[] {7}));
-        statement.setAsciiStream(3, new java.io.ByteArrayInputStream(new byte[] {8}));
         DelegationContext context = new DelegationContext();
         statement.setPsProvider(context);
 
         statement.execute();
 
-        assertTrue(context.containsPrefix("setCharacterStream:1:"));
-        assertTrue(context.containsPrefix("setBinaryStream:2:"));
-        assertTrue(context.containsPrefix("setAsciiStream:3:"));
         assertTrue(context.calls.contains("setBigDecimal:4:12.5"));
         assertTrue(context.calls.contains("setBytes:5:[1, 2, 3]"));
     }
@@ -279,7 +273,6 @@ public class LBPreparedStatementExecutionTest {
         statement.setByte(1, (byte) 1);
         statement.setShort(1, (short) 2);
         statement.setFloat(1, 1.5f);
-        statement.setURL(1, new java.net.URL("http://localhost"));
         statement.setBlob(
                 1,
                 (java.sql.Blob)
@@ -309,17 +302,14 @@ public class LBPreparedStatementExecutionTest {
         statement.setClob(1, new java.io.StringReader("a"), 1L);
         statement.setClob(1, new java.io.StringReader("b"));
         statement.setAsciiStream(1, new java.io.ByteArrayInputStream(new byte[] {1}), 1);
-        statement.setAsciiStream(1, new java.io.ByteArrayInputStream(new byte[] {2}), 2L);
         statement.setBinaryStream(1, new java.io.ByteArrayInputStream(new byte[] {3}), 3);
-        statement.setBinaryStream(1, new java.io.ByteArrayInputStream(new byte[] {4}), 4L);
         statement.setCharacterStream(1, new java.io.StringReader("c"), 1);
-        statement.setCharacterStream(1, new java.io.StringReader("d"), 2L);
         DelegationContext context = new DelegationContext();
         statement.setPsProvider(context);
 
         statement.execute();
 
-        assertTrue(context.containsPrefix("setCharacterStreamLenLong:1:"));
+        assertTrue(context.containsPrefix("setCharacterStreamLenInt:1:"));
     }
 
     @Test
@@ -327,22 +317,16 @@ public class LBPreparedStatementExecutionTest {
         LBPreparedStatement statement =
                 (LBPreparedStatement) connection.prepareStatement("SELECT * FROM t WHERE id = ?");
         statement.setAsciiStream(1, new java.io.ByteArrayInputStream(new byte[] {1}), 1);
-        statement.setAsciiStream(1, new java.io.ByteArrayInputStream(new byte[] {2}), 2L);
         statement.setBinaryStream(1, new java.io.ByteArrayInputStream(new byte[] {3}), 3);
-        statement.setBinaryStream(1, new java.io.ByteArrayInputStream(new byte[] {4}), 4L);
         statement.setCharacterStream(1, new java.io.StringReader("x"), 1);
-        statement.setCharacterStream(1, new java.io.StringReader("y"), 2L);
         DelegationContext context = new DelegationContext();
         statement.setPsProvider(context);
 
         statement.execute();
 
         assertEquals(0, context.countPrefix("setAsciiStreamLenInt:1:"));
-        assertEquals(0, context.countPrefix("setAsciiStreamLenLong:1:"));
         assertEquals(0, context.countPrefix("setBinaryStreamLenInt:1:"));
-        assertEquals(0, context.countPrefix("setBinaryStreamLenLong:1:"));
-        assertEquals(0, context.countPrefix("setCharacterStreamLenInt:1:"));
-        assertEquals(1, context.countPrefix("setCharacterStreamLenLong:1:"));
+        assertEquals(1, context.countPrefix("setCharacterStreamLenInt:1:"));
     }
 
     @Test
@@ -365,89 +349,10 @@ public class LBPreparedStatementExecutionTest {
     }
 
     @Test
-    public void assertP2AdvancedTypeSettersAreReplayed() throws Exception {
-        LBPreparedStatement statement =
-                (LBPreparedStatement) connection.prepareStatement("SELECT * FROM t WHERE id = ?");
-        statement.setRef(
-                1,
-                (java.sql.Ref)
-                        Proxy.newProxyInstance(
-                                java.sql.Ref.class.getClassLoader(),
-                                new Class[] {java.sql.Ref.class},
-                                new InvocationHandler() {
-                                    public Object invoke(Object p, Method m, Object[] a)
-                                            throws Throwable {
-                                        return null;
-                                    }
-                                }));
-        statement.setArray(
-                1,
-                (java.sql.Array)
-                        Proxy.newProxyInstance(
-                                java.sql.Array.class.getClassLoader(),
-                                new Class[] {java.sql.Array.class},
-                                new InvocationHandler() {
-                                    public Object invoke(Object p, Method m, Object[] a)
-                                            throws Throwable {
-                                        return null;
-                                    }
-                                }));
-        statement.setRowId(
-                1,
-                (java.sql.RowId)
-                        Proxy.newProxyInstance(
-                                java.sql.RowId.class.getClassLoader(),
-                                new Class[] {java.sql.RowId.class},
-                                new InvocationHandler() {
-                                    public Object invoke(Object p, Method m, Object[] a)
-                                            throws Throwable {
-                                        return null;
-                                    }
-                                }));
-        statement.setNString(1, "n");
-        statement.setNCharacterStream(1, new java.io.StringReader("a"), 1L);
-        statement.setNCharacterStream(1, new java.io.StringReader("b"));
-        statement.setNClob(
-                1,
-                (java.sql.NClob)
-                        Proxy.newProxyInstance(
-                                java.sql.NClob.class.getClassLoader(),
-                                new Class[] {java.sql.NClob.class},
-                                new InvocationHandler() {
-                                    public Object invoke(Object p, Method m, Object[] a)
-                                            throws Throwable {
-                                        return null;
-                                    }
-                                }));
-        statement.setNClob(1, new java.io.StringReader("c"), 1L);
-        statement.setNClob(1, new java.io.StringReader("d"));
-        statement.setSQLXML(
-                1,
-                (java.sql.SQLXML)
-                        Proxy.newProxyInstance(
-                                java.sql.SQLXML.class.getClassLoader(),
-                                new Class[] {java.sql.SQLXML.class},
-                                new InvocationHandler() {
-                                    public Object invoke(Object p, Method m, Object[] a)
-                                            throws Throwable {
-                                        return null;
-                                    }
-                                }));
-        statement.setUnicodeStream(1, new java.io.ByteArrayInputStream(new byte[] {1}), 1);
-        DelegationContext context = new DelegationContext();
-        statement.setPsProvider(context);
-
-        statement.execute();
-
-        assertTrue(context.containsPrefix("setUnicodeStream:1:"));
-    }
-
-    @Test
-    public void assertP2SettersRemainCompatibleWithP0P1Paths() throws Exception {
+    public void assertP1StreamSetterIsReplayedInBatch() throws Exception {
         LBPreparedStatement statement =
                 (LBPreparedStatement) connection.prepareStatement("SELECT * FROM t WHERE id = ?");
         statement.setInt(1, 1);
-        statement.setNString(1, "n");
         statement.setAsciiStream(1, new java.io.ByteArrayInputStream(new byte[] {1}), 1);
         DelegationContext context = new DelegationContext();
         statement.setPsProvider(context);
@@ -457,19 +362,6 @@ public class LBPreparedStatementExecutionTest {
 
         assertEquals(1, result.length);
         assertTrue(context.containsPrefix("setAsciiStreamLenInt:1:"));
-    }
-
-    @Test
-    public void assertDeprecatedUnicodeStreamPathKeepsStableContract() throws Exception {
-        LBPreparedStatement statement =
-                (LBPreparedStatement) connection.prepareStatement("SELECT * FROM t WHERE id = ?");
-        statement.setUnicodeStream(1, new java.io.ByteArrayInputStream(new byte[] {1, 2}), 2);
-        DelegationContext context = new DelegationContext();
-        statement.setPsProvider(context);
-
-        statement.execute();
-
-        assertEquals(1, context.countPrefix("setUnicodeStream:1:"));
     }
 
     @Test
@@ -562,17 +454,6 @@ public class LBPreparedStatementExecutionTest {
         ResultSetMetaData metaData = statement.getMetaData();
         assertNotNull(metaData);
         assertTrue(context.calls.contains("getMetaData"));
-    }
-
-    @Test
-    public void assertGetParameterMetaDataDelegatesToPhysicalPreparedStatement() throws Exception {
-        LBPreparedStatement statement =
-                (LBPreparedStatement) connection.prepareStatement("SELECT * FROM t WHERE id = ?");
-        DelegationContext context = new DelegationContext();
-        statement.setPsProvider(context);
-        ParameterMetaData parameterMetaData = statement.getParameterMetaData();
-        assertNotNull(parameterMetaData);
-        assertTrue(context.calls.contains("getParameterMetaData"));
     }
 
     @Test

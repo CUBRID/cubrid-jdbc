@@ -101,22 +101,6 @@ public final class BrokerDownOutsideExecuteTest {
         conn.close();
     }
 
-    /** Same for the parameter metadata, which shares the physical prepare. */
-    @Test
-    public void parameterMetaDataFailsOverWhenTheBoundReadBrokerIsDown() throws SQLException {
-        final List<String> prepared = new ArrayList<String>();
-        LoadBalanceConnection conn =
-                sessionOverTwoReadEndpoints(deadHostAwareFactory("ro1", prepared));
-
-        PreparedStatement ps = conn.prepareStatement("SELECT 1");
-
-        assertNotNull(ps.getParameterMetaData());
-        assertTrue(prepared.contains("ro2"));
-        assertTrue(hasFailoverEvent(conn));
-        ps.close();
-        conn.close();
-    }
-
     /**
      * A failure that is not a broker failure must still reach the application untouched: the
      * metadata path may not turn a statement error into a failover.
@@ -265,23 +249,6 @@ public final class BrokerDownOutsideExecuteTest {
         conn.close();
     }
 
-    /** {@code createNClob} is protected like its {@code createClob} sibling. */
-    @Test
-    public void createNClobRebindsTheWriteLegWhenTheWriteBrokerIsDown() throws SQLException {
-        final List<String> asked = new ArrayList<String>();
-        LoadBalanceConnection conn = sessionOverTwoWriteEndpoints(createNClobFactory("rw1", asked));
-
-        try {
-            conn.createNClob();
-            fail("Expected the original write-leg failure to be reported");
-        } catch (SQLException expected) {
-            assertEquals(UErrorCode.ER_COMMUNICATION, expected.getErrorCode());
-        }
-
-        assertTrue(hasFailoverEvent(conn));
-        conn.close();
-    }
-
     /* ===== harness ===== */
 
     private static LoadBalanceConnection sessionOverTwoReadEndpoints(
@@ -370,11 +337,6 @@ public final class BrokerDownOutsideExecuteTest {
     private static JdbcConnectionFactory isReadOnlyFactory(
             final String deadHost, final List<String> asked) {
         return commandFactory(deadHost, asked, "isReadOnly");
-    }
-
-    private static JdbcConnectionFactory createNClobFactory(
-            final String deadHost, final List<String> asked) {
-        return commandFactory(deadHost, asked, "createNClob");
     }
 
     /** One physical method is rejected on {@code deadHost} with a non-broker error. */

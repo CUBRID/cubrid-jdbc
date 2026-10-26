@@ -352,18 +352,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     }
 
     public ParameterMetaData getParameterMetaData() throws SQLException {
-        statementDelegate.checkClosed();
-
-        final Router.RouteTarget target = resolveRouteTarget();
-
-        return statementDelegate.commandWithFailover(
-                "getParameterMetaData",
-                target,
-                new ExecuteFailoverHandler.SqlExecution<ParameterMetaData>() {
-                    public ParameterMetaData run() throws SQLException {
-                        return physicalPsForMetadata(target).getParameterMetaData();
-                    }
-                });
+        throw LbExceptions.featureNotSupported();
     }
 
     /* ===== parameter setters (stored for delegation at execute time) =====*/
@@ -463,19 +452,16 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     }
 
     public void setAsciiStream(int parameterIndex, InputStream x, long length) throws SQLException {
-        statementDelegate.checkClosed();
-        parameterBinder.recordSetAsciiStream(parameterIndex, x, length);
+        throw LbExceptions.featureNotSupported();
     }
 
     public void setAsciiStream(int parameterIndex, InputStream x) throws SQLException {
-        statementDelegate.checkClosed();
-        parameterBinder.recordSetAsciiStream(parameterIndex, x);
+        throw LbExceptions.featureNotSupported();
     }
 
     public void setUnicodeStream(int parameterIndex, InputStream x, int length)
             throws SQLException {
-        statementDelegate.checkClosed();
-        parameterBinder.recordSetUnicodeStream(parameterIndex, x, length);
+        throw LbExceptions.featureNotSupported();
     }
 
     public void setBinaryStream(int parameterIndex, InputStream x, int length) throws SQLException {
@@ -485,13 +471,11 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
 
     public void setBinaryStream(int parameterIndex, InputStream x, long length)
             throws SQLException {
-        statementDelegate.checkClosed();
-        parameterBinder.recordSetBinaryStream(parameterIndex, x, length);
+        throw LbExceptions.featureNotSupported();
     }
 
     public void setBinaryStream(int parameterIndex, InputStream x) throws SQLException {
-        statementDelegate.checkClosed();
-        parameterBinder.recordSetBinaryStream(parameterIndex, x);
+        throw LbExceptions.featureNotSupported();
     }
 
     public void setObject(int parameterIndex, Object x, int targetSqlType) throws SQLException {
@@ -518,18 +502,15 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
 
     public void setCharacterStream(int parameterIndex, Reader reader, long length)
             throws SQLException {
-        statementDelegate.checkClosed();
-        parameterBinder.recordSetCharacterStream(parameterIndex, reader, length);
+        throw LbExceptions.featureNotSupported();
     }
 
     public void setCharacterStream(int parameterIndex, Reader reader) throws SQLException {
-        statementDelegate.checkClosed();
-        parameterBinder.recordSetCharacterStream(parameterIndex, reader);
+        throw LbExceptions.featureNotSupported();
     }
 
     public void setRef(int parameterIndex, Ref x) throws SQLException {
-        statementDelegate.checkClosed();
-        parameterBinder.recordSetRef(parameterIndex, x);
+        throw LbExceptions.featureNotSupported();
     }
 
     public void setBlob(int parameterIndex, Blob x) throws SQLException {
@@ -564,54 +545,44 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     }
 
     public void setArray(int parameterIndex, Array x) throws SQLException {
-        statementDelegate.checkClosed();
-        parameterBinder.recordSetArray(parameterIndex, x);
+        throw LbExceptions.featureNotSupported();
     }
 
     public void setURL(int parameterIndex, URL x) throws SQLException {
-        statementDelegate.checkClosed();
-        parameterBinder.recordSetURL(parameterIndex, x);
+        throw LbExceptions.featureNotSupported();
     }
 
     public void setRowId(int parameterIndex, RowId x) throws SQLException {
-        statementDelegate.checkClosed();
-        parameterBinder.recordSetRowId(parameterIndex, x);
+        throw LbExceptions.featureNotSupported();
     }
 
     public void setNString(int parameterIndex, String value) throws SQLException {
-        statementDelegate.checkClosed();
-        parameterBinder.recordSetNString(parameterIndex, value);
+        throw LbExceptions.featureNotSupported();
     }
 
     public void setNCharacterStream(int parameterIndex, Reader value, long length)
             throws SQLException {
-        statementDelegate.checkClosed();
-        parameterBinder.recordSetNCharacterStream(parameterIndex, value, length);
+        throw LbExceptions.featureNotSupported();
     }
 
     public void setNCharacterStream(int parameterIndex, Reader value) throws SQLException {
-        statementDelegate.checkClosed();
-        parameterBinder.recordSetNCharacterStream(parameterIndex, value);
+        throw LbExceptions.featureNotSupported();
     }
 
     public void setNClob(int parameterIndex, NClob value) throws SQLException {
-        statementDelegate.checkClosed();
-        parameterBinder.recordSetNClob(parameterIndex, value);
+        throw LbExceptions.featureNotSupported();
     }
 
     public void setNClob(int parameterIndex, Reader reader, long length) throws SQLException {
-        statementDelegate.checkClosed();
-        parameterBinder.recordSetNClob(parameterIndex, reader, length);
+        throw LbExceptions.featureNotSupported();
     }
 
     public void setNClob(int parameterIndex, Reader reader) throws SQLException {
-        statementDelegate.checkClosed();
-        parameterBinder.recordSetNClob(parameterIndex, reader);
+        throw LbExceptions.featureNotSupported();
     }
 
     public void setSQLXML(int parameterIndex, SQLXML xmlObject) throws SQLException {
-        statementDelegate.checkClosed();
-        parameterBinder.recordSetSQLXML(parameterIndex, xmlObject);
+        throw LbExceptions.featureNotSupported();
     }
 
     public void setOID(final int parameterIndex, final CUBRIDOID value) throws SQLException {
@@ -751,12 +722,12 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
 
     @Override
     public void closeOnCompletion() throws SQLException {
-        statementDelegate.closeOnCompletion();
+        throw LbExceptions.featureNotSupported();
     }
 
     @Override
     public boolean isCloseOnCompletion() throws SQLException {
-        return statementDelegate.isCloseOnCompletion();
+        throw LbExceptions.featureNotSupported();
     }
 
     @Override
@@ -816,7 +787,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
 
     @Override
     public boolean getMoreResults(final int current) throws SQLException {
-        return statementDelegate.getMoreResults(current);
+        throw LbExceptions.featureNotSupported();
     }
 
     @Override
@@ -865,12 +836,12 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
 
     @Override
     public boolean isPoolable() throws SQLException {
-        return statementDelegate.isPoolable();
+        throw LbExceptions.featureNotSupported();
     }
 
     @Override
     public void setPoolable(final boolean poolable) throws SQLException {
-        statementDelegate.setPoolable(poolable);
+        throw LbExceptions.featureNotSupported();
     }
 
     @Override
@@ -969,11 +940,12 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
      */
     @Override
     public <T> T unwrap(final Class<T> iface) throws SQLException {
+        statementDelegate.checkClosed();
         if (iface.isAssignableFrom(getClass())) {
             return iface.cast(this);
         }
 
-        throw LbExceptions.invalidValue("Cannot unwrap to " + iface.getName());
+        throw LbExceptions.cannotUnwrap(iface);
     }
 
     @Override
@@ -1108,8 +1080,8 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         PreparedStatement ps =
                 phyPsProvider.getPreparedStatement(statementDelegate.effectiveTarget(target), sql);
         // The physical PS comes from the session cache, so statement attributes (queryTimeout,
-        // maxRows, fetchSize, maxFieldSize, escapeProcessing, closeOnCompletion) are re-applied on
-        // every execution: another logical PS sharing the endpoint may have changed them.
+        // maxRows, fetchSize, maxFieldSize, escapeProcessing) are re-applied on every execution:
+        // another logical PS sharing the endpoint may have changed them.
         // applyStmtProps also invokes applyVendorFlags.
         statementDelegate.applyStmtProps(ps);
         // Publish before executeQuery/executeUpdate/execute/executeBatch runs so cancel() can reach

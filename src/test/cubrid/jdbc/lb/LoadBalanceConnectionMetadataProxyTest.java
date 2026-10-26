@@ -387,7 +387,11 @@ public final class LoadBalanceConnectionMetadataProxyTest {
             metaData.unwrap(java.sql.Driver.class);
             fail("Expected SQLException");
         } catch (SQLException ex) {
-            assertTrue(ex.getMessage().startsWith("Not supported method"));
+            // The same refusal core gives (CUBRIDDatabaseMetaData.unwrap).
+            assertEquals(CUBRIDJDBCErrorCode.invalid_value, ex.getErrorCode());
+            assertTrue(
+                    ex.getMessage(),
+                    ex.getMessage().endsWith(" - cannot unwrap to java.sql.Driver"));
         }
     }
 

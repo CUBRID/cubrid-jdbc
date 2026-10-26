@@ -69,7 +69,6 @@ public class LBStatement extends CUBRIDStatement {
     private boolean escapeProcessing = true;
     private boolean queryInfo;
     private boolean onlyQueryPlan;
-    private boolean closeOnCompletion = false;
     private boolean fromCurTxn = true;
     private final List<String> batchedSql = new ArrayList<String>();
     private final List<Statement> phyStmts = new ArrayList<Statement>();
@@ -394,15 +393,7 @@ public class LBStatement extends CUBRIDStatement {
     }
 
     public boolean getMoreResults(int current) throws SQLException {
-        checkClosed();
-        if (lastExecStmt == null) {
-            return false;
-        }
-
-        boolean result = lastExecStmt.getMoreResults(current);
-        lastRs = result ? lastExecStmt.getResultSet() : null;
-
-        return result;
+        throw LbExceptions.featureNotSupported();
     }
 
     public ResultSet getGeneratedKeys() throws SQLException {
@@ -499,26 +490,19 @@ public class LBStatement extends CUBRIDStatement {
     }
 
     public void setPoolable(boolean poolable) throws SQLException {
-        checkClosed();
-
         throw LbExceptions.featureNotSupported();
     }
 
     public boolean isPoolable() throws SQLException {
-        checkClosed();
-
         throw LbExceptions.featureNotSupported();
     }
 
     public void closeOnCompletion() throws SQLException {
-        checkClosed();
-        this.closeOnCompletion = true;
+        throw LbExceptions.featureNotSupported();
     }
 
     public boolean isCloseOnCompletion() throws SQLException {
-        checkClosed();
-
-        return closeOnCompletion;
+        throw LbExceptions.featureNotSupported();
     }
 
     /* ===== close warnings connection =====*/
@@ -579,11 +563,12 @@ public class LBStatement extends CUBRIDStatement {
 
     /* ===== Wrapper =====*/
     public <T> T unwrap(Class<T> iface) throws SQLException {
+        checkClosed();
         if (iface.isAssignableFrom(getClass())) {
             return iface.cast(this);
         }
 
-        throw LbExceptions.invalidValue("Cannot unwrap to " + iface.getName());
+        throw LbExceptions.cannotUnwrap(iface);
     }
 
     public boolean isWrapperFor(Class<?> iface) throws SQLException {
@@ -769,9 +754,6 @@ public class LBStatement extends CUBRIDStatement {
         }
         target.setMaxFieldSize(maxFieldSize);
         target.setEscapeProcessing(escapeProcessing);
-        if (closeOnCompletion) {
-            target.closeOnCompletion();
-        }
         applyVendorFlags(target);
         if (target instanceof CUBRIDStatement) {
             CUBRIDStatement cubridTarget = (CUBRIDStatement) target;

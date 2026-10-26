@@ -165,14 +165,6 @@ public class LBStatementTest {
     }
 
     @Test
-    public void assertCloseOnCompletionProperty() throws Exception {
-        Statement stmt = conn.createStatement();
-        assertFalse(stmt.isCloseOnCompletion());
-        stmt.closeOnCompletion();
-        assertTrue(stmt.isCloseOnCompletion());
-    }
-
-    @Test
     public void assertExecuteQueryOnUnboundConnectionThrows() throws Exception {
         try {
             conn.createStatement().executeQuery("SELECT 1");

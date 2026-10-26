@@ -30,11 +30,13 @@
 
 package cubrid.jdbc.lb;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import cubrid.jdbc.driver.CUBRIDJDBCErrorCode;
 import cubrid.jdbc.lb.route.Router;
 import cubrid.jdbc.lb.statement.LBPreparedStatement;
 import cubrid.jdbc.lb.statement.LBStatement;
@@ -81,7 +83,11 @@ public final class CompatibilityGapPreventionTest {
             connection.unwrap(java.sql.Driver.class);
             fail("Expected SQLException");
         } catch (SQLException ex) {
-            assertTrue(ex.getMessage().startsWith("Not supported method"));
+            // The same refusal core gives (CUBRIDConnection.unwrap).
+            assertEquals(CUBRIDJDBCErrorCode.invalid_value, ex.getErrorCode());
+            assertTrue(
+                    ex.getMessage(),
+                    ex.getMessage().endsWith(" - cannot unwrap to java.sql.Driver"));
         }
     }
 
@@ -104,7 +110,6 @@ public final class CompatibilityGapPreventionTest {
         statement.setFetchSize(13);
         statement.setFetchDirection(ResultSet.FETCH_REVERSE);
         statement.setMaxFieldSize(14);
-        statement.closeOnCompletion();
 
         statement.executeQuery("SELECT 1");
 
@@ -115,7 +120,6 @@ public final class CompatibilityGapPreventionTest {
         // CUBRIDStatement.is_scrollable).
         assertFalse(calls.contains("setFetchDirection:" + ResultSet.FETCH_REVERSE));
         assertTrue(calls.contains("setMaxFieldSize:14"));
-        assertTrue(calls.contains("closeOnCompletion"));
         assertTrue(calls.contains("executeQuery:SELECT 1"));
     }
 
@@ -240,7 +244,6 @@ public final class CompatibilityGapPreventionTest {
                     }
                 });
         statement.executeQuery("SELECT 1");
-        assertTrue("SELECT 1".equals(connection.nativeSQL("SELECT 1")));
         connection.setReadOnly(true);
         assertTrue(connection.isReadOnly());
         connection.setCatalog("demo");

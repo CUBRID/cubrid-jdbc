@@ -42,11 +42,9 @@ import cubrid.sql.CUBRIDTimestamptz;
 import java.io.ByteArrayInputStream;
 import java.io.StringReader;
 import java.math.BigDecimal;
-import java.net.URL;
 import java.sql.Connection;
 import java.sql.Date;
 import java.sql.DriverManager;
-import java.sql.ParameterMetaData;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
@@ -204,7 +202,8 @@ public final class LbPreparedStatementApiIT {
     }
 
     @Test
-    public void getMetaDataAndGetParameterMetaDataAnswerFromTheBoundEndpoint() throws Exception {
+    public void getMetaDataAnswersFromTheBoundEndpointAndGetParameterMetaDataIsRefused()
+            throws Exception {
         LoadBalanceConnection connection = openLbConnection();
         try {
             LBPreparedStatement ps =
@@ -216,11 +215,9 @@ public final class LbPreparedStatementApiIT {
             ResultSetMetaData resultSetMetaData = ps.getMetaData();
             assertNotNull(resultSetMetaData);
             try {
-                ParameterMetaData parameterMetaData = ps.getParameterMetaData();
-                assertNotNull(parameterMetaData);
-                assertTrue(parameterMetaData.getParameterCount() >= 1);
-            } catch (java.sql.SQLException expected) {
-                assertTrue(expected instanceof java.sql.SQLFeatureNotSupportedException);
+                ps.getParameterMetaData();
+                throw new AssertionError("getParameterMetaData must be refused as in core");
+            } catch (java.sql.SQLFeatureNotSupportedException expected) {
             }
             ps.close();
         } finally {
@@ -229,7 +226,7 @@ public final class LbPreparedStatementApiIT {
     }
 
     @Test
-    public void allSetterApisCanBeCalledAndClearParametersWorks() throws Exception {
+    public void supportedSetterApisCanBeCalledAndClearParametersWorks() throws Exception {
         LoadBalanceConnection connection = openLbConnection();
         try {
             LBPreparedStatement ps =
@@ -262,36 +259,20 @@ public final class LbPreparedStatementApiIT {
             ps.setTime(1, time, cal);
             ps.setTimestamp(1, ts);
             ps.setTimestamp(1, ts, cal);
+            // Setters core does not support are refused at the call, as in core; see
+            // CoreUnsupportedApiParityTest.
             ps.setAsciiStream(1, stream, 3);
-            ps.setAsciiStream(1, stream, 3L);
-            ps.setAsciiStream(1, stream);
-            ps.setUnicodeStream(1, stream, 3);
             ps.setBinaryStream(1, stream, 3);
-            ps.setBinaryStream(1, stream, 3L);
-            ps.setBinaryStream(1, stream);
             ps.setObject(1, Integer.valueOf(1), Types.INTEGER);
             ps.setObject(1, Integer.valueOf(1));
             ps.setObject(1, Integer.valueOf(1), Types.INTEGER, 0);
             ps.setCharacterStream(1, reader, 3);
-            ps.setCharacterStream(1, reader, 3L);
-            ps.setCharacterStream(1, reader);
-            ps.setRef(1, null);
             ps.setBlob(1, (java.sql.Blob) null);
             ps.setBlob(1, stream, 3L);
             ps.setBlob(1, stream);
             ps.setClob(1, (java.sql.Clob) null);
             ps.setClob(1, reader, 3L);
             ps.setClob(1, reader);
-            ps.setArray(1, null);
-            ps.setURL(1, new URL("http://localhost"));
-            ps.setRowId(1, null);
-            ps.setNString(1, "n");
-            ps.setNCharacterStream(1, reader, 3L);
-            ps.setNCharacterStream(1, reader);
-            ps.setNClob(1, (java.sql.NClob) null);
-            ps.setNClob(1, reader, 3L);
-            ps.setNClob(1, reader);
-            ps.setSQLXML(1, null);
             ps.setOID(1, (CUBRIDOID) null);
             ps.setCollection(1, new Object[] {"a", Integer.valueOf(1)});
             ps.setTimestamptz(1, (CUBRIDTimestamptz) null);

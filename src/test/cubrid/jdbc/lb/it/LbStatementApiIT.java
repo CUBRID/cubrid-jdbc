@@ -265,24 +265,19 @@ public final class LbStatementApiIT {
             statement.setEscapeProcessing(false);
             statement.setCursorName("lb_statement_cursor");
             statement.setMaxFieldSize(128);
-            statement.closeOnCompletion();
+            try {
+                statement.closeOnCompletion();
+                throw new AssertionError("closeOnCompletion must be refused as in core");
+            } catch (java.sql.SQLFeatureNotSupportedException expected) {
+            }
 
             assertEquals(1, statement.getMaxRows());
             assertEquals(3, statement.getQueryTimeout());
             assertEquals(1, statement.getFetchSize());
             assertEquals(ResultSet.FETCH_REVERSE, statement.getFetchDirection());
             assertEquals(128, statement.getMaxFieldSize());
-            assertTrue(statement.isCloseOnCompletion());
             assertNullSafeWarning(statement.getWarnings());
             statement.clearWarnings();
-
-            try {
-                statement.executeQuery("SELECT id FROM " + tableName + " ORDER BY id ASC");
-                throw new AssertionError(
-                        "Expected SQLException because physical closeOnCompletion is unsupported");
-            } catch (java.sql.SQLException expected) {
-                assertTrue(expected instanceof java.sql.SQLFeatureNotSupportedException);
-            }
 
             Statement plainStatement =
                     connection.createStatement(

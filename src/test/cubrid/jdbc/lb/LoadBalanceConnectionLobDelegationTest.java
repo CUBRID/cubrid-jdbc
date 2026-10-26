@@ -47,6 +47,7 @@ import java.sql.Clob;
 import java.sql.Connection;
 import java.sql.NClob;
 import java.sql.SQLException;
+import java.sql.SQLFeatureNotSupportedException;
 import java.sql.SQLXML;
 import java.util.ArrayList;
 import java.util.List;
@@ -148,14 +149,21 @@ public final class LoadBalanceConnectionLobDelegationTest {
                         readOnlyCreateSQLXMLCalls);
         bindPhysicalConnections(connection, masterConnection, readOnlyConnection);
 
-        NClob actualNClob = connection.createNClob();
-        SQLXML actualSqlxml = connection.createSQLXML();
+        // Core does not support either, so LB refuses them the same way, without touching a leg.
+        try {
+            connection.createNClob();
+            fail("createNClob must be refused as in core");
+        } catch (SQLFeatureNotSupportedException expected) {
+        }
+        try {
+            connection.createSQLXML();
+            fail("createSQLXML must be refused as in core");
+        } catch (SQLFeatureNotSupportedException expected) {
+        }
 
-        assertSame(expectedNClob, actualNClob);
-        assertSame(expectedSqlxml, actualSqlxml);
-        assertEquals(1, masterCreateNClobCalls.get());
+        assertEquals(0, masterCreateNClobCalls.get());
         assertEquals(0, readOnlyCreateNClobCalls.get());
-        assertEquals(1, masterCreateSQLXMLCalls.get());
+        assertEquals(0, masterCreateSQLXMLCalls.get());
         assertEquals(0, readOnlyCreateSQLXMLCalls.get());
     }
 

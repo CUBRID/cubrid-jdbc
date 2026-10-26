@@ -134,28 +134,12 @@ final class ParameterBinder {
         operations.add(new SetBytesOp(parameterIndex, snapshot(value)));
     }
 
-    void recordSetCharacterStream(final int parameterIndex, final java.io.Reader reader) {
-        hasStreamParam = true;
-        operations.add(new SetCharacterStreamOp(parameterIndex, reader));
-    }
-
     void recordSetCharacterStream(
             final int parameterIndex, final java.io.Reader reader, final int length)
             throws SQLException {
         operations.add(
                 new SetCharacterStreamLenIntOp(
                         parameterIndex, reader == null ? null : materialize(reader, length)));
-    }
-
-    void recordSetCharacterStream(
-            final int parameterIndex, final java.io.Reader reader, final long length) {
-        hasStreamParam = true;
-        operations.add(new SetCharacterStreamLenLongOp(parameterIndex, reader, length));
-    }
-
-    void recordSetBinaryStream(final int parameterIndex, final java.io.InputStream inputStream) {
-        hasStreamParam = true;
-        operations.add(new SetBinaryStreamOp(parameterIndex, inputStream));
     }
 
     void recordSetBinaryStream(
@@ -167,17 +151,6 @@ final class ParameterBinder {
                         inputStream == null ? null : materialize(inputStream, length)));
     }
 
-    void recordSetBinaryStream(
-            final int parameterIndex, final java.io.InputStream inputStream, final long length) {
-        hasStreamParam = true;
-        operations.add(new SetBinaryStreamLenLongOp(parameterIndex, inputStream, length));
-    }
-
-    void recordSetAsciiStream(final int parameterIndex, final java.io.InputStream inputStream) {
-        hasStreamParam = true;
-        operations.add(new SetAsciiStreamOp(parameterIndex, inputStream));
-    }
-
     void recordSetAsciiStream(
             final int parameterIndex, final java.io.InputStream inputStream, final int length)
             throws SQLException {
@@ -185,16 +158,6 @@ final class ParameterBinder {
                 new SetAsciiStreamLenIntOp(
                         parameterIndex,
                         inputStream == null ? null : materialize(inputStream, length)));
-    }
-
-    void recordSetAsciiStream(
-            final int parameterIndex, final java.io.InputStream inputStream, final long length) {
-        hasStreamParam = true;
-        operations.add(new SetAsciiStreamLenLongOp(parameterIndex, inputStream, length));
-    }
-
-    void recordSetURL(final int parameterIndex, final java.net.URL value) {
-        operations.add(new SetUrlOp(parameterIndex, value));
     }
 
     void recordSetBlob(final int parameterIndex, final java.sql.Blob value) {
@@ -224,57 +187,6 @@ final class ParameterBinder {
     void recordSetClob(final int parameterIndex, final java.io.Reader reader, final long length) {
         hasStreamParam = true;
         operations.add(new SetClobLenOp(parameterIndex, reader, length));
-    }
-
-    void recordSetRef(final int parameterIndex, final java.sql.Ref value) {
-        operations.add(new SetRefOp(parameterIndex, value));
-    }
-
-    void recordSetArray(final int parameterIndex, final java.sql.Array value) {
-        operations.add(new SetArrayOp(parameterIndex, value));
-    }
-
-    void recordSetRowId(final int parameterIndex, final java.sql.RowId value) {
-        operations.add(new SetRowIdOp(parameterIndex, value));
-    }
-
-    void recordSetNString(final int parameterIndex, final String value) {
-        operations.add(new SetNStringOp(parameterIndex, value));
-    }
-
-    void recordSetNCharacterStream(final int parameterIndex, final java.io.Reader reader) {
-        hasStreamParam = true;
-        operations.add(new SetNCharacterStreamOp(parameterIndex, reader));
-    }
-
-    void recordSetNCharacterStream(
-            final int parameterIndex, final java.io.Reader reader, final long length) {
-        hasStreamParam = true;
-        operations.add(new SetNCharacterStreamLenLongOp(parameterIndex, reader, length));
-    }
-
-    void recordSetNClob(final int parameterIndex, final java.sql.NClob value) {
-        operations.add(new SetNClobObjOp(parameterIndex, value));
-    }
-
-    void recordSetNClob(final int parameterIndex, final java.io.Reader reader) {
-        hasStreamParam = true;
-        operations.add(new SetNClobReaderOp(parameterIndex, reader));
-    }
-
-    void recordSetNClob(final int parameterIndex, final java.io.Reader reader, final long length) {
-        hasStreamParam = true;
-        operations.add(new SetNClobLenLongOp(parameterIndex, reader, length));
-    }
-
-    void recordSetSQLXML(final int parameterIndex, final java.sql.SQLXML value) {
-        operations.add(new SetSqlxmlOp(parameterIndex, value));
-    }
-
-    void recordSetUnicodeStream(
-            final int parameterIndex, final java.io.InputStream inputStream, final int length) {
-        hasStreamParam = true;
-        operations.add(new SetUnicodeStreamOp(parameterIndex, inputStream, length));
     }
 
     void recordSetObject(final int parameterIndex, final Object value) {
@@ -750,20 +662,6 @@ final class ParameterBinder {
         }
     }
 
-    private static final class SetCharacterStreamOp extends ParameterOperation {
-        private final java.io.Reader reader;
-
-        SetCharacterStreamOp(final int parameterIndex, final java.io.Reader reader) {
-            super(parameterIndex);
-            this.reader = reader;
-        }
-
-        @Override
-        void apply(final PreparedStatement target) throws SQLException {
-            target.setCharacterStream(parameterIndex, reader);
-        }
-    }
-
     private static final class SetCharacterStreamLenIntOp extends ParameterOperation {
         private final char[] value;
 
@@ -781,37 +679,6 @@ final class ParameterBinder {
 
             target.setCharacterStream(
                     parameterIndex, new java.io.CharArrayReader(value), value.length);
-        }
-    }
-
-    private static final class SetCharacterStreamLenLongOp extends ParameterOperation {
-        private final java.io.Reader reader;
-        private final long length;
-
-        SetCharacterStreamLenLongOp(
-                final int parameterIndex, final java.io.Reader reader, final long length) {
-            super(parameterIndex);
-            this.reader = reader;
-            this.length = length;
-        }
-
-        @Override
-        void apply(final PreparedStatement target) throws SQLException {
-            target.setCharacterStream(parameterIndex, reader, length);
-        }
-    }
-
-    private static final class SetBinaryStreamOp extends ParameterOperation {
-        private final java.io.InputStream stream;
-
-        SetBinaryStreamOp(final int parameterIndex, final java.io.InputStream stream) {
-            super(parameterIndex);
-            this.stream = stream;
-        }
-
-        @Override
-        void apply(final PreparedStatement target) throws SQLException {
-            target.setBinaryStream(parameterIndex, stream);
         }
     }
 
@@ -835,37 +702,6 @@ final class ParameterBinder {
         }
     }
 
-    private static final class SetBinaryStreamLenLongOp extends ParameterOperation {
-        private final java.io.InputStream stream;
-        private final long length;
-
-        SetBinaryStreamLenLongOp(
-                final int parameterIndex, final java.io.InputStream stream, final long length) {
-            super(parameterIndex);
-            this.stream = stream;
-            this.length = length;
-        }
-
-        @Override
-        void apply(final PreparedStatement target) throws SQLException {
-            target.setBinaryStream(parameterIndex, stream, length);
-        }
-    }
-
-    private static final class SetAsciiStreamOp extends ParameterOperation {
-        private final java.io.InputStream stream;
-
-        SetAsciiStreamOp(final int parameterIndex, final java.io.InputStream stream) {
-            super(parameterIndex);
-            this.stream = stream;
-        }
-
-        @Override
-        void apply(final PreparedStatement target) throws SQLException {
-            target.setAsciiStream(parameterIndex, stream);
-        }
-    }
-
     private static final class SetAsciiStreamLenIntOp extends ParameterOperation {
         private final byte[] value;
 
@@ -883,37 +719,6 @@ final class ParameterBinder {
 
             target.setAsciiStream(
                     parameterIndex, new java.io.ByteArrayInputStream(value), value.length);
-        }
-    }
-
-    private static final class SetAsciiStreamLenLongOp extends ParameterOperation {
-        private final java.io.InputStream stream;
-        private final long length;
-
-        SetAsciiStreamLenLongOp(
-                final int parameterIndex, final java.io.InputStream stream, final long length) {
-            super(parameterIndex);
-            this.stream = stream;
-            this.length = length;
-        }
-
-        @Override
-        void apply(final PreparedStatement target) throws SQLException {
-            target.setAsciiStream(parameterIndex, stream, length);
-        }
-    }
-
-    private static final class SetUrlOp extends ParameterOperation {
-        private final java.net.URL value;
-
-        SetUrlOp(final int parameterIndex, final java.net.URL value) {
-            super(parameterIndex);
-            this.value = value;
-        }
-
-        @Override
-        void apply(final PreparedStatement target) throws SQLException {
-            target.setURL(parameterIndex, value);
         }
     }
 
@@ -1006,170 +811,7 @@ final class ParameterBinder {
         }
     }
 
-    private static final class SetRefOp extends ParameterOperation {
-        private final java.sql.Ref value;
-
-        SetRefOp(final int parameterIndex, final java.sql.Ref value) {
-            super(parameterIndex);
-            this.value = value;
-        }
-
-        @Override
-        void apply(final PreparedStatement target) throws SQLException {
-            target.setRef(parameterIndex, value);
-        }
-    }
-
-    private static final class SetArrayOp extends ParameterOperation {
-        private final java.sql.Array value;
-
-        SetArrayOp(final int parameterIndex, final java.sql.Array value) {
-            super(parameterIndex);
-            this.value = value;
-        }
-
-        @Override
-        void apply(final PreparedStatement target) throws SQLException {
-            target.setArray(parameterIndex, value);
-        }
-    }
-
-    private static final class SetRowIdOp extends ParameterOperation {
-        private final java.sql.RowId value;
-
-        SetRowIdOp(final int parameterIndex, final java.sql.RowId value) {
-            super(parameterIndex);
-            this.value = value;
-        }
-
-        @Override
-        void apply(final PreparedStatement target) throws SQLException {
-            target.setRowId(parameterIndex, value);
-        }
-    }
-
-    private static final class SetNStringOp extends ParameterOperation {
-        private final String value;
-
-        SetNStringOp(final int parameterIndex, final String value) {
-            super(parameterIndex);
-            this.value = value;
-        }
-
-        @Override
-        void apply(final PreparedStatement target) throws SQLException {
-            target.setNString(parameterIndex, value);
-        }
-    }
-
-    private static final class SetNCharacterStreamOp extends ParameterOperation {
-        private final java.io.Reader reader;
-
-        SetNCharacterStreamOp(final int parameterIndex, final java.io.Reader reader) {
-            super(parameterIndex);
-            this.reader = reader;
-        }
-
-        @Override
-        void apply(final PreparedStatement target) throws SQLException {
-            target.setNCharacterStream(parameterIndex, reader);
-        }
-    }
-
-    private static final class SetNCharacterStreamLenLongOp extends ParameterOperation {
-        private final java.io.Reader reader;
-        private final long length;
-
-        SetNCharacterStreamLenLongOp(
-                final int parameterIndex, final java.io.Reader reader, final long length) {
-            super(parameterIndex);
-            this.reader = reader;
-            this.length = length;
-        }
-
-        @Override
-        void apply(final PreparedStatement target) throws SQLException {
-            target.setNCharacterStream(parameterIndex, reader, length);
-        }
-    }
-
-    private static final class SetNClobObjOp extends ParameterOperation {
-        private final java.sql.NClob value;
-
-        SetNClobObjOp(final int parameterIndex, final java.sql.NClob value) {
-            super(parameterIndex);
-            this.value = value;
-        }
-
-        @Override
-        void apply(final PreparedStatement target) throws SQLException {
-            target.setNClob(parameterIndex, value);
-        }
-    }
-
-    private static final class SetNClobReaderOp extends ParameterOperation {
-        private final java.io.Reader reader;
-
-        SetNClobReaderOp(final int parameterIndex, final java.io.Reader reader) {
-            super(parameterIndex);
-            this.reader = reader;
-        }
-
-        @Override
-        void apply(final PreparedStatement target) throws SQLException {
-            target.setNClob(parameterIndex, reader);
-        }
-    }
-
-    private static final class SetNClobLenLongOp extends ParameterOperation {
-        private final java.io.Reader reader;
-        private final long length;
-
-        SetNClobLenLongOp(
-                final int parameterIndex, final java.io.Reader reader, final long length) {
-            super(parameterIndex);
-            this.reader = reader;
-            this.length = length;
-        }
-
-        @Override
-        void apply(final PreparedStatement target) throws SQLException {
-            target.setNClob(parameterIndex, reader, length);
-        }
-    }
-
-    private static final class SetSqlxmlOp extends ParameterOperation {
-        private final java.sql.SQLXML value;
-
-        SetSqlxmlOp(final int parameterIndex, final java.sql.SQLXML value) {
-            super(parameterIndex);
-            this.value = value;
-        }
-
-        @Override
-        void apply(final PreparedStatement target) throws SQLException {
-            target.setSQLXML(parameterIndex, value);
-        }
-    }
-
     @SuppressWarnings("deprecation")
-    private static final class SetUnicodeStreamOp extends ParameterOperation {
-        private final java.io.InputStream stream;
-        private final int length;
-
-        SetUnicodeStreamOp(
-                final int parameterIndex, final java.io.InputStream stream, final int length) {
-            super(parameterIndex);
-            this.stream = stream;
-            this.length = length;
-        }
-
-        @Override
-        void apply(final PreparedStatement target) throws SQLException {
-            target.setUnicodeStream(parameterIndex, stream, length);
-        }
-    }
-
     private static final class SetObjectOp extends ParameterOperation {
         private final Object value;
 

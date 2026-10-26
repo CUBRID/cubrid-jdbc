@@ -37,6 +37,7 @@ import cubrid.jdbc.jci.UStatementCacheData;
 import cubrid.jdbc.lb.LbExceptions;
 import cubrid.jdbc.lb.LoadBalanceConnection;
 import cubrid.jdbc.lb.failover.ExecuteFailoverHandler;
+import cubrid.jdbc.lb.failover.ExecuteFailoverHandler.SqlExecution;
 import cubrid.jdbc.lb.failover.UnreachableEndpoints;
 import cubrid.jdbc.lb.route.Router;
 import cubrid.jdbc.lb.route.Router.RouteTarget;
@@ -212,7 +213,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
                         sql,
                         target,
                         !parameterBinder.hasNonReplayableParams(),
-                        new ExecuteFailoverHandler.SqlExecution<ResultSet>() {
+                        new SqlExecution<ResultSet>() {
                             public ResultSet run() throws SQLException {
                                 PreparedStatement physicalStatement = physicalPsWithParams(target);
                                 ResultSet result = physicalStatement.executeQuery();
@@ -232,7 +233,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
                         sql,
                         target,
                         !parameterBinder.hasNonReplayableParams(),
-                        new ExecuteFailoverHandler.SqlExecution<Integer>() {
+                        new SqlExecution<Integer>() {
                             public Integer run() throws SQLException {
                                 PreparedStatement physicalStatement = physicalPsWithParams(target);
                                 int n = physicalStatement.executeUpdate();
@@ -252,7 +253,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
                         sql,
                         target,
                         !parameterBinder.hasNonReplayableParams(),
-                        new ExecuteFailoverHandler.SqlExecution<Boolean>() {
+                        new SqlExecution<Boolean>() {
                             public Boolean run() throws SQLException {
                                 PreparedStatement physicalStatement = physicalPsWithParams(target);
                                 boolean hasResult = physicalStatement.execute();
@@ -343,7 +344,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         return statementDelegate.commandWithFailover(
                 "getMetaData",
                 target,
-                new ExecuteFailoverHandler.SqlExecution<ResultSetMetaData>() {
+                new SqlExecution<ResultSetMetaData>() {
                     public ResultSetMetaData run() throws SQLException {
                         // Both steps inside the callback: after a rebind the physical statement of
                         // the failed endpoint must not be the one described.

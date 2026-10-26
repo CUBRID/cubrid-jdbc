@@ -38,6 +38,7 @@ import cubrid.jdbc.jci.UStatementCacheData;
 import cubrid.jdbc.lb.LbExceptions;
 import cubrid.jdbc.lb.LoadBalanceConnection;
 import cubrid.jdbc.lb.failover.ExecuteFailoverHandler;
+import cubrid.jdbc.lb.failover.ExecuteFailoverHandler.SqlExecution;
 import cubrid.jdbc.lb.route.Router;
 import cubrid.jdbc.lb.route.Router.RouteTarget;
 import cubrid.jdbc.lb.sql.SqlClassification;
@@ -127,7 +128,7 @@ public class LBStatement extends CUBRIDStatement {
                 executeWithFailover(
                         executedSql,
                         target,
-                        new ExecuteFailoverHandler.SqlExecution<ResultSet>() {
+                        new SqlExecution<ResultSet>() {
                             public ResultSet run() throws SQLException {
                                 Statement statement = createPhyStmt(executedSql, target);
                                 ResultSet result = statement.executeQuery(executedSql);
@@ -148,7 +149,7 @@ public class LBStatement extends CUBRIDStatement {
         return executeWithFailover(
                         executedSql,
                         target,
-                        new ExecuteFailoverHandler.SqlExecution<Integer>() {
+                        new SqlExecution<Integer>() {
                             public Integer run() throws SQLException {
                                 Statement statement = createPhyStmt(executedSql, target);
                                 int result = statement.executeUpdate(executedSql);
@@ -169,7 +170,7 @@ public class LBStatement extends CUBRIDStatement {
         return executeWithFailover(
                         executedSql,
                         target,
-                        new ExecuteFailoverHandler.SqlExecution<Boolean>() {
+                        new SqlExecution<Boolean>() {
                             public Boolean run() throws SQLException {
                                 Statement statement = createPhyStmt(executedSql, target);
                                 boolean result = statement.execute(executedSql);
@@ -235,7 +236,7 @@ public class LBStatement extends CUBRIDStatement {
         return executeWithFailover(
                         executedSql,
                         target,
-                        new ExecuteFailoverHandler.SqlExecution<Boolean>() {
+                        new SqlExecution<Boolean>() {
                             public Boolean run() throws SQLException {
                                 Statement statement = createPhyStmt(executedSql, target);
                                 boolean result = statement.execute(executedSql, keys);
@@ -257,7 +258,7 @@ public class LBStatement extends CUBRIDStatement {
         return executeWithFailover(
                         executedSql,
                         target,
-                        new ExecuteFailoverHandler.SqlExecution<Boolean>() {
+                        new SqlExecution<Boolean>() {
                             public Boolean run() throws SQLException {
                                 Statement statement = createPhyStmt(executedSql, target);
                                 boolean result = statement.execute(executedSql, indexes);
@@ -279,7 +280,7 @@ public class LBStatement extends CUBRIDStatement {
         return executeWithFailover(
                         executedSql,
                         target,
-                        new ExecuteFailoverHandler.SqlExecution<Boolean>() {
+                        new SqlExecution<Boolean>() {
                             public Boolean run() throws SQLException {
                                 Statement statement = createPhyStmt(executedSql, target);
                                 boolean result = statement.execute(executedSql, names);
@@ -301,7 +302,7 @@ public class LBStatement extends CUBRIDStatement {
         return executeWithFailover(
                         executedSql,
                         target,
-                        new ExecuteFailoverHandler.SqlExecution<Integer>() {
+                        new SqlExecution<Integer>() {
                             public Integer run() throws SQLException {
                                 Statement statement = createPhyStmt(executedSql, target);
                                 int result = statement.executeUpdate(executedSql, keys);
@@ -323,7 +324,7 @@ public class LBStatement extends CUBRIDStatement {
         return executeWithFailover(
                         executedSql,
                         target,
-                        new ExecuteFailoverHandler.SqlExecution<Integer>() {
+                        new SqlExecution<Integer>() {
                             public Integer run() throws SQLException {
                                 Statement statement = createPhyStmt(executedSql, target);
                                 int result = statement.executeUpdate(executedSql, indexes);
@@ -345,7 +346,7 @@ public class LBStatement extends CUBRIDStatement {
         return executeWithFailover(
                         executedSql,
                         target,
-                        new ExecuteFailoverHandler.SqlExecution<Integer>() {
+                        new SqlExecution<Integer>() {
                             public Integer run() throws SQLException {
                                 Statement statement = createPhyStmt(executedSql, target);
                                 int result = statement.executeUpdate(executedSql, names);
@@ -612,9 +613,7 @@ public class LBStatement extends CUBRIDStatement {
     }
 
     protected <T> T executeWithFailover(
-            final String sql,
-            final RouteTarget target,
-            final ExecuteFailoverHandler.SqlExecution<T> execution)
+            final String sql, final RouteTarget target, final SqlExecution<T> execution)
             throws SQLException {
         return executeWithFailover(sql, target, true, execution);
     }
@@ -638,7 +637,7 @@ public class LBStatement extends CUBRIDStatement {
             final String sql,
             final RouteTarget target,
             final boolean retrySafe,
-            final ExecuteFailoverHandler.SqlExecution<T> execution)
+            final SqlExecution<T> execution)
             throws SQLException {
         final ExecuteFailoverHandler handler = lbConnection.getExecuteFailoverHandler();
         T result;
@@ -695,9 +694,7 @@ public class LBStatement extends CUBRIDStatement {
      * @throws SQLException if the call fails and cannot be recovered/retried
      */
     protected <T> T commandWithFailover(
-            final String label,
-            final RouteTarget target,
-            final ExecuteFailoverHandler.SqlExecution<T> call)
+            final String label, final RouteTarget target, final SqlExecution<T> call)
             throws SQLException {
         return lbConnection
                 .getExecuteFailoverHandler()

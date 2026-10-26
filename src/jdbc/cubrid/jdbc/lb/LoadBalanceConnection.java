@@ -47,6 +47,7 @@ import cubrid.jdbc.lb.connection.EndpointConnManager;
 import cubrid.jdbc.lb.connection.JdbcConnectionFactory;
 import cubrid.jdbc.lb.connection.SessionPhysicalConnManager;
 import cubrid.jdbc.lb.failover.ExecuteFailoverHandler;
+import cubrid.jdbc.lb.failover.ExecuteFailoverHandler.SqlExecution;
 import cubrid.jdbc.lb.failover.PhysicalRecoveryContext;
 import cubrid.jdbc.lb.failover.PhysicalRecoveryResult;
 import cubrid.jdbc.lb.log.LbLog;
@@ -1095,8 +1096,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      * @return whatever the command returned
      * @throws SQLException if the command failed, after the leg was recovered
      */
-    private <T> T runRwCommand(
-            final String label, final ExecuteFailoverHandler.SqlExecution<T> command)
+    private <T> T runRwCommand(final String label, final SqlExecution<T> command)
             throws SQLException {
         T result =
                 getExecuteFailoverHandler()
@@ -1534,7 +1534,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             int delegated =
                     runRwCommand(
                                     "getTransactionIsolation",
-                                    new ExecuteFailoverHandler.SqlExecution<Integer>() {
+                                    new SqlExecution<Integer>() {
                                         public Integer run() throws SQLException {
                                             return Integer.valueOf(
                                                     getPhysicalConnForCmd(SessionLeg.RW)
@@ -1792,7 +1792,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             boolean delegated =
                     runRwCommand(
                                     "isReadOnly",
-                                    new ExecuteFailoverHandler.SqlExecution<Boolean>() {
+                                    new SqlExecution<Boolean>() {
                                         public Boolean run() throws SQLException {
                                             return Boolean.valueOf(
                                                     getPhysicalConnForCmd(SessionLeg.RW)
@@ -1835,7 +1835,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             String delegated =
                     runRwCommand(
                             "getCatalog",
-                            new ExecuteFailoverHandler.SqlExecution<String>() {
+                            new SqlExecution<String>() {
                                 public String run() throws SQLException {
                                     return getPhysicalConnForCmd(SessionLeg.RW).getCatalog();
                                 }
@@ -1862,7 +1862,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             int delegated =
                     runRwCommand(
                                     "getHoldability",
-                                    new ExecuteFailoverHandler.SqlExecution<Integer>() {
+                                    new SqlExecution<Integer>() {
                                         public Integer run() throws SQLException {
                                             return Integer.valueOf(
                                                     getPhysicalConnForCmd(SessionLeg.RW)
@@ -1897,7 +1897,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         if (isSessionInitialized()) {
             return runRwCommand(
                     "getWarnings",
-                    new ExecuteFailoverHandler.SqlExecution<SQLWarning>() {
+                    new SqlExecution<SQLWarning>() {
                         public SQLWarning run() throws SQLException {
                             return getPhysicalConnForCmd(SessionLeg.RW).getWarnings();
                         }
@@ -1912,7 +1912,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         if (isSessionInitialized()) {
             runRwCommand(
                     "clearWarnings",
-                    new ExecuteFailoverHandler.SqlExecution<SQLWarning>() {
+                    new SqlExecution<SQLWarning>() {
                         public SQLWarning run() throws SQLException {
                             getPhysicalConnForCmd(SessionLeg.RW).clearWarnings();
                             return null;
@@ -1974,7 +1974,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         return reportSelfAsOwner(
                 runRwCommand(
                         "prepareCall",
-                        new ExecuteFailoverHandler.SqlExecution<CallableStatement>() {
+                        new SqlExecution<CallableStatement>() {
                             public CallableStatement run() throws SQLException {
                                 return getPhysicalConnForCmd(SessionLeg.RW).prepareCall(sql);
                             }
@@ -2005,7 +2005,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         return reportSelfAsOwner(
                 runRwCommand(
                         "prepareCall(resultSetType,resultSetConcurrency)",
-                        new ExecuteFailoverHandler.SqlExecution<CallableStatement>() {
+                        new SqlExecution<CallableStatement>() {
                             public CallableStatement run() throws SQLException {
                                 return getPhysicalConnForCmd(SessionLeg.RW)
                                         .prepareCall(sql, resultSetType, resultSetConcurrency);
@@ -2024,7 +2024,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         return reportSelfAsOwner(
                 runRwCommand(
                         "prepareCall(resultSetType,resultSetConcurrency,resultSetHoldability)",
-                        new ExecuteFailoverHandler.SqlExecution<CallableStatement>() {
+                        new SqlExecution<CallableStatement>() {
                             public CallableStatement run() throws SQLException {
                                 return getPhysicalConnForCmd(SessionLeg.RW)
                                         .prepareCall(
@@ -2069,7 +2069,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
 
         return runRwCommand(
                 "createClob",
-                new ExecuteFailoverHandler.SqlExecution<Clob>() {
+                new SqlExecution<Clob>() {
                     public Clob run() throws SQLException {
                         return getPhysicalConnForCmd(SessionLeg.RW).createClob();
                     }
@@ -2081,7 +2081,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
 
         return runRwCommand(
                 "createBlob",
-                new ExecuteFailoverHandler.SqlExecution<Blob>() {
+                new SqlExecution<Blob>() {
                     public Blob run() throws SQLException {
                         return getPhysicalConnForCmd(SessionLeg.RW).createBlob();
                     }
@@ -2093,7 +2093,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
 
         return runRwCommand(
                 "lobNew",
-                new ExecuteFailoverHandler.SqlExecution<byte[]>() {
+                new SqlExecution<byte[]>() {
                     public byte[] run() throws SQLException {
                         return extConn(getPhysicalConnForCmd(SessionLeg.RW), "lobNew")
                                 .lobNew(lobType);
@@ -2112,7 +2112,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
 
         return runRwCommand(
                         "lobWrite",
-                        new ExecuteFailoverHandler.SqlExecution<Integer>() {
+                        new SqlExecution<Integer>() {
                             public Integer run() throws SQLException {
                                 return Integer.valueOf(
                                         extConn(getPhysicalConnForCmd(SessionLeg.RW), "lobWrite")
@@ -2134,7 +2134,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
 
         return runRwCommand(
                         "lobRead",
-                        new ExecuteFailoverHandler.SqlExecution<Integer>() {
+                        new SqlExecution<Integer>() {
                             public Integer run() throws SQLException {
                                 return Integer.valueOf(
                                         extConn(getPhysicalConnForCmd(SessionLeg.RW), "lobRead")
@@ -2463,8 +2463,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      * @return the query's result
      * @throws SQLException if the query fails after the leg was recovered
      */
-    <T> T runRwMetaQuery(final String label, final ExecuteFailoverHandler.SqlExecution<T> query)
-            throws SQLException {
+    <T> T runRwMetaQuery(final String label, final SqlExecution<T> query) throws SQLException {
         return getExecuteFailoverHandler()
                 .executeCommandWithFailover(this, RouteTarget.TO_READ_WRITE, label, true, query);
     }
@@ -2494,7 +2493,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         rwMetaForCmd =
                 runRwCommand(
                         "getMetaData",
-                        new ExecuteFailoverHandler.SqlExecution<DatabaseMetaData>() {
+                        new SqlExecution<DatabaseMetaData>() {
                             public DatabaseMetaData run() throws SQLException {
                                 return getPhysicalConnForCmd(SessionLeg.RW).getMetaData();
                             }
@@ -2597,7 +2596,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                             RouteTarget.TO_READ_WRITE,
                             "sessionProperty",
                             false,
-                            new ExecuteFailoverHandler.SqlExecution<Connection>() {
+                            new SqlExecution<Connection>() {
                                 public Connection run() throws SQLException {
                                     Connection rw = getPhysicalConnForCmd(SessionLeg.RW);
                                     action.apply(rw);

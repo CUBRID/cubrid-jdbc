@@ -253,10 +253,10 @@ public final class FailoverCoverageArchitectureTest {
             sb.append("  - ").append(p).append('\n');
         }
         sb.append("\nA physical call must sit inside a failover wrapper:\n");
-        sb.append("    runRwCommand(\"label\", new ExecuteFailoverHandler.SqlExecution<T>() {...})")
+        sb.append("    runRwCommand(\"label\", new SqlExecution<T>() {...})")
                 .append("   (connection command, not timed)\n");
         sb.append("    executeWithFailover(sql, target, retrySafe, ...)")
-                .append("                       (statement execution)\n");
+                .append("     (statement execution)\n");
         sb.append("\nIf it must not be wrapped, add the enclosing method to CLASSIFIED with a tag")
                 .append(" (HELPER/EXEMPT) and a reason.\n");
         sb.append("Judgement rule: jdbc-loadbalance-spec.md 11 \"발동 지점\".\n");

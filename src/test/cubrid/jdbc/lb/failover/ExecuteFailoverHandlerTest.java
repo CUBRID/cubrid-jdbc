@@ -36,6 +36,7 @@ import static org.junit.Assert.fail;
 
 import cubrid.jdbc.jci.UErrorCode;
 import cubrid.jdbc.lb.RecoveringConnection;
+import cubrid.jdbc.lb.failover.ExecuteFailoverHandler.SqlExecution;
 import cubrid.jdbc.lb.route.Router.RouteTarget;
 import java.net.SocketTimeoutException;
 import java.sql.SQLException;
@@ -54,8 +55,7 @@ public class ExecuteFailoverHandlerTest {
         return new SQLException("comm fail", null, UErrorCode.ER_COMMUNICATION);
     }
 
-    private static final class FailOnceExecution
-            implements ExecuteFailoverHandler.SqlExecution<String> {
+    private static final class FailOnceExecution implements SqlExecution<String> {
         final AtomicInteger runs = new AtomicInteger();
 
         public String run() throws SQLException {
@@ -87,7 +87,7 @@ public class ExecuteFailoverHandlerTest {
                                 conn,
                                 RouteTarget.TO_READ_ONLY,
                                 "SELECT slow",
-                                new ExecuteFailoverHandler.SqlExecution<String>() {
+                                new SqlExecution<String>() {
                                     public String run() throws SQLException {
                                         runs.incrementAndGet();
                                         throw timeout;

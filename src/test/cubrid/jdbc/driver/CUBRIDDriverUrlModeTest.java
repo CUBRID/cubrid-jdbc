@@ -78,11 +78,11 @@ public class CUBRIDDriverUrlModeTest {
         assertEquals(
                 UrlMode.CLASSIC,
                 CUBRIDDriver.detectUrlMode(
-                        "jdbc:cubrid:localhost:33000:demodb:dba::?logFile=file://tmp/x.log"));
+                        "jdbc:cubrid:localhost:33000:demodb:dba::?x=file://tmp/y"));
         assertEquals(
                 UrlMode.CLASSIC,
                 CUBRIDDriver.detectUrlMode(
-                        "jdbc:cubrid:localhost:33000:demodb:dba::?logFile=loadbalance://x"));
+                        "jdbc:cubrid:localhost:33000:demodb:dba::?x=loadbalance://y"));
     }
 
     @Test

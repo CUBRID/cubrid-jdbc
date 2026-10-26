@@ -135,7 +135,7 @@ public class LoadBalanceSettingsFromUrlTest {
      */
     @Test
     public void rejectsAnOptionTheBrokerUrlCannotCarry() throws SQLException {
-        for (String option : new String[] {"charset=", "logFile=/tmp/a?b", "log-file=x"}) {
+        for (String option : new String[] {"charset=", "charSet=a?b", "log-file=x"}) {
             try {
                 configOf("jdbc:cubrid:loadbalance://node1,node2/testdb?" + option);
                 fail(option + " must be refused while parsing");

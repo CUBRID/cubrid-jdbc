@@ -383,8 +383,8 @@ public class CUBRIDDriver implements Driver {
      *   <li>{@code jdbc:cubrid[-variant]:loadbalance://} → {@link UrlMode#URI_LOADBALANCE}
      *   <li>{@code jdbc:cubrid[-variant]://} → {@link UrlMode#URI_SINGLE}
      *   <li>otherwise → {@link UrlMode#CLASSIC}. Only the scheme prefix is checked: a classic URL
-     *       may still contain {@code ://} in its password or an option value (e.g. {@code
-     *       logFile=file://...}), and it stays classic.
+     *       may still contain {@code ://} in its password (e.g. {@code dba:pa://ss:}) or in an
+     *       option value, and it stays classic.
      * </ul>
      */
     static UrlMode detectUrlMode(String url) {

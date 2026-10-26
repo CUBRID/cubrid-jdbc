@@ -63,8 +63,8 @@ public final class LbLogConfig {
 
     public static final String SQL_RAW = "raw";
 
-    static final int DEFAULT_SQL_MAX_LEN = 2048;
-    static final int DEFAULT_DIST_INTERVAL_SEC = 0;
+    private static final int DEFAULT_SQL_MAX_LEN = 2048;
+    private static final int DEFAULT_DIST_INTERVAL_SEC = 0;
 
     /** Every option at its default. */
     static final LbLogConfig DEFAULTS =

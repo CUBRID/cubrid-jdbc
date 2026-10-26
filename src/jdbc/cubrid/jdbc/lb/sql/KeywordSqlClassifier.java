@@ -72,6 +72,29 @@ final class KeywordSqlClassifier implements SqlClassifier {
     private static final Map<String, Integer> KEYWORDS;
     private static final Map<String, SqlClassification> LEADING_WRITE_KEYWORDS;
 
+    private static final int SERIAL_NONE = 0;
+    private static final int SERIAL_WRITE = 1;
+    private static final int SERIAL_UNSAFE = 2;
+
+    /**
+     * Marks a user-defined session variable reference ({@code @name}).
+     *
+     * <p>A session variable lives on the one physical connection that ran the {@code SET}, so a
+     * read endpoint cannot serve a statement that reads it: the server answers {@code Session
+     * variable '@name' not defined}. Classifying such a SELECT {@code UNKNOWN} sends it to the
+     * write endpoint, where the {@code SET} went, so an application using session variables keeps
+     * working.
+     *
+     * <p>Detection is a single character, because {@code @} has no other role in CUBRID SQL and
+     * cannot start an unquoted identifier. It cannot misfire inside a string, a comment, or a
+     * quoted identifier: the scan loop consults {@link SqlLexer#skip} before reaching this branch.
+     *
+     * <p>What this cannot fix: a failover that rebinds the write leg loses the variable, and the
+     * next read of it fails again. Routing decides which leg answers, not what that leg still
+     * holds.
+     */
+    private static final char SESSION_VARIABLE_SIGIL = '@';
+
     static {
         final Map<String, Integer> kw = new HashMap<String, Integer>(64);
 
@@ -512,25 +535,6 @@ final class KeywordSqlClassifier implements SqlClassifier {
     }
 
     /**
-     * Marks a user-defined session variable reference ({@code @name}).
-     *
-     * <p>A session variable lives on the one physical connection that ran the {@code SET}, so a
-     * read endpoint cannot serve a statement that reads it: the server answers {@code Session
-     * variable '@name' not defined}. Classifying such a SELECT {@code UNKNOWN} sends it to the
-     * write endpoint, where the {@code SET} went, so an application using session variables keeps
-     * working.
-     *
-     * <p>Detection is a single character, because {@code @} has no other role in CUBRID SQL and
-     * cannot start an unquoted identifier. It cannot misfire inside a string, a comment, or a
-     * quoted identifier: the scan loop consults {@link SqlLexer#skip} before reaching this branch.
-     *
-     * <p>What this cannot fix: a failover that rebinds the write leg loses the variable, and the
-     * next read of it fails again. Routing decides which leg answers, not what that leg still
-     * holds.
-     */
-    private static final char SESSION_VARIABLE_SIGIL = '@';
-
-    /**
      * Whether a host variable {@code :name} starts at {@code pos}. {@code SELECT ... INTO :v} is
      * already UNKNOWN, so it runs on the RW leg and the variable lives there; a later read of
      * {@code :v} has to follow it, or the read leg answers that the variable is not set.
@@ -551,10 +555,6 @@ final class KeywordSqlClassifier implements SqlClassifier {
         }
         return 0;
     }
-
-    private static final int SERIAL_NONE = 0;
-    private static final int SERIAL_WRITE = 1;
-    private static final int SERIAL_UNSAFE = 2;
 
     /**
      * Effect of a dot-qualified serial pseudo-column reference ({@code seq.NEXTVAL} / {@code

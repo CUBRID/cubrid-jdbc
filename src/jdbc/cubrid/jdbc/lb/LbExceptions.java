@@ -32,6 +32,7 @@ package cubrid.jdbc.lb;
 
 import cubrid.jdbc.driver.CUBRIDException;
 import cubrid.jdbc.driver.CUBRIDJDBCErrorCode;
+import java.io.IOException;
 import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
 
@@ -96,7 +97,7 @@ public final class LbExceptions {
      * @param cause the failure the stream reported
      * @return the exception to throw
      */
-    public static CUBRIDException streamReadFailed(final java.io.IOException cause) {
+    public static CUBRIDException streamReadFailed(final IOException cause) {
         return withCoreDetail(CUBRIDJDBCErrorCode.ioexception_in_stream, null, cause);
     }
 

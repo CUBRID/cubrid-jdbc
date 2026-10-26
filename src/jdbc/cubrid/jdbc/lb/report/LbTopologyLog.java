@@ -40,6 +40,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Properties;
 import java.util.Set;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
@@ -93,7 +94,7 @@ public final class LbTopologyLog {
      */
     public static void declare(
             final String url, final Properties info, final LoadBalanceSettings config) {
-        if (url == null || config == null || !LOGGER.isLoggable(java.util.logging.Level.INFO)) {
+        if (url == null || config == null || !LOGGER.isLoggable(Level.INFO)) {
             return;
         }
 

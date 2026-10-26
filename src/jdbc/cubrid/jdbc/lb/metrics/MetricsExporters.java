@@ -41,7 +41,9 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -455,7 +457,7 @@ public final class MetricsExporters {
 
     /** Folds the per-endpoint binding gauge into role buckets. */
     private static Map<String, Integer> bindingByRole() {
-        Map<String, Integer> byRole = new java.util.LinkedHashMap<String, Integer>();
+        Map<String, Integer> byRole = new LinkedHashMap<String, Integer>();
         for (Map.Entry<String, Integer> e :
                 MetricsRegistry.aggregateBindingByEndpoint().entrySet()) {
             String role = MetricsRegistry.roleOf(e.getKey());
@@ -611,7 +613,7 @@ public final class MetricsExporters {
         /** Movements folded by destination endpoint: how many legs landed on each endpoint. */
         private static Map<String, Long> arrivalsByEndpoint(
                 final List<MetricsRegistry.Transition> transitions) {
-            Map<String, Long> out = new java.util.LinkedHashMap<String, Long>();
+            Map<String, Long> out = new LinkedHashMap<String, Long>();
             for (int i = 0; i < transitions.size(); i++) {
                 MetricsRegistry.Transition t = transitions.get(i);
                 Long prev = out.get(t.getTo());
@@ -677,7 +679,7 @@ public final class MetricsExporters {
 
         /** 2-decimal, dot-separator formatting so the CSV parses regardless of the JVM locale. */
         private static String csvNum(final double v) {
-            return String.format(java.util.Locale.US, "%.2f", v);
+            return String.format(Locale.US, "%.2f", v);
         }
     }
 }

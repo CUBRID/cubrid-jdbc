@@ -1494,13 +1494,13 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     /* ===== Connection: client info API (unsupported, as in the core driver) =====*/
     public void setClientInfo(String name, String value) throws SQLClientInfoException {
         SQLClientInfoException clientEx = new SQLClientInfoException();
-        clientEx.initCause(new java.lang.UnsupportedOperationException());
+        clientEx.initCause(new UnsupportedOperationException());
         throw clientEx;
     }
 
     public void setClientInfo(Properties properties) throws SQLClientInfoException {
         SQLClientInfoException clientEx = new SQLClientInfoException();
-        clientEx.initCause(new java.lang.UnsupportedOperationException());
+        clientEx.initCause(new UnsupportedOperationException());
         throw clientEx;
     }
 

@@ -1065,7 +1065,7 @@ public class LBStatement extends CUBRIDStatement {
      * is unchecked.
      */
     @Override
-    public void setReportedConnection(final java.sql.Connection reported) {
+    public void setReportedConnection(final Connection reported) {
         throw unchecked(LbExceptions.notSupportedApi("setReportedConnection(Connection)"));
     }
 

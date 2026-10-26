@@ -371,4 +371,39 @@ public class CUBRIDDriverUrlModeTest {
             assertTrue(e.getMessage(), e.getMessage().contains("node1:abc/testdb:dba:********:"));
         }
     }
+
+    /**
+     * Without the {@code /<db>} separator - or with a {@code /} only in an option value - there is
+     * no credential section to mask, yet the password is still in the URL. Everything after the
+     * first host is hidden then, up to the options.
+     */
+    @Test
+    public void uriUrlWithoutDatabaseSeparatorErrorDoesNotQuoteThePassword() {
+        String[] urls = {
+            "jdbc:cubrid://node1:33000:testdb:dba:s3cret:",
+            "jdbc:cubrid://node1:33000:testdb:dba:s3cret:?charSet=a/b"
+        };
+        for (String url : urls) {
+            try {
+                driver.connect(url, new Properties());
+                fail("a URI URL without '/<db>' must be refused: " + url);
+            } catch (SQLException e) {
+                assertFalse(e.getMessage(), e.getMessage().contains("s3cret"));
+                assertTrue(e.getMessage(), e.getMessage().contains("jdbc:cubrid://node1:********"));
+            }
+        }
+
+        assertEquals(
+                "jdbc:cubrid:loadbalance://node1:********",
+                CUBRIDDriver.maskUriUrlPassword(
+                        "jdbc:cubrid:loadbalance://node1:33000:testdb:dba:s3cret:", null));
+        assertEquals(
+                "jdbc:cubrid://node1:********?charSet=a/b",
+                CUBRIDDriver.maskUriUrlPassword(
+                        "jdbc:cubrid://node1:33000:testdb:dba:s3cret:?charSet=a/b", null));
+        assertEquals(
+                "jdbc:cubrid:loadbalance://node1,node2?rcTime=600",
+                CUBRIDDriver.maskUriUrlPassword(
+                        "jdbc:cubrid:loadbalance://node1,node2?rcTime=600", null));
+    }
 }

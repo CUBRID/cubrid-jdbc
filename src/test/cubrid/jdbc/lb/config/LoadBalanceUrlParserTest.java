@@ -49,7 +49,10 @@ public class LoadBalanceUrlParserTest {
     public void parseErrorDoesNotQuoteThePassword() {
         String[] malformed = {
             "jdbc:cubrid:loadbalance://node1,,node2/testdb:dba:s3cret:",
-            "jdbc:cubrid:loadbalance://node1,node2/testdb:dba:s3cret:extra"
+            "jdbc:cubrid:loadbalance://node1,node2/testdb:dba:s3cret:extra",
+            // No '/<db>' at all, or a '/' only in an option value
+            "jdbc:cubrid:loadbalance://node1:33000:testdb:dba:s3cret:",
+            "jdbc:cubrid:loadbalance://node1:33000:testdb:dba:s3cret:?charSet=a/b"
         };
         for (String url : malformed) {
             try {

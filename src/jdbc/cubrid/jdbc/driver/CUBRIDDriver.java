@@ -442,7 +442,9 @@ public class CUBRIDDriver implements Driver {
      * {@link java.sql.DriverManager#getConnection(String, String, String)}) and otherwise the
      * second {@code ':'}-separated segment of the credential section — the same precedence the
      * classic path uses to pick the user it connects with — and the password is always shown
-     * masked. A non-URI (classic) URL, or one without a credential section, is returned unchanged.
+     * masked. A non-URI (classic) URL is returned unchanged. Without a {@code '/'} before the
+     * options there is no credential section, but positional credentials may still follow the
+     * hosts: everything after the first {@code ':'} up to the options is masked then.
      *
      * @param url the JDBC URL to mask; may be {@code null}
      * @param info connection properties supplying the effective {@code user}; may be {@code null}
@@ -459,13 +461,19 @@ public class CUBRIDDriver implements Driver {
             return url;
         }
 
-        int credStart = url.indexOf('/', sep + URL_SCHEME_SEPARATOR.length());
-        if (credStart < 0) {
-            return url;
-        }
-
-        int qIdx = url.indexOf('?', credStart);
+        int authStart = sep + URL_SCHEME_SEPARATOR.length();
+        int qIdx = url.indexOf('?', authStart);
         int credEnd = qIdx >= 0 ? qIdx : url.length();
+        // Only a '/' before the options starts the credential section; one in an option value
+        // does not.
+        int credStart = url.indexOf('/', authStart);
+        if (credStart < 0 || credStart > credEnd) {
+            int colon = url.indexOf(':', authStart);
+            if (colon < 0 || colon > credEnd) {
+                return url;
+            }
+            return url.substring(0, colon + 1) + "********" + url.substring(credEnd);
+        }
 
         String[] segs = url.substring(credStart + 1, credEnd).split(":", -1); // db[:user[:pw[:]]]
         String db = segs[0];

@@ -63,6 +63,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Logger;
 
 /**
@@ -104,11 +106,8 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
      * exactly the ones drawing from that endpoint's counter, so they hold consecutive offsets and
      * rotate evenly over the surviving siblings.
      */
-    private static final java.util.concurrent.ConcurrentHashMap<
-                    String, java.util.concurrent.atomic.AtomicInteger>
-            LADDER_ROTATION =
-                    new java.util.concurrent.ConcurrentHashMap<
-                            String, java.util.concurrent.atomic.AtomicInteger>();
+    private static final ConcurrentHashMap<String, AtomicInteger> LADDER_ROTATION =
+            new ConcurrentHashMap<String, AtomicInteger>();
 
     static final String RO_PHYSICAL_FAILOVER_REASON = FallbackReason.RO_PHYSICAL;
     public static final JdbcConnectionFactory DRIVER_MANAGER =
@@ -1943,10 +1942,9 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
     private int assignedLadderOffset(final Endpoint home) {
         if (ladderOffset < 0) {
             final String key = home == null ? "" : home.getId();
-            java.util.concurrent.atomic.AtomicInteger counter = LADDER_ROTATION.get(key);
+            AtomicInteger counter = LADDER_ROTATION.get(key);
             if (counter == null) {
-                final java.util.concurrent.atomic.AtomicInteger created =
-                        new java.util.concurrent.atomic.AtomicInteger();
+                final AtomicInteger created = new AtomicInteger();
                 counter = LADDER_ROTATION.putIfAbsent(key, created);
                 if (counter == null) {
                     counter = created;

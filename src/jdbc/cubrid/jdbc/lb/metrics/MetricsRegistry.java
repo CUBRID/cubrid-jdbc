@@ -35,6 +35,7 @@ import cubrid.jdbc.lb.metrics.RuntimeMetrics.LatencySnapshot;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -189,7 +190,7 @@ public final class MetricsRegistry {
      * @return the known endpoint ids, in first-seen order
      */
     static Set<String> knownEndpointIds() {
-        return new java.util.LinkedHashSet<String>(ROLE.keySet());
+        return new LinkedHashSet<String>(ROLE.keySet());
     }
 
     /**

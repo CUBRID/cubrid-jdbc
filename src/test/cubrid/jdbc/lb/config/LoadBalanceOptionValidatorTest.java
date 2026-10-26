@@ -120,23 +120,6 @@ public class LoadBalanceOptionValidatorTest {
         assertFalse(r.getRetainedOptions().containsKey("ALTHOSTS"));
     }
 
-    // 05 §M3: cubrid.lb.* keys are read nowhere (loadbalance uses fixed defaults) → ignored (WARN)
-    // and not retained for propagation, in either mode.
-    @Test
-    public void cubridLbConfigKeysAreIgnoredInBothModes() {
-        Result lb =
-                LoadBalanceOptionValidator.validate(
-                        true, opts("cubrid.lb.runtime.failover.enabled", "false"));
-        assertTrue(lb.getIgnoredKeys().contains("cubrid.lb.runtime.failover.enabled"));
-        assertFalse(lb.getRetainedOptions().containsKey("cubrid.lb.runtime.failover.enabled"));
-
-        Result classic =
-                LoadBalanceOptionValidator.validate(
-                        false, opts("CUBRID.LB.Distribution.Mode", "session"));
-        assertTrue(classic.hasIgnored());
-        assertFalse(classic.getRetainedOptions().containsKey("CUBRID.LB.Distribution.Mode"));
-    }
-
     @Test
     public void nullOrEmptyOptionsYieldEmptyResult() {
         assertFalse(LoadBalanceOptionValidator.validate(true, null).hasIgnored());

@@ -80,17 +80,10 @@ public final class EndpointTopology {
      *   <li><b>REPL</b>: every replica SO.
      * </ul>
      *
-     * @param resolved the resolved role topology; may be {@code null}
-     * @return the endpoint topology, empty when {@code resolved} is {@code null}
+     * @param resolved the resolved role topology
+     * @return the endpoint topology
      */
     public static EndpointTopology fromResolved(ResolvedRoleTopology resolved) {
-        if (resolved == null) {
-            return new EndpointTopology(
-                    new ArrayList<Endpoint>(),
-                    new ArrayList<Endpoint>(),
-                    new ArrayList<Endpoint>());
-        }
-
         List<Endpoint> rwList = new ArrayList<Endpoint>();
         rwList.add(resolved.getMaster().getRw());
 

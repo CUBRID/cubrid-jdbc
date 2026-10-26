@@ -32,6 +32,7 @@ package cubrid.jdbc.lb.config;
 
 import static org.junit.Assert.*;
 
+import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
 import cubrid.jdbc.lb.state.CurrentReadEndpointHolder;
 import cubrid.jdbc.lb.state.SessionRoutingState;
@@ -42,27 +43,12 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.util.Properties;
 import org.junit.Test;
 
 public class ConnectionChecklistTest {
 
-    private static LoadBalanceSettings emptyConfig() {
-        return new LoadBalanceSettings(new Properties());
-    }
-
-    private static LoadBalanceSettings configWithMode(String mode) {
-        Properties p = new Properties();
-        p.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, mode);
-        return new LoadBalanceSettings(p);
-    }
-
     private static LoadBalanceConnection newConn() {
-        return new LoadBalanceConnection(emptyConfig());
-    }
-
-    private static LoadBalanceConnection newConn(String distMode) {
-        return new LoadBalanceConnection(configWithMode(distMode));
+        return new LoadBalanceConnection(LbTestSettings.defaults());
     }
 
     @Test
@@ -335,8 +321,7 @@ public class ConnectionChecklistTest {
 
     @Test
     public void assertCL08_sessionModeFixesRoAtConnectionTime() throws Exception {
-        LoadBalanceConnection conn = newConn("session");
-        assertTrue(conn.isSessionDistributionMode());
+        LoadBalanceConnection conn = newConn();
 
         Endpoint ep = new Endpoint("ro-slave1", 33000);
         CurrentReadEndpointHolder tracker = conn.getBoundReadEndpoint();
@@ -349,7 +334,7 @@ public class ConnectionChecklistTest {
 
     @Test
     public void assertCL08_sessionModeAffinityPersistsAcrossExecutes() throws Exception {
-        LoadBalanceConnection conn = newConn("session");
+        LoadBalanceConnection conn = newConn();
         Endpoint ep = new Endpoint("ro-slave2", 33001);
         conn.getBoundReadEndpoint().setCurrentRoEndpoint(ep);
 
@@ -361,10 +346,10 @@ public class ConnectionChecklistTest {
     public void assertCL10_sharedStateAcrossConnections() throws Exception {
         SharedSelectorState shared = new SharedSelectorState();
 
-        LoadBalanceConnection conn1 = newConn("session");
+        LoadBalanceConnection conn1 = newConn();
         conn1.setSharedSelectorState(shared);
 
-        LoadBalanceConnection conn2 = newConn("session");
+        LoadBalanceConnection conn2 = newConn();
         conn2.setSharedSelectorState(shared);
 
         assertSame(conn1.getSharedSelectorState(), conn2.getSharedSelectorState());
@@ -379,13 +364,13 @@ public class ConnectionChecklistTest {
     public void assertCL10_sharedStateSurvivesConnectionClose() throws Exception {
         SharedSelectorState shared = new SharedSelectorState();
 
-        LoadBalanceConnection conn1 = newConn("session");
+        LoadBalanceConnection conn1 = newConn();
         conn1.setSharedSelectorState(shared);
         shared.nextGroupRoundRobinIndex("read", 3);
         conn1.close();
 
         // The shared counter survives conn1.close(); a fresh connection continues the sequence.
-        LoadBalanceConnection conn2 = newConn("session");
+        LoadBalanceConnection conn2 = newConn();
         conn2.setSharedSelectorState(shared);
         int idx = shared.nextGroupRoundRobinIndex("read", 3);
         assertEquals(1, idx);
@@ -459,11 +444,5 @@ public class ConnectionChecklistTest {
     public void assertSharedSelectorStateDefaultNull() throws Exception {
         LoadBalanceConnection conn = newConn();
         assertNull(conn.getSharedSelectorState());
-    }
-
-    @Test
-    public void assertDefaultDistributionModeIsSession() throws Exception {
-        LoadBalanceConnection conn = newConn();
-        assertTrue(conn.isSessionDistributionMode());
     }
 }

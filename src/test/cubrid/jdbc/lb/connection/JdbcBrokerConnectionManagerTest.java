@@ -39,6 +39,7 @@ import static org.junit.Assert.fail;
 
 import cubrid.jdbc.driver.CUBRIDException;
 import cubrid.jdbc.lb.LbJDBCErrorCode;
+import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.SessionLeg;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
@@ -620,23 +621,16 @@ public class JdbcBrokerConnectionManagerTest {
     }
 
     private static LoadBalanceSettings sessionConfig() {
-        Properties p = new Properties();
-        p.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, "session");
-        return LoadBalanceSettings.of(p);
+        return LbTestSettings.defaults();
     }
 
     private static LoadBalanceSettings sessionConfigWithRoFailover(final boolean enabled) {
-        Properties p = new Properties();
-        p.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, "session");
-        p.setProperty(
-                LoadBalanceSettings.KEY_RO_PHYSICAL_FAILOVER_TO_RW, Boolean.toString(enabled));
-        return LoadBalanceSettings.of(p);
+        return LbTestSettings.with(
+                LbTestSettings.defaults(), "roPhysicalFailoverToRw", Boolean.valueOf(enabled));
     }
 
     private static LoadBalanceSettings sessionConfigFailoverTopology() {
-        Properties p = new Properties();
-        p.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, "session");
-        return LoadBalanceSettings.of(p);
+        return LbTestSettings.defaults();
     }
 
     private static Connection newConnectionProxy(final AtomicInteger closeCount) {

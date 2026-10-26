@@ -35,6 +35,7 @@ import static org.junit.Assert.assertTrue;
 
 import cubrid.jdbc.jci.UConnection;
 import cubrid.jdbc.lb.FakePhysicalConnection;
+import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
@@ -126,9 +127,8 @@ public final class CoreSilentReconnectStateTest {
     /* ===== harness ===== */
 
     private static LoadBalanceConnection session(final Connection physical) throws SQLException {
-        Properties cfg = new Properties();
-        cfg.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, "session");
-        LoadBalanceSettings settings = LoadBalanceSettings.of(cfg);
+        LoadBalanceSettings settings =
+                LbTestSettings.forBinding(new Endpoint("rw", 33000), new Endpoint("ro1", 33001));
 
         JdbcConnectionFactory factory =
                 new JdbcConnectionFactory() {

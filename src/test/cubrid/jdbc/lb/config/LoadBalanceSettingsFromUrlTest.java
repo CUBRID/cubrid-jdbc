@@ -32,12 +32,10 @@ package cubrid.jdbc.lb.config;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import java.sql.SQLException;
-import java.util.Properties;
 import org.junit.Test;
 
 public class LoadBalanceSettingsFromUrlTest {
@@ -53,8 +51,6 @@ public class LoadBalanceSettingsFromUrlTest {
                         "jdbc:cubrid:loadbalance://node1,node2,node3;replica=rep1/testdb:dba:secret:"
                                 + "?rwPort=33000&roPort=33002&soPort=33004"
                                 + "&readWeight=slave:40,master:10,replica:50");
-
-        assertTrue(c.isUrlDerived());
 
         // roles + ports
         ResolvedRoleTopology t = c.getResolvedTopology();
@@ -95,7 +91,6 @@ public class LoadBalanceSettingsFromUrlTest {
         LoadBalanceSettings c =
                 configOf("jdbc:cubrid:loadbalance://node1,node2/testdb?rwPort=33000&roPort=33002");
 
-        assertEquals(LoadBalanceSettings.DISTRIBUTION_MODE_SESSION, c.getDistributionMode());
         assertTrue(c.isRoPhysicalFailoverToRw());
         assertTrue(c.isRuntimeFailoverEnabled());
         assertTrue(c.isRuntimeFailoverRetryOnce());
@@ -121,15 +116,6 @@ public class LoadBalanceSettingsFromUrlTest {
                 configOf("jdbc:cubrid-mysql:loadbalance://node1/testdb?rwPort=33000&roPort=33002");
 
         assertEquals("-mysql", c.getUrlVariant());
-    }
-
-    @Test
-    public void legacyPropertyConfigIsNotUrlDerived() {
-        LoadBalanceSettings c = LoadBalanceSettings.of(new Properties());
-
-        assertFalse(c.isUrlDerived());
-        assertNull(c.getResolvedTopology());
-        assertNull(c.getReadWeight());
     }
 
     @Test

@@ -36,10 +36,10 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import cubrid.jdbc.jci.UErrorCode;
+import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
-import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.connection.JdbcConnectionFactory;
 import cubrid.jdbc.lb.connection.SessionPhysicalConnManager;
 import cubrid.jdbc.lb.state.SharedSelectorState;
@@ -79,14 +79,11 @@ public class LBStatementExecuteFailoverTest {
                     }
                 };
 
-        Properties cfg = new Properties();
-        cfg.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, "session");
-
-        LoadBalanceConnection conn = new LoadBalanceConnection(LoadBalanceSettings.of(cfg));
+        LoadBalanceConnection conn = new LoadBalanceConnection(LbTestSettings.forTopology(topo));
         conn.getRuntimeMetrics().setEnabled(true);
         conn.setConnectionManager(
                 new SessionPhysicalConnManager(
-                        LOGICAL_URL, new Properties(), LoadBalanceSettings.of(cfg), factory));
+                        LOGICAL_URL, new Properties(), LbTestSettings.forTopology(topo), factory));
         conn.setSharedSelectorState(new SharedSelectorState());
         conn.initSessionBindings(topo);
 
@@ -127,14 +124,11 @@ public class LBStatementExecuteFailoverTest {
                     }
                 };
 
-        Properties cfg = new Properties();
-        cfg.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, "session");
-
-        LoadBalanceConnection conn = new LoadBalanceConnection(LoadBalanceSettings.of(cfg));
+        LoadBalanceConnection conn = new LoadBalanceConnection(LbTestSettings.forTopology(topo));
         conn.getRuntimeMetrics().setEnabled(true);
         conn.setConnectionManager(
                 new SessionPhysicalConnManager(
-                        LOGICAL_URL, new Properties(), LoadBalanceSettings.of(cfg), factory));
+                        LOGICAL_URL, new Properties(), LbTestSettings.forTopology(topo), factory));
         conn.setSharedSelectorState(new SharedSelectorState());
         conn.initSessionBindings(topo);
 
@@ -169,14 +163,11 @@ public class LBStatementExecuteFailoverTest {
                     }
                 };
 
-        Properties cfg = new Properties();
-        cfg.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, "session");
-
-        LoadBalanceConnection conn = new LoadBalanceConnection(LoadBalanceSettings.of(cfg));
+        LoadBalanceConnection conn = new LoadBalanceConnection(LbTestSettings.defaults());
         conn.getRuntimeMetrics().setEnabled(true);
         conn.setConnectionManager(
                 new SessionPhysicalConnManager(
-                        LOGICAL_URL, new Properties(), LoadBalanceSettings.of(cfg), factory));
+                        LOGICAL_URL, new Properties(), LbTestSettings.defaults(), factory));
         conn.setSharedSelectorState(new SharedSelectorState());
         conn.initSessionBindings(
                 new EndpointTopology(

@@ -40,7 +40,6 @@ import static org.junit.Assert.fail;
 import cubrid.jdbc.driver.CUBRIDJDBCErrorCode;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
-import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.connection.SimpleEndpointConnManager;
 import cubrid.jdbc.lb.route.Router;
 import cubrid.jdbc.lb.state.SharedSelectorState;
@@ -56,7 +55,6 @@ import java.sql.SQLFeatureNotSupportedException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Properties;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Test;
 
@@ -587,9 +585,7 @@ public final class LoadBalanceConnectionMetadataProxyTest {
     }
 
     private static LoadBalanceConnection createSessionConnection() {
-        Properties properties = new Properties();
-        properties.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, "session");
-        return new LoadBalanceConnection(LoadBalanceSettings.of(properties));
+        return new LoadBalanceConnection(LbTestSettings.defaults());
     }
 
     private static EndpointTopology createTopologyWithSingleRo() {

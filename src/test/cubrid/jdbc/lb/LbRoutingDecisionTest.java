@@ -34,7 +34,6 @@ import static org.junit.Assert.assertTrue;
 
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
-import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.connection.SimpleEndpointConnManager;
 import cubrid.jdbc.lb.metrics.RuntimeMetrics;
 import cubrid.jdbc.lb.state.SharedSelectorState;
@@ -46,7 +45,6 @@ import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Properties;
 import org.junit.Test;
 
 public final class LbRoutingDecisionTest {
@@ -237,11 +235,8 @@ public final class LbRoutingDecisionTest {
     }
 
     private static BoundConnection createBoundSessionConnectionWithPhysicals() throws Exception {
-        Properties properties = new Properties();
-        properties.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, "session");
 
-        LoadBalanceConnection connection =
-                new LoadBalanceConnection(LoadBalanceSettings.of(properties));
+        LoadBalanceConnection connection = new LoadBalanceConnection(LbTestSettings.defaults());
         connection.getRuntimeMetrics().setEnabled(true);
         SimpleEndpointConnManager manager = new SimpleEndpointConnManager();
         connection.setConnectionManager(manager);

@@ -36,8 +36,8 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
-import cubrid.jdbc.lb.config.TestConfigHelper;
 import cubrid.jdbc.lb.route.Router;
 import cubrid.sql.CUBRIDOID;
 import java.lang.reflect.InvocationHandler;
@@ -61,7 +61,7 @@ public class LBPreparedStatementExecutionTest {
 
     @Before
     public void setUp() throws Exception {
-        connection = new LoadBalanceConnection(TestConfigHelper.emptyConfig());
+        connection = new LoadBalanceConnection(LbTestSettings.defaults());
     }
 
     @Test

@@ -37,7 +37,6 @@ import static org.junit.Assert.fail;
 
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
-import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.connection.SimpleEndpointConnManager;
 import cubrid.jdbc.lb.state.SharedSelectorState;
 import cubrid.jdbc.lb.statement.LBStatement;
@@ -50,7 +49,6 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Properties;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Test;
 
@@ -271,9 +269,7 @@ public final class CommandCoverageFollowupTest {
     }
 
     private static LoadBalanceConnection createSessionConnection() {
-        Properties properties = new Properties();
-        properties.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, "session");
-        return new LoadBalanceConnection(LoadBalanceSettings.of(properties));
+        return new LoadBalanceConnection(LbTestSettings.defaults());
     }
 
     private static LoadBalanceConnection createBoundConnection() throws Exception {

@@ -71,10 +71,7 @@ public final class RoPhysicalFailoverRuntimeMetricsTest {
                     }
                 };
 
-        Properties cfg = new Properties();
-        cfg.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, "session");
-        cfg.setProperty(LoadBalanceSettings.KEY_RO_PHYSICAL_FAILOVER_TO_RW, "true");
-        LoadBalanceSettings loadBalanceSettings = LoadBalanceSettings.of(cfg);
+        LoadBalanceSettings loadBalanceSettings = LbTestSettings.defaults();
 
         SessionPhysicalConnManager pool =
                 new SessionPhysicalConnManager(

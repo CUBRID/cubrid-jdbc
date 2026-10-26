@@ -35,13 +35,12 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.fail;
 
 import cubrid.jdbc.jci.UErrorCode;
+import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
 import cubrid.jdbc.lb.config.Endpoint;
-import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.route.Router;
 import java.net.SocketTimeoutException;
 import java.sql.SQLException;
-import java.util.Properties;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Test;
 
@@ -57,7 +56,7 @@ public class ExecuteFailoverHandlerTest {
         final AtomicInteger recoverCalls = new AtomicInteger();
 
         RecoveringConnection() {
-            super(LoadBalanceSettings.of(new Properties()));
+            super(LbTestSettings.defaults());
         }
 
         @Override

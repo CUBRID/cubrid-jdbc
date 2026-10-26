@@ -82,7 +82,7 @@ public class LoadBalanceConnectionRecoverPhyBindingTest {
     public void resolveFailedExecEndpointNamesTheWriteLegAfterAReadStatement() throws SQLException {
         EndpointTopology topo = topology("rw", "ro1");
         LoadBalanceConnection conn =
-                newConnection(LoadBalanceSettings.of(sessionProperties()), alwaysOpenFactory());
+                newConnection(LbTestSettings.forTopology(topo), alwaysOpenFactory());
         conn.initSessionBindings(topo);
 
         // Routing a read statement is what captures lastExecEndpoint, on the read leg.
@@ -117,7 +117,7 @@ public class LoadBalanceConnectionRecoverPhyBindingTest {
             throws SQLException {
         ServerTxFactory factory = new ServerTxFactory();
         LoadBalanceConnection conn =
-                newConnection(LoadBalanceSettings.of(sessionProperties()), factory);
+                newConnection(LbTestSettings.forTopology(topology("rw", "ro1")), factory);
         conn.initSessionBindings(topology("rw", "ro1"));
         conn.setAutoCommit(false);
         conn.commit();
@@ -134,7 +134,7 @@ public class LoadBalanceConnectionRecoverPhyBindingTest {
             throws SQLException {
         ServerTxFactory factory = new ServerTxFactory();
         LoadBalanceConnection conn =
-                newConnection(LoadBalanceSettings.of(sessionProperties()), factory);
+                newConnection(LbTestSettings.forTopology(topology("rw", "ro1")), factory);
         conn.initSessionBindings(topology("rw", "ro1"));
         conn.setAutoCommit(false);
         factory.reportTxOpen(true);
@@ -160,7 +160,7 @@ public class LoadBalanceConnectionRecoverPhyBindingTest {
     public void rollbackThatLosesTheWriteConnectionStillEndsTheTransaction() throws SQLException {
         ServerTxFactory factory = new ServerTxFactory();
         LoadBalanceConnection conn =
-                newConnection(LoadBalanceSettings.of(sessionProperties()), factory);
+                newConnection(LbTestSettings.forTopology(topology("rw", "ro1")), factory);
         conn.initSessionBindings(topology("rw", "ro1"));
         conn.setAutoCommit(false);
         factory.reportTxOpen(true);
@@ -187,7 +187,7 @@ public class LoadBalanceConnectionRecoverPhyBindingTest {
     public void commitThatLosesTheWriteConnectionStillEndsTheTransaction() throws SQLException {
         ServerTxFactory factory = new ServerTxFactory();
         LoadBalanceConnection conn =
-                newConnection(LoadBalanceSettings.of(sessionProperties()), factory);
+                newConnection(LbTestSettings.forTopology(topology("rw", "ro1")), factory);
         conn.initSessionBindings(topology("rw", "ro1"));
         conn.setAutoCommit(false);
         factory.reportTxOpen(true);
@@ -214,7 +214,8 @@ public class LoadBalanceConnectionRecoverPhyBindingTest {
     @Test
     public void unreadableServerStatusKeepsManualCommitFailoverForbidden() throws SQLException {
         LoadBalanceConnection conn =
-                newConnection(LoadBalanceSettings.of(sessionProperties()), alwaysOpenFactory());
+                newConnection(
+                        LbTestSettings.forTopology(topology("rw", "ro1")), alwaysOpenFactory());
         conn.initSessionBindings(topology("rw", "ro1"));
         conn.setAutoCommit(false);
         conn.commit();
@@ -240,7 +241,7 @@ public class LoadBalanceConnectionRecoverPhyBindingTest {
 
         ServerTxFactory factory = new ServerTxFactory();
         LoadBalanceConnection conn =
-                newConnection(LoadBalanceSettings.of(sessionProperties()), factory);
+                newConnection(LbTestSettings.forTopology(topology("rw", "ro1")), factory);
         conn.initSessionBindings(topology("rw", "ro1"));
         conn.setAutoCommit(false);
         factory.reportTxOpen(true);
@@ -355,10 +356,11 @@ public class LoadBalanceConnectionRecoverPhyBindingTest {
 
     @Test
     public void recoverPhyBindingThrowsOriginalWhenFailoverDisabled() throws SQLException {
-        Properties cfg = new Properties();
-        cfg.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, "session");
-        cfg.setProperty(LoadBalanceSettings.KEY_RT_FAILOVER_ENABLED, "false");
-        LoadBalanceSettings config = LoadBalanceSettings.of(cfg);
+        LoadBalanceSettings config =
+                LbTestSettings.with(
+                        LbTestSettings.forTopology(topology("rw", "ro1")),
+                        "rtFailoverEnabled",
+                        Boolean.FALSE);
 
         LoadBalanceConnection conn = newConnection(config, alwaysOpenFactory());
         EndpointTopology topo = topology("rw", "ro1");
@@ -386,7 +388,8 @@ public class LoadBalanceConnectionRecoverPhyBindingTest {
     @Test
     public void recoverPhyBindingThrowsOriginalDuringActiveTransaction() throws SQLException {
         LoadBalanceConnection conn =
-                newConnection(LoadBalanceSettings.of(sessionProperties()), alwaysOpenFactory());
+                newConnection(
+                        LbTestSettings.forTopology(topology("rw", "ro1")), alwaysOpenFactory());
         EndpointTopology topo = topology("rw", "ro1");
         conn.initSessionBindings(topo);
         conn.setAutoCommit(false);
@@ -435,8 +438,7 @@ public class LoadBalanceConnectionRecoverPhyBindingTest {
                     }
                 };
 
-        LoadBalanceConnection conn =
-                newConnection(LoadBalanceSettings.of(sessionProperties()), factory);
+        LoadBalanceConnection conn = newConnection(LbTestSettings.forTopology(topo), factory);
         conn.initSessionBindings(topo);
 
         SQLException original = new SQLException("comm fail", null, UErrorCode.ER_COMMUNICATION);
@@ -491,8 +493,7 @@ public class LoadBalanceConnectionRecoverPhyBindingTest {
                     }
                 };
 
-        LoadBalanceConnection conn =
-                newConnection(LoadBalanceSettings.of(sessionProperties()), factory);
+        LoadBalanceConnection conn = newConnection(LbTestSettings.forTopology(topo), factory);
         conn.initSessionBindings(topo);
 
         final SQLException original =
@@ -558,7 +559,8 @@ public class LoadBalanceConnectionRecoverPhyBindingTest {
     @Test
     public void initSessionBindingsStoresTopologyForRecovery() throws SQLException {
         LoadBalanceConnection conn =
-                newConnection(LoadBalanceSettings.of(sessionProperties()), alwaysOpenFactory());
+                newConnection(
+                        LbTestSettings.forTopology(topology("rw", "ro1")), alwaysOpenFactory());
         EndpointTopology topo = topology("rw", "ro1");
         conn.initSessionBindings(topo);
         assertSame(topo, conn.getSessionTopology());
@@ -581,7 +583,7 @@ public class LoadBalanceConnectionRecoverPhyBindingTest {
                         Collections.<Endpoint>emptyList());
 
         LoadBalanceConnection conn =
-                newConnection(LoadBalanceSettings.of(sessionProperties()), alwaysOpenFactory());
+                newConnection(LbTestSettings.forTopology(topo), alwaysOpenFactory());
         conn.initSessionBindings(topo);
 
         // Simulate JCI having marked ro1 unreachable (global list keyed by "host:port").
@@ -628,8 +630,7 @@ public class LoadBalanceConnectionRecoverPhyBindingTest {
                     }
                 };
 
-        LoadBalanceConnection conn =
-                newConnection(LoadBalanceSettings.of(sessionProperties()), factory);
+        LoadBalanceConnection conn = newConnection(LbTestSettings.forTopology(topo), factory);
         conn.initSessionBindings(topo);
         conn.setTransactionIsolation(Connection.TRANSACTION_SERIALIZABLE);
 
@@ -675,8 +676,7 @@ public class LoadBalanceConnectionRecoverPhyBindingTest {
                     }
                 };
 
-        LoadBalanceConnection conn =
-                newConnection(LoadBalanceSettings.of(sessionProperties()), factory);
+        LoadBalanceConnection conn = newConnection(LbTestSettings.forTopology(topo), factory);
         conn.initSessionBindings(topo);
         conn.setAutoCommit(false);
         conn.commit();
@@ -752,12 +752,6 @@ public class LoadBalanceConnectionRecoverPhyBindingTest {
                                 return null;
                             }
                         });
-    }
-
-    private static Properties sessionProperties() {
-        Properties cfg = new Properties();
-        cfg.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, "session");
-        return cfg;
     }
 
     private static EndpointTopology topology(final String rwHost, final String roHost) {

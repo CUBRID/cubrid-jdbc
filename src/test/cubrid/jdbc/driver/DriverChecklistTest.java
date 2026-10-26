@@ -38,16 +38,6 @@ import org.junit.Test;
 public class DriverChecklistTest {
 
     @Test
-    public void assertCL05_distributionModeNotUsedInDriver() throws Exception {
-        Method[] driverMethods = CUBRIDDriver.class.getDeclaredMethods();
-        for (Method m : driverMethods) {
-            assertFalse(
-                    "CUBRIDDriver should not have a method referencing distribution mode",
-                    m.getName().toLowerCase().contains("distributionmode"));
-        }
-    }
-
-    @Test
     public void assertCL06_driverDoesNotImplementBatchRouting() throws Exception {
         Method[] methods = CUBRIDDriver.class.getDeclaredMethods();
         for (Method m : methods) {

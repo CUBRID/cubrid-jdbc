@@ -32,7 +32,6 @@ package cubrid.jdbc.lb;
 
 import static org.junit.Assert.assertEquals;
 
-import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.connection.SimpleEndpointConnManager;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
@@ -40,7 +39,6 @@ import java.lang.reflect.Proxy;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Properties;
 import org.junit.Test;
 
 public final class SessionConnChecklistTest {
@@ -70,10 +68,7 @@ public final class SessionConnChecklistTest {
 
     private static LoadBalanceConnection createSessionConnection(
             final String algorithm, final String weights) {
-        Properties properties = new Properties();
-        properties.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, "session");
-        LoadBalanceConnection connection =
-                new LoadBalanceConnection(LoadBalanceSettings.of(properties));
+        LoadBalanceConnection connection = new LoadBalanceConnection(LbTestSettings.defaults());
         connection.setConnectionManager(new SimpleEndpointConnManager());
         return connection;
     }

@@ -191,9 +191,7 @@ public final class LbTopologyLog {
      */
     private static String effectiveOptionsLine(final LoadBalanceSettings config) {
         StringBuilder b = new StringBuilder(200);
-        b.append("distributionMode=").append(config.getDistributionMode());
-
-        b.append(" rtFailover=");
+        b.append("rtFailover=");
         if (config.isRuntimeFailoverEnabled()) {
             b.append("on(")
                     .append(config.isRuntimeFailoverRetryOnce() ? "retryOnce, " : "noRetry, ")

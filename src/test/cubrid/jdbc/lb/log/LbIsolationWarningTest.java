@@ -33,6 +33,7 @@ package cubrid.jdbc.lb.log;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
@@ -140,9 +141,7 @@ public class LbIsolationWarningTest {
     /* ===== harness ===== */
 
     private static LoadBalanceConnection session() throws SQLException {
-        Properties cfg = new Properties();
-        cfg.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, "session");
-        LoadBalanceSettings settings = LoadBalanceSettings.of(cfg);
+        LoadBalanceSettings settings = LbTestSettings.forBinding(RW, RO);
 
         JdbcConnectionFactory factory =
                 new JdbcConnectionFactory() {

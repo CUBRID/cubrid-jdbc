@@ -78,8 +78,8 @@ final class RoutingMetricsRecorder {
     }
 
     /**
-     * Builds a routing-metrics event line. {@code connectionId} is emitted first and {@code
-     * distributionMode} is appended by {@link #build()}, so the shared format lives in one place.
+     * Builds a routing-metrics event line. {@code connectionId} is emitted first, so the shared
+     * format lives in one place.
      */
     private final class MetricEvent {
         private final StringBuilder sb = new StringBuilder("connectionId=");
@@ -94,7 +94,6 @@ final class RoutingMetricsRecorder {
         }
 
         String build() {
-            sb.append(",distributionMode=").append(config.getDistributionMode());
             return sb.toString();
         }
     }

@@ -36,6 +36,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import cubrid.jdbc.jci.UErrorCode;
+import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
@@ -304,9 +305,7 @@ public final class BrokerDownOutsideExecuteTest {
     private static LoadBalanceConnection session(
             final JdbcConnectionFactory factory, final EndpointTopology topology)
             throws SQLException {
-        Properties cfg = new Properties();
-        cfg.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, "session");
-        LoadBalanceSettings settings = LoadBalanceSettings.of(cfg);
+        LoadBalanceSettings settings = LbTestSettings.forTopology(topology);
 
         LoadBalanceConnection conn = new LoadBalanceConnection(settings);
         conn.getRuntimeMetrics().setEnabled(true);

@@ -33,15 +33,14 @@ package cubrid.jdbc.lb.statement;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
-import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.connection.SimpleEndpointConnManager;
 import cubrid.jdbc.lb.state.SharedSelectorState;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Properties;
 import org.junit.Test;
 
 public final class RuntimePreparedProviderIntegrationTest {
@@ -115,9 +114,7 @@ public final class RuntimePreparedProviderIntegrationTest {
     }
 
     private static LoadBalanceConnection createSessionConnection() {
-        Properties properties = new Properties();
-        properties.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, "session");
-        return new LoadBalanceConnection(LoadBalanceSettings.of(properties));
+        return new LoadBalanceConnection(LbTestSettings.defaults());
     }
 
     private static EndpointTopology createTopology() {

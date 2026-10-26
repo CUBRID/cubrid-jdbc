@@ -35,8 +35,8 @@ import static org.junit.Assert.*;
 import cubrid.jdbc.driver.CUBRIDPreparedStatement;
 import cubrid.jdbc.driver.CUBRIDStatement;
 import cubrid.jdbc.lb.LbJDBCErrorCode;
+import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
-import cubrid.jdbc.lb.config.TestConfigHelper;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -50,7 +50,7 @@ public class LBPreparedStatementTest {
 
     @Before
     public void setUp() throws Exception {
-        conn = new LoadBalanceConnection(TestConfigHelper.emptyConfig());
+        conn = new LoadBalanceConnection(LbTestSettings.defaults());
     }
 
     @Test

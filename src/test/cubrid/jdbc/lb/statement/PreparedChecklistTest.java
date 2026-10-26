@@ -33,8 +33,8 @@ package cubrid.jdbc.lb.statement;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
-import cubrid.jdbc.lb.config.TestConfigHelper;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import org.junit.Before;
@@ -46,7 +46,7 @@ public class PreparedChecklistTest {
 
     @Before
     public void setUp() throws Exception {
-        connection = new LoadBalanceConnection(TestConfigHelper.emptyConfig());
+        connection = new LoadBalanceConnection(LbTestSettings.defaults());
     }
 
     @Test

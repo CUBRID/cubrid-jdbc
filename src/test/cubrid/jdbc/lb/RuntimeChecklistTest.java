@@ -37,14 +37,12 @@ import static org.junit.Assert.assertTrue;
 
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
-import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.connection.SimpleEndpointConnManager;
 import cubrid.jdbc.lb.metrics.RuntimeMetrics;
 import cubrid.jdbc.lb.state.SharedSelectorState;
 import cubrid.jdbc.lb.statement.LBPreparedStatement;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Properties;
 import org.junit.Test;
 
 public final class RuntimeChecklistTest {
@@ -118,7 +116,6 @@ public final class RuntimeChecklistTest {
         assertTrue(event.contains("endpointId="));
         assertTrue(event.contains("fallbackReason="));
         assertTrue(event.contains("txActive="));
-        assertTrue(event.contains("distributionMode="));
     }
 
     @Test
@@ -158,9 +155,7 @@ public final class RuntimeChecklistTest {
     }
 
     private static LoadBalanceConnection createSessionConnection() {
-        Properties properties = new Properties();
-        properties.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, "session");
-        return new LoadBalanceConnection(LoadBalanceSettings.of(properties));
+        return new LoadBalanceConnection(LbTestSettings.defaults());
     }
 
     private static EndpointTopology createTopology() {

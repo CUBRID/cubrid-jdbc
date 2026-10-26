@@ -144,9 +144,8 @@ public class LoadBalanceConnectionScrollablePsTest {
 
     private static LoadBalanceConnection newConnection(final List<String> prepares)
             throws SQLException {
-        Properties cfg = new Properties();
-        cfg.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, "session");
-        LoadBalanceSettings config = LoadBalanceSettings.of(cfg);
+        LoadBalanceSettings config =
+                LbTestSettings.forBinding(new Endpoint("rw", 33000), new Endpoint("ro", 33001));
 
         JdbcConnectionFactory factory =
                 new JdbcConnectionFactory() {

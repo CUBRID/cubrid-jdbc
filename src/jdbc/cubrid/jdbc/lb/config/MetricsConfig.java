@@ -76,7 +76,7 @@ public final class MetricsConfig {
     private static final int DEFAULT_PROMETHEUS_PORT = 9400;
     private static final int DEFAULT_INTERVAL_SEC = 60;
 
-    /** Feature-off singleton used for every non-loadbalance / property-built config. */
+    /** Feature-off singleton, also used for every non-loadbalance URL. */
     public static final MetricsConfig DISABLED =
             new MetricsConfig(
                     false,

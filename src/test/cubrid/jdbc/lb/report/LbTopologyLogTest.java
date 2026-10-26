@@ -130,7 +130,7 @@ public class LbTopologyLogTest {
     public void theSettingsInForceAreRecordedNotOnlyTheIgnoredOnes() throws SQLException {
         declare(URL);
 
-        String line = onlyMatching("distributionMode=");
+        String line = onlyMatching("rtFailover=");
         // "failover did not happen" must be separable from "failover is switched off".
         assertTrue(line, line.indexOf("rtFailover=on(retryOnce, max 1)") >= 0);
         assertTrue(line, line.indexOf("readFailback=on(") >= 0);

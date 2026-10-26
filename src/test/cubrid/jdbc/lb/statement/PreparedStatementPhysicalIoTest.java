@@ -34,6 +34,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
@@ -118,9 +119,7 @@ public class PreparedStatementPhysicalIoTest {
                     public void closePrepStmts() throws SQLException {}
                 };
 
-        Properties p = new Properties();
-        p.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, "session");
-        LoadBalanceConnection conn = new LoadBalanceConnection(LoadBalanceSettings.of(p));
+        LoadBalanceConnection conn = new LoadBalanceConnection(LbTestSettings.defaults());
         LBPreparedStatement ps = new LBPreparedStatement(conn, "SELECT 1");
         ps.setPsProvider(provider);
         ps.executeQuery();
@@ -207,9 +206,7 @@ public class PreparedStatementPhysicalIoTest {
                     public void closePrepStmts() throws SQLException {}
                 };
 
-        Properties p = new Properties();
-        p.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, "session");
-        LoadBalanceConnection conn = new LoadBalanceConnection(LoadBalanceSettings.of(p));
+        LoadBalanceConnection conn = new LoadBalanceConnection(LbTestSettings.defaults());
         LBPreparedStatement ps = new LBPreparedStatement(conn, "SELECT 1");
         ps.setPsProvider(provider);
         ps.setMaxRows(37);
@@ -268,9 +265,7 @@ public class PreparedStatementPhysicalIoTest {
                     }
                 };
 
-        Properties cfg = new Properties();
-        cfg.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, "session");
-        LoadBalanceSettings loadBalanceSettings = LoadBalanceSettings.of(cfg);
+        LoadBalanceSettings loadBalanceSettings = LbTestSettings.defaults();
         SessionPhysicalConnManager pool =
                 new SessionPhysicalConnManager(
                         "jdbc:cubrid:localhost:30000:testdb:public::",
@@ -352,9 +347,7 @@ public class PreparedStatementPhysicalIoTest {
                     }
                 };
 
-        Properties cfg = new Properties();
-        cfg.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, "session");
-        LoadBalanceSettings loadBalanceSettings = LoadBalanceSettings.of(cfg);
+        LoadBalanceSettings loadBalanceSettings = LbTestSettings.defaults();
         SessionPhysicalConnManager pool =
                 new SessionPhysicalConnManager(
                         "jdbc:cubrid:localhost:30000:testdb:public::",

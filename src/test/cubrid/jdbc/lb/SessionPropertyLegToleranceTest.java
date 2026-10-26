@@ -274,10 +274,7 @@ public final class SessionPropertyLegToleranceTest {
      */
     @Test
     public void charsetSetBeforeBindingIsRememberedNotDropped() throws Exception {
-        Properties properties = new Properties();
-        properties.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, "session");
-        LoadBalanceConnection connection =
-                new LoadBalanceConnection(LoadBalanceSettings.of(properties));
+        LoadBalanceConnection connection = new LoadBalanceConnection(LbTestSettings.defaults());
 
         connection.setCharset("utf-8");
 
@@ -328,10 +325,7 @@ public final class SessionPropertyLegToleranceTest {
     }
 
     private LoadBalanceConnection bound() throws Exception {
-        Properties properties = new Properties();
-        properties.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, "session");
-        LoadBalanceConnection connection =
-                new LoadBalanceConnection(LoadBalanceSettings.of(properties));
+        LoadBalanceConnection connection = new LoadBalanceConnection(LbTestSettings.defaults());
 
         SimpleEndpointConnManager manager = new SimpleEndpointConnManager();
         connection.setConnectionManager(manager);
@@ -349,9 +343,7 @@ public final class SessionPropertyLegToleranceTest {
 
     /** Bound through the real connection manager, whose legs are {@link LegConnection}s. */
     private LoadBalanceConnection boundOnSessionManager() throws SQLException {
-        Properties properties = new Properties();
-        properties.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, "session");
-        LoadBalanceSettings config = LoadBalanceSettings.of(properties);
+        LoadBalanceSettings config = LbTestSettings.defaults();
         LoadBalanceConnection connection = new LoadBalanceConnection(config);
         connection.setConnectionManager(
                 new SessionPhysicalConnManager(

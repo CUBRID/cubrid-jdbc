@@ -53,7 +53,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import org.junit.After;
@@ -94,7 +96,7 @@ public class LoadBalanceConnectionRwFailbackTriggerTest {
     @Test
     public void failbackWaitsWhileACursorIsOpenOnTheLegItWouldReplace() throws SQLException {
         List<CursorConnection> opened = new ArrayList<CursorConnection>();
-        LoadBalanceConnection conn = displacedConnection(props(0), false, cursorFactory(opened));
+        LoadBalanceConnection conn = displacedConnection(tuning(0), false, cursorFactory(opened));
         try {
             ResultSet outer = conn.createStatement().executeQuery("SELECT a FROM t");
             CursorConnection node2 = openedFor(opened, NODE2_RW);
@@ -120,21 +122,21 @@ public class LoadBalanceConnectionRwFailbackTriggerTest {
     /** The same on the read leg: returning home must not close a cursor open on the sibling. */
     @Test
     public void readFailbackWaitsWhileACursorIsOpenOnTheSibling() throws SQLException {
-        Properties cfg = props(0);
-        cfg.setProperty(LoadBalanceSettings.KEY_READ_FAILBACK_ENABLED, "true");
-        cfg.setProperty(LoadBalanceSettings.KEY_READ_FAILBACK_PROBE_INTERVAL_MS, "0");
-        LoadBalanceSettings config = LoadBalanceSettings.of(cfg);
+        EndpointTopology topo =
+                new EndpointTopology(
+                        Arrays.asList(NODE1_RW),
+                        Arrays.asList(NODE2_RO, NODE3_RO),
+                        Collections.<Endpoint>emptyList());
+        LoadBalanceSettings config = LbTestSettings.forTopology(topo);
+        LbTestSettings.with(config, "writeFailbackProbeIntervalMs", Integer.valueOf(0));
+        LbTestSettings.with(config, "readFailbackProbeIntervalMs", Integer.valueOf(0));
         List<CursorConnection> opened = new ArrayList<CursorConnection>();
         LoadBalanceConnection conn = new LoadBalanceConnection(config);
         conn.setConnectionManager(
                 new SessionPhysicalConnManager(
                         LOGICAL_URL, new Properties(), config, cursorFactory(opened)));
         conn.setSharedSelectorState(new SharedSelectorState());
-        conn.initSessionBindings(
-                new EndpointTopology(
-                        Arrays.asList(NODE1_RW),
-                        Arrays.asList(NODE2_RO, NODE3_RO),
-                        Collections.<Endpoint>emptyList()));
+        conn.initSessionBindings(topo);
         try {
             assertEquals(NODE2_RO, conn.getCurrentRoEndpoint());
             markDown(NODE2_RO);
@@ -166,7 +168,7 @@ public class LoadBalanceConnectionRwFailbackTriggerTest {
 
     @Test
     public void autocommitWriteTriggersFailback() throws SQLException {
-        LoadBalanceConnection conn = displacedConnection(props(0));
+        LoadBalanceConnection conn = displacedConnection(tuning(0));
         try {
             assertEquals(NODE2_RW, conn.getCurrentRwEndpoint());
 
@@ -182,7 +184,7 @@ public class LoadBalanceConnectionRwFailbackTriggerTest {
     @Test
     public void masterReadTriggersFailbackWhenReadRidesOnRw() throws SQLException {
         // No RO broker: reads are served by the RW connection, so a read is enough of a trigger.
-        LoadBalanceConnection conn = displacedConnection(props(0), false);
+        LoadBalanceConnection conn = displacedConnection(tuning(0), false);
         try {
             assertEquals(NODE2_RW, conn.getCurrentRwEndpoint());
 
@@ -202,7 +204,7 @@ public class LoadBalanceConnectionRwFailbackTriggerTest {
 
     @Test
     public void manualCommitFailsBackOnCommitNotMidTransaction() throws SQLException {
-        LoadBalanceConnection conn = displacedConnection(props(0));
+        LoadBalanceConnection conn = displacedConnection(tuning(0));
         try {
             conn.setAutoCommit(false);
             markUp(NODE1_RW);
@@ -222,7 +224,7 @@ public class LoadBalanceConnectionRwFailbackTriggerTest {
 
     @Test
     public void manualCommitFailsBackOnRollback() throws SQLException {
-        LoadBalanceConnection conn = displacedConnection(props(0));
+        LoadBalanceConnection conn = displacedConnection(tuning(0));
         try {
             conn.setAutoCommit(false);
             markUp(NODE1_RW);
@@ -237,7 +239,7 @@ public class LoadBalanceConnectionRwFailbackTriggerTest {
 
     @Test
     public void poolProbeDoesNotFailBackByDefault() throws SQLException {
-        LoadBalanceConnection conn = displacedConnection(props(0));
+        LoadBalanceConnection conn = displacedConnection(tuning(0));
         try {
             markUp(NODE1_RW);
             conn.isValid(0);
@@ -249,8 +251,8 @@ public class LoadBalanceConnectionRwFailbackTriggerTest {
 
     @Test
     public void poolProbeFailsBackWhenOptedIn() throws SQLException {
-        Properties cfg = props(0);
-        cfg.setProperty(LoadBalanceSettings.KEY_WRITE_FAILBACK_ON_VALIDATE, "true");
+        Map<String, Object> cfg = tuning(0);
+        cfg.put("writeFailbackOnValidate", Boolean.TRUE);
         LoadBalanceConnection conn = displacedConnection(cfg);
         try {
             markUp(NODE1_RW);
@@ -263,8 +265,8 @@ public class LoadBalanceConnectionRwFailbackTriggerTest {
 
     @Test
     public void disabledByOption() throws SQLException {
-        Properties cfg = props(0);
-        cfg.setProperty(LoadBalanceSettings.KEY_WRITE_FAILBACK_ENABLED, "false");
+        Map<String, Object> cfg = tuning(0);
+        cfg.put("writeFailbackEnabled", Boolean.FALSE);
         LoadBalanceConnection conn = displacedConnection(cfg);
         try {
             markUp(NODE1_RW);
@@ -277,7 +279,7 @@ public class LoadBalanceConnectionRwFailbackTriggerTest {
 
     @Test
     public void probeIsThrottledPerInterval() throws SQLException {
-        LoadBalanceConnection conn = displacedConnection(props(60000));
+        LoadBalanceConnection conn = displacedConnection(tuning(60000));
         try {
             // First write probes while the master is still down: the attempt is consumed.
             executeWrite(conn);
@@ -300,16 +302,15 @@ public class LoadBalanceConnectionRwFailbackTriggerTest {
                 .getStatement(Router.RouteTarget.TO_READ_WRITE, "UPDATE t SET a = 1");
     }
 
-    private static Properties props(final int probeIntervalMs) {
-        Properties cfg = new Properties();
-        cfg.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, "session");
-        cfg.setProperty(
-                LoadBalanceSettings.KEY_WRITE_FAILBACK_PROBE_INTERVAL_MS,
-                String.valueOf(probeIntervalMs));
+    /** Pinned-default overrides by {@code LoadBalanceSettings} field name. */
+    private static Map<String, Object> tuning(final int probeIntervalMs) {
+        Map<String, Object> cfg = new LinkedHashMap<String, Object>();
+        cfg.put("writeFailbackProbeIntervalMs", Integer.valueOf(probeIntervalMs));
         return cfg;
     }
 
-    private LoadBalanceConnection displacedConnection(final Properties cfg) throws SQLException {
+    private LoadBalanceConnection displacedConnection(final Map<String, Object> cfg)
+            throws SQLException {
         return displacedConnection(cfg, true);
     }
 
@@ -318,14 +319,19 @@ public class LoadBalanceConnectionRwFailbackTriggerTest {
      * state a real session ends up in when the master broker is down or CAS-saturated at bind time.
      */
     private LoadBalanceConnection displacedConnection(
-            final Properties cfg, final boolean withRoBroker) throws SQLException {
+            final Map<String, Object> cfg, final boolean withRoBroker) throws SQLException {
         return displacedConnection(cfg, withRoBroker, factory());
     }
 
     private LoadBalanceConnection displacedConnection(
-            final Properties cfg, final boolean withRoBroker, final JdbcConnectionFactory factory)
+            final Map<String, Object> cfg,
+            final boolean withRoBroker,
+            final JdbcConnectionFactory factory)
             throws SQLException {
-        LoadBalanceSettings config = LoadBalanceSettings.of(cfg);
+        LoadBalanceSettings config = LbTestSettings.forTopology(topology(withRoBroker));
+        for (Map.Entry<String, Object> e : cfg.entrySet()) {
+            LbTestSettings.with(config, e.getKey(), e.getValue());
+        }
         LoadBalanceConnection conn = new LoadBalanceConnection(config);
         conn.setConnectionManager(
                 new SessionPhysicalConnManager(LOGICAL_URL, new Properties(), config, factory));

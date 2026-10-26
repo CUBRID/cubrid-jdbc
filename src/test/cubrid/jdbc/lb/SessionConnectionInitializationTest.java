@@ -45,7 +45,6 @@ import cubrid.jdbc.lb.state.SharedSelectorState;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Properties;
 import org.junit.Test;
 
 public final class SessionConnectionInitializationTest {
@@ -97,7 +96,9 @@ public final class SessionConnectionInitializationTest {
 
     @Test
     public void assertInitSessionBindingsWithoutRoBindsRwOnly() throws Exception {
-        LoadBalanceConnection connection = createSessionConnection();
+        LoadBalanceConnection connection =
+                createSessionConnection(
+                        LbTestSettings.forBinding(new Endpoint("rw-host", 33000), null));
         connection.setSharedSelectorState(new SharedSelectorState());
         EndpointTopology topology =
                 new EndpointTopology(
@@ -153,9 +154,14 @@ public final class SessionConnectionInitializationTest {
     }
 
     private static LoadBalanceConnection createSessionConnection() {
-        Properties props = new Properties();
-        props.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, "session");
-        LoadBalanceConnection connection = new LoadBalanceConnection(LoadBalanceSettings.of(props));
+        return createSessionConnection(
+                LbTestSettings.forBinding(
+                        new Endpoint("rw-host", 33000), new Endpoint("ro-a", 33100)));
+    }
+
+    private static LoadBalanceConnection createSessionConnection(
+            final LoadBalanceSettings settings) {
+        LoadBalanceConnection connection = new LoadBalanceConnection(settings);
         connection.setConnectionManager(new SimpleEndpointConnManager());
         return connection;
     }

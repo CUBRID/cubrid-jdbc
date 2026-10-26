@@ -113,8 +113,7 @@ import java.util.logging.Logger;
  * cubrid.jdbc.lb.connection.EndpointConnManager} route SQL to session-bound RW/RO physical brokers.
  *
  * <p>Driver entry for a URI {@code loadbalance://} URL: {@link #openFromSettings(String,
- * Properties, LoadBalanceSettings)}. Tests may use {@link
- * #LoadBalanceConnection(LoadBalanceSettings)} directly.
+ * Properties, LoadBalanceSettings)}.
  *
  * <p>Public integration: {@link #setSharedSelectorState}, {@link #initSessionBindings}, JDBC {@link
  * cubrid.jdbc.lb.statement.LBStatement} / {@link cubrid.jdbc.lb.statement.LBPreparedStatement}.
@@ -226,9 +225,8 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     /**
-     * Builds a connection that reports no URL. For an in-memory configuration there is no URL the
-     * application wrote — the topology is supplied directly — so there is nothing honest to report;
-     * {@link #openFromSettings} uses the URL-carrying form.
+     * Builds a connection without the URL the application wrote, so it reports none; {@link
+     * #openFromSettings} uses the URL-carrying form.
      *
      * @param config the parsed load-balance settings
      */
@@ -400,25 +398,19 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         connection.setConnectionManager(
                 new SessionPhysicalConnManager(
                         url, LbProps.copy(info), config, connectionFactory, backoff));
-        if (connection.isSessionDistributionMode()) {
-            EndpointTopology topology = config.buildEndpointTopology();
-            if (topology.hasRwEndpoint()) {
-                // initSessionBindings opens physical connections and then applies session state
-                // (isolation/schema/...). If a post-bind step throws, the bound physical
-                // connections
-                // would leak, because this half-built LoadBalanceConnection is never returned and
-                // the caller never close()s it. Close it here before propagating.
-                try {
-                    connection.initSessionBindings(topology);
-                } catch (SQLException e) {
-                    try {
-                        connection.close();
-                    } catch (SQLException ignored) {
-                        // best-effort cleanup; surface the original failure
-                    }
-                    throw e;
-                }
+        // initSessionBindings opens physical connections and then applies session state
+        // (isolation/schema/...). If a post-bind step throws, the bound physical connections would
+        // leak, because this half-built LoadBalanceConnection is never returned and the caller
+        // never close()s it. Close it here before propagating.
+        try {
+            connection.initSessionBindings(config.buildEndpointTopology());
+        } catch (SQLException e) {
+            try {
+                connection.close();
+            } catch (SQLException ignored) {
+                // best-effort cleanup; surface the original failure
             }
+            throw e;
         }
 
         return connection;
@@ -838,11 +830,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
 
         EndpointConnManager mgr = requireConnMgr();
 
-        if (config.isUrlDerived()) {
-            bindFromUrlTopology(mgr, topology);
-        } else {
-            bindFromExplicitTopology(mgr, topology);
-        }
+        bindFromUrlTopology(mgr, topology);
 
         boundReadEndpoint.setCurrentRoEndpoint(currentRoEndpoint);
         sessionTopology = topology;
@@ -951,42 +939,6 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             return;
         }
         RoleReadSelector.release(held, selState);
-    }
-
-    /**
-     * Topology-driven session binding for a non-URL config (test/in-memory scenarios): RW is the
-     * topology's RW endpoint, and the read binds to the first RO endpoint, or RW-only when none.
-     * There is no selection algorithm — the role-based readWeight distribution is the URL path
-     * ({@link #bindFromUrlTopology}).
-     */
-    private void bindFromExplicitTopology(
-            final EndpointConnManager mgr, final EndpointTopology topology) throws SQLException {
-        Endpoint rwEndpoint = topology.getRwEndpoints().get(0);
-
-        if (topology.hasRoEndpoints()) {
-            Endpoint roEndpoint = topology.getRoEndpoints().get(0);
-            mgr.bindSession(rwEndpoint, roEndpoint, topology);
-            currentRwEndpoint = mgr.getSessionEndpoint(SessionLeg.RW);
-            currentRoEndpoint = mgr.getSessionEndpoint(SessionLeg.RO);
-
-            if (currentRwEndpoint == null) {
-                currentRwEndpoint = rwEndpoint;
-            }
-
-            if (currentRoEndpoint == null) {
-                currentRoEndpoint = roEndpoint;
-            }
-        } else {
-            // No RO broker configured: permanent RW-only. Reads and writes both run on RW.
-            mgr.bindSessionRwOnly(rwEndpoint, topology);
-            currentRwEndpoint = mgr.getSessionEndpoint(SessionLeg.RW);
-
-            if (currentRwEndpoint == null) {
-                currentRwEndpoint = rwEndpoint;
-            }
-
-            currentRoEndpoint = currentRwEndpoint;
-        }
     }
 
     public Endpoint getCurrentRwEndpoint() {
@@ -1131,10 +1083,6 @@ public class LoadBalanceConnection extends CUBRIDConnection {
 
     public boolean isSessionInitialized() {
         return sessionInitialized;
-    }
-
-    public boolean isSessionDistributionMode() {
-        return LoadBalanceSettings.DISTRIBUTION_MODE_SESSION.equals(config.getDistributionMode());
     }
 
     /**

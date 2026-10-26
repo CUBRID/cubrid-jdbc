@@ -37,6 +37,7 @@ import static org.junit.Assert.assertSame;
 
 import cubrid.jdbc.jci.UErrorCode;
 import cubrid.jdbc.jci.UUnreachableHostList;
+import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
@@ -123,9 +124,7 @@ public class SessionPhysicalConnManagerRoRestoreTest {
     }
 
     private static SessionPhysicalConnManager newManager(final AtomicBoolean roUp) {
-        Properties cfg = new Properties();
-        cfg.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, "session");
-        LoadBalanceSettings config = LoadBalanceSettings.of(cfg);
+        LoadBalanceSettings config = LbTestSettings.defaults();
 
         JdbcConnectionFactory factory =
                 new JdbcConnectionFactory() {

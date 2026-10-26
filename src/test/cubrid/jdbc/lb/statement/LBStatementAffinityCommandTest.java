@@ -33,8 +33,8 @@ package cubrid.jdbc.lb.statement;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
-import cubrid.jdbc.lb.config.TestConfigHelper;
 import cubrid.jdbc.lb.route.Router;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
@@ -53,7 +53,7 @@ public final class LBStatementAffinityCommandTest {
 
     @Before
     public void setUp() {
-        connection = new LoadBalanceConnection(TestConfigHelper.emptyConfig());
+        connection = new LoadBalanceConnection(LbTestSettings.defaults());
     }
 
     @Test

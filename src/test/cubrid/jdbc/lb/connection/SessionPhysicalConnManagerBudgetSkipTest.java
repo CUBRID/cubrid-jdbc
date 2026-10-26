@@ -33,6 +33,7 @@ package cubrid.jdbc.lb.connection;
 import static org.junit.Assert.assertTrue;
 
 import cubrid.jdbc.jci.UErrorCode;
+import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import java.lang.reflect.InvocationHandler;
@@ -93,9 +94,7 @@ public class SessionPhysicalConnManagerBudgetSkipTest {
 
     private static SessionPhysicalConnManager newManager(
             final List<String> dialed, final Set<String> downEndpointIds) {
-        Properties cfg = new Properties();
-        cfg.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, "session");
-        final LoadBalanceSettings config = LoadBalanceSettings.of(cfg);
+        final LoadBalanceSettings config = LbTestSettings.defaults();
 
         JdbcConnectionFactory factory =
                 new JdbcConnectionFactory() {

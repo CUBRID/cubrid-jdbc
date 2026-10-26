@@ -35,8 +35,8 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
-import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.route.Router;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
@@ -45,7 +45,6 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSetMetaData;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Properties;
 import org.junit.Test;
 
 public final class SessionPreparedStatementBehaviorTest {
@@ -110,10 +109,7 @@ public final class SessionPreparedStatementBehaviorTest {
 
     private static LBPreparedStatement createSessionPreparedStatement(final String sql)
             throws Exception {
-        Properties properties = new Properties();
-        properties.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, "session");
-        LoadBalanceConnection connection =
-                new LoadBalanceConnection(LoadBalanceSettings.of(properties));
+        LoadBalanceConnection connection = new LoadBalanceConnection(LbTestSettings.defaults());
         return (LBPreparedStatement) connection.prepareStatement(sql);
     }
 

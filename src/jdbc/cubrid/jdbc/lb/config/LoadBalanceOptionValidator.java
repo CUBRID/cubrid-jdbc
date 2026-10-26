@@ -46,12 +46,10 @@ import java.util.logging.Logger;
  *       {@code metrics*} and {@code lbLog*} options) &rarr; ignored in classic / single-node mode;
  *   <li>classic-only ({@code altHosts}/{@code loadBalance}/{@code useLazyConnection}) &rarr;
  *       ignored in loadbalance mode;
- *   <li>keys nothing reads any more ({@code hostBalance}/{@code weights}/{@code readWeights}/{@code
- *       hostWeights}, the log and CSV file options now set in logging.properties, and every {@code
- *       cubrid.lb.*} key) &rarr; ignored in both modes, so they are not propagated onto physical
- *       broker URLs;
- *   <li>common and unknown keys are kept, so they reach every physical connection. A bad
- *       <em>value</em> still fails later; this validator only checks mode applicability.
+ *   <li>common and unknown keys are kept, so they reach every physical connection. A name or value
+ *       the broker URL cannot carry fails the URL ({@link
+ *       JdbcEndpointConnSpecFactory#checkPropagatable}); a bad <em>value</em> still fails later.
+ *       This validator only checks mode applicability.
  * </ul>
  */
 public final class LoadBalanceOptionValidator {
@@ -78,25 +76,6 @@ public final class LoadBalanceOptionValidator {
         LbLogConfig.OPT_DIST_INTERVAL_SEC
     };
     private static final String[] CLASSIC_ONLY = {"altHosts", "loadBalance", "useLazyConnection"};
-    // Distribution keys removed in the role-based readWeight redesign (spec 6.3). Nothing reads
-    // them, so ignore (WARN) in both modes instead of letting them pass as unknown keys.
-    private static final String[] REMOVED_KEYS = {
-        "hostBalance", "weights", "readWeights", "hostWeights"
-    };
-    // Log and CSV file options, now logging.properties keys of LbFileHandler / MetricsFileHandler.
-    // Ignored (WARN) in both modes, so a file path never reaches a broker URL.
-    private static final String[] LOGGING_PROPERTIES_KEYS = {
-        "lbLogFile",
-        "lbLogLevel",
-        "lbLogMaxSizeMb",
-        "lbLogMaxFiles",
-        "lbLogToConsole",
-        "lbLogThread",
-        "metricsCsvPath",
-        "metricsCsvMaxSizeMb",
-        "metricsCsvMaxFiles"
-    };
-    private static final String CUBRID_LB_PREFIX = "cubrid.lb.";
 
     private LoadBalanceOptionValidator() {}
 
@@ -117,15 +96,7 @@ public final class LoadBalanceOptionValidator {
             for (Map.Entry<String, String> e : options.entrySet()) {
                 final String key = e.getKey();
 
-                if (isCubridLbConfigKey(key)) {
-                    // cubrid.lb.* configured a config-file-era feature; nothing reads these keys
-                    // now. Ignore (WARN) instead of propagating them onto physical broker URLs.
-                    ignore(key, ignoredKeys, "is not read (loadbalance uses fixed defaults)");
-                } else if (OptionKeys.containsIgnoreCase(REMOVED_KEYS, key)) {
-                    ignore(key, ignoredKeys, "was removed in the role-based readWeight redesign");
-                } else if (OptionKeys.containsIgnoreCase(LOGGING_PROPERTIES_KEYS, key)) {
-                    ignore(key, ignoredKeys, "is configured in logging.properties instead");
-                } else if (loadBalanceMode && OptionKeys.containsIgnoreCase(CLASSIC_ONLY, key)) {
+                if (loadBalanceMode && OptionKeys.containsIgnoreCase(CLASSIC_ONLY, key)) {
                     ignore(key, ignoredKeys, "is not applicable in loadbalance mode");
                 } else if (!loadBalanceMode
                         && OptionKeys.containsIgnoreCase(LOADBALANCE_ONLY, key)) {
@@ -143,11 +114,6 @@ public final class LoadBalanceOptionValidator {
             final String key, final List<String> ignoredKeys, final String reason) {
         ignoredKeys.add(key);
         LOGGER.warning("option '" + key + "' " + reason + "; ignored");
-    }
-
-    private static boolean isCubridLbConfigKey(final String key) {
-        return key != null
-                && key.regionMatches(true, 0, CUBRID_LB_PREFIX, 0, CUBRID_LB_PREFIX.length());
     }
 
     /** Outcome of {@link #validate}: options to keep, and the keys that were ignored. */

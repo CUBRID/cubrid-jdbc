@@ -32,15 +32,15 @@ package cubrid.jdbc.lb.config;
 
 import static org.junit.Assert.*;
 
+import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
 import java.sql.Connection;
-import java.util.Properties;
 import org.junit.Test;
 
 public class LoadBalanceConnectionTest {
 
     private static LoadBalanceSettings emptyConfig() {
-        return new LoadBalanceSettings(new Properties());
+        return LbTestSettings.defaults();
     }
 
     @Test(expected = IllegalArgumentException.class)

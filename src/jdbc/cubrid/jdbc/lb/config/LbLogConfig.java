@@ -67,7 +67,7 @@ public final class LbLogConfig {
     static final int DEFAULT_SQL_MAX_LEN = 2048;
     static final int DEFAULT_DIST_INTERVAL_SEC = 0;
 
-    /** Used for every non-loadbalance / property-built config, where the options do not apply. */
+    /** Used for a non-loadbalance URL, where the options do not apply. */
     public static final LbLogConfig DEFAULTS =
             new LbLogConfig(SQL_MASKED, DEFAULT_SQL_MAX_LEN, DEFAULT_DIST_INTERVAL_SEC);
 

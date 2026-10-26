@@ -37,7 +37,6 @@ import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.route.Router;
 import cubrid.jdbc.lb.sql.SqlClassifierRegistry;
 import cubrid.jdbc.lb.state.SessionRoutingState;
-import java.util.Properties;
 import org.junit.Test;
 
 /**
@@ -54,7 +53,7 @@ public class RoutingMetricsRecorderFallbackTest {
     private static final Endpoint ENDPOINT = new Endpoint("node1", 33000);
 
     private RoutingMetricsRecorder recorder() {
-        LoadBalanceSettings config = LoadBalanceSettings.of(new Properties());
+        LoadBalanceSettings config = LbTestSettings.defaults();
         return new RoutingMetricsRecorder(
                 1L, config, new SessionRoutingState(), SqlClassifierRegistry.forConfig(config));
     }

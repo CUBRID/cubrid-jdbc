@@ -40,7 +40,6 @@ import static org.junit.Assert.fail;
 import cubrid.jdbc.driver.CUBRIDConnection;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
-import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.connection.SimpleEndpointConnManager;
 import cubrid.jdbc.lb.state.SharedSelectorState;
 import java.lang.reflect.Method;
@@ -51,7 +50,6 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Properties;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Test;
 
@@ -156,8 +154,7 @@ public final class LoadBalanceConnectionCastTest {
      */
     @Test
     public void loginRefusesOnAnUnboundSessionInsteadOfAnsweringNull() throws Exception {
-        LoadBalanceConnection unbound =
-                new LoadBalanceConnection(LoadBalanceSettings.of(sessionModeProperties()));
+        LoadBalanceConnection unbound = new LoadBalanceConnection(LbTestSettings.defaults());
 
         try {
             ((CUBRIDConnection) unbound).Login("signed-data");
@@ -333,20 +330,12 @@ public final class LoadBalanceConnectionCastTest {
         }
     }
 
-    private static Properties sessionModeProperties() {
-        Properties properties = new Properties();
-        properties.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, "session");
-
-        return properties;
-    }
-
     private LoadBalanceConnection boundEx() throws Exception {
         return boundEx(new Legs());
     }
 
     private LoadBalanceConnection boundEx(final Legs legs) throws Exception {
-        LoadBalanceConnection lb =
-                new LoadBalanceConnection(LoadBalanceSettings.of(sessionModeProperties()));
+        LoadBalanceConnection lb = new LoadBalanceConnection(LbTestSettings.defaults());
 
         SimpleEndpointConnManager manager = new SimpleEndpointConnManager();
         lb.setConnectionManager(manager);

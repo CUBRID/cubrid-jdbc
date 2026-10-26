@@ -32,104 +32,27 @@ package cubrid.jdbc.lb.config;
 
 import cubrid.jdbc.lb.LbExceptions;
 import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 import java.util.Properties;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Builds per-broker physical {@link JdbcPhyConnSpec} from the logical JDBC URL and client {@link
- * java.util.Properties}, stripping LB bootstrap parameters.
- *
- * <p>Entry points: {@link #forEndpoint} for a classic colon-delimited logical URL and {@link
- * #forEndpointFromConfig} for a URI {@code loadbalance://} config.
+ * Builds the per-broker physical {@link JdbcPhyConnSpec} for a URI {@code loadbalance://} config
+ * and the client {@link java.util.Properties}.
  */
 public final class JdbcEndpointConnSpecFactory {
 
     // The option grammar of the core driver's URL_PATTERN (CUBRIDDriver).
     private static final Pattern PHYSICAL_OPTION_KEY = Pattern.compile("[a-zA-Z_0-9]+");
     private static final Pattern PHYSICAL_OPTION_VALUE = Pattern.compile("[^&=?]+");
-    private static final Pattern URL_PATTERN =
-            Pattern.compile(
-                    "jdbc:cubrid(-oracle|-mysql)?:([a-zA-Z_0-9\\.-]*):([0-9]*):([^:]+):([^:]*):([^:]*):(\\?[a-zA-Z_0-9]+=[^&=?]+(&[a-zA-Z_0-9]+=[^&=?]+)*)?",
-                    Pattern.CASE_INSENSITIVE);
 
     private JdbcEndpointConnSpecFactory() {}
 
-    public static JdbcPhyConnSpec forEndpoint(
-            String logicalJdbcUrl, Properties clientInfo, Endpoint endpoint) throws SQLException {
-        return forEndpoint(logicalJdbcUrl, clientInfo, endpoint, null);
-    }
-
-    public static JdbcPhyConnSpec forEndpoint(
-            String logicalJdbcUrl,
-            Properties clientInfo,
-            Endpoint endpoint,
-            LoadBalanceSettings lbConfig)
-            throws SQLException {
-        if (logicalJdbcUrl == null) {
-            throw LbExceptions.invalidUrl("logical JDBC URL is null", null);
-        }
-        if (endpoint == null) {
-            throw LbExceptions.internalState("missing target endpoint");
-        }
-
-        Matcher matcher = URL_PATTERN.matcher(logicalJdbcUrl);
-        if (!matcher.matches()) {
-            throw LbExceptions.invalidUrl(
-                    "Invalid CUBRID JDBC URL for physical mapping: " + logicalJdbcUrl, null);
-        }
-
-        String variant = matcher.group(1);
-        if (variant == null) {
-            variant = "";
-        }
-
-        String db = matcher.group(4);
-
-        String userInUrl = matcher.group(5);
-
-        String passInUrl = matcher.group(6);
-
-        String query = matcher.group(7);
-
-        Properties merged = mergeClientProps(clientInfo);
-
-        String user =
-                credential(
-                        lbConfig != null ? lbConfig.getPhysicalJdbcUser() : null,
-                        merged.getProperty("user"),
-                        userInUrl);
-        String password =
-                credential(
-                        lbConfig != null ? lbConfig.getPhysicalJdbcPassword() : null,
-                        merged.getProperty("password"),
-                        passInUrl);
-
-        if (user != null) {
-            merged.setProperty("user", user);
-        }
-
-        if (password != null) {
-            merged.setProperty("password", password);
-        }
-
-        String physicalQuery = stripLbBootstrapQuery(query);
-
-        String urlUser = user != null ? user : (userInUrl == null ? "" : userInUrl);
-
-        String jdbcUrl = buildJdbcUrl(variant, endpoint, db, urlUser, physicalQuery);
-
-        return new JdbcPhyConnSpec(jdbcUrl, merged);
-    }
-
     /**
-     * Builds a per-broker physical spec for a URI {@code loadbalance://} config. The classic {@link
-     * #URL_PATTERN} cannot parse a URI URL, so the single-broker URL is assembled from the parsed
-     * config fields instead. Loadbalance-only options (topology ports, {@code readWeight}, metrics
-     * keys) are not propagated: they configure the LB layer, not one physical connection.
+     * Builds a per-broker physical spec for a URI {@code loadbalance://} config, assembling the
+     * single-broker URL from the parsed config fields. Loadbalance-only options (topology ports,
+     * {@code readWeight}, metrics keys) are not propagated: they configure the LB layer, not one
+     * physical connection.
      *
      * @param config the URL-derived load-balance settings
      * @param clientInfo the client-supplied connection properties
@@ -137,7 +60,7 @@ public final class JdbcEndpointConnSpecFactory {
      * @return the physical connection spec for {@code endpoint}
      * @throws SQLException if the config or endpoint is missing/unusable
      */
-    public static JdbcPhyConnSpec forEndpointFromConfig(
+    public static JdbcPhyConnSpec forEndpoint(
             final LoadBalanceSettings config, final Properties clientInfo, final Endpoint endpoint)
             throws SQLException {
         if (config == null) {
@@ -156,16 +79,8 @@ public final class JdbcEndpointConnSpecFactory {
 
         Properties merged = mergeClientProps(clientInfo);
 
-        String user =
-                credential(
-                        config.getPhysicalJdbcUser(),
-                        merged.getProperty("user"),
-                        config.getUrlUser());
-        String password =
-                credential(
-                        config.getPhysicalJdbcPassword(),
-                        merged.getProperty("password"),
-                        config.getUrlPassword());
+        String user = credential(merged.getProperty("user"), config.getUrlUser());
+        String password = credential(merged.getProperty("password"), config.getUrlPassword());
 
         if (user != null) {
             merged.setProperty("user", user);
@@ -204,15 +119,11 @@ public final class JdbcEndpointConnSpecFactory {
     }
 
     /**
-     * Whether the broker URL carries {@code key}. LB topology keys (rwPort/...) and bootstrap keys
-     * (haLb*, altHosts, cubrid.lb.*) stay here: the broker ignores them, and they would only leak
-     * into logs. Mirrors stripLbBootstrapQuery on the classic path.
+     * Whether the broker URL carries {@code key}. LB-only keys (rwPort/..., metrics*, lbLog*) stay
+     * here: they configure the LB layer, and the broker would only leak them into logs.
      */
     private static boolean isPropagated(final String key) {
-        return key != null
-                && key.length() > 0
-                && !isLbTopologyOption(key)
-                && !isLbBootstrapOrAltHostsKey(key);
+        return key != null && key.length() > 0 && !isLbTopologyOption(key);
     }
 
     /**
@@ -279,72 +190,6 @@ public final class JdbcEndpointConnSpecFactory {
         return sb.toString();
     }
 
-    public static String stripLbBootstrapQuery(String rawQuery) {
-        if (rawQuery == null || rawQuery.length() == 0) {
-            return "";
-        }
-
-        String q = rawQuery.startsWith("?") ? rawQuery.substring(1) : rawQuery;
-        if (q.length() == 0) {
-            return "";
-        }
-
-        List<String> kept = new ArrayList<String>();
-
-        String[] parts = q.split("&");
-
-        for (int i = 0; i < parts.length; i++) {
-            String part = parts[i];
-            if (part == null || part.length() == 0) {
-                continue;
-            }
-
-            int eq = part.indexOf('=');
-
-            String name = eq >= 0 ? part.substring(0, eq) : part;
-            if (isLbBootstrapOrAltHostsKey(name)) {
-                continue;
-            }
-            kept.add(part);
-        }
-
-        if (kept.isEmpty()) {
-            return "";
-        }
-
-        StringBuilder sb = new StringBuilder("?");
-
-        for (int i = 0; i < kept.size(); i++) {
-            if (i > 0) {
-                sb.append('&');
-            }
-            sb.append(kept.get(i));
-        }
-
-        return sb.toString();
-    }
-
-    private static boolean isLbBootstrapOrAltHostsKey(String name) {
-        if (name == null) {
-            return true;
-        }
-
-        String n = name.trim();
-        if (n.equalsIgnoreCase("haLbMode")
-                || n.equalsIgnoreCase("haLbConfig")
-                || n.equalsIgnoreCase("haLbSharedStateKey")
-                || n.equalsIgnoreCase("altHosts")) {
-            return true;
-        }
-
-        final String cubridLbPrefix = "cubrid.lb.";
-        if (n.regionMatches(true, 0, cubridLbPrefix, 0, cubridLbPrefix.length())) {
-            return true;
-        }
-
-        return false;
-    }
-
     private static Properties mergeClientProps(Properties clientInfo) {
         Properties p = new Properties();
         if (clientInfo != null) {
@@ -357,14 +202,10 @@ public final class JdbcEndpointConnSpecFactory {
     }
 
     /**
-     * The LB override when set, then the classic rule: {@code info} whenever it has the key, even
-     * empty, else the URL. Used as given - a password may begin or end with a space.
+     * The classic rule: {@code info} whenever it has the key, even empty, else the URL. Used as
+     * given - a password may begin or end with a space.
      */
-    private static String credential(String override, String fromInfo, String fromUrl) {
-        if (override != null && override.length() > 0) {
-            return override;
-        }
-
+    private static String credential(String fromInfo, String fromUrl) {
         return fromInfo != null ? fromInfo : fromUrl;
     }
 }

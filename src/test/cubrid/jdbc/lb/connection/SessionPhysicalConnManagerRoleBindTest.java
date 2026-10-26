@@ -34,6 +34,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertSame;
 
+import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.SessionLeg;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
@@ -103,9 +104,7 @@ public class SessionPhysicalConnManagerRoleBindTest {
     }
 
     private static SessionPhysicalConnManager newManager() {
-        Properties cfg = new Properties();
-        cfg.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, "session");
-        LoadBalanceSettings config = LoadBalanceSettings.of(cfg);
+        LoadBalanceSettings config = LbTestSettings.defaults();
 
         JdbcConnectionFactory factory =
                 new JdbcConnectionFactory() {

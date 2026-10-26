@@ -35,6 +35,7 @@ import static org.junit.Assert.assertTrue;
 
 import cubrid.jdbc.jci.UErrorCode;
 import cubrid.jdbc.jci.UUnreachableHostList;
+import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.SessionLeg;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
@@ -210,10 +211,11 @@ public class SessionPhysicalConnManagerLadderSpreadTest {
     /**
      * The cross-role tier must be reached even when the same-role tier is alive-but-failing.
      *
-     * <p>{@code cubrid.lb.runtime.failover.max.attempts.per.group} (default 1) used to be counted
-     * over the whole flattened ladder, so a displaced replica spent its single dial on the sibling
-     * SO and dropped to {@code roOnRw} — the MASTER — while a slave RO was up. The budget is per
-     * role group now, so the sibling failing costs the sibling tier's budget only.
+     * <p>The dial budget ({@link LoadBalanceSettings#getRuntimeFailoverMaxAttempts}, default 1)
+     * used to be counted over the whole flattened ladder, so a displaced replica spent its single
+     * dial on the sibling SO and dropped to {@code roOnRw} — the MASTER — while a slave RO was up.
+     * The budget is per role group now, so the sibling failing costs the sibling tier's budget
+     * only.
      *
      * <p>The sibling here must fail to CONNECT while staying OFF the unreachable list: an excluded
      * endpoint is skipped without consuming a dial, which would let the old code pass by accident.
@@ -331,9 +333,7 @@ public class SessionPhysicalConnManagerLadderSpreadTest {
     }
 
     private static SessionPhysicalConnManager newManager(final Set<String> downEndpointIds) {
-        Properties cfg = new Properties();
-        cfg.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, "session");
-        final LoadBalanceSettings config = LoadBalanceSettings.of(cfg);
+        final LoadBalanceSettings config = LbTestSettings.defaults();
 
         JdbcConnectionFactory factory =
                 new JdbcConnectionFactory() {

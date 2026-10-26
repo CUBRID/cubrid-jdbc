@@ -34,8 +34,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
-import java.util.Properties;
 import org.junit.Test;
 
 public class CachingSqlClassifierTest {
@@ -130,21 +130,18 @@ public class CachingSqlClassifierTest {
 
     @Test
     public void forConfigMaxZeroDisablesCaching() {
-        Properties p = new Properties();
-        p.setProperty(LoadBalanceSettings.KEY_SQL_CLASSIFY_CACHE_MAX_ENTRIES, "0");
-        LoadBalanceSettings cfg = LoadBalanceSettings.of(p);
+        LoadBalanceSettings cfg =
+                LbTestSettings.with(
+                        LbTestSettings.defaults(),
+                        "sqlClassifyCacheMaxEntries",
+                        Integer.valueOf(0));
         assertFalse(SqlClassifierRegistry.forConfig(cfg) instanceof CachingSqlClassifier);
     }
 
     @Test
     public void forConfigDefaultUsesCachingWrapper() {
-        Properties p = new Properties();
-        p.setProperty(LoadBalanceSettings.KEY_SQL_CLASSIFY_CACHE_MAX_ENTRIES, "0");
-        assertFalse(
-                SqlClassifierRegistry.forConfig(LoadBalanceSettings.of(p))
-                        instanceof CachingSqlClassifier);
         assertTrue(
-                SqlClassifierRegistry.forConfig(LoadBalanceSettings.of(new Properties()))
+                SqlClassifierRegistry.forConfig(LbTestSettings.defaults())
                         instanceof CachingSqlClassifier);
     }
 }

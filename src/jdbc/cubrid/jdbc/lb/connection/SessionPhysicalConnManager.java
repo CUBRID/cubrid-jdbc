@@ -646,8 +646,8 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
 
     /**
      * Best-first connect over candidates already split into role groups, with {@code
-     * maxAttemptsPerGroup} bounding the connect attempts WITHIN each group — the semantics {@code
-     * cubrid.lb.runtime.failover.max.attempts.per.group} names. A group whose budget runs out does
+     * maxAttemptsPerGroup} bounding the connect attempts WITHIN each group — the semantics {@link
+     * LoadBalanceSettings#getRuntimeFailoverMaxAttempts} names. A group whose budget runs out does
      * not end the search; the next group is tried. See {@link #readCandidateTiers} for what this
      * fixes.
      *
@@ -1395,14 +1395,13 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
             exclude.remove(failed.getId());
         }
 
-        // Every RW candidate is tried (budget 0), NOT capped by
-        // cubrid.lb.runtime.failover.max.attempts.per.group. The RW candidates form a single group,
-        // so a budget of 1 meant one dial per recovery: with three or more RW endpoints, a session
-        // whose first live sibling also failed to connect exhausted the group and never dialed the
-        // rest - brokerGroupExhausted while a working RW broker was up. RO survives that cut
-        // because
-        // its ladder is split into tiers and bottoms out at roOnRw; RW has neither, and a failed
-        // write is not re-executed. The bind path already dials all RW candidates.
+        // Every RW candidate is tried (budget 0), NOT capped by the runtime-failover max attempts
+        // per group. The RW candidates form a single group, so a budget of 1 meant one dial per
+        // recovery: with three or more RW endpoints, a session whose first live sibling also failed
+        // to connect exhausted the group and never dialed the rest - brokerGroupExhausted while a
+        // working RW broker was up. RO survives that cut because its ladder is split into tiers and
+        // bottoms out at roOnRw; RW has neither, and a failed write is not re-executed. The bind
+        // path already dials all RW candidates.
         BindResult bind = openFirstReachable(order, "RW", exclude, 0);
 
         replaceRwConn(failed, bind.endpoint, bind.connection);
@@ -1879,8 +1878,8 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
      * {@code [same-role siblings]}, {@code [cross-role]}. Empty tiers are kept so a caller can tell
      * "no sibling exists" from "the sibling failed".
      *
-     * <p>Recovery needs the tier boundaries, because {@code
-     * cubrid.lb.runtime.failover.max.attempts.per.group} bounds connect attempts PER ROLE GROUP.
+     * <p>Recovery needs the tier boundaries, because {@link
+     * LoadBalanceSettings#getRuntimeFailoverMaxAttempts} bounds connect attempts PER ROLE GROUP.
      * Counted over the flattened ladder, the default of 1 means one dial per recovery: a displaced
      * replica spends it on its sibling SO, never reaches the cross-role slave RO, and lands on
      * {@code roOnRw} - the master - while a slave RO is alive. Which sessions escaped that depended
@@ -2264,7 +2263,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
     }
 
     private Connection openConnection(final Endpoint endpoint) throws SQLException {
-        JdbcPhyConnSpec spec = config.buildPhysicalJdbcSpec(logicalJdbcUrl, clientInfo, endpoint);
+        JdbcPhyConnSpec spec = config.buildPhysicalJdbcSpec(clientInfo, endpoint);
 
         // The physical connect uses the per-broker classic URL (spec.getJdbcUrl()); carry the
         // original URI (loadbalance://) URL the user wrote, password-masked, as the user URL so

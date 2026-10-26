@@ -38,6 +38,7 @@ import static org.junit.Assert.fail;
 
 import cubrid.jdbc.jci.UErrorCode;
 import cubrid.jdbc.jci.UUnreachableHostList;
+import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.SessionLeg;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
@@ -594,9 +595,7 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
 
     private static SessionPhysicalConnManager newManager(
             final RecoveryBackoff backoff, final JdbcConnectionFactory factory) {
-        Properties cfg = new Properties();
-        cfg.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, "session");
-        LoadBalanceSettings config = LoadBalanceSettings.of(cfg);
+        LoadBalanceSettings config = LbTestSettings.defaults();
 
         return new SessionPhysicalConnManager(
                 LOGICAL_URL, new Properties(), config, factory, backoff);

@@ -38,6 +38,7 @@ import static org.junit.Assert.assertSame;
 
 import cubrid.jdbc.jci.UErrorCode;
 import cubrid.jdbc.jci.UUnreachableHostList;
+import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.SessionLeg;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
@@ -147,10 +148,14 @@ public class SessionPhysicalConnManagerRwFailbackTest {
     @Test
     public void disabledByOption() throws SQLException {
         Set<String> down = new HashSet<String>();
-        Properties cfg = new Properties();
-        cfg.setProperty(LoadBalanceSettings.KEY_WRITE_FAILBACK_ENABLED, "false");
         SessionPhysicalConnManager mgr =
-                newManager(down, UErrorCode.ER_COMMUNICATION, cfg, null, null);
+                newManager(
+                        down,
+                        UErrorCode.ER_COMMUNICATION,
+                        LbTestSettings.with(
+                                LbTestSettings.defaults(), "writeFailbackEnabled", false),
+                        null,
+                        null);
         try {
             markDown(down, NODE1_RW);
             mgr.bindSession(NODE1_RW, NODE2_RO, topology());
@@ -291,7 +296,12 @@ public class SessionPhysicalConnManagerRwFailbackTest {
         Set<String> down = new HashSet<String>();
         AtomicInteger node2Closes = new AtomicInteger();
         SessionPhysicalConnManager mgr =
-                newManager(down, UErrorCode.ER_COMMUNICATION, new Properties(), node2Closes, null);
+                newManager(
+                        down,
+                        UErrorCode.ER_COMMUNICATION,
+                        LbTestSettings.defaults(),
+                        node2Closes,
+                        null);
         try {
             markDown(down, NODE1_RW);
             mgr.bindSession(NODE1_RW, NODE2_RO, topology());
@@ -320,7 +330,12 @@ public class SessionPhysicalConnManagerRwFailbackTest {
         Set<String> down = new HashSet<String>();
         AtomicInteger masterOpens = new AtomicInteger();
         SessionPhysicalConnManager mgr =
-                newManager(down, UErrorCode.ER_COMMUNICATION, new Properties(), null, masterOpens);
+                newManager(
+                        down,
+                        UErrorCode.ER_COMMUNICATION,
+                        LbTestSettings.defaults(),
+                        null,
+                        masterOpens);
         try {
             mgr.bindSessionWithReadTarget(NODE1_RW, NODE1_RW, true, topology());
             assertEquals(NODE1_RW, mgr.getSessionEndpoint(SessionLeg.RW));
@@ -397,7 +412,7 @@ public class SessionPhysicalConnManagerRwFailbackTest {
 
     private static SessionPhysicalConnManager newManager(
             final Set<String> downEndpointIds, final int connectErrno) {
-        return newManager(downEndpointIds, connectErrno, new Properties(), null, null);
+        return newManager(downEndpointIds, connectErrno, LbTestSettings.defaults(), null, null);
     }
 
     /**
@@ -408,14 +423,9 @@ public class SessionPhysicalConnManagerRwFailbackTest {
     private static SessionPhysicalConnManager newManager(
             final Set<String> downEndpointIds,
             final int connectErrno,
-            final Properties extraProps,
+            final LoadBalanceSettings config,
             final AtomicInteger node2Closes,
             final AtomicInteger masterOpens) {
-        Properties cfg = new Properties();
-        cfg.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, "session");
-        // No throttling at this level; the per-session throttle lives in LoadBalanceConnection.
-        cfg.putAll(extraProps);
-        final LoadBalanceSettings config = LoadBalanceSettings.of(cfg);
 
         JdbcConnectionFactory factory =
                 new JdbcConnectionFactory() {

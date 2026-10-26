@@ -35,7 +35,6 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-import cubrid.jdbc.lb.config.TestConfigHelper;
 import cubrid.jdbc.lb.route.Router;
 import cubrid.jdbc.lb.statement.LBPreparedStatement;
 import cubrid.jdbc.lb.statement.LBStatement;
@@ -55,8 +54,7 @@ public final class CompatibilityGapPreventionTest {
 
     @Test
     public void assertUnwrapAndIsWrapperForContractIsConsistent() throws Exception {
-        LoadBalanceConnection connection =
-                new LoadBalanceConnection(TestConfigHelper.emptyConfig());
+        LoadBalanceConnection connection = new LoadBalanceConnection(LbTestSettings.defaults());
         assertTrue(connection.isWrapperFor(Connection.class));
         assertSame(connection, connection.unwrap(Connection.class));
         Statement statement = connection.createStatement();
@@ -71,8 +69,7 @@ public final class CompatibilityGapPreventionTest {
      */
     @Test
     public void assertUnwrapUnsupportedContractProvidesActionableMessage() throws Exception {
-        LoadBalanceConnection connection =
-                new LoadBalanceConnection(TestConfigHelper.emptyConfig());
+        LoadBalanceConnection connection = new LoadBalanceConnection(LbTestSettings.defaults());
 
         assertSame(
                 "an application casting to the driver's own connection class must succeed",
@@ -89,8 +86,7 @@ public final class CompatibilityGapPreventionTest {
 
     @Test
     public void assertStatementPropertyPropagationToPhysicalStatement() throws Exception {
-        LoadBalanceConnection connection =
-                new LoadBalanceConnection(TestConfigHelper.emptyConfig());
+        LoadBalanceConnection connection = new LoadBalanceConnection(LbTestSettings.defaults());
         LBStatement statement = (LBStatement) connection.createStatement();
         final List<String> calls = new ArrayList<String>();
         statement.setStatementProvider(
@@ -123,8 +119,7 @@ public final class CompatibilityGapPreventionTest {
 
     @Test
     public void assertScrollableStatementPropagatesFetchDirectionToPhysical() throws Exception {
-        LoadBalanceConnection connection =
-                new LoadBalanceConnection(TestConfigHelper.emptyConfig());
+        LoadBalanceConnection connection = new LoadBalanceConnection(LbTestSettings.defaults());
         LBStatement statement =
                 (LBStatement)
                         connection.createStatement(
@@ -146,8 +141,7 @@ public final class CompatibilityGapPreventionTest {
 
     @Test
     public void assertResultSetAndGeneratedKeysAffinityIsStable() throws Exception {
-        LoadBalanceConnection connection =
-                new LoadBalanceConnection(TestConfigHelper.emptyConfig());
+        LoadBalanceConnection connection = new LoadBalanceConnection(LbTestSettings.defaults());
         LBStatement statement = (LBStatement) connection.createStatement();
         final List<String> calls = new ArrayList<String>();
         statement.setStatementProvider(
@@ -171,8 +165,7 @@ public final class CompatibilityGapPreventionTest {
 
     @Test
     public void assertUnsupportedContractIsConsistentAcrossApis() throws Exception {
-        LoadBalanceConnection connection =
-                new LoadBalanceConnection(TestConfigHelper.emptyConfig());
+        LoadBalanceConnection connection = new LoadBalanceConnection(LbTestSettings.defaults());
         assertUnsupportedMessageStartsWithPrefix(connection, "createArrayOf");
         assertUnsupportedMessageStartsWithPrefix(connection, "createStruct");
         assertUnsupportedMessageStartsWithPrefix(connection, "getTypeMap");
@@ -184,8 +177,7 @@ public final class CompatibilityGapPreventionTest {
     // physical connection that created the CUBRIDOutResultSet.
     @Test
     public void assertShardAndInternalApisAreRefusedByName() throws Exception {
-        LoadBalanceConnection connection =
-                new LoadBalanceConnection(TestConfigHelper.emptyConfig());
+        LoadBalanceConnection connection = new LoadBalanceConnection(LbTestSettings.defaults());
         // isShard/getShardId/addOutResultSet are declared without SQLException on
         // CUBRIDConnection, so these overrides cannot widen the clause and the refusal arrives
         // unchecked; the named message is what both forms must keep.
@@ -225,16 +217,14 @@ public final class CompatibilityGapPreventionTest {
      */
     @Test
     public void addOutResultSetIsNotRefused() throws Exception {
-        LoadBalanceConnection connection =
-                new LoadBalanceConnection(TestConfigHelper.emptyConfig());
+        LoadBalanceConnection connection = new LoadBalanceConnection(LbTestSettings.defaults());
 
         connection.addOutResultSet(null);
     }
 
     @Test
     public void assertCompatibilitySmokeScenarioHasNoUnexpectedNotSupported() throws Exception {
-        LoadBalanceConnection connection =
-                new LoadBalanceConnection(TestConfigHelper.emptyConfig());
+        LoadBalanceConnection connection = new LoadBalanceConnection(LbTestSettings.defaults());
         LBStatement statement = (LBStatement) connection.createStatement();
         statement.setStatementProvider(
                 new LBStatement.PhysicalStmtProvider() {
@@ -278,8 +268,7 @@ public final class CompatibilityGapPreventionTest {
 
     @Test
     public void assertConnectionIsValidReflectsClosedState() throws Exception {
-        LoadBalanceConnection connection =
-                new LoadBalanceConnection(TestConfigHelper.emptyConfig());
+        LoadBalanceConnection connection = new LoadBalanceConnection(LbTestSettings.defaults());
         assertTrue(connection.isValid(1));
         connection.close();
         assertFalse(connection.isValid(1));

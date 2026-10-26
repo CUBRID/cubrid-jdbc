@@ -33,7 +33,6 @@ package cubrid.jdbc.lb.config;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
 
 import java.sql.SQLException;
 import java.util.Properties;
@@ -41,19 +40,20 @@ import org.junit.Test;
 
 public class JdbcEndpointConnectionFactoryTest {
 
-    private static final String LOGICAL_BASE = "jdbc:cubrid:localhost:30000:testdb:public::";
+    private static final String LB_BASE =
+            "jdbc:cubrid:loadbalance://master-broker:33000:33001/testdb:public::";
 
     @Test
     public void physicalUrlReplacesHostPortForRwMasterEndpoint() throws SQLException {
         Endpoint master = new Endpoint("master-broker", 33000);
-        JdbcPhyConnSpec spec = JdbcEndpointConnSpecFactory.forEndpoint(LOGICAL_BASE, null, master);
+        JdbcPhyConnSpec spec = spec(LB_BASE, null, master);
         assertEquals("jdbc:cubrid:master-broker:33000:testdb:public::", spec.getJdbcUrl());
     }
 
     @Test
     public void physicalUrlReplacesHostPortForRoEndpoint() throws SQLException {
         Endpoint ro = new Endpoint("slave-ro", 33001);
-        JdbcPhyConnSpec spec = JdbcEndpointConnSpecFactory.forEndpoint(LOGICAL_BASE, null, ro);
+        JdbcPhyConnSpec spec = spec(LB_BASE, null, ro);
         assertEquals("jdbc:cubrid:slave-ro:33001:testdb:public::", spec.getJdbcUrl());
     }
 
@@ -62,8 +62,7 @@ public class JdbcEndpointConnectionFactoryTest {
         Properties info = new Properties();
         info.setProperty("user", "appuser");
         info.setProperty("password", "secret");
-        JdbcPhyConnSpec spec =
-                JdbcEndpointConnSpecFactory.forEndpoint(LOGICAL_BASE, info, new Endpoint("h", 1));
+        JdbcPhyConnSpec spec = spec(LB_BASE, info, new Endpoint("h", 1));
         Properties p = spec.getConnectionProperties();
         assertEquals("appuser", p.getProperty("user"));
         assertEquals("secret", p.getProperty("password"));
@@ -92,103 +91,41 @@ public class JdbcEndpointConnectionFactoryTest {
         assertEquals("urlpass", physicalPassword(info));
     }
 
+    /**
+     * The LB-only options configure the LB layer. A physical broker has no use for them, and they
+     * would only surface again in CAS logs and exception messages that echo the URL.
+     */
+    @Test
+    public void loadBalanceOnlyOptionsDoNotReachPhysicalBrokerUrls() throws SQLException {
+        String out =
+                spec(
+                                "jdbc:cubrid:loadbalance://192.168.2.196:30000:33000,192.168.2.197:30000"
+                                        + "/testdb:dba:pw:?charSet=utf-8&readWeight=master:1"
+                                        + "&lbLogSql=off&lbLogDistIntervalSec=60"
+                                        + "&metricsEnabled=true&metricsIntervalSec=15",
+                                null,
+                                new Endpoint("192.168.2.196", 30000))
+                        .getJdbcUrl();
+
+        assertFalse(out.contains("readWeight"));
+        assertFalse(out.contains("lbLogSql"));
+        assertFalse(out.contains("lbLogDistIntervalSec"));
+        assertFalse(out.contains("metricsEnabled"));
+        assertFalse(out.contains("metricsIntervalSec"));
+        assertTrue("unrelated options still propagate", out.contains("charSet=utf-8"));
+    }
+
     private static String physicalPassword(final Properties info) throws SQLException {
-        return JdbcEndpointConnSpecFactory.forEndpoint(
-                        "jdbc:cubrid:localhost:30000:testdb:dba:urlpass:",
-                        info,
-                        new Endpoint("h", 1))
+        return spec("jdbc:cubrid:loadbalance://h:1/testdb:dba:urlpass:", info, new Endpoint("h", 1))
                 .getConnectionProperties()
                 .getProperty("password");
     }
 
-    @Test
-    public void stripsLbBootstrapParametersFromQueryString() throws SQLException {
-        String url =
-                "jdbc:cubrid:localhost:30000:testdb:public::?haLbMode=true&haLbConfig=/tmp/x&altHosts=foo";
-        JdbcPhyConnSpec spec =
-                JdbcEndpointConnSpecFactory.forEndpoint(url, null, new Endpoint("x", 9));
-        String out = spec.getJdbcUrl();
-        assertFalse(out.contains("altHosts"));
-        assertFalse(out.contains("haLbMode"));
-        assertFalse(out.contains("haLbConfig"));
-    }
-
-    /**
-     * The {@code lbLog*} options configure the LB layer's own log file. A physical broker has no
-     * use for them, and propagating them would put a filesystem path on every physical URL — the
-     * string that surfaces in CAS logs and exception messages.
-     */
-    @Test
-    public void fileLoggingOptionsDoNotReachPhysicalBrokerUrls() throws SQLException {
-        String url =
-                "jdbc:cubrid:loadbalance://192.168.2.196:30000:33000,192.168.2.197:30000"
-                        + "/testdb:dba:pw:?charSet=utf-8"
-                        + "&lbLogFile=/var/log/cubrid_lb.log&lbLogLevel=FINE&lbLogToConsole=false";
-        LoadBalanceSettings config = LoadBalanceSettings.fromUrl(LoadBalanceUrlParser.parse(url));
-
-        JdbcPhyConnSpec spec =
-                JdbcEndpointConnSpecFactory.forEndpointFromConfig(
-                        config, null, new Endpoint("192.168.2.196", 30000));
-        String out = spec.getJdbcUrl();
-
-        assertFalse(out.contains("lbLogFile"));
-        assertFalse(out.contains("/var/log/cubrid_lb.log"));
-        assertFalse(out.contains("lbLogLevel"));
-        assertFalse(out.contains("lbLogToConsole"));
-        assertTrue("unrelated options still propagate", out.contains("charSet=utf-8"));
-    }
-
-    @Test
-    public void stripLbQueryHelperRemovesCubridLbPrefix() {
-        assertEquals("", JdbcEndpointConnSpecFactory.stripLbBootstrapQuery(null));
-        assertEquals("", JdbcEndpointConnSpecFactory.stripLbBootstrapQuery(""));
-        assertEquals(
-                "?keep=1",
-                JdbcEndpointConnSpecFactory.stripLbBootstrapQuery("?keep=1&haLbMode=true"));
-        assertEquals(
-                "?other=1",
-                JdbcEndpointConnSpecFactory.stripLbBootstrapQuery(
-                        "?cubrid.lb.distribution.mode=session&other=1"));
-    }
-
-    @Test
-    public void loadBalanceSettingsPhysicalCredentialOverride() throws SQLException {
-        Properties raw = new Properties();
-        raw.setProperty(LoadBalanceSettings.KEY_DISTRIBUTION_MODE, "session");
-        raw.setProperty(LoadBalanceSettings.KEY_PHYSICAL_JDBC_USER, "physUser");
-        raw.setProperty(LoadBalanceSettings.KEY_PHYSICAL_JDBC_PASSWORD, "physPass");
-        LoadBalanceSettings cfg = LoadBalanceSettings.of(raw);
-        JdbcPhyConnSpec spec =
-                cfg.buildPhysicalJdbcSpec(LOGICAL_BASE, new Properties(), new Endpoint("h", 2));
-        assertEquals("physUser", spec.getConnectionProperties().getProperty("user"));
-        assertEquals("physPass", spec.getConnectionProperties().getProperty("password"));
-    }
-
-    // 05 M3: cubrid.lb.* keys configure the (now fixed-default) LB layer and are read nowhere.
-    // They must not leak onto the physical broker URL, while ordinary options still propagate.
-    @Test
-    public void cubridLbOptionsExcludedFromPhysicalUrl() throws SQLException {
-        String url =
-                "jdbc:cubrid:loadbalance://node1,node2/testdb"
-                        + "?rwPort=33000&roPort=33002"
-                        + "&cubrid.lb.runtime.failover.enabled=false&charSet=utf8";
-        LoadBalanceSettings cfg = LoadBalanceSettings.fromUrl(LoadBalanceUrlParser.parse(url));
-
-        JdbcPhyConnSpec spec =
-                cfg.buildPhysicalJdbcSpec(url, new Properties(), new Endpoint("node1", 33000));
-        String out = spec.getJdbcUrl();
-
-        assertFalse(out.contains("cubrid.lb."));
-        assertTrue(out.contains("charSet=utf8"));
-    }
-
-    @Test
-    public void invalidUrlThrows() throws SQLException {
-        try {
-            JdbcEndpointConnSpecFactory.forEndpoint("jdbc:other:foo", null, new Endpoint("h", 1));
-            fail("expected SQLException");
-        } catch (SQLException e) {
-            assertTrue(e.getMessage().contains("Invalid"));
-        }
+    private static JdbcPhyConnSpec spec(
+            final String loadBalanceUrl, final Properties info, final Endpoint endpoint)
+            throws SQLException {
+        LoadBalanceSettings config =
+                LoadBalanceSettings.fromUrl(LoadBalanceUrlParser.parse(loadBalanceUrl));
+        return JdbcEndpointConnSpecFactory.forEndpoint(config, info, endpoint);
     }
 }

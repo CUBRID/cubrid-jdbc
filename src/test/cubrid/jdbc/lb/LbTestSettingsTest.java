@@ -28,50 +28,44 @@
  *
  */
 
-package cubrid.jdbc.lb.config;
+package cubrid.jdbc.lb;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 
-import java.util.Properties;
+import cubrid.jdbc.lb.config.Endpoint;
+import cubrid.jdbc.lb.config.LoadBalanceSettings;
+import cubrid.jdbc.lb.config.NodeRole;
+import cubrid.jdbc.lb.config.ResolvedRoleTopology;
 import org.junit.Test;
 
-public class LoadBalanceSettingsRecoveryProbeTest {
+/** The settings the unit tests bind with mean what {@link LbTestSettings} says they mean. */
+public final class LbTestSettingsTest {
 
     @Test
-    public void defaultsToThreeSecondsWhenUnset() {
-        LoadBalanceSettings cfg = LoadBalanceSettings.of(new Properties());
-        assertEquals(3000, cfg.getRecoveryProbeIntervalMs());
+    public void forBindingMakesTheGivenPairTheMasterAndTheOnlyReadTarget() {
+        LoadBalanceSettings s =
+                LbTestSettings.forBinding(new Endpoint("rw", 33000), new Endpoint("ro1", 33001));
+
+        ResolvedRoleTopology t = s.getResolvedTopology();
+        assertEquals(new Endpoint("rw", 33000), t.getMaster().getRw());
+        assertEquals(1, t.getSlaves().size());
+        assertEquals(new Endpoint("ro1", 33001), t.getSlaves().get(0).getRo());
+        assertEquals(0, s.getReadWeight().weightOf(NodeRole.MASTER));
+        assertEquals(1, s.getReadWeight().weightOf(NodeRole.SLAVE));
     }
 
+    /**
+     * Tests of the non-default paths depend on this. An inline constant initializer on the field
+     * would be folded into the getter, and the override would silently change nothing.
+     */
     @Test
-    public void explicitValueIsReflected() {
-        Properties p = new Properties();
-        p.setProperty(LoadBalanceSettings.KEY_RT_RECOVERY_PROBE_INTERVAL_MS, "5000");
-        LoadBalanceSettings cfg = LoadBalanceSettings.of(p);
-        assertEquals(5000, cfg.getRecoveryProbeIntervalMs());
-    }
+    public void withOverridesAPinnedDefaultAsSeenByItsGetter() {
+        LoadBalanceSettings s =
+                LbTestSettings.with(LbTestSettings.defaults(), "rtFailoverEnabled", Boolean.FALSE);
+        assertFalse(s.isRuntimeFailoverEnabled());
 
-    @Test
-    public void zeroIsAllowed() {
-        Properties p = new Properties();
-        p.setProperty(LoadBalanceSettings.KEY_RT_RECOVERY_PROBE_INTERVAL_MS, "0");
-        LoadBalanceSettings cfg = LoadBalanceSettings.of(p);
-        assertEquals(0, cfg.getRecoveryProbeIntervalMs());
-    }
-
-    @Test
-    public void negativeValueFallsBackToDefault() {
-        Properties p = new Properties();
-        p.setProperty(LoadBalanceSettings.KEY_RT_RECOVERY_PROBE_INTERVAL_MS, "-1");
-        LoadBalanceSettings cfg = LoadBalanceSettings.of(p);
-        assertEquals(3000, cfg.getRecoveryProbeIntervalMs());
-    }
-
-    @Test
-    public void nonIntegerValueFallsBackToDefault() {
-        Properties p = new Properties();
-        p.setProperty(LoadBalanceSettings.KEY_RT_RECOVERY_PROBE_INTERVAL_MS, "abc");
-        LoadBalanceSettings cfg = LoadBalanceSettings.of(p);
-        assertEquals(3000, cfg.getRecoveryProbeIntervalMs());
+        s = LbTestSettings.with(LbTestSettings.defaults(), "recoveryProbeIntervalMs", 0);
+        assertEquals(0, s.getRecoveryProbeIntervalMs());
     }
 }

@@ -49,6 +49,13 @@ public class CUBRIDXADataSource extends CUBRIDPoolDataSourceBase
         implements XADataSource, Referenceable, Serializable {
     private static final long serialVersionUID = -7015869630223848825L;
 
+    private static final String LOAD_BALANCE_REFUSAL_MESSAGE =
+            "a loadbalance:// URL cannot be used with CUBRIDXADataSource (XA/distributed"
+                    + " transactions); an XA branch keeps autocommit off, and a load-balance session"
+                    + " pins every statement of an open transaction to the master, so no read would"
+                    + " be distributed; configure this XA data source with a classic URL, and use a"
+                    + " separate loadbalance:// javax.sql.DataSource for the read paths";
+
     public CUBRIDXADataSource() {
         super();
     }
@@ -96,7 +103,7 @@ public class CUBRIDXADataSource extends CUBRIDPoolDataSourceBase
         if (getUrl() != null
                 && CUBRIDDriver.detectUrlMode(getUrl()) == CUBRIDDriver.UrlMode.URI_LOADBALANCE) {
             throw new CUBRIDException(
-                    CUBRIDJDBCErrorCode.invalid_url, loadBalanceRefusalMessage(), null);
+                    CUBRIDJDBCErrorCode.invalid_url, LOAD_BALANCE_REFUSAL_MESSAGE, null);
         }
 
         return (new CUBRIDXAConnection(
@@ -108,16 +115,8 @@ public class CUBRIDXADataSource extends CUBRIDPoolDataSourceBase
             return;
         }
         if (CUBRIDDriver.detectUrlMode(urlString) == CUBRIDDriver.UrlMode.URI_LOADBALANCE) {
-            throw new IllegalArgumentException(loadBalanceRefusalMessage());
+            throw new IllegalArgumentException(LOAD_BALANCE_REFUSAL_MESSAGE);
         }
-    }
-
-    private static String loadBalanceRefusalMessage() {
-        return "a loadbalance:// URL cannot be used with CUBRIDXADataSource (XA/distributed"
-                + " transactions); an XA branch keeps autocommit off, and a load-balance session"
-                + " pins every statement of an open transaction to the master, so no read would be"
-                + " distributed; configure this XA data source with a classic URL, and use a"
-                + " separate loadbalance:// javax.sql.DataSource for the read paths";
     }
 
     /*

@@ -64,7 +64,7 @@ import org.junit.Test;
  * A distributed read cannot honour REPEATABLE READ or SERIALIZABLE: with autocommit on, the read
  * runs as its own transaction on the read node, so the level holds within one node only. LB accepts
  * any level and never routes on it, which used to leave this entirely unsaid — the one record that
- * answers "REPEATABLE READ is set, why do the values differ" (LB-Pending-Issues ISSUE-1).
+ * answers "REPEATABLE READ is set, why do the values differ".
  *
  * <p>It is a warning, not a refusal: the combination is legitimate for single-statement reads.
  */

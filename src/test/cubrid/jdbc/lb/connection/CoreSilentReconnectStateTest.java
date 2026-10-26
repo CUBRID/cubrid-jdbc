@@ -58,7 +58,7 @@ import org.junit.Test;
  * unchanged, so LB's own re-application chokepoint ({@code openConnection} &rarr; {@code
  * applySessionStateTo}) is never reached. Core restores isolation and lock timeout; {@code
  * autoCommit} rides on every execute. What nobody restores is {@code casChangeMode}, which is CAS
- * state set by a request (LB-Pending-Issues ISSUE-7).
+ * state set by a request.
  *
  * <p>The broker assigns a fresh {@code casId}/{@code casProcessId} on every connect, so LB compares
  * that tuple against the one recorded when it last applied the state. These tests drive that

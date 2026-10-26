@@ -70,7 +70,9 @@ public class SessionPhysicalConnManagerTxLegsTest {
     private final AtomicInteger roAutoCommits = new AtomicInteger();
     private final AtomicInteger rwAutoCommits = new AtomicInteger();
     private final SQLException rwBoom = new SQLException("write leg is gone");
+    private final SQLException roBoom = new SQLException("read leg is gone");
     private volatile boolean rwFails;
+    private volatile boolean roFails;
 
     @Test
     public void commitReachesTheReadLegWhenTheWriteLegFails() throws SQLException {
@@ -101,6 +103,28 @@ public class SessionPhysicalConnManagerTxLegsTest {
                 assertSame("the caller sees the write failure", rwBoom, propagated);
             }
             assertEquals("read leg rolled back", 1, roRollbacks.get());
+        } finally {
+            mgr.releasePhysicalConnections();
+        }
+    }
+
+    /**
+     * When both legs fail, the read failure the caller would not see is attached to the write one.
+     */
+    @Test
+    public void readLegFailureMaskedByTheWriteFailureIsAttachedToIt() throws SQLException {
+        SessionPhysicalConnManager mgr = bound();
+        try {
+            rwFails = true;
+            roFails = true;
+            try {
+                mgr.rollbackPhyTx();
+                fail("the write leg's failure must still reach the caller");
+            } catch (SQLException propagated) {
+                assertSame("the caller sees the write failure", rwBoom, propagated);
+                assertEquals(1, propagated.getSuppressed().length);
+                assertSame("the masked read failure", roBoom, propagated.getSuppressed()[0]);
+            }
         } finally {
             mgr.releasePhysicalConnections();
         }
@@ -193,6 +217,9 @@ public class SessionPhysicalConnManagerTxLegsTest {
                             final Object self, final Method method, final Object[] args)
                             throws SQLException {
                         String name = method.getName();
+                        if (roFails && ("commit".equals(name) || "rollback".equals(name))) {
+                            throw roBoom;
+                        }
                         if ("commit".equals(name)) {
                             roCommits.incrementAndGet();
                             return null;

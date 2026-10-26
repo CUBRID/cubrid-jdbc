@@ -174,10 +174,8 @@ public class LoadBalanceConnection extends CUBRIDConnection {
 
     private DatabaseMetaData rwMetaForCmd = null;
     // One warning per session when reads distribute under an isolation level that a distributed
-    // read
-    // cannot honour (LB-Pending-Issues ISSUE-1). Not a routing input: the level is the
-    // application's
-    // to choose, and LB only says that it holds within one node.
+    // read cannot honour. Not a routing input: the level is the application's to choose, and LB
+    // only says that it holds within one node.
     private boolean isolationSpreadWarned;
     private Integer casChangeMode = null;
     // SQL SETs re-run on every leg opened later (replay key -> statement), in the order they last
@@ -376,9 +374,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         }
 
         LoadBalanceConnection connection = new LoadBalanceConnection(url, info, config);
-        // After the constructor, because that is where file logging is installed — declaring the
-        // configuration before the handler exists would send it to the console only. Writes nothing
-        // after the first connection of a given URL.
+        // Writes nothing after the first connection of a given URL.
         LbTopologyLog.declare(url, info, config);
         LbDistLog.configure(config);
         // Pool-scoped selector state keyed by the logical URL (query stripped), so distinct pools
@@ -1608,6 +1604,9 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         } catch (SQLException failure) {
             roFailure = failure;
             if (rwFailure != null) {
+                if (failure != rwFailure) {
+                    rwFailure.addSuppressed(failure);
+                }
                 LbLog.warn(
                         LOGGER,
                         LbLog.conn(connectionId),
@@ -2453,7 +2452,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      * getColumns}, the key/index/privilege queries and {@code getDatabaseProductVersion}. The rest
      * of the 173-method surface answers from local constants, so a broker being down cannot affect
      * them. The closure resolves the metadata handle <b>and</b> runs the query, because a rebind
-     * must not leave the query on the handle of the failed endpoint (LB-Pending-Issues ISSUE-5).
+     * must not leave the query on the handle of the failed endpoint.
      *
      * <p>Not timed and not replayed: it is a command, not a statement, and the handler never
      * replays a write target. The leg is rebound, so the caller's retry lands on the new one.
@@ -2485,10 +2484,8 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      * failback replaces the write connection, so the next call re-opens the leg, and an unprotected
      * open against a stopped broker failed outright instead of rebinding.
      *
-     * <p>This protects <b>obtaining</b> the handle, not the catalog query the caller then runs on
-     * it: {@link LBDatabaseMetaData} forwards each of its methods separately, so a query that dies
-     * mid-call still propagates. Closing that gap means routing every forwarded metadata method
-     * through the handler - tracked as a separate item in LB-Pending-Issues.
+     * <p>This protects <b>obtaining</b> the handle. The catalog queries the caller then runs on it
+     * go through the handler separately, in {@link #runRwMetaQuery}.
      */
     DatabaseMetaData rwMetaData() throws SQLException {
         if (rwMetaForCmd != null) {
@@ -2575,28 +2572,12 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     /**
-     * Applies {@code action} to the RW physical connection and, when the RO endpoint is bound to a
-     * distinct physical connection, to the RO connection too. Single home for the "apply to every
-     * physical connection backing this session" pattern shared by the property setters and the
-     * {@code apply*()} re-application helpers, so the reapply target list lives in one place.
-     * Caller owns the {@link #isSessionInitialized()} guard and any command-routing metrics.
-     *
-     * <p>The read leg is attempted even when the write leg failed, and the failures are returned
-     * rather than thrown. The RW leg used to run unguarded, so anything it threw skipped the read
-     * leg entirely — the read leg was collateral damage of a write-leg failure even though reads
-     * would have kept working (the execute path absorbs a dead read endpoint by failing over, so a
-     * property setter must not be the one thing that makes the connection unusable). Same shape as
-     * {@code SessionPhysicalConnManager.endPhyTx}. A read-leg failure masked by a write-leg failure
-     * is logged rather than dropped (Java 1.6 target, so no {@code addSuppressed}).
-     */
-    /**
      * Applies a session property to the write leg, rebinding the leg when the broker is down.
      *
      * <p>Before this, a property setter was the one thing that could make a logical connection
      * unusable while a surviving write broker was right there: the failure was isolated per leg but
      * the leg was never recovered, so a pool resetting a returned connection ({@code
-     * setAutoCommit}, {@code setReadOnly}, {@code setTransactionIsolation}) discarded it
-     * (LB-Pending-Issues ISSUE-6).
+     * setAutoCommit}, {@code setReadOnly}, {@code setTransactionIsolation}) discarded it.
      *
      * <p>Re-applying after the rebind is not a replayed write. The caller has already written the
      * intended value into the logical session state, so the connection the rebind opened carries it
@@ -2645,6 +2626,21 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         }
     }
 
+    /**
+     * Applies {@code action} to the RW physical connection and, when the RO endpoint is bound to a
+     * distinct physical connection, to the RO connection too. Single home for the "apply to every
+     * physical connection backing this session" pattern shared by the property setters and the
+     * {@code apply*()} re-application helpers, so the reapply target list lives in one place.
+     * Caller owns the {@link #isSessionInitialized()} guard and any command-routing metrics.
+     *
+     * <p>The read leg is attempted even when the write leg failed, and the failures are returned
+     * rather than thrown. The RW leg used to run unguarded, so anything it threw skipped the read
+     * leg entirely — the read leg was collateral damage of a write-leg failure even though reads
+     * would have kept working (the execute path absorbs a dead read endpoint by failing over, so a
+     * property setter must not be the one thing that makes the connection unusable). Same shape as
+     * {@code SessionPhysicalConnManager.endPhyTx}. A read-leg failure masked by a write-leg failure
+     * is attached to it as suppressed, and logged.
+     */
     private LegOutcome forEachSessPhyConn(final PhyConnAction action) {
         Connection rwPhysical = null;
         SQLException rwFailure = null;
@@ -2663,6 +2659,9 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         } catch (SQLException failure) {
             roFailure = failure;
             if (rwFailure != null) {
+                if (failure != rwFailure) {
+                    rwFailure.addSuppressed(failure);
+                }
                 LbLog.warn(
                         LOGGER,
                         LbLog.conn(connectionId),

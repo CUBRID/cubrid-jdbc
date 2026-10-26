@@ -126,12 +126,10 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
     private final Map<String, Connection> connsByEpId = new HashMap<String, Connection>();
     // CAS identity of each open physical connection, as of the last time LB applied the session
     // state to it. Core reconnects a leg on its own - UConnection.checkReconnect() runs before
-    // every
-    // request and reconnectWorker() re-opens the socket - and restores only isolation and lock
-    // timeout, so CAS-side state LB had set (casChangeMode) would be silently lost. The broker
-    // hands
-    // out a fresh casId/casProcessId on every connect, which is the only signal LB gets that this
-    // happened. See LB-Pending-Issues ISSUE-7.
+    // every request and reconnectWorker() re-opens the socket - and restores only isolation and
+    // lock timeout, so CAS-side state LB had set (casChangeMode) would be silently lost. The broker
+    // hands out a fresh casId/casProcessId on every connect, which is the only signal LB gets that
+    // this happened.
     private final Map<String, String> casIdentityByEpId = new HashMap<String, String>();
     // Physical PreparedStatement cache keyed by endpointId|owner|normalizedSql. Not LRU-bounded on
     // purpose: a logical PS re-fetches its physical statement here on every execute and hands the
@@ -1227,8 +1225,8 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
     /**
      * Applies one operation to BOTH session legs, the read leg even when the write leg failed, so
      * neither leg is skipped as collateral damage of the other's failure. The write-leg failure is
-     * what the caller sees; a read-leg failure masked by it is logged (Java 1.6 target, so no
-     * {@code addSuppressed}).
+     * what the caller sees; a read-leg failure masked by it is attached to it as suppressed, and
+     * logged.
      *
      * @param logTag the {@code "LB ..."} prefix identifying the operation in the masked-failure
      *     warning
@@ -1261,6 +1259,9 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
             } catch (SQLException roFailure) {
                 if (rwFailure == null) {
                     throw roFailure;
+                }
+                if (roFailure != rwFailure) {
+                    rwFailure.addSuppressed(roFailure);
                 }
                 LbLog.warn(
                         LOGGER,
@@ -1295,8 +1296,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
      * <p>The RW leg used to run first and unguarded, so anything it threw skipped the RO leg. A
      * skipped rollback is the dangerous one: the read leg keeps an open transaction on the slave,
      * pinning old versions there for as long as the session lives. The RW failure is still what the
-     * caller sees. (Java 1.6 target, so no {@code addSuppressed}: an RO failure masked by an RW
-     * failure is logged rather than dropped.)
+     * caller sees, with an RO failure it masked attached ({@link #applyToBothLegs}).
      *
      * <p>Reaching the RO leg with an open transaction takes an autocommit-mode prepare on the read
      * endpoint, because manual-commit pins routing to RW ({@code
@@ -1353,8 +1353,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
 
     /**
      * Recovery candidate exclude set: hard excludes ({@code ctx} ids + just-failed) always hold;
-     * the JCI-unreachable set is supplied soft so a backoff-due endpoint can be probed without
-     * waiting for the 60s JCI poll.
+     * the JCI-unreachable set goes through the soft gate ({@link #softExcludedIds}).
      */
     private Set<String> recoveryExcludedIds(
             final PhysicalRecoveryContext ctx,
@@ -1504,10 +1503,8 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
             }
 
             List<Endpoint> rwOrder = failoverOrder(preferredRw, topology, FailoverGroup.RW);
-            // Soft-gate the JCI-unreachable set, as recoverRw/recoverRo do: a backoff-due RW can
-            // be
-            // probed without waiting for the 60s JCI poll. Without this, an all-RW-listed topology
-            // fails immediately even after the backoff window elapses.
+            // Through the soft gate (softExcludedIds), as recoverRw/recoverRo do. Without it, an
+            // all-RW-listed topology fails immediately even after the backoff window elapses.
             BindResult rwBind =
                     openFirstReachable(
                             rwOrder,
@@ -1546,11 +1543,8 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
      * lands the session back on its weighted home and the readWeight distribution self-heals with
      * no pool recycling.
      *
-     * <p>LB-JDBC runs no health-check thread, so failback is observed lazily on the read path. The
-     * reachability gate is the JCI unreachable-host list softened by {@link #softExcludedIds}: once
-     * per backoff interval one session may probe a still-listed endpoint directly, so recovery is
-     * detected within one interval instead of on the 60s core JCI poll, and a success clears the
-     * list for every other session.
+     * <p>LB-JDBC runs no health-check thread, so failback is observed lazily on the read path,
+     * through the soft gate ({@link #softExcludedIds}).
      *
      * <p><b>Caller contract:</b> must not be called while a transaction is active - it can replace
      * the read connection and close the old one, destroying any open ResultSet. Unlike {@link
@@ -1570,8 +1564,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         }
 
         final List<Endpoint> order = readCandidateOrder(homeReadEp, sessTopo);
-        // Soft gate: a backoff-due endpoint still on the JCI unreachable list becomes a failback
-        // candidate again, so recovery is probed within one interval instead of the 60s JCI poll.
+        // Through the soft gate (softExcludedIds): a backoff-due endpoint is a candidate again.
         final Set<String> exclude = softExcludedIds(sessTopo, System.nanoTime());
 
         // Current rung index in the ladder; roOnRw ranks below every real read rung.
@@ -1655,10 +1648,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
      * for its entire lifetime, and only connection pool recycling ({@code maxLifetime}, evict)
      * could restore it to the primary master.
      *
-     * <p>The reachability check mechanism is identical to RO failback: it relies on the JCI
-     * unreachable host list combined with {@link #softExcludedIds}. As a result, a blacklisted
-     * master is probed once per backoff interval rather than waiting for the 60-second JCI polling
-     * cycle, and a successful probe clears the blacklist for other sessions.
+     * <p>The reachability gate is the same soft gate as RO failback ({@link #softExcludedIds}).
      *
      * <p><b>Caller contract:</b> like {@link #restoreRoIfRecovered()}, this method replaces the
      * active physical connection and closes the previous one, terminating any active resources on
@@ -1691,8 +1681,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
             }
         }
 
-        // Soft gate: a backoff-due master still on the JCI unreachable list becomes a candidate
-        // again, so recovery is detected within one interval rather than on the 60s JCI poll.
+        // Through the soft gate (softExcludedIds): a backoff-due master is a candidate again.
         if (softExcludedIds(sessTopo, System.nanoTime()).contains(homeRwEp.getId())) {
             return null;
         }
@@ -2111,10 +2100,12 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
     }
 
     /**
-     * Soft-gate variant of {@link #unreachableIds}: the JCI-unreachable set minus endpoints whose
-     * backoff window has elapsed AND this call won the pool-wide probe claim — those re-enter the
-     * candidate list so one session per interval probes a down broker instead of waiting for the
-     * 60s JCI poll. Reachable-broker behavior is unchanged (empty in → empty out).
+     * The soft gate, used by every recovery and failback path: the JCI-unreachable set ({@link
+     * #unreachableIds}) minus endpoints whose backoff window has elapsed AND for which this call
+     * won the pool-wide probe claim. Those re-enter the candidate list, so one session per backoff
+     * interval probes a down broker instead of every session waiting for core's 60s JCI poll, and a
+     * successful probe clears the entry for all sessions ({@link #markRecovered}). Reachable-broker
+     * behavior is unchanged (empty in → empty out).
      */
     Set<String> softExcludedIds(final EndpointTopology topology, final long nowNanos) {
         Set<String> unreachable = unreachableIds(topology);
@@ -2228,8 +2219,8 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
      * the socket behind it is not. Comparing the CAS identity recorded when LB last applied the
      * state detects it, and re-applying costs one round of property calls on a connection that was
      * about to be used anyway. Without this, {@code casChangeMode} silently reverts to the broker
-     * default (ISSUE-7); isolation and lock timeout are restored by core itself, and {@code
-     * autoCommit} rides on every execute, so those need nothing.
+     * default; isolation and lock timeout are restored by core itself, and {@code autoCommit} rides
+     * on every execute, so those need nothing.
      *
      * <p>Failure to re-apply propagates: the leg is then in an unknown state, and letting the
      * caller fail is what puts it through the failover handler.

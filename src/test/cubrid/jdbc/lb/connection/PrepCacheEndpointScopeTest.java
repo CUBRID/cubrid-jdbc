@@ -59,8 +59,7 @@ import org.junit.Test;
  *
  * <p>Which means a refactor that drops the endpoint from the key — a plausible "let's share the
  * cache" change — would break it silently: the statement would execute on a connection that never
- * prepared it. These tests pin the property so that cannot land unnoticed (LB-Pending-Issues
- * ISSUE-3).
+ * prepared it. These tests pin the property so that cannot land unnoticed.
  */
 public final class PrepCacheEndpointScopeTest {
 

@@ -144,7 +144,7 @@ public final class FailoverCoverageArchitectureTest {
             "EXEMPT",
             "the READ leg of a property setter: a read-leg failure is isolated and logged rather"
                     + " than rebound, because the read path self-heals on the next statement. The"
-                    + " write leg goes through applyToWriteLegWithFailover (ISSUE-6, fixed)"
+                    + " write leg goes through applyToWriteLegWithFailover"
         },
         {
             "LoadBalanceConnection#applyToWriteLegWithFailover",
@@ -156,11 +156,11 @@ public final class FailoverCoverageArchitectureTest {
         },
         {
             "LoadBalanceConnection#applyCharset", "2",
-            "EXEMPT", "same family as forEachSessPhyConn (ISSUE-6)"
+            "EXEMPT", "same family as forEachSessPhyConn"
         },
         {
             "LoadBalanceConnection#setCASChangeMode", "2",
-            "EXEMPT", "same family as forEachSessPhyConn (ISSUE-6)"
+            "EXEMPT", "same family as forEachSessPhyConn"
         },
         {
             "LoadBalanceConnection#Login", "4",

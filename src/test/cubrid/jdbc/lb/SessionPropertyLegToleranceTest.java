@@ -155,6 +155,25 @@ public final class SessionPropertyLegToleranceTest {
         assertEquals("read leg took the value", 1, roLockTimeouts.get());
     }
 
+    /**
+     * When both legs fail, the read failure the caller would not see is attached to the write one.
+     */
+    @Test
+    public void readLegFailureMaskedByTheWriteFailureIsAttachedToIt() throws Exception {
+        LoadBalanceConnection connection = bound();
+        rwFails = true;
+        roFails = true;
+
+        try {
+            connection.setLockTimeout(9);
+            fail("the write leg's failure must still reach the caller");
+        } catch (SQLException propagated) {
+            assertSame("the caller sees the write failure", rwBoom, propagated);
+            assertEquals(1, propagated.getSuppressed().length);
+            assertSame("the masked read failure", roBoom, propagated.getSuppressed()[0]);
+        }
+    }
+
     @Test
     public void logicalValueIsDroppedWhenTheWriteLegRefusesIt() throws Exception {
         LoadBalanceConnection connection = bound();

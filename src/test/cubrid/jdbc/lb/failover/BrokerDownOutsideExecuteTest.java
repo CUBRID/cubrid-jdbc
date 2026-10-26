@@ -158,9 +158,8 @@ public final class BrokerDownOutsideExecuteTest {
 
     /**
      * A catalog query — the part of {@code DatabaseMetaData} that actually sends a request.
-     * Wrapping only the handle acquisition left this uncovered (LB-Pending-Issues ISSUE-5); now the
-     * query itself rebinds the write leg, and the cached handle is dropped so the retry re-resolves
-     * on the surviving broker.
+     * Wrapping only the handle acquisition left this uncovered; now the query itself rebinds the
+     * write leg, and the cached handle is dropped so the retry re-resolves on the surviving broker.
      */
     @Test
     public void catalogQueryRebindsTheWriteLegWhenTheWriteBrokerIsDown() throws SQLException {
@@ -206,9 +205,9 @@ public final class BrokerDownOutsideExecuteTest {
     /**
      * A session property must not be the one thing that makes a logical connection unusable while a
      * surviving write broker is right there — that is what a pool's reset of a returned connection
-     * does (LB-Pending-Issues ISSUE-6). The write leg is rebound and the property re-applied, so
-     * the setter <b>succeeds</b>; unlike the other command paths there is no exception left for the
-     * caller, because setting a property is idempotent.
+     * does. The write leg is rebound and the property re-applied, so the setter <b>succeeds</b>;
+     * unlike the other command paths there is no exception left for the caller, because setting a
+     * property is idempotent.
      */
     @Test
     public void aSessionPropertySetterRebindsAndSucceedsWhenTheWriteBrokerIsDown()

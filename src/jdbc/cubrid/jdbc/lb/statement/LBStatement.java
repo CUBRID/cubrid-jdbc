@@ -501,13 +501,13 @@ public class LBStatement extends CUBRIDStatement {
     public void setPoolable(boolean poolable) throws SQLException {
         checkClosed();
 
-        throw LbExceptions.notSupported(new UnsupportedOperationException());
+        throw LbExceptions.featureNotSupported();
     }
 
     public boolean isPoolable() throws SQLException {
         checkClosed();
 
-        throw LbExceptions.notSupported(new UnsupportedOperationException());
+        throw LbExceptions.featureNotSupported();
     }
 
     public void closeOnCompletion() throws SQLException {

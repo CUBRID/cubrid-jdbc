@@ -1511,11 +1511,11 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     public String getClientInfo(String name) throws SQLException {
-        throw new SQLException(new java.lang.UnsupportedOperationException());
+        throw LbExceptions.featureNotSupported();
     }
 
     public Properties getClientInfo() throws SQLException {
-        throw new SQLException(new java.lang.UnsupportedOperationException());
+        throw LbExceptions.featureNotSupported();
     }
 
     /* ===== Connection: basic property API =====*/
@@ -1952,13 +1952,13 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     public Map<String, Class<?>> getTypeMap() throws SQLException {
         checkClosed();
 
-        throw LbExceptions.notSupported();
+        throw LbExceptions.featureNotSupported();
     }
 
     public void setTypeMap(Map<String, Class<?>> map) throws SQLException {
         checkClosed();
 
-        throw LbExceptions.notSupported();
+        throw LbExceptions.featureNotSupported();
     }
 
     public void setNetworkTimeout(Executor executor, int milliseconds) throws SQLException {
@@ -2267,13 +2267,13 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     public Array createArrayOf(String typeName, Object[] elements) throws SQLException {
         checkClosed();
 
-        throw LbExceptions.notSupported();
+        throw LbExceptions.featureNotSupported();
     }
 
     public Struct createStruct(String typeName, Object[] attributes) throws SQLException {
         checkClosed();
 
-        throw LbExceptions.notSupported();
+        throw LbExceptions.featureNotSupported();
     }
 
     /* ===== CUBRIDConnection API with no single-leg answer =====*/

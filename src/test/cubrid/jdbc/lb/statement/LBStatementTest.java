@@ -32,12 +32,14 @@ package cubrid.jdbc.lb.statement;
 
 import static org.junit.Assert.*;
 
+import cubrid.jdbc.driver.CUBRIDJDBCErrorCode;
 import cubrid.jdbc.lb.LbTestAccess;
 import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.SQLFeatureNotSupportedException;
 import java.sql.Statement;
 import org.junit.Before;
 import org.junit.Test;
@@ -151,14 +153,14 @@ public class LBStatementTest {
         try {
             stmt.isPoolable();
             fail("expected SQLException");
-        } catch (SQLException e) {
-            assertTrue(e.getCause() instanceof UnsupportedOperationException);
+        } catch (SQLFeatureNotSupportedException e) {
+            assertEquals(CUBRIDJDBCErrorCode.not_supported, e.getErrorCode());
         }
         try {
             stmt.setPoolable(true);
             fail("expected SQLException");
-        } catch (SQLException e) {
-            assertTrue(e.getCause() instanceof UnsupportedOperationException);
+        } catch (SQLFeatureNotSupportedException e) {
+            assertEquals(CUBRIDJDBCErrorCode.not_supported, e.getErrorCode());
         }
     }
 

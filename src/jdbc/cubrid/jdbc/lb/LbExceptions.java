@@ -33,8 +33,9 @@ package cubrid.jdbc.lb;
 import cubrid.jdbc.driver.CUBRIDException;
 import cubrid.jdbc.driver.CUBRIDJDBCErrorCode;
 import java.sql.SQLException;
+import java.sql.SQLFeatureNotSupportedException;
 
-/** Factory for LB-JDBC {@link CUBRIDException} instances ({@link LbJDBCErrorCode} band). */
+/** Factory for the exceptions LB-JDBC throws ({@link LbJDBCErrorCode} band and core codes). */
 public final class LbExceptions {
 
     private LbExceptions() {}
@@ -51,8 +52,17 @@ public final class LbExceptions {
         return new CUBRIDException(CUBRIDJDBCErrorCode.not_supported);
     }
 
-    public static CUBRIDException notSupported(final Throwable cause) {
-        return withCoreDetail(CUBRIDJDBCErrorCode.not_supported, null, cause);
+    /**
+     * A JDBC API the core driver does not support either. Same type, message and code as {@code
+     * CUBRIDException.notSupported()}, so the refusal looks the same on both connections.
+     *
+     * @return the exception to throw
+     */
+    public static SQLFeatureNotSupportedException featureNotSupported() {
+        return new SQLFeatureNotSupportedException(
+                CUBRIDJDBCErrorCode.getMessage(CUBRIDJDBCErrorCode.not_supported),
+                null,
+                CUBRIDJDBCErrorCode.not_supported);
     }
 
     /**

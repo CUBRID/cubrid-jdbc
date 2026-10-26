@@ -35,6 +35,7 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import cubrid.jdbc.driver.CUBRIDJDBCErrorCode;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.connection.SimpleEndpointConnManager;
@@ -47,6 +48,7 @@ import java.lang.reflect.Proxy;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.SQLFeatureNotSupportedException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
@@ -147,6 +149,8 @@ public final class CommandCoverageFollowupTest {
         assertUnsupportedPrefix(connection, "createStruct");
         assertUnsupportedPrefix(connection, "getTypeMap");
         assertUnsupportedPrefix(connection, "setTypeMap");
+        assertUnsupportedPrefix(connection, "getClientInfo");
+        assertUnsupportedPrefix(connection, "getClientInfo(name)");
     }
 
     /**
@@ -179,11 +183,18 @@ public final class CommandCoverageFollowupTest {
                 connection.createStruct("S", new Object[] {Integer.valueOf(1)});
             } else if ("getTypeMap".equals(api)) {
                 connection.getTypeMap();
+            } else if ("getClientInfo".equals(api)) {
+                connection.getClientInfo();
+            } else if ("getClientInfo(name)".equals(api)) {
+                connection.getClientInfo("ApplicationName");
             } else {
                 connection.setTypeMap(null);
             }
             fail("Expected SQLException");
         } catch (SQLException ex) {
+            // The core driver's contract for these APIs (CUBRIDException.notSupported()).
+            assertTrue(api + ": " + ex, ex instanceof SQLFeatureNotSupportedException);
+            assertEquals(api, CUBRIDJDBCErrorCode.not_supported, ex.getErrorCode());
             assertTrue(ex.getMessage().startsWith("Not supported method"));
         }
     }

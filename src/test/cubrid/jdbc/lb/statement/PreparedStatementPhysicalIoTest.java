@@ -43,7 +43,7 @@ import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.connection.ConnectionTestAccess;
 import cubrid.jdbc.lb.connection.JdbcConnectionFactory;
 import cubrid.jdbc.lb.connection.SessionPhysicalConnManager;
-import cubrid.jdbc.lb.route.Router;
+import cubrid.jdbc.lb.route.Router.RouteTarget;
 import cubrid.jdbc.lb.state.SharedSelectorState;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
@@ -66,8 +66,7 @@ public class PreparedStatementPhysicalIoTest {
         LBPreparedStatement.PhysicalPsProvider provider =
                 new LBPreparedStatement.PhysicalPsProvider() {
                     public PreparedStatement getPreparedStatement(
-                            final Router.RouteTarget target, final String rawSql)
-                            throws SQLException {
+                            final RouteTarget target, final String rawSql) throws SQLException {
                         return (PreparedStatement)
                                 Proxy.newProxyInstance(
                                         PreparedStatement.class.getClassLoader(),
@@ -143,8 +142,7 @@ public class PreparedStatementPhysicalIoTest {
         LBPreparedStatement.PhysicalPsProvider provider =
                 new LBPreparedStatement.PhysicalPsProvider() {
                     public PreparedStatement getPreparedStatement(
-                            final Router.RouteTarget target, final String rawSql)
-                            throws SQLException {
+                            final RouteTarget target, final String rawSql) throws SQLException {
                         return (PreparedStatement)
                                 Proxy.newProxyInstance(
                                         PreparedStatement.class.getClassLoader(),

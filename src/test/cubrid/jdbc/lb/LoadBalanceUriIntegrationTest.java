@@ -38,7 +38,7 @@ import static org.junit.Assert.fail;
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.config.LoadBalanceUrlParser;
 import cubrid.jdbc.lb.connection.JdbcConnectionFactory;
-import cubrid.jdbc.lb.route.Router;
+import cubrid.jdbc.lb.route.Router.RouteTarget;
 import cubrid.jdbc.lb.state.StateTestAccess;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
@@ -176,10 +176,8 @@ public class LoadBalanceUriIntegrationTest {
                         "jdbc:cubrid:loadbalance://node1,node2/db"
                                 + "?rwPort=33000&roPort=33002&readWeight=slave:1,master:0");
 
-        assertEquals(
-                "node1:33000", conn.endpointForTarget(Router.RouteTarget.TO_READ_WRITE).getId());
-        assertEquals(
-                "node2:33002", conn.endpointForTarget(Router.RouteTarget.TO_READ_ONLY).getId());
+        assertEquals("node1:33000", conn.endpointForTarget(RouteTarget.TO_READ_WRITE).getId());
+        assertEquals("node2:33002", conn.endpointForTarget(RouteTarget.TO_READ_ONLY).getId());
     }
 
     @Test
@@ -210,8 +208,7 @@ public class LoadBalanceUriIntegrationTest {
                                 + "&readWeight=master:1,slave:0,replica:0");
 
         assertEquals("node1:33000", conn.getCurrentRoEndpoint().getId()); // bound read = master RW
-        assertEquals(
-                "node1:33000", conn.endpointForTarget(Router.RouteTarget.TO_READ_ONLY).getId());
+        assertEquals("node1:33000", conn.endpointForTarget(RouteTarget.TO_READ_ONLY).getId());
     }
 
     @Test
@@ -222,8 +219,7 @@ public class LoadBalanceUriIntegrationTest {
                                 + "?rwPort=33000&roPort=33002&readWeight=slave:1,master:0");
 
         assertEquals("node2:33002", conn.getCurrentRoEndpoint().getId());
-        assertEquals(
-                "node2:33002", conn.endpointForTarget(Router.RouteTarget.TO_READ_ONLY).getId());
+        assertEquals("node2:33002", conn.endpointForTarget(RouteTarget.TO_READ_ONLY).getId());
     }
 
     /** O-3: a read (TO_READ_ONLY) target inside an active transaction resolves to the master RW. */
@@ -235,8 +231,7 @@ public class LoadBalanceUriIntegrationTest {
                                 + "?rwPort=33000&roPort=33002&soPort=33004");
         conn.setAutoCommit(false); // transaction active -> non-master target invalid
 
-        assertEquals(
-                "node1:33000", conn.endpointForTarget(Router.RouteTarget.TO_READ_ONLY).getId());
+        assertEquals("node1:33000", conn.endpointForTarget(RouteTarget.TO_READ_ONLY).getId());
     }
 
     /**

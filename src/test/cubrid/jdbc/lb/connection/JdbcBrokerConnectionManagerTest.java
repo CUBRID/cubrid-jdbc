@@ -46,7 +46,7 @@ import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.failover.PhysicalRecoveryContext;
 import cubrid.jdbc.lb.failover.PhysicalRecoveryResult;
-import cubrid.jdbc.lb.route.Router;
+import cubrid.jdbc.lb.route.Router.RouteTarget;
 import cubrid.jdbc.lb.statement.PreparedSql;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
@@ -921,7 +921,7 @@ public class JdbcBrokerConnectionManagerTest {
                 new PhysicalRecoveryContext(
                         SessionLeg.RW,
                         rw1,
-                        Router.RouteTarget.TO_READ_WRITE,
+                        RouteTarget.TO_READ_WRITE,
                         topo,
                         Collections.<String>emptySet(),
                         false);
@@ -956,7 +956,7 @@ public class JdbcBrokerConnectionManagerTest {
                 new PhysicalRecoveryContext(
                         SessionLeg.RW,
                         rw,
-                        Router.RouteTarget.TO_READ_WRITE,
+                        RouteTarget.TO_READ_WRITE,
                         topo,
                         Collections.<String>emptySet(),
                         true);
@@ -1003,7 +1003,7 @@ public class JdbcBrokerConnectionManagerTest {
                 new PhysicalRecoveryContext(
                         SessionLeg.RO,
                         ro1,
-                        Router.RouteTarget.TO_READ_ONLY,
+                        RouteTarget.TO_READ_ONLY,
                         topo,
                         Collections.<String>emptySet(),
                         false);
@@ -1044,7 +1044,7 @@ public class JdbcBrokerConnectionManagerTest {
                 new PhysicalRecoveryContext(
                         SessionLeg.RO,
                         ro1,
-                        Router.RouteTarget.TO_READ_ONLY,
+                        RouteTarget.TO_READ_ONLY,
                         topo,
                         Collections.<String>emptySet(),
                         false);

@@ -48,7 +48,7 @@ import cubrid.jdbc.lb.connection.JdbcConnectionFactory;
 import cubrid.jdbc.lb.failover.PhysicalRecoveryContext;
 import cubrid.jdbc.lb.failover.PhysicalRecoveryResult;
 import cubrid.jdbc.lb.failover.UnreachableEndpoints;
-import cubrid.jdbc.lb.route.Router;
+import cubrid.jdbc.lb.route.Router.RouteTarget;
 import cubrid.jdbc.lb.state.SharedSelectorState;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
@@ -86,19 +86,18 @@ public class LoadBalanceConnectionRecoverPhyBindingTest {
         conn.initSessionBindings(topo);
 
         // Routing a read statement is what captures lastExecEndpoint, on the read leg.
-        conn.createPsProvider().getPreparedStatement(Router.RouteTarget.TO_READ_ONLY, "SELECT 1");
+        conn.createPsProvider().getPreparedStatement(RouteTarget.TO_READ_ONLY, "SELECT 1");
 
         assertEquals(
                 "a read still recovers the endpoint the statement actually ran on",
                 "ro1:33000",
-                conn.resolveFailedExecEndpoint(Router.RouteTarget.TO_READ_ONLY).getId());
+                conn.resolveFailedExecEndpoint(RouteTarget.TO_READ_ONLY).getId());
 
-        Endpoint failedEp = conn.resolveFailedExecEndpoint(Router.RouteTarget.TO_READ_WRITE);
+        Endpoint failedEp = conn.resolveFailedExecEndpoint(RouteTarget.TO_READ_WRITE);
         assertEquals("rw:33000", failedEp.getId());
 
         // The pair the failover handler hands to recoverRw must agree on the leg.
-        PhysicalRecoveryContext ctx =
-                conn.buildRecoveryCtx(Router.RouteTarget.TO_READ_WRITE, failedEp);
+        PhysicalRecoveryContext ctx = conn.buildRecoveryCtx(RouteTarget.TO_READ_WRITE, failedEp);
         assertEquals(SessionLeg.RW, ctx.getFailedLeg());
         assertEquals("rw:33000", ctx.getFailedEndpoint().getId());
 
@@ -267,9 +266,8 @@ public class LoadBalanceConnectionRecoverPhyBindingTest {
     /** Recovers the write leg the way ExecuteFailoverHandler does after a RW failure. */
     private static void recoverWriteLeg(
             final LoadBalanceConnection conn, final SQLException failure) throws SQLException {
-        Endpoint failed = conn.resolveFailedExecEndpoint(Router.RouteTarget.TO_READ_WRITE);
-        conn.recoverPhyBinding(
-                conn.buildRecoveryCtx(Router.RouteTarget.TO_READ_WRITE, failed), failure);
+        Endpoint failed = conn.resolveFailedExecEndpoint(RouteTarget.TO_READ_WRITE);
+        conn.recoverPhyBinding(conn.buildRecoveryCtx(RouteTarget.TO_READ_WRITE, failed), failure);
     }
 
     private static SQLException brokerFailure() {
@@ -371,7 +369,7 @@ public class LoadBalanceConnectionRecoverPhyBindingTest {
                 new PhysicalRecoveryContext(
                         SessionLeg.RO,
                         new Endpoint("ro1", 33000),
-                        Router.RouteTarget.TO_READ_ONLY,
+                        RouteTarget.TO_READ_ONLY,
                         topo,
                         Collections.<String>emptySet(),
                         false);
@@ -399,7 +397,7 @@ public class LoadBalanceConnectionRecoverPhyBindingTest {
                 new PhysicalRecoveryContext(
                         SessionLeg.RW,
                         new Endpoint("rw", 33000),
-                        Router.RouteTarget.TO_READ_WRITE,
+                        RouteTarget.TO_READ_WRITE,
                         topo,
                         Collections.<String>emptySet(),
                         true);
@@ -446,7 +444,7 @@ public class LoadBalanceConnectionRecoverPhyBindingTest {
                 new PhysicalRecoveryContext(
                         SessionLeg.RO,
                         ro1,
-                        Router.RouteTarget.TO_READ_ONLY,
+                        RouteTarget.TO_READ_ONLY,
                         topo,
                         Collections.<String>emptySet(),
                         false);
@@ -502,7 +500,7 @@ public class LoadBalanceConnectionRecoverPhyBindingTest {
                 new PhysicalRecoveryContext(
                         SessionLeg.RO,
                         ro1,
-                        Router.RouteTarget.TO_READ_ONLY,
+                        RouteTarget.TO_READ_ONLY,
                         topo,
                         Collections.<String>emptySet(),
                         false);
@@ -589,8 +587,7 @@ public class LoadBalanceConnectionRecoverPhyBindingTest {
         // Simulate JCI having marked ro1 unreachable (global list keyed by "host:port").
         UUnreachableHostList.getInstance().add(ro1.getId());
         try {
-            PhysicalRecoveryContext ctx =
-                    conn.buildRecoveryCtx(Router.RouteTarget.TO_READ_ONLY, ro1);
+            PhysicalRecoveryContext ctx = conn.buildRecoveryCtx(RouteTarget.TO_READ_ONLY, ro1);
             assertFalse(
                     "JCI unreachable endpoint must not leak into ctx hard exclude",
                     ctx.getExcludeEndpointIds().contains(ro1.getId()));
@@ -639,7 +636,7 @@ public class LoadBalanceConnectionRecoverPhyBindingTest {
                 new PhysicalRecoveryContext(
                         SessionLeg.RO,
                         ro1,
-                        Router.RouteTarget.TO_READ_ONLY,
+                        RouteTarget.TO_READ_ONLY,
                         topo,
                         Collections.<String>emptySet(),
                         false);

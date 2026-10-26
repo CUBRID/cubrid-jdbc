@@ -40,6 +40,7 @@ import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.connection.SimpleEndpointConnManager;
 import cubrid.jdbc.lb.metrics.MetricsTestAccess;
 import cubrid.jdbc.lb.metrics.RuntimeMetrics;
+import cubrid.jdbc.lb.route.Router.RouteTarget;
 import cubrid.jdbc.lb.state.SharedSelectorState;
 import cubrid.jdbc.lb.statement.LBPreparedStatement;
 import java.util.ArrayList;
@@ -134,8 +135,7 @@ public final class RuntimeChecklistTest {
         fallback.executeQuery();
         connection
                 .createPsProvider()
-                .getPreparedStatement(
-                        cubrid.jdbc.lb.route.Router.RouteTarget.TO_READ_ONLY, "SELECT * FROM t");
+                .getPreparedStatement(RouteTarget.TO_READ_ONLY, "SELECT * FROM t");
         RuntimeMetrics metrics = connection.getRuntimeMetrics();
 
         assertTrue(MetricsTestAccess.getRoSelectionCount(metrics) > 0);

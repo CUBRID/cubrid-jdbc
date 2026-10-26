@@ -30,7 +30,7 @@
 
 package cubrid.jdbc.lb;
 
-import cubrid.jdbc.lb.route.Router;
+import cubrid.jdbc.lb.route.Router.RouteTarget;
 
 /**
  * One of the two physical connections a load-balanced session holds: the write leg or the read leg.
@@ -53,16 +53,16 @@ public enum SessionLeg {
      * @return the corresponding leg
      * @throws IllegalArgumentException if {@code target} is {@code null} or does not map to a leg
      */
-    static SessionLeg fromRouteTarget(final Router.RouteTarget target) {
+    static SessionLeg fromRouteTarget(final RouteTarget target) {
         if (target == null) {
             throw new IllegalArgumentException("RouteTarget must not be null");
         }
 
-        if (target == Router.RouteTarget.TO_READ_WRITE) {
+        if (target == RouteTarget.TO_READ_WRITE) {
             return RW;
         }
 
-        if (target == Router.RouteTarget.TO_READ_ONLY) {
+        if (target == RouteTarget.TO_READ_ONLY) {
             return RO;
         }
 

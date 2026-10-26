@@ -39,6 +39,7 @@ import cubrid.jdbc.driver.CUBRIDJDBCErrorCode;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.connection.SimpleEndpointConnManager;
+import cubrid.jdbc.lb.route.Router.RouteTarget;
 import cubrid.jdbc.lb.state.SharedSelectorState;
 import cubrid.jdbc.lb.statement.LBStatement;
 import cubrid.jdbc.lb.statement.StatementTestAccess;
@@ -66,9 +67,7 @@ public final class CommandCoverageFollowupTest {
         StatementTestAccess.setStatementProvider(
                 statement,
                 new LBStatement.PhysicalStmtProvider() {
-                    public Statement getStatement(
-                            final cubrid.jdbc.lb.route.Router.RouteTarget target,
-                            final String rawSql)
+                    public Statement getStatement(final RouteTarget target, final String rawSql)
                             throws SQLException {
                         calls.add("provider:" + target);
                         return physicalStatement;
@@ -87,14 +86,11 @@ public final class CommandCoverageFollowupTest {
     public void assertExecuteBatchStatementFollowsBatchClassificationRule() throws Exception {
         LoadBalanceConnection connection = createSessionConnection();
         LBStatement statement = (LBStatement) connection.createStatement();
-        final List<cubrid.jdbc.lb.route.Router.RouteTarget> targets =
-                new ArrayList<cubrid.jdbc.lb.route.Router.RouteTarget>();
+        final List<RouteTarget> targets = new ArrayList<RouteTarget>();
         StatementTestAccess.setStatementProvider(
                 statement,
                 new LBStatement.PhysicalStmtProvider() {
-                    public Statement getStatement(
-                            final cubrid.jdbc.lb.route.Router.RouteTarget target,
-                            final String rawSql)
+                    public Statement getStatement(final RouteTarget target, final String rawSql)
                             throws SQLException {
                         targets.add(target);
                         return newPhysicalStatementProxy();
@@ -109,8 +105,8 @@ public final class CommandCoverageFollowupTest {
         statement.addBatch("INSERT INTO t(id) VALUES (1)");
         statement.executeBatch();
 
-        assertEquals(cubrid.jdbc.lb.route.Router.RouteTarget.TO_READ_ONLY, targets.get(0));
-        assertEquals(cubrid.jdbc.lb.route.Router.RouteTarget.TO_READ_WRITE, targets.get(1));
+        assertEquals(RouteTarget.TO_READ_ONLY, targets.get(0));
+        assertEquals(RouteTarget.TO_READ_WRITE, targets.get(1));
     }
 
     @Test

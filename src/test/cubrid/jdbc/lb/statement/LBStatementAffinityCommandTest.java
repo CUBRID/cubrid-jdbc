@@ -36,7 +36,7 @@ import static org.junit.Assert.assertTrue;
 import cubrid.jdbc.lb.LbTestAccess;
 import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
-import cubrid.jdbc.lb.route.Router;
+import cubrid.jdbc.lb.route.Router.RouteTarget;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
@@ -138,7 +138,7 @@ public final class LBStatementAffinityCommandTest {
 
         private boolean nextMoreResultsResult;
 
-        public Statement getStatement(final Router.RouteTarget target, final String rawSql)
+        public Statement getStatement(final RouteTarget target, final String rawSql)
                 throws SQLException {
             final int statementId = ++statementSeq;
             return new FakePhysicalStatement() {

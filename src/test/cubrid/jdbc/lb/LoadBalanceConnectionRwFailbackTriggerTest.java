@@ -40,7 +40,7 @@ import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.connection.ConnectionTestAccess;
 import cubrid.jdbc.lb.connection.JdbcConnectionFactory;
-import cubrid.jdbc.lb.route.Router;
+import cubrid.jdbc.lb.route.Router.RouteTarget;
 import cubrid.jdbc.lb.state.SharedSelectorState;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
@@ -141,7 +141,7 @@ public class LoadBalanceConnectionRwFailbackTriggerTest {
             assertEquals(NODE2_RO, conn.getCurrentRoEndpoint());
             markDown(NODE2_RO);
             conn.recoverPhyBinding(
-                    conn.buildRecoveryCtx(Router.RouteTarget.TO_READ_ONLY, NODE2_RO),
+                    conn.buildRecoveryCtx(RouteTarget.TO_READ_ONLY, NODE2_RO),
                     new SQLException("comm fail", null, UErrorCode.ER_COMMUNICATION));
             assertEquals(NODE3_RO, conn.getCurrentRoEndpoint());
 
@@ -193,7 +193,7 @@ public class LoadBalanceConnectionRwFailbackTriggerTest {
                             ResultSet.TYPE_FORWARD_ONLY,
                             ResultSet.CONCUR_READ_ONLY,
                             ResultSet.HOLD_CURSORS_OVER_COMMIT)
-                    .getStatement(Router.RouteTarget.TO_READ_ONLY, "SELECT 1 FROM db_root");
+                    .getStatement(RouteTarget.TO_READ_ONLY, "SELECT 1 FROM db_root");
 
             assertEquals(NODE1_RW, conn.getCurrentRwEndpoint());
             assertEquals(NODE1_RW, conn.getCurrentRoEndpoint());
@@ -299,7 +299,7 @@ public class LoadBalanceConnectionRwFailbackTriggerTest {
                         ResultSet.TYPE_FORWARD_ONLY,
                         ResultSet.CONCUR_READ_ONLY,
                         ResultSet.HOLD_CURSORS_OVER_COMMIT)
-                .getStatement(Router.RouteTarget.TO_READ_WRITE, "UPDATE t SET a = 1");
+                .getStatement(RouteTarget.TO_READ_WRITE, "UPDATE t SET a = 1");
     }
 
     /** Pinned-default overrides by {@code LoadBalanceSettings} field name. */

@@ -39,7 +39,7 @@ import static org.junit.Assert.fail;
 import cubrid.jdbc.lb.LbTestAccess;
 import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
-import cubrid.jdbc.lb.route.Router;
+import cubrid.jdbc.lb.route.Router.RouteTarget;
 import cubrid.sql.CUBRIDOID;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
@@ -78,7 +78,7 @@ public class LBPreparedStatementExecutionTest {
         ResultSet result = statement.executeQuery();
 
         assertNotNull(result);
-        assertEquals(Router.RouteTarget.TO_READ_ONLY, context.lastTarget);
+        assertEquals(RouteTarget.TO_READ_ONLY, context.lastTarget);
         assertTrue(context.calls.contains("setInt:1:7"));
         assertTrue(context.calls.contains("setString:2:neo"));
         assertTrue(context.calls.contains("executeQuery"));
@@ -95,7 +95,7 @@ public class LBPreparedStatementExecutionTest {
         int updateCount = statement.executeUpdate();
 
         assertEquals(1, updateCount);
-        assertEquals(Router.RouteTarget.TO_READ_WRITE, context.lastTarget);
+        assertEquals(RouteTarget.TO_READ_WRITE, context.lastTarget);
         assertTrue(context.calls.contains("executeUpdate"));
     }
 
@@ -170,7 +170,7 @@ public class LBPreparedStatementExecutionTest {
         int[] result = statement.executeBatch();
 
         assertEquals(1, result.length);
-        assertEquals(Router.RouteTarget.TO_READ_ONLY, context.lastTarget);
+        assertEquals(RouteTarget.TO_READ_ONLY, context.lastTarget);
         assertTrue(context.calls.contains("executeBatch"));
     }
 
@@ -534,7 +534,7 @@ public class LBPreparedStatementExecutionTest {
                 };
 
         public PreparedStatement getPreparedStatement(
-                final Router.RouteTarget target, final String rawSql) {
+                final RouteTarget target, final String rawSql) {
             return statement;
         }
 
@@ -547,14 +547,14 @@ public class LBPreparedStatementExecutionTest {
 
     static final class DelegationContext implements LBPreparedStatement.PhysicalPsProvider {
 
-        Router.RouteTarget lastTarget;
+        RouteTarget lastTarget;
 
         final List<String> calls = new ArrayList<String>();
 
         boolean failOnSetInt;
 
-        public PreparedStatement getPreparedStatement(
-                final Router.RouteTarget target, final String rawSql) throws SQLException {
+        public PreparedStatement getPreparedStatement(final RouteTarget target, final String rawSql)
+                throws SQLException {
             this.lastTarget = target;
             return new FakePhysicalPreparedStatement() {
                 @Override

@@ -58,7 +58,7 @@ import cubrid.jdbc.lb.metrics.RuntimeMetrics;
 import cubrid.jdbc.lb.report.LbDistLog;
 import cubrid.jdbc.lb.report.LbTopologyLog;
 import cubrid.jdbc.lb.route.RoleReadSelector;
-import cubrid.jdbc.lb.route.Router;
+import cubrid.jdbc.lb.route.Router.RouteTarget;
 import cubrid.jdbc.lb.sql.HintParser;
 import cubrid.jdbc.lb.sql.IntoVariables;
 import cubrid.jdbc.lb.sql.SessionSetStatement;
@@ -486,7 +486,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      * @param target the route target the execution ran under
      * @param nanos the measured execution latency in nanoseconds
      */
-    public void recordExecLatency(final Router.RouteTarget target, final long nanos) {
+    public void recordExecLatency(final RouteTarget target, final long nanos) {
         RuntimeMetrics metrics = routingMetrics.runtimeMetrics();
         if (!metrics.isEnabled()) {
             return;
@@ -495,14 +495,14 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         if (ep == null) {
             return;
         }
-        metrics.recordLatency(ep.getId(), target == Router.RouteTarget.TO_READ_WRITE, nanos);
+        metrics.recordLatency(ep.getId(), target == RouteTarget.TO_READ_WRITE, nanos);
     }
 
     public ExecuteFailoverHandler getExecuteFailoverHandler() {
         return executeFailoverHandler;
     }
 
-    Endpoint endpointForTarget(final Router.RouteTarget target) throws SQLException {
+    Endpoint endpointForTarget(final RouteTarget target) throws SQLException {
         return selectionForTarget(target).getEndpoint();
     }
 
@@ -522,8 +522,8 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      * @return the endpoint to recover
      * @throws SQLException if the fallback route cannot be resolved
      */
-    public Endpoint resolveFailedExecEndpoint(final Router.RouteTarget target) throws SQLException {
-        if (target == Router.RouteTarget.TO_READ_WRITE) {
+    public Endpoint resolveFailedExecEndpoint(final RouteTarget target) throws SQLException {
+        if (target == RouteTarget.TO_READ_WRITE) {
             Endpoint rw = getCurrentEp(SessionLeg.RW);
             if (rw != null) {
                 return rw;
@@ -539,7 +539,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     public PhysicalRecoveryContext buildRecoveryCtx(
-            final Router.RouteTarget target, final Endpoint failedEp) throws SQLException {
+            final RouteTarget target, final Endpoint failedEp) throws SQLException {
         if (failedEp == null) {
             throw new IllegalArgumentException("failedEp must not be null");
         }
@@ -597,7 +597,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      * @return the endpoint the statement must run on
      * @throws SQLException if aligning the legs or selecting an endpoint fails
      */
-    private Endpoint routeStatement(final Router.RouteTarget target, final String rawSql)
+    private Endpoint routeStatement(final RouteTarget target, final String rawSql)
             throws SQLException {
         maybeRestoreRoBinding(target);
         failbackRwIfStatementAllows(target);
@@ -612,7 +612,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                 FallbackReason.RO_PHYSICAL.equals(fallbackReason)
                         ? currentOrManagerEndpoint(SessionLeg.RW)
                         : endpoint;
-        if (target == Router.RouteTarget.TO_READ_WRITE) {
+        if (target == RouteTarget.TO_READ_WRITE) {
             fallbackReason =
                     rejectedReadReason != null
                             ? rejectedReadReason
@@ -663,7 +663,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         final String ownerId = "ps-" + PS_OWNER_SEQ.incrementAndGet();
         return new LBPreparedStatement.PhysicalPsProvider() {
             public PreparedStatement getPreparedStatement(
-                    final Router.RouteTarget target, final String rawSql) throws SQLException {
+                    final RouteTarget target, final String rawSql) throws SQLException {
                 Endpoint endpoint = routeStatement(target, rawSql);
                 return preparePhysical(
                         endpoint,
@@ -684,7 +684,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                 // back between prepare time and execute time, the eager prepare lands on the old
                 // endpoint and execute re-prepares on the new one - the same SQL prepared on two
                 // brokers. Probing first (a throttled no-op when not displaced) keeps it to one.
-                maybeRestoreRoBinding(Router.RouteTarget.TO_READ_ONLY);
+                maybeRestoreRoBinding(RouteTarget.TO_READ_ONLY);
 
                 // READ: prepare only the bound read endpoint. There is no eager RW leg;
                 // WRITE/UNKNOWN still prepare RW via prepareOnWriteEndpoint. A roOnRw / RW-only
@@ -755,7 +755,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             final int resultSetConcurrency,
             final int resultSetHoldability) {
         return new LBStatement.PhysicalStmtProvider() {
-            public Statement getStatement(final Router.RouteTarget target, final String rawSql)
+            public Statement getStatement(final RouteTarget target, final String rawSql)
                     throws SQLException {
                 Endpoint endpoint = routeStatement(target, rawSql);
                 Connection physical = requireConnMgr().getPhyConn(endpoint);
@@ -1101,7 +1101,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         T result =
                 getExecuteFailoverHandler()
                         .executeCommandWithFailover(
-                                this, Router.RouteTarget.TO_READ_WRITE, label, false, command);
+                                this, RouteTarget.TO_READ_WRITE, label, false, command);
         recordRwCmd(label);
 
         return result;
@@ -1202,8 +1202,8 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         logTxBoundary(event + " lost with the write connection");
         writeTxLost = true;
         try {
-            Endpoint failed = resolveFailedExecEndpoint(Router.RouteTarget.TO_READ_WRITE);
-            recoverPhyBinding(buildRecoveryCtx(Router.RouteTarget.TO_READ_WRITE, failed), failure);
+            Endpoint failed = resolveFailedExecEndpoint(RouteTarget.TO_READ_WRITE);
+            recoverPhyBinding(buildRecoveryCtx(RouteTarget.TO_READ_WRITE, failed), failure);
         } catch (SQLException stillDown) {
             // Nothing rebound; the next commit or rollback tries again.
             if (stillDown != failure) {
@@ -2466,8 +2466,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     <T> T runRwMetaQuery(final String label, final ExecuteFailoverHandler.SqlExecution<T> query)
             throws SQLException {
         return getExecuteFailoverHandler()
-                .executeCommandWithFailover(
-                        this, Router.RouteTarget.TO_READ_WRITE, label, true, query);
+                .executeCommandWithFailover(this, RouteTarget.TO_READ_WRITE, label, true, query);
     }
 
     DatabaseMetaData rwMetaDataRecordingCall(final String commandName) throws SQLException {
@@ -2595,7 +2594,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             return getExecuteFailoverHandler()
                     .executeCommandWithFailover(
                             this,
-                            Router.RouteTarget.TO_READ_WRITE,
+                            RouteTarget.TO_READ_WRITE,
                             "sessionProperty",
                             false,
                             new ExecuteFailoverHandler.SqlExecution<Connection>() {
@@ -2810,8 +2809,8 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      * @param sql the statement as the application issued it
      * @param ranOn the leg it ran on
      */
-    public void afterStatementSucceeded(final String sql, final Router.RouteTarget ranOn) {
-        if (ranOn == Router.RouteTarget.TO_READ_WRITE) {
+    public void afterStatementSucceeded(final String sql, final RouteTarget ranOn) {
+        if (ranOn == RouteTarget.TO_READ_WRITE) {
             sessionState.addSessionVariables(IntoVariables.assignedBy(sql));
             sessionState.removeSessionVariables(IntoVariables.droppedBy(sql));
         }
@@ -2911,8 +2910,8 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      * @return whether the caller should run the statement again on RW
      */
     public boolean mayRetryRejectedReadOnRw(
-            final Router.RouteTarget target, final String sql, final SQLException failure) {
-        return target == Router.RouteTarget.TO_READ_ONLY
+            final RouteTarget target, final String sql, final SQLException failure) {
+        return target == RouteTarget.TO_READ_ONLY
                 && sessionState.isAutoCommit()
                 && !sessionState.isTransactionActive()
                 && readLegRefusal(failure) != null
@@ -2999,12 +2998,11 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                         : SqlLiteralMasker.mask(sql, logConfig.getSqlMaxLen()));
     }
 
-    private EndpointSelection selectionForTarget(final Router.RouteTarget target)
-            throws SQLException {
-        if (target == Router.RouteTarget.TO_READ_WRITE) {
+    private EndpointSelection selectionForTarget(final RouteTarget target) throws SQLException {
+        if (target == RouteTarget.TO_READ_WRITE) {
             return selectRwEndpoint();
         }
-        if (target == Router.RouteTarget.TO_READ_ONLY) {
+        if (target == RouteTarget.TO_READ_ONLY) {
             return selectReadEndpoint();
         }
 
@@ -3119,8 +3117,8 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      * subsequent reads are routed back to RO. No-op unless this is an RO read served outside a
      * transaction (when {@code shouldRouteToRw()} is true reads go to RW regardless).
      */
-    private void maybeRestoreRoBinding(final Router.RouteTarget target) {
-        if (target != Router.RouteTarget.TO_READ_ONLY) {
+    private void maybeRestoreRoBinding(final RouteTarget target) {
+        if (target != RouteTarget.TO_READ_ONLY) {
             return;
         }
         if (!sessionInitialized || sessionState.shouldRouteToRw()) {
@@ -3167,8 +3165,8 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      * SessionRoutingState.onTransactionBoundary}), so for it this is always a no-op and the {@code
      * commit()}/{@code rollback()} hook does the work.
      */
-    private void failbackRwIfStatementAllows(final Router.RouteTarget target) {
-        if (target != Router.RouteTarget.TO_READ_WRITE && !readRidesOnRw()) {
+    private void failbackRwIfStatementAllows(final RouteTarget target) {
+        if (target != RouteTarget.TO_READ_WRITE && !readRidesOnRw()) {
             return;
         }
         if (sessionState.isTransactionActive()) {
@@ -3270,7 +3268,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     private void recordRwCmd(final String commandName) {
         routingMetrics.recordCommandRoute(
                 commandName,
-                Router.RouteTarget.TO_READ_WRITE,
+                RouteTarget.TO_READ_WRITE,
                 endpointForMetrics(SessionLeg.RW),
                 FallbackReason.NONE);
     }

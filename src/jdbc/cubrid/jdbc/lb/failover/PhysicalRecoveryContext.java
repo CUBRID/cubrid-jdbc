@@ -33,7 +33,7 @@ package cubrid.jdbc.lb.failover;
 import cubrid.jdbc.lb.SessionLeg;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
-import cubrid.jdbc.lb.route.Router;
+import cubrid.jdbc.lb.route.Router.RouteTarget;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
@@ -46,7 +46,7 @@ import java.util.Set;
 public final class PhysicalRecoveryContext {
     private final SessionLeg failedLeg;
     private final Endpoint failedEndpoint;
-    private final Router.RouteTarget routeTarget;
+    private final RouteTarget routeTarget;
     private final EndpointTopology topology;
     private final Set<String> excludeEndpointIds;
     private final boolean txActive;
@@ -54,7 +54,7 @@ public final class PhysicalRecoveryContext {
     public PhysicalRecoveryContext(
             final SessionLeg failedLeg,
             final Endpoint failedEndpoint,
-            final Router.RouteTarget routeTarget,
+            final RouteTarget routeTarget,
             final EndpointTopology topology,
             final Set<String> excludeEndpointIds,
             final boolean txActive) {
@@ -90,7 +90,7 @@ public final class PhysicalRecoveryContext {
         return failedEndpoint;
     }
 
-    Router.RouteTarget getRouteTarget() {
+    RouteTarget getRouteTarget() {
         return routeTarget;
     }
 

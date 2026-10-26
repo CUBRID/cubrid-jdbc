@@ -37,7 +37,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import cubrid.jdbc.driver.CUBRIDJDBCErrorCode;
-import cubrid.jdbc.lb.route.Router;
+import cubrid.jdbc.lb.route.Router.RouteTarget;
 import cubrid.jdbc.lb.statement.LBPreparedStatement;
 import cubrid.jdbc.lb.statement.LBStatement;
 import cubrid.jdbc.lb.statement.StatementTestAccess;
@@ -99,8 +99,7 @@ public final class CompatibilityGapPreventionTest {
         StatementTestAccess.setStatementProvider(
                 statement,
                 new LBStatement.PhysicalStmtProvider() {
-                    public Statement getStatement(
-                            final Router.RouteTarget target, final String rawSql)
+                    public Statement getStatement(final RouteTarget target, final String rawSql)
                             throws SQLException {
                         return newStatementProxy(calls);
                     }
@@ -134,8 +133,7 @@ public final class CompatibilityGapPreventionTest {
         StatementTestAccess.setStatementProvider(
                 statement,
                 new LBStatement.PhysicalStmtProvider() {
-                    public Statement getStatement(
-                            final Router.RouteTarget target, final String rawSql)
+                    public Statement getStatement(final RouteTarget target, final String rawSql)
                             throws SQLException {
                         return newStatementProxy(calls);
                     }
@@ -154,8 +152,7 @@ public final class CompatibilityGapPreventionTest {
         StatementTestAccess.setStatementProvider(
                 statement,
                 new LBStatement.PhysicalStmtProvider() {
-                    public Statement getStatement(
-                            final Router.RouteTarget target, final String rawSql)
+                    public Statement getStatement(final RouteTarget target, final String rawSql)
                             throws SQLException {
                         return newStatementProxy(calls);
                     }
@@ -237,8 +234,7 @@ public final class CompatibilityGapPreventionTest {
         StatementTestAccess.setStatementProvider(
                 statement,
                 new LBStatement.PhysicalStmtProvider() {
-                    public Statement getStatement(
-                            final Router.RouteTarget target, final String rawSql)
+                    public Statement getStatement(final RouteTarget target, final String rawSql)
                             throws SQLException {
                         return newStatementProxy(new ArrayList<String>());
                     }
@@ -255,8 +251,7 @@ public final class CompatibilityGapPreventionTest {
         prepared.setPsProvider(
                 new LBPreparedStatement.PhysicalPsProvider() {
                     public PreparedStatement getPreparedStatement(
-                            final Router.RouteTarget target, final String rawSql)
-                            throws SQLException {
+                            final RouteTarget target, final String rawSql) throws SQLException {
                         return newPreparedStatementProxy(preparedCalls);
                     }
 

@@ -36,6 +36,7 @@ import static org.junit.Assert.assertTrue;
 import cubrid.jdbc.lb.LbTestAccess;
 import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
+import cubrid.jdbc.lb.route.Router.RouteTarget;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import org.junit.Before;
@@ -96,7 +97,7 @@ public class PreparedChecklistTest {
                 (LBPreparedStatement) connection.prepareStatement("SELECT * FROM t");
         readStatement.setPsProvider(readProvider);
         readStatement.executeQuery();
-        assertEquals(cubrid.jdbc.lb.route.Router.RouteTarget.TO_READ_ONLY, readProvider.lastTarget);
+        assertEquals(RouteTarget.TO_READ_ONLY, readProvider.lastTarget);
 
         connection.setAutoCommit(false);
         LBPreparedStatementExecutionTest.DelegationContext writeProvider =
@@ -105,8 +106,7 @@ public class PreparedChecklistTest {
                 (LBPreparedStatement) connection.prepareStatement("SELECT * FROM t");
         writeStatement.setPsProvider(writeProvider);
         writeStatement.executeUpdate();
-        assertEquals(
-                cubrid.jdbc.lb.route.Router.RouteTarget.TO_READ_WRITE, writeProvider.lastTarget);
+        assertEquals(RouteTarget.TO_READ_WRITE, writeProvider.lastTarget);
     }
 
     @Test

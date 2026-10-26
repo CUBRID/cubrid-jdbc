@@ -38,6 +38,7 @@ import cubrid.jdbc.lb.failover.PhysicalRecoveryResult;
 import cubrid.jdbc.lb.log.LbLog;
 import cubrid.jdbc.lb.metrics.RuntimeMetrics;
 import cubrid.jdbc.lb.route.Router;
+import cubrid.jdbc.lb.route.Router.RouteTarget;
 import cubrid.jdbc.lb.sql.HintParser;
 import cubrid.jdbc.lb.sql.HintSet;
 import cubrid.jdbc.lb.sql.SqlClassification;
@@ -171,13 +172,13 @@ final class RoutingMetricsRecorder {
 
     void recordStatementRoute(
             final String sql,
-            final Router.RouteTarget routeTarget,
+            final RouteTarget routeTarget,
             final Endpoint endpoint,
             final String fallbackReason) {
         if (!metrics.isEnabled()) {
             return;
         }
-        if (routeTarget == Router.RouteTarget.TO_READ_ONLY) {
+        if (routeTarget == RouteTarget.TO_READ_ONLY) {
             metrics.incRoSelectionCount();
         }
 
@@ -227,7 +228,7 @@ final class RoutingMetricsRecorder {
      */
     void logRoute(
             final String sql,
-            final Router.RouteTarget routeTarget,
+            final RouteTarget routeTarget,
             final Endpoint endpoint,
             final String fallbackReason) {
         if (!LOGGER.isLoggable(Level.FINE)) {
@@ -281,13 +282,13 @@ final class RoutingMetricsRecorder {
         return "classify(" + classification.name() + ")";
     }
 
-    private static String shortTarget(final Router.RouteTarget target) {
-        return Router.RouteTarget.TO_READ_ONLY == target ? "RO" : "RW";
+    private static String shortTarget(final RouteTarget target) {
+        return RouteTarget.TO_READ_ONLY == target ? "RO" : "RW";
     }
 
     void recordCommandRoute(
             final String commandName,
-            final Router.RouteTarget routeTarget,
+            final RouteTarget routeTarget,
             final Endpoint endpoint,
             final String fallbackReason) {
         // The same short-circuit the SQL path has. The counters and recordEvent each check
@@ -300,7 +301,7 @@ final class RoutingMetricsRecorder {
             return;
         }
 
-        if (routeTarget == Router.RouteTarget.TO_READ_ONLY) {
+        if (routeTarget == RouteTarget.TO_READ_ONLY) {
             metrics.incRoSelectionCount();
         }
 

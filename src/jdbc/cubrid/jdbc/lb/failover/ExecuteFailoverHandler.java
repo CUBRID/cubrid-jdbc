@@ -34,7 +34,7 @@ import cubrid.jdbc.jci.ReconnectPolicy;
 import cubrid.jdbc.lb.LoadBalanceConnection;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.log.LbLog;
-import cubrid.jdbc.lb.route.Router;
+import cubrid.jdbc.lb.route.Router.RouteTarget;
 import java.sql.SQLException;
 import java.util.logging.Logger;
 
@@ -77,7 +77,7 @@ public final class ExecuteFailoverHandler {
 
     <T> T executeWithFailover(
             final LoadBalanceConnection connection,
-            final Router.RouteTarget routeTarget,
+            final RouteTarget routeTarget,
             final String sql,
             final SqlExecution<T> execution)
             throws SQLException {
@@ -102,7 +102,7 @@ public final class ExecuteFailoverHandler {
      */
     public <T> T executeWithFailover(
             final LoadBalanceConnection connection,
-            final Router.RouteTarget routeTarget,
+            final RouteTarget routeTarget,
             final String sql,
             final boolean retrySafe,
             final SqlExecution<T> execution)
@@ -131,7 +131,7 @@ public final class ExecuteFailoverHandler {
      */
     public <T> T executeCommandWithFailover(
             final LoadBalanceConnection connection,
-            final Router.RouteTarget routeTarget,
+            final RouteTarget routeTarget,
             final String label,
             final boolean retrySafe,
             final SqlExecution<T> execution)
@@ -141,7 +141,7 @@ public final class ExecuteFailoverHandler {
 
     private <T> T run(
             final LoadBalanceConnection connection,
-            final Router.RouteTarget routeTarget,
+            final RouteTarget routeTarget,
             final String sql,
             final boolean retrySafe,
             final boolean timed,
@@ -207,7 +207,7 @@ public final class ExecuteFailoverHandler {
             //  - retrySafe == false: a consumed stream/reader parameter cannot be replayed.
             // In both cases propagate the original exception so the caller decides.
             if (!connection.getLbConfig().isRuntimeFailoverRetryOnce()
-                    || routeTarget == Router.RouteTarget.TO_READ_WRITE
+                    || routeTarget == RouteTarget.TO_READ_WRITE
                     || !retrySafe) {
                 // The leg IS rebound; only the replay is withheld. Naming which of the three
                 // reasons applies separates "failover worked, the caller redoes the statement" from
@@ -220,7 +220,7 @@ public final class ExecuteFailoverHandler {
                                 + "]: leg rebound but not replayed ("
                                 + (!connection.getLbConfig().isRuntimeFailoverRetryOnce()
                                         ? "retry disabled"
-                                        : routeTarget == Router.RouteTarget.TO_READ_WRITE
+                                        : routeTarget == RouteTarget.TO_READ_WRITE
                                                 ? "write may already have been applied"
                                                 : "a consumed stream parameter cannot be replayed")
                                 + ") -> the caller decides");
@@ -241,7 +241,7 @@ public final class ExecuteFailoverHandler {
      */
     private <T> T timedRun(
             final LoadBalanceConnection connection,
-            final Router.RouteTarget routeTarget,
+            final RouteTarget routeTarget,
             final boolean timed,
             final SqlExecution<T> execution)
             throws SQLException {

@@ -38,7 +38,7 @@ import static org.junit.Assert.assertTrue;
 import cubrid.jdbc.lb.LbTestAccess;
 import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
-import cubrid.jdbc.lb.route.Router;
+import cubrid.jdbc.lb.route.Router.RouteTarget;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
@@ -74,7 +74,7 @@ public final class SessionPreparedStatementBehaviorTest {
 
         // READ getMetaData resolves to the bound read endpoint, not RW-fixed.
         assertNotNull(resultSetMetaData);
-        assertEquals(Router.RouteTarget.TO_READ_ONLY, provider.lastGetTarget);
+        assertEquals(RouteTarget.TO_READ_ONLY, provider.lastGetTarget);
         assertTrue(provider.calls.contains("get:TO_READ_ONLY:SELECT * FROM t"));
     }
 
@@ -89,7 +89,7 @@ public final class SessionPreparedStatementBehaviorTest {
 
         // WRITE statements still resolve to RW.
         assertNotNull(resultSetMetaData);
-        assertEquals(Router.RouteTarget.TO_READ_WRITE, provider.lastGetTarget);
+        assertEquals(RouteTarget.TO_READ_WRITE, provider.lastGetTarget);
         assertTrue(provider.calls.contains("get:TO_READ_WRITE:INSERT INTO t(id) VALUES (?)"));
     }
 
@@ -104,10 +104,10 @@ public final class SessionPreparedStatementBehaviorTest {
 
         final List<String> calls = new ArrayList<String>();
 
-        Router.RouteTarget lastGetTarget;
+        RouteTarget lastGetTarget;
 
         public PreparedStatement getPreparedStatement(
-                final Router.RouteTarget target, final String rawSql) {
+                final RouteTarget target, final String rawSql) {
             lastGetTarget = target;
             calls.add("get:" + target + ":" + rawSql);
             return (PreparedStatement)

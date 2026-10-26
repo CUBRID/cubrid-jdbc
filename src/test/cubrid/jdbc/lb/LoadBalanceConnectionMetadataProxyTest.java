@@ -41,7 +41,7 @@ import cubrid.jdbc.driver.CUBRIDJDBCErrorCode;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.connection.SimpleEndpointConnManager;
-import cubrid.jdbc.lb.route.Router;
+import cubrid.jdbc.lb.route.Router.RouteTarget;
 import cubrid.jdbc.lb.state.SharedSelectorState;
 import cubrid.jdbc.lb.statement.LBStatement;
 import java.lang.reflect.InvocationHandler;
@@ -450,8 +450,7 @@ public final class LoadBalanceConnectionMetadataProxyTest {
                         ResultSet.TYPE_FORWARD_ONLY,
                         ResultSet.CONCUR_UPDATABLE,
                         ResultSet.HOLD_CURSORS_OVER_COMMIT);
-        Statement stmt =
-                provider.getStatement(Router.RouteTarget.TO_READ_WRITE, "UPDATE t SET v=1");
+        Statement stmt = provider.getStatement(RouteTarget.TO_READ_WRITE, "UPDATE t SET v=1");
 
         assertNotNull(stmt);
         assertEquals(1, threeArgCalls.get());
@@ -474,7 +473,7 @@ public final class LoadBalanceConnectionMetadataProxyTest {
                         ResultSet.CONCUR_UPDATABLE,
                         ResultSet.HOLD_CURSORS_OVER_COMMIT);
         try {
-            provider.getStatement(Router.RouteTarget.TO_READ_WRITE, "UPDATE t SET v=1");
+            provider.getStatement(RouteTarget.TO_READ_WRITE, "UPDATE t SET v=1");
             fail("expected the original broker-down SQLException, not a masked fallback");
         } catch (SQLException expected) {
             assertEquals("broker down", expected.getMessage());

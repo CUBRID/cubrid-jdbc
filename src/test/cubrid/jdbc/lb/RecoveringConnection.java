@@ -33,7 +33,7 @@ package cubrid.jdbc.lb;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.failover.PhysicalRecoveryContext;
 import cubrid.jdbc.lb.failover.PhysicalRecoveryResult;
-import cubrid.jdbc.lb.route.Router;
+import cubrid.jdbc.lb.route.Router.RouteTarget;
 import java.sql.SQLException;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -49,13 +49,13 @@ public final class RecoveringConnection extends LoadBalanceConnection {
     }
 
     @Override
-    Endpoint endpointForTarget(final Router.RouteTarget target) {
+    Endpoint endpointForTarget(final RouteTarget target) {
         return new Endpoint("failed-host", 33000);
     }
 
     @Override
     public PhysicalRecoveryContext buildRecoveryCtx(
-            final Router.RouteTarget target, final Endpoint failedEp) {
+            final RouteTarget target, final Endpoint failedEp) {
         return null; // ignored by the recoverPhyBinding stub below
     }
 

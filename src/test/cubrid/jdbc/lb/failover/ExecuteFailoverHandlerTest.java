@@ -36,7 +36,7 @@ import static org.junit.Assert.fail;
 
 import cubrid.jdbc.jci.UErrorCode;
 import cubrid.jdbc.lb.RecoveringConnection;
-import cubrid.jdbc.lb.route.Router;
+import cubrid.jdbc.lb.route.Router.RouteTarget;
 import java.net.SocketTimeoutException;
 import java.sql.SQLException;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -85,7 +85,7 @@ public class ExecuteFailoverHandlerTest {
                 new ExecuteFailoverHandler()
                         .executeWithFailover(
                                 conn,
-                                Router.RouteTarget.TO_READ_ONLY,
+                                RouteTarget.TO_READ_ONLY,
                                 "SELECT slow",
                                 new ExecuteFailoverHandler.SqlExecution<String>() {
                                     public String run() throws SQLException {
@@ -110,7 +110,7 @@ public class ExecuteFailoverHandlerTest {
 
         try {
             new ExecuteFailoverHandler()
-                    .executeWithFailover(conn, Router.RouteTarget.TO_READ_WRITE, "UPDATE t", exec);
+                    .executeWithFailover(conn, RouteTarget.TO_READ_WRITE, "UPDATE t", exec);
             fail("write must not be retried after failover");
         } catch (SQLException e) {
             assertEquals(UErrorCode.ER_COMMUNICATION, e.getErrorCode());
@@ -127,8 +127,7 @@ public class ExecuteFailoverHandlerTest {
 
         String result =
                 new ExecuteFailoverHandler()
-                        .executeWithFailover(
-                                conn, Router.RouteTarget.TO_READ_ONLY, "SELECT 1", exec);
+                        .executeWithFailover(conn, RouteTarget.TO_READ_ONLY, "SELECT 1", exec);
 
         assertEquals("ok", result);
         assertEquals(2, exec.runs.get());
@@ -143,8 +142,7 @@ public class ExecuteFailoverHandlerTest {
 
         try {
             new ExecuteFailoverHandler()
-                    .executeWithFailover(
-                            conn, Router.RouteTarget.TO_READ_ONLY, "SELECT 1", false, exec);
+                    .executeWithFailover(conn, RouteTarget.TO_READ_ONLY, "SELECT 1", false, exec);
             fail("consumed-stream parameter must not be replayed");
         } catch (SQLException e) {
             assertEquals(UErrorCode.ER_COMMUNICATION, e.getErrorCode());

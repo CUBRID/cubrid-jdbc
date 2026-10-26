@@ -39,6 +39,7 @@ import cubrid.jdbc.lb.LoadBalanceConnection;
 import cubrid.jdbc.lb.failover.ExecuteFailoverHandler;
 import cubrid.jdbc.lb.failover.UnreachableEndpoints;
 import cubrid.jdbc.lb.route.Router;
+import cubrid.jdbc.lb.route.Router.RouteTarget;
 import cubrid.jdbc.lb.sql.HintParser;
 import cubrid.jdbc.lb.sql.HintSet;
 import cubrid.jdbc.lb.sql.SqlClassification;
@@ -166,8 +167,8 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     }
 
     public void prepareEagerly() throws SQLException {
-        Router.RouteTarget target = resolveRouteTarget();
-        if (Router.RouteTarget.TO_READ_ONLY == target) {
+        RouteTarget target = resolveRouteTarget();
+        if (RouteTarget.TO_READ_ONLY == target) {
             prepareTolerantOfUnreachable(true);
 
             return;
@@ -203,7 +204,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     public ResultSet executeQuery() throws SQLException {
         statementDelegate.checkClosed();
 
-        final Router.RouteTarget target = resolveRouteTarget();
+        final RouteTarget target = resolveRouteTarget();
         // Stamped with this prepared statement, not with statementDelegate: the delegate is an
         // implementation detail the application never received.
         return LBStatement.stampProducer(
@@ -225,7 +226,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     public int executeUpdate() throws SQLException {
         statementDelegate.checkClosed();
 
-        final Router.RouteTarget target = resolveRouteTarget();
+        final RouteTarget target = resolveRouteTarget();
         return statementDelegate
                 .executeWithFailover(
                         sql,
@@ -245,7 +246,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     public boolean execute() throws SQLException {
         statementDelegate.checkClosed();
 
-        final Router.RouteTarget target = resolveRouteTarget();
+        final RouteTarget target = resolveRouteTarget();
         return statementDelegate
                 .executeWithFailover(
                         sql,
@@ -277,7 +278,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         }
 
         try {
-            final Router.RouteTarget target = resolveRouteTarget();
+            final RouteTarget target = resolveRouteTarget();
             PreparedStatement physicalStatement = physicalPsForTarget(target);
 
             for (int i = 0; i < batchedBinders.size(); i++) {
@@ -337,7 +338,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     public ResultSetMetaData getMetaData() throws SQLException {
         statementDelegate.checkClosed();
 
-        final Router.RouteTarget target = resolveRouteTarget();
+        final RouteTarget target = resolveRouteTarget();
 
         return statementDelegate.commandWithFailover(
                 "getMetaData",
@@ -1048,15 +1049,14 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         setObject(parameterIndex, x, checkSqlType(targetSqlType), scaleOrLength);
     }
 
-    private Router.RouteTarget resolveRouteTarget() {
+    private RouteTarget resolveRouteTarget() {
         // Routing precedence lives in Router.decide(); this only supplies the per-instance caches
         // (hint and classification precomputed at prepare time) so the hot execute path avoids
         // re-running HintParser.parse() and SqlClassifier.classify().
         return Router.decide(sqlCaches.targetFromHint, sqlCaches.defaultTarget, sessState, sql);
     }
 
-    private PreparedStatement physicalPsWithParams(final Router.RouteTarget target)
-            throws SQLException {
+    private PreparedStatement physicalPsWithParams(final RouteTarget target) throws SQLException {
         validateParamCountCompat();
 
         PreparedStatement physicalStatement = physicalPsForTarget(target);
@@ -1071,8 +1071,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         return physicalStatement;
     }
 
-    private PreparedStatement physicalPsForTarget(final Router.RouteTarget target)
-            throws SQLException {
+    private PreparedStatement physicalPsForTarget(final RouteTarget target) throws SQLException {
         // Use the target the caller resolved before executeWithFailover rather than re-resolving:
         // the session routing state may have changed in between, and a second resolveRouteTarget()
         // could pick a different target than the failover recovery context was built from, marking
@@ -1091,8 +1090,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         return ps;
     }
 
-    private PreparedStatement physicalPsForMetadata(final Router.RouteTarget target)
-            throws SQLException {
+    private PreparedStatement physicalPsForMetadata(final RouteTarget target) throws SQLException {
         PreparedStatement ps = phyPsProvider.getPreparedStatement(target, sql);
         statementDelegate.applyStmtProps(ps);
 
@@ -1127,15 +1125,15 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     }
 
     private static final class SqlCaches {
-        final Router.RouteTarget targetFromHint;
+        final RouteTarget targetFromHint;
 
-        final Router.RouteTarget defaultTarget;
+        final RouteTarget defaultTarget;
 
         final int expectedParameterCount;
 
         private SqlCaches(
-                final Router.RouteTarget targetFromHint,
-                final Router.RouteTarget defaultTarget,
+                final RouteTarget targetFromHint,
+                final RouteTarget defaultTarget,
                 final int expectedParameterCount) {
             this.targetFromHint = targetFromHint;
             this.defaultTarget = defaultTarget;
@@ -1145,14 +1143,14 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         static SqlCaches compute(final String sql, final SqlClassifier classifier) {
             final HintSet hints = HintParser.parse(sql);
 
-            final Router.RouteTarget targetFromHint =
+            final RouteTarget targetFromHint =
                     hints.hasTargetHint() ? Router.mapTargetHint(hints.getTargetHint()) : null;
             final SqlClassification classification = classifier.classify(sql);
 
-            final Router.RouteTarget defaultTarget =
+            final RouteTarget defaultTarget =
                     SqlClassification.READ == classification
-                            ? Router.RouteTarget.TO_READ_ONLY
-                            : Router.RouteTarget.TO_READ_WRITE;
+                            ? RouteTarget.TO_READ_ONLY
+                            : RouteTarget.TO_READ_WRITE;
             return new SqlCaches(targetFromHint, defaultTarget, countParamPlaceholders(sql));
         }
     }
@@ -1195,7 +1193,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
 
     public interface PhysicalPsProvider {
 
-        PreparedStatement getPreparedStatement(Router.RouteTarget target, String rawSql)
+        PreparedStatement getPreparedStatement(RouteTarget target, String rawSql)
                 throws SQLException;
 
         /**
@@ -1220,8 +1218,8 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     }
 
     private static final class UnsupportedPsProvider implements PhysicalPsProvider {
-        public PreparedStatement getPreparedStatement(
-                final Router.RouteTarget target, final String rawSql) throws SQLException {
+        public PreparedStatement getPreparedStatement(final RouteTarget target, final String rawSql)
+                throws SQLException {
             throw LbExceptions.delegationNotConfigured();
         }
 

@@ -40,7 +40,7 @@ import cubrid.jdbc.lb.SessionLeg;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.connection.ConnectionTestAccess;
-import cubrid.jdbc.lb.route.Router;
+import cubrid.jdbc.lb.route.Router.RouteTarget;
 import java.util.Arrays;
 import java.util.HashSet;
 import org.junit.Test;
@@ -49,8 +49,8 @@ public class PhysicalRecoveryContextTest {
 
     @Test
     public void failedLegMapsFromRouteTarget() {
-        assertEquals(SessionLeg.RW, LbTestAccess.fromRouteTarget(Router.RouteTarget.TO_READ_WRITE));
-        assertEquals(SessionLeg.RO, LbTestAccess.fromRouteTarget(Router.RouteTarget.TO_READ_ONLY));
+        assertEquals(SessionLeg.RW, LbTestAccess.fromRouteTarget(RouteTarget.TO_READ_WRITE));
+        assertEquals(SessionLeg.RO, LbTestAccess.fromRouteTarget(RouteTarget.TO_READ_ONLY));
     }
 
     @Test
@@ -67,16 +67,11 @@ public class PhysicalRecoveryContextTest {
 
         PhysicalRecoveryContext ctx =
                 new PhysicalRecoveryContext(
-                        SessionLeg.RO,
-                        failed,
-                        Router.RouteTarget.TO_READ_ONLY,
-                        topology,
-                        exclude,
-                        false);
+                        SessionLeg.RO, failed, RouteTarget.TO_READ_ONLY, topology, exclude, false);
 
         assertEquals(SessionLeg.RO, ctx.getFailedLeg());
         assertSame(failed, ctx.getFailedEndpoint());
-        assertEquals(Router.RouteTarget.TO_READ_ONLY, ctx.getRouteTarget());
+        assertEquals(RouteTarget.TO_READ_ONLY, ctx.getRouteTarget());
         assertSame(topology, ctx.getTopology());
         assertFalse(ctx.isTxActive());
         assertEquals(1, ctx.getExcludeEndpointIds().size());

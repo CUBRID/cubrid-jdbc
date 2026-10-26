@@ -45,7 +45,7 @@ import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.failover.PhysicalRecoveryContext;
 import cubrid.jdbc.lb.failover.PhysicalRecoveryResult;
-import cubrid.jdbc.lb.route.Router;
+import cubrid.jdbc.lb.route.Router.RouteTarget;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
@@ -374,7 +374,7 @@ public class SessionPhysicalConnManagerRwFailbackTest {
         return new PhysicalRecoveryContext(
                 SessionLeg.RO,
                 failed,
-                Router.RouteTarget.TO_READ_ONLY,
+                RouteTarget.TO_READ_ONLY,
                 topology(),
                 Collections.<String>emptySet(),
                 false);
@@ -384,7 +384,7 @@ public class SessionPhysicalConnManagerRwFailbackTest {
         return new PhysicalRecoveryContext(
                 SessionLeg.RW,
                 failed,
-                Router.RouteTarget.TO_READ_WRITE,
+                RouteTarget.TO_READ_WRITE,
                 topology(),
                 Collections.<String>emptySet(),
                 false);

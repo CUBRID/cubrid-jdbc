@@ -33,6 +33,7 @@ package cubrid.jdbc.lb.route;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 
+import cubrid.jdbc.lb.route.Router.RouteTarget;
 import cubrid.jdbc.lb.state.SessionRoutingState;
 import java.util.Collections;
 import org.junit.Before;
@@ -54,10 +55,10 @@ public class RouterTransactionPrecedenceTest {
         SessionRoutingState pinned = new SessionRoutingState();
         pinned.pinReadsToRw();
         Router.RouteDecision d = Router.decide("SELECT * FROM t", pinned, readAdvisor());
-        assertEquals(Router.RouteTarget.TO_READ_WRITE, d.getTarget());
+        assertEquals(RouteTarget.TO_READ_WRITE, d.getTarget());
         assertEquals(
-                Router.RouteTarget.TO_READ_WRITE,
-                Router.decide(null, Router.RouteTarget.TO_READ_ONLY, pinned, "SELECT * FROM t"));
+                RouteTarget.TO_READ_WRITE,
+                Router.decide(null, RouteTarget.TO_READ_ONLY, pinned, "SELECT * FROM t"));
     }
 
     /** Unlike a transaction, the pin yields to an explicit TO_RO hint: the application chose it. */
@@ -67,10 +68,10 @@ public class RouterTransactionPrecedenceTest {
         pinned.pinReadsToRw();
         Router.RouteDecision d =
                 Router.decide("SELECT /*+ TO_RO */ * FROM t", pinned, failingDefaultAdvisor());
-        assertEquals(Router.RouteTarget.TO_READ_ONLY, d.getTarget());
+        assertEquals(RouteTarget.TO_READ_ONLY, d.getTarget());
         pinned.reset();
         assertEquals(
-                Router.RouteTarget.TO_READ_ONLY,
+                RouteTarget.TO_READ_ONLY,
                 Router.decide("SELECT * FROM t", pinned, readAdvisor()).getTarget());
     }
 
@@ -80,28 +81,28 @@ public class RouterTransactionPrecedenceTest {
         SessionRoutingState withVariable = new SessionRoutingState();
         withVariable.addSessionVariables(Collections.singleton("SET1"));
         assertEquals(
-                Router.RouteTarget.TO_READ_WRITE,
+                RouteTarget.TO_READ_WRITE,
                 Router.decide("SELECT set1 FROM db_root", withVariable, readAdvisor()).getTarget());
         assertEquals(
-                Router.RouteTarget.TO_READ_WRITE,
-                Router.decide(null, Router.RouteTarget.TO_READ_ONLY, withVariable, "SELECT set1"));
+                RouteTarget.TO_READ_WRITE,
+                Router.decide(null, RouteTarget.TO_READ_ONLY, withVariable, "SELECT set1"));
         assertEquals(
-                Router.RouteTarget.TO_READ_ONLY,
+                RouteTarget.TO_READ_ONLY,
                 Router.decide("SELECT a FROM t", withVariable, readAdvisor()).getTarget());
         assertEquals(
-                Router.RouteTarget.TO_READ_ONLY,
+                RouteTarget.TO_READ_ONLY,
                 Router.decide("SELECT /*+ TO_RO */ set1", withVariable, failingDefaultAdvisor())
                         .getTarget());
         withVariable.reset();
         assertEquals(
-                Router.RouteTarget.TO_READ_ONLY,
+                RouteTarget.TO_READ_ONLY,
                 Router.decide("SELECT set1 FROM db_root", withVariable, readAdvisor()).getTarget());
     }
 
     private static Router.DefaultRouteAdvisor readAdvisor() {
         return new Router.DefaultRouteAdvisor() {
-            public Router.RouteTarget defaultTarget(final String sql) {
-                return Router.RouteTarget.TO_READ_ONLY;
+            public RouteTarget defaultTarget(final String sql) {
+                return RouteTarget.TO_READ_ONLY;
             }
         };
     }
@@ -110,21 +111,21 @@ public class RouterTransactionPrecedenceTest {
     public void assertActiveTransactionInvalidatesToRoHint() {
         final String sql = "SELECT /*+ TO_RO */ * FROM t";
         Router.RouteDecision d = Router.decide(sql, session, failingDefaultAdvisor());
-        assertEquals(Router.RouteTarget.TO_READ_WRITE, d.getTarget());
+        assertEquals(RouteTarget.TO_READ_WRITE, d.getTarget());
     }
 
     @Test
     public void assertActiveTransactionInvalidatesToSlaveHint() {
         final String sql = "SELECT /*+ TO_SLAVE */ * FROM t";
         Router.RouteDecision d = Router.decide(sql, session, failingDefaultAdvisor());
-        assertEquals(Router.RouteTarget.TO_READ_WRITE, d.getTarget());
+        assertEquals(RouteTarget.TO_READ_WRITE, d.getTarget());
     }
 
     @Test
     public void assertActiveTransactionPreservesToRwHint() {
         final String sql = "SELECT /*+ TO_RW */ * FROM t";
         Router.RouteDecision d = Router.decide(sql, session, failingDefaultAdvisor());
-        assertEquals(Router.RouteTarget.TO_READ_WRITE, d.getTarget());
+        assertEquals(RouteTarget.TO_READ_WRITE, d.getTarget());
     }
 
     /**
@@ -137,7 +138,7 @@ public class RouterTransactionPrecedenceTest {
         session.onTransactionBoundary();
         final String sql = "SELECT /*+ TO_RO */ * FROM t";
         Router.RouteDecision d = Router.decide(sql, session, failingDefaultAdvisor());
-        assertEquals(Router.RouteTarget.TO_READ_WRITE, d.getTarget());
+        assertEquals(RouteTarget.TO_READ_WRITE, d.getTarget());
     }
 
     @Test
@@ -145,13 +146,13 @@ public class RouterTransactionPrecedenceTest {
         SessionRoutingState autoCommit = new SessionRoutingState();
         final String sql = "SELECT /*+ TO_RO */ * FROM t";
         Router.RouteDecision d = Router.decide(sql, autoCommit, failingDefaultAdvisor());
-        assertEquals(Router.RouteTarget.TO_READ_ONLY, d.getTarget());
+        assertEquals(RouteTarget.TO_READ_ONLY, d.getTarget());
     }
 
     private static Router.DefaultRouteAdvisor failingDefaultAdvisor() {
         return new Router.DefaultRouteAdvisor() {
             @Override
-            public Router.RouteTarget defaultTarget(final String s) {
+            public RouteTarget defaultTarget(final String s) {
                 fail("Default advisor must not run when transaction or hint decides routing");
                 return null;
             }

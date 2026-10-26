@@ -35,7 +35,7 @@ import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.connection.EndpointConnManager;
 import cubrid.jdbc.lb.metrics.RuntimeMetrics;
-import cubrid.jdbc.lb.route.Router;
+import cubrid.jdbc.lb.route.Router.RouteTarget;
 import cubrid.jdbc.lb.state.CurrentReadEndpointHolder;
 import cubrid.jdbc.lb.state.SharedSelectorState;
 import java.sql.SQLException;
@@ -108,7 +108,7 @@ public final class LbTestAccess {
         return connection.getCurrentRwEndpoint();
     }
 
-    public static SessionLeg fromRouteTarget(final Router.RouteTarget target) {
+    public static SessionLeg fromRouteTarget(final RouteTarget target) {
         return SessionLeg.fromRouteTarget(target);
     }
 }

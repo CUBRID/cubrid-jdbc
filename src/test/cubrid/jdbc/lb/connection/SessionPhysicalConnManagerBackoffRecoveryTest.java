@@ -45,7 +45,7 @@ import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.failover.PhysicalRecoveryContext;
 import cubrid.jdbc.lb.failover.PhysicalRecoveryResult;
-import cubrid.jdbc.lb.route.Router;
+import cubrid.jdbc.lb.route.Router.RouteTarget;
 import cubrid.jdbc.lb.state.RecoveryBackoff;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
@@ -441,7 +441,7 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
                             new PhysicalRecoveryContext(
                                     SessionLeg.RO,
                                     ro1,
-                                    Router.RouteTarget.TO_READ_ONLY,
+                                    RouteTarget.TO_READ_ONLY,
                                     roTopo,
                                     Collections.singleton(ro2.getId()),
                                     false));
@@ -475,7 +475,7 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
                         new PhysicalRecoveryContext(
                                 SessionLeg.RW,
                                 rw1,
-                                Router.RouteTarget.TO_READ_WRITE,
+                                RouteTarget.TO_READ_WRITE,
                                 rwTopo,
                                 Collections.<String>emptySet(),
                                 true));
@@ -488,7 +488,7 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
                         new PhysicalRecoveryContext(
                                 SessionLeg.RO,
                                 bkRo,
-                                Router.RouteTarget.TO_READ_ONLY,
+                                RouteTarget.TO_READ_ONLY,
                                 rwTopo,
                                 Collections.<String>emptySet(),
                                 true));
@@ -565,7 +565,7 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
         return new PhysicalRecoveryContext(
                 SessionLeg.RW,
                 failed,
-                Router.RouteTarget.TO_READ_WRITE,
+                RouteTarget.TO_READ_WRITE,
                 topology,
                 exclude == null ? Collections.<String>emptySet() : exclude,
                 false);
@@ -576,7 +576,7 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
         return new PhysicalRecoveryContext(
                 SessionLeg.RO,
                 failed,
-                Router.RouteTarget.TO_READ_ONLY,
+                RouteTarget.TO_READ_ONLY,
                 topology,
                 Collections.<String>emptySet(),
                 false);

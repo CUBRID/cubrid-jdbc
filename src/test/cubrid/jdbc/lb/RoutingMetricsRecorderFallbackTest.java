@@ -35,7 +35,7 @@ import static org.junit.Assert.assertEquals;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.metrics.MetricsTestAccess;
-import cubrid.jdbc.lb.route.Router;
+import cubrid.jdbc.lb.route.Router.RouteTarget;
 import cubrid.jdbc.lb.sql.SqlClassifierRegistry;
 import cubrid.jdbc.lb.state.SessionRoutingState;
 import org.junit.Test;
@@ -64,8 +64,7 @@ public class RoutingMetricsRecorderFallbackTest {
         RoutingMetricsRecorder recorder = recorder();
         recorder.runtimeMetrics().setEnabled(true);
 
-        recorder.recordCommandRoute(
-                "setAutoCommit", Router.RouteTarget.TO_READ_WRITE, ENDPOINT, null);
+        recorder.recordCommandRoute("setAutoCommit", RouteTarget.TO_READ_WRITE, ENDPOINT, null);
 
         assertEquals(0L, MetricsTestAccess.getRwFallbackCount(recorder.runtimeMetrics()));
     }
@@ -76,11 +75,11 @@ public class RoutingMetricsRecorderFallbackTest {
         recorder.runtimeMetrics().setEnabled(true);
 
         recorder.recordCommandRoute(
-                "commit", Router.RouteTarget.TO_READ_WRITE, ENDPOINT, FallbackReason.NONE);
+                "commit", RouteTarget.TO_READ_WRITE, ENDPOINT, FallbackReason.NONE);
         assertEquals(0L, MetricsTestAccess.getRwFallbackCount(recorder.runtimeMetrics()));
 
         recorder.recordCommandRoute(
-                "commit", Router.RouteTarget.TO_READ_ONLY, ENDPOINT, FallbackReason.RO_PHYSICAL);
+                "commit", RouteTarget.TO_READ_ONLY, ENDPOINT, FallbackReason.RO_PHYSICAL);
         assertEquals(1L, MetricsTestAccess.getRwFallbackCount(recorder.runtimeMetrics()));
     }
 
@@ -89,7 +88,7 @@ public class RoutingMetricsRecorderFallbackTest {
         RoutingMetricsRecorder recorder = recorder();
 
         recorder.recordCommandRoute(
-                "commit", Router.RouteTarget.TO_READ_ONLY, ENDPOINT, FallbackReason.RO_PHYSICAL);
+                "commit", RouteTarget.TO_READ_ONLY, ENDPOINT, FallbackReason.RO_PHYSICAL);
 
         assertEquals(0L, MetricsTestAccess.getRwFallbackCount(recorder.runtimeMetrics()));
         assertEquals(0, MetricsTestAccess.getEvents(recorder.runtimeMetrics()).size());

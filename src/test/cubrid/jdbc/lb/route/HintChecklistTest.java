@@ -35,6 +35,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.fail;
 
+import cubrid.jdbc.lb.route.Router.RouteTarget;
 import cubrid.jdbc.lb.state.SessionRoutingState;
 import org.junit.Before;
 import org.junit.Test;
@@ -52,7 +53,7 @@ public class HintChecklistTest {
     public void assertChecklistToRwRoutesToRw() {
         final String sql = "SELECT /*+ TO_RW */ * FROM t";
         Router.RouteDecision d = Router.decide(sql, session, failingDefaultAdvisor());
-        assertEquals(Router.RouteTarget.TO_READ_WRITE, d.getTarget());
+        assertEquals(RouteTarget.TO_READ_WRITE, d.getTarget());
         assertSame(sql, d.getSql());
     }
 
@@ -60,7 +61,7 @@ public class HintChecklistTest {
     public void assertChecklistToRoRoutesToRo() {
         final String sql = "SELECT /*+ TO_RO */ * FROM t";
         Router.RouteDecision d = Router.decide(sql, session, failingDefaultAdvisor());
-        assertEquals(Router.RouteTarget.TO_READ_ONLY, d.getTarget());
+        assertEquals(RouteTarget.TO_READ_ONLY, d.getTarget());
         assertSame(sql, d.getSql());
     }
 
@@ -73,11 +74,11 @@ public class HintChecklistTest {
                         session,
                         new Router.DefaultRouteAdvisor() {
                             @Override
-                            public Router.RouteTarget defaultTarget(final String s) {
-                                return Router.RouteTarget.TO_READ_ONLY;
+                            public RouteTarget defaultTarget(final String s) {
+                                return RouteTarget.TO_READ_ONLY;
                             }
                         });
-        assertEquals(Router.RouteTarget.TO_READ_ONLY, d.getTarget());
+        assertEquals(RouteTarget.TO_READ_ONLY, d.getTarget());
         assertSame(sql, d.getSql());
     }
 
@@ -85,7 +86,7 @@ public class HintChecklistTest {
     public void assertChecklistDuplicateTargetHintFirstWins() {
         final String sql = "SELECT /*+ TO_RW TO_RO */ * FROM t";
         Router.RouteDecision d = Router.decide(sql, session, failingDefaultAdvisor());
-        assertEquals(Router.RouteTarget.TO_READ_WRITE, d.getTarget());
+        assertEquals(RouteTarget.TO_READ_WRITE, d.getTarget());
     }
 
     @Test
@@ -93,7 +94,7 @@ public class HintChecklistTest {
         final String sql =
                 "SELECT /*+ USE_NL(a b) TO_RO ORDERED */ a.x FROM t1 a JOIN t2 b ON a.id=b.id";
         Router.RouteDecision d = Router.decide(sql, session, failingDefaultAdvisor());
-        assertEquals(Router.RouteTarget.TO_READ_ONLY, d.getTarget());
+        assertEquals(RouteTarget.TO_READ_ONLY, d.getTarget());
         assertSame(sql, d.getSql());
         assertEquals(sql.indexOf("USE_NL"), d.getSql().indexOf("USE_NL"));
     }
@@ -110,13 +111,13 @@ public class HintChecklistTest {
         assertFalse("a hint must not mark the session", session.shouldRouteToRw());
         Router.RouteDecision next =
                 Router.decide("SELECT /*+ TO_RO */ * FROM t", session, failingDefaultAdvisor());
-        assertEquals(Router.RouteTarget.TO_READ_ONLY, next.getTarget());
+        assertEquals(RouteTarget.TO_READ_ONLY, next.getTarget());
     }
 
     private static Router.DefaultRouteAdvisor failingDefaultAdvisor() {
         return new Router.DefaultRouteAdvisor() {
             @Override
-            public Router.RouteTarget defaultTarget(final String s) {
+            public RouteTarget defaultTarget(final String s) {
                 fail("Default advisor must not run when LB hint decides routing");
                 return null;
             }

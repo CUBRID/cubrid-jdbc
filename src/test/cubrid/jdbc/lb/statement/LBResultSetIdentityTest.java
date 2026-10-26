@@ -36,7 +36,7 @@ import cubrid.jdbc.driver.CUBRIDResultSet;
 import cubrid.jdbc.lb.LbTestAccess;
 import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
-import cubrid.jdbc.lb.route.Router;
+import cubrid.jdbc.lb.route.Router.RouteTarget;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
@@ -213,7 +213,7 @@ public final class LBResultSetIdentityTest {
 
     private LBStatement.PhysicalStmtProvider stmtProvider() {
         return new LBStatement.PhysicalStmtProvider() {
-            public Statement getStatement(final Router.RouteTarget target, final String rawSql) {
+            public Statement getStatement(final RouteTarget target, final String rawSql) {
                 return (Statement) proxy(new Class[] {Statement.class}, statementHandler());
             }
         };
@@ -222,7 +222,7 @@ public final class LBResultSetIdentityTest {
     private LBPreparedStatement.PhysicalPsProvider psProvider() {
         return new LBPreparedStatement.PhysicalPsProvider() {
             public PreparedStatement getPreparedStatement(
-                    final Router.RouteTarget target, final String rawSql) {
+                    final RouteTarget target, final String rawSql) {
                 return (PreparedStatement)
                         proxy(new Class[] {PreparedStatement.class}, statementHandler());
             }

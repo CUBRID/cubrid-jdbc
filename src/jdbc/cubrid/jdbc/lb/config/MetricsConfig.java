@@ -39,10 +39,9 @@ import java.util.logging.Logger;
 /**
  * Immutable, URL-derived settings for LB metrics export.
  *
- * <p>These options are parsed <b>only</b> for a {@code loadbalance} URL (see {@link #parse(Map,
- * boolean)}); any other URL forces the feature to {@link #DISABLED}. Since {@link
- * cubrid.jdbc.lb.LoadBalanceConnection} is also the only place that acts on this config, the
- * exporters can never run outside loadbalance.
+ * <p>These options come <b>only</b> from a {@code loadbalance} URL ({@link LoadBalanceUrlParser}
+ * accepts no other), and {@link cubrid.jdbc.lb.LoadBalanceConnection} is the only place that acts
+ * on this config, so the exporters can never run outside loadbalance.
  *
  * <p>Recognized URL options (all camelCase, case-insensitive):
  *
@@ -62,8 +61,7 @@ public final class MetricsConfig {
     private static final Logger LOGGER = Logger.getLogger(MetricsConfig.class.getName());
 
     // URL option names. Package cubrid.jdbc.lb.config.LoadBalanceOptionValidator lists the same
-    // names in its LB-only set so they are ignored (WARN) outside loadbalance and never leak onto
-    // physical broker URLs.
+    // names in its LB-only set, so they never leak onto physical broker URLs.
     static final String OPT_ENABLED = "metricsEnabled";
     static final String OPT_EXPORT = "metricsExport";
     static final String OPT_PROMETHEUS_PORT = "metricsPrometheusPort";
@@ -76,7 +74,7 @@ public final class MetricsConfig {
     private static final int DEFAULT_PROMETHEUS_PORT = 9400;
     private static final int DEFAULT_INTERVAL_SEC = 60;
 
-    /** Feature-off singleton, also used for every non-loadbalance URL. */
+    /** Feature-off singleton. */
     static final MetricsConfig DISABLED =
             new MetricsConfig(
                     false,
@@ -105,15 +103,14 @@ public final class MetricsConfig {
     }
 
     /**
-     * Parse metrics options from a URL's option map. Returns {@link #DISABLED} unless the URL is in
-     * loadbalance mode <em>and</em> {@code metricsEnabled=true}.
+     * Parse metrics options from a URL's option map. Returns {@link #DISABLED} unless {@code
+     * metricsEnabled=true}.
      *
      * @param options the URL's raw option map; may be {@code null}
-     * @param loadBalanceMode whether the URL is a loadbalance URL
      * @return the parsed config, or {@link #DISABLED}
      */
-    static MetricsConfig parse(final Map<String, String> options, final boolean loadBalanceMode) {
-        if (!loadBalanceMode || options == null) {
+    static MetricsConfig parse(final Map<String, String> options) {
+        if (options == null) {
             return DISABLED;
         }
         if (!parseBoolean(find(options, OPT_ENABLED), false)) {

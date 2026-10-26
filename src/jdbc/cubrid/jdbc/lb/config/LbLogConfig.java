@@ -51,8 +51,7 @@ public final class LbLogConfig {
     private static final Logger LOGGER = Logger.getLogger(LbLogConfig.class.getName());
 
     // URL option names. cubrid.jdbc.lb.config.LoadBalanceOptionValidator lists the same names in
-    // its LB-only set, so they are ignored (WARN) outside loadbalance and never leak onto physical
-    // broker URLs.
+    // its LB-only set, so they never leak onto physical broker URLs.
     static final String OPT_SQL = "lbLogSql";
     static final String OPT_SQL_MAX_LEN = "lbLogSqlMaxLen";
     static final String OPT_DIST_INTERVAL_SEC = "lbLogDistIntervalSec";
@@ -67,7 +66,7 @@ public final class LbLogConfig {
     static final int DEFAULT_SQL_MAX_LEN = 2048;
     static final int DEFAULT_DIST_INTERVAL_SEC = 0;
 
-    /** Used for a non-loadbalance URL, where the options do not apply. */
+    /** Every option at its default. */
     static final LbLogConfig DEFAULTS =
             new LbLogConfig(SQL_MASKED, DEFAULT_SQL_MAX_LEN, DEFAULT_DIST_INTERVAL_SEC);
 
@@ -82,15 +81,13 @@ public final class LbLogConfig {
     }
 
     /**
-     * Parses the LB log options from a URL's option map. Returns {@link #DEFAULTS} unless the URL
-     * is a loadbalance URL.
+     * Parses the LB log options from a URL's option map.
      *
      * @param options the URL's raw option map; may be {@code null}
-     * @param loadBalanceMode whether the URL is a loadbalance URL
-     * @return the parsed config, or {@link #DEFAULTS}
+     * @return the parsed config, or {@link #DEFAULTS} when {@code options} is {@code null}
      */
-    static LbLogConfig parse(final Map<String, String> options, final boolean loadBalanceMode) {
-        if (!loadBalanceMode || options == null) {
+    static LbLogConfig parse(final Map<String, String> options) {
+        if (options == null) {
             return DEFAULTS;
         }
 

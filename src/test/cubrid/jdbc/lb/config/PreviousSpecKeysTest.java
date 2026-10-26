@@ -77,8 +77,7 @@ public class PreviousSpecKeysTest {
     public void formerKeysAreRetainedLikeAnyUnknownKey() {
         for (int i = 0; i < FORMER_KEYS.length; i++) {
             String key = FORMER_KEYS[i];
-            Result r =
-                    LoadBalanceOptionValidator.validate(true, Collections.singletonMap(key, "x"));
+            Result r = LoadBalanceOptionValidator.validate(Collections.singletonMap(key, "x"));
             assertTrue(key + " was ignored", r.getIgnoredKeys().isEmpty());
             assertEquals(key, "x", r.getRetainedOptions().get(key));
         }

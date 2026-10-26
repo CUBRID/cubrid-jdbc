@@ -74,7 +74,6 @@ public class LoadBalanceUrlParserTest {
                                 + "&readWeight=slave:40,master:10,replica:50");
 
         assertEquals("", p.getVariant());
-        assertTrue(p.isLoadBalance());
 
         assertEquals(3, p.getHosts().size());
         assertEquals("node1", p.getHosts().get(0).getHost());
@@ -108,7 +107,6 @@ public class LoadBalanceUrlParserTest {
                                 + ";replica=rep1:33004/testdb:dba:secret:"
                                 + "?roPort=33002&soPort=33004&readWeight=slave:50,master:0,replica:50");
 
-        assertTrue(p.isLoadBalance());
         assertEquals(3, p.getHosts().size());
 
         HostToken node1 = p.getHosts().get(0);
@@ -155,17 +153,20 @@ public class LoadBalanceUrlParserTest {
         assertEquals("secret", p.getPassword());
     }
 
+    /** The driver connects a single-node URI URL through the classic path; it never comes here. */
     @Test
-    public void parsesSingleNodeUriUrl() throws SQLException {
-        ParsedUrl p = LoadBalanceUrlParser.parse("jdbc:cubrid://localhost:33000/demodb");
-
-        assertFalse(p.isLoadBalance());
-        assertEquals(1, p.getHosts().size());
-        assertEquals("localhost", p.getHosts().get(0).getHost());
-        assertEquals(33000, p.getHosts().get(0).getRwPort());
-        assertFalse(p.getHosts().get(0).hasRoPort());
-        assertTrue(p.getReplicas().isEmpty());
-        assertEquals("demodb", p.getDb());
+    public void rejectsSingleNodeUriUrl() {
+        String[] singleNode = {
+            "jdbc:cubrid://localhost:33000/demodb", "jdbc:cubrid-oracle://h1:33000,h2:33000/demodb"
+        };
+        for (String url : singleNode) {
+            try {
+                LoadBalanceUrlParser.parse(url);
+                fail("must be refused: " + url);
+            } catch (SQLException e) {
+                assertTrue(e.getMessage(), e.getMessage().contains("not a loadbalance URL"));
+            }
+        }
     }
 
     @Test
@@ -174,7 +175,8 @@ public class LoadBalanceUrlParserTest {
                 "-mysql",
                 LoadBalanceUrlParser.parse("jdbc:cubrid-mysql:loadbalance://n1/db").getVariant());
         assertEquals(
-                "-oracle", LoadBalanceUrlParser.parse("jdbc:cubrid-oracle://h:1/db").getVariant());
+                "-oracle",
+                LoadBalanceUrlParser.parse("jdbc:cubrid-oracle:loadbalance://h:1/db").getVariant());
     }
 
     @Test

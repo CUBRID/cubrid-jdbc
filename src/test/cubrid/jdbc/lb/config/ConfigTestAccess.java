@@ -65,9 +65,8 @@ public final class ConfigTestAccess {
         return settings.getUrlPassword();
     }
 
-    public static MetricsConfig parseMetricsConfig(
-            final Map<String, String> options, final boolean loadBalanceMode) {
-        return MetricsConfig.parse(options, loadBalanceMode);
+    public static MetricsConfig parseMetricsConfig(final Map<String, String> options) {
+        return MetricsConfig.parse(options);
     }
 
     public static boolean hasReadTarget(final ReadWeight weight) {

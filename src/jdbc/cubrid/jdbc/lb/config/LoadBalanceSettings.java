@@ -147,16 +147,10 @@ public class LoadBalanceSettings {
                         OptionKeys.findValueIgnoreCase(parsed.getOptions(), "readWeight"),
                         roleTopology);
         final Map<String, String> propagated =
-                LoadBalanceOptionValidator.validate(parsed.isLoadBalance(), parsed.getOptions())
-                        .getRetainedOptions();
+                LoadBalanceOptionValidator.validate(parsed.getOptions()).getRetainedOptions();
         JdbcEndpointConnSpecFactory.checkPropagatable(propagated);
-        // Metrics-export options apply only in loadbalance mode; parse() returns DISABLED
-        // otherwise, so the exporters can never run outside loadbalance.
-        final MetricsConfig metrics =
-                MetricsConfig.parse(parsed.getOptions(), parsed.isLoadBalance());
-        // Same scoping as metrics: the lbLog* options are loadbalance-only, so parse() returns
-        // DEFAULTS elsewhere.
-        final LbLogConfig lbLog = LbLogConfig.parse(parsed.getOptions(), parsed.isLoadBalance());
+        final MetricsConfig metrics = MetricsConfig.parse(parsed.getOptions());
+        final LbLogConfig lbLog = LbLogConfig.parse(parsed.getOptions());
 
         return new LoadBalanceSettings(
                 resolved,

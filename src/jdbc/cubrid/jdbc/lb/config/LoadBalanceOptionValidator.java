@@ -38,14 +38,15 @@ import java.util.Map;
 import java.util.logging.Logger;
 
 /**
- * Mode-based option allow-list. An option incompatible with the URL's mode is <b>ignored with a
- * WARN</b>, never causing a hard failure.
+ * Option allow-list for a {@code loadbalance} URL. An option that does not apply is <b>ignored with
+ * a WARN</b>, never causing a hard failure.
  *
  * <ul>
  *   <li>loadbalance-only ({@code rwPort}/{@code roPort}/{@code soPort}/{@code readWeight}, plus the
- *       {@code metrics*} and {@code lbLog*} options) &rarr; ignored in classic / single-node mode;
+ *       {@code metrics*} and {@code lbLog*} options) &rarr; kept; they configure the LB layer and
+ *       never reach a physical broker URL;
  *   <li>classic-only ({@code altHosts}/{@code loadBalance}/{@code useLazyConnection}) &rarr;
- *       ignored in loadbalance mode;
+ *       ignored;
  *   <li>common and unknown keys are kept, so they reach every physical connection. A name or value
  *       the broker URL cannot carry fails the URL ({@link
  *       JdbcEndpointConnSpecFactory#checkPropagatable}); a bad <em>value</em> still fails later.
@@ -56,15 +57,14 @@ final class LoadBalanceOptionValidator {
     private static final Logger LOGGER =
             Logger.getLogger(LoadBalanceOptionValidator.class.getName());
 
-    // Single source of truth for LB topology option keys, also used by
-    // JdbcEndpointConnSpecFactory.isLbTopologyOption so the two filters cannot drift apart.
+    // LB-only option keys. They configure the LB layer, so
+    // JdbcEndpointConnSpecFactory.isLbTopologyOption keeps them off physical broker URLs.
     static final String[] LOADBALANCE_ONLY = {
         "rwPort",
         "roPort",
         "soPort",
         "readWeight",
-        // Metrics export options: loadbalance-only, and listing them here also keeps them off
-        // physical broker URLs.
+        // Metrics export options.
         MetricsConfig.OPT_ENABLED,
         MetricsConfig.OPT_EXPORT,
         MetricsConfig.OPT_PROMETHEUS_PORT,
@@ -80,14 +80,13 @@ final class LoadBalanceOptionValidator {
     private LoadBalanceOptionValidator() {}
 
     /**
-     * Classify options for the given mode, retaining applicable ones and ignoring (with a WARN) any
-     * that do not apply.
+     * Classify a loadbalance URL's options, retaining applicable ones and ignoring (with a WARN)
+     * the classic-only ones.
      *
-     * @param loadBalanceMode true for a {@code loadbalance} URL, false for classic / single-node
      * @param options the raw option map to classify; may be {@code null}
      * @return the retained options and the ignored keys
      */
-    static Result validate(final boolean loadBalanceMode, final Map<String, String> options) {
+    static Result validate(final Map<String, String> options) {
         final Map<String, String> retained = new LinkedHashMap<String, String>();
         final List<String> ignoredKeys = new ArrayList<String>();
 
@@ -95,11 +94,8 @@ final class LoadBalanceOptionValidator {
             for (Map.Entry<String, String> e : options.entrySet()) {
                 final String key = e.getKey();
 
-                if (loadBalanceMode && OptionKeys.containsIgnoreCase(CLASSIC_ONLY, key)) {
+                if (OptionKeys.containsIgnoreCase(CLASSIC_ONLY, key)) {
                     ignore(key, ignoredKeys, "is not applicable in loadbalance mode");
-                } else if (!loadBalanceMode
-                        && OptionKeys.containsIgnoreCase(LOADBALANCE_ONLY, key)) {
-                    ignore(key, ignoredKeys, "is only applicable in loadbalance mode");
                 } else {
                     retained.put(key, e.getValue());
                 }

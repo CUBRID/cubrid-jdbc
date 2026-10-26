@@ -138,8 +138,9 @@ public class ResolvedRoleTopologyTest {
     }
 
     @Test
-    public void resolvesSingleNodeWithGlobalRoPort() throws SQLException {
-        ResolvedRoleTopology t = resolveOf("jdbc:cubrid://localhost:33000/demodb?roPort=33002");
+    public void resolvesSingleHostWithGlobalRoPort() throws SQLException {
+        ResolvedRoleTopology t =
+                resolveOf("jdbc:cubrid:loadbalance://localhost:33000/demodb?roPort=33002");
 
         assertEquals("localhost:33000", t.getMaster().getRw().getId());
         assertEquals("localhost:33002", t.getMaster().getRo().getId());

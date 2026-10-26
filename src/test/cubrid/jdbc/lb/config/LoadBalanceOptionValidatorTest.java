@@ -54,7 +54,6 @@ public class LoadBalanceOptionValidatorTest {
     public void loadbalanceModeIgnoresClassicOnlyOptions() {
         Result r =
                 LoadBalanceOptionValidator.validate(
-                        true,
                         opts(
                                 "altHosts", "h2:1",
                                 "loadBalance", "true",
@@ -76,45 +75,16 @@ public class LoadBalanceOptionValidatorTest {
     }
 
     @Test
-    public void classicModeIgnoresLoadbalanceOnlyOptions() {
-        Result r =
-                LoadBalanceOptionValidator.validate(
-                        false,
-                        opts(
-                                "rwPort", "33000",
-                                "roPort", "33002",
-                                "soPort", "33004",
-                                "readWeight", "slave:1",
-                                "altHosts", "h2:1",
-                                "charSet", "utf-8"));
-
-        assertTrue(r.getIgnoredKeys().contains("rwPort"));
-        assertTrue(r.getIgnoredKeys().contains("roPort"));
-        assertTrue(r.getIgnoredKeys().contains("soPort"));
-        assertTrue(r.getIgnoredKeys().contains("readWeight"));
-        assertEquals(4, r.getIgnoredKeys().size());
-
-        // classic-own + common options are retained
-        assertTrue(r.getRetainedOptions().containsKey("altHosts"));
-        assertTrue(r.getRetainedOptions().containsKey("charSet"));
-        assertFalse(r.getRetainedOptions().containsKey("rwPort"));
-    }
-
-    @Test
-    public void unknownKeysAreRetainedInBothModes() {
+    public void unknownKeysAreRetained() {
         assertTrue(
-                LoadBalanceOptionValidator.validate(true, opts("typoKey", "x"))
-                        .getRetainedOptions()
-                        .containsKey("typoKey"));
-        assertTrue(
-                LoadBalanceOptionValidator.validate(false, opts("typoKey", "x"))
+                LoadBalanceOptionValidator.validate(opts("typoKey", "x"))
                         .getRetainedOptions()
                         .containsKey("typoKey"));
     }
 
     @Test
     public void optionKeyMatchingIsCaseInsensitive() {
-        Result r = LoadBalanceOptionValidator.validate(true, opts("ALTHOSTS", "h2:1"));
+        Result r = LoadBalanceOptionValidator.validate(opts("ALTHOSTS", "h2:1"));
 
         assertTrue(r.getIgnoredKeys().contains("ALTHOSTS"));
         assertFalse(r.getRetainedOptions().containsKey("ALTHOSTS"));
@@ -122,8 +92,8 @@ public class LoadBalanceOptionValidatorTest {
 
     @Test
     public void nullOrEmptyOptionsYieldEmptyResult() {
-        assertFalse(LoadBalanceOptionValidator.validate(true, null).hasIgnored());
-        assertTrue(LoadBalanceOptionValidator.validate(true, null).getRetainedOptions().isEmpty());
-        assertFalse(LoadBalanceOptionValidator.validate(true, opts()).hasIgnored());
+        assertFalse(LoadBalanceOptionValidator.validate(null).hasIgnored());
+        assertTrue(LoadBalanceOptionValidator.validate(null).getRetainedOptions().isEmpty());
+        assertFalse(LoadBalanceOptionValidator.validate(opts()).hasIgnored());
     }
 }

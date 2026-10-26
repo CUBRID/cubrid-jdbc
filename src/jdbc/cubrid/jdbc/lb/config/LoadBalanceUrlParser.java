@@ -42,11 +42,9 @@ import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
- * Structural parser for the URI ({@code ://}) CUBRID JDBC URL:
+ * Structural parser for the URI {@code loadbalance://} CUBRID JDBC URL:
  *
  * <pre>
- *   URI-url      ::= single-node-url | loadbalance-url
- *   single-node-url ::= "jdbc:cubrid" [variant] "://" host [ ":" port ] "/" db-cred [ "?" options ]
  *   loadbalance-url ::= "jdbc:cubrid" [variant] ":loadbalance://" host-list
  *                       [ ";" "replica=" replica-list ] "/" db-cred [ "?" options ]
  *   host-token      ::= host [ ":" rw_port [ ":" ro_port ] ]
@@ -55,15 +53,15 @@ import java.util.regex.Pattern;
  *   options         ::= option { ("&amp;" | ";") option }
  * </pre>
  *
- * <p>This parser only splits the URL into structural pieces: scheme, variant, mode, host and
- * replica tokens with their inline ports, database, positional credentials, and the raw option map.
- * Role assignment, port defaulting, {@code readWeight} parsing, and option allow-list checks are
- * later stages. Malformed structure raises {@link SQLException}; IPv6 hosts are unsupported, as in
- * the classic parser.
+ * <p>This parser only splits the URL into structural pieces: scheme variant, host and replica
+ * tokens with their inline ports, database, positional credentials, and the raw option map. Role
+ * assignment, port defaulting, {@code readWeight} parsing, and option allow-list checks are later
+ * stages. Malformed structure raises {@link SQLException}; IPv6 hosts are unsupported, as in the
+ * classic parser.
  *
- * <p>Both URI forms parse here, but in production only {@code loadbalance://} URLs reach this
- * class: the driver rewrites a single-node URI URL into the classic colon-delimited form and
- * connects it through the classic path ({@code CUBRIDDriver.uriSingleToClassicUrl}).
+ * <p>Any other URL is rejected at the scheme. A single-node URI URL ({@code jdbc:cubrid://}) never
+ * comes here: the driver rewrites it into the classic colon-delimited form and connects it through
+ * the classic path ({@code CUBRIDDriver.uriSingleToClassicUrl}).
  */
 public final class LoadBalanceUrlParser {
 
@@ -94,7 +92,7 @@ public final class LoadBalanceUrlParser {
                     "URI URL must contain '" + SCHEME_SEPARATOR + "': " + url, null);
         }
 
-        final SchemeParts scheme = parseScheme(trimmed.substring(0, sep), url);
+        final String variant = parseScheme(trimmed.substring(0, sep), url);
         final String rest = trimmed.substring(sep + SCHEME_SEPARATOR.length());
 
         final String beforeOptions;
@@ -124,18 +122,11 @@ public final class LoadBalanceUrlParser {
         final Map<String, String> options = parseOptions(optionsStr, url);
 
         return new ParsedUrl(
-                scheme.variant,
-                scheme.loadbalance,
-                hosts,
-                replicas,
-                dbInfo.db,
-                dbInfo.user,
-                dbInfo.password,
-                options);
+                variant, hosts, replicas, dbInfo.db, dbInfo.user, dbInfo.password, options);
     }
 
-    private static SchemeParts parseScheme(final String scheme, final String url)
-            throws SQLException {
+    /** Returns the variant; any scheme but {@code jdbc:cubrid[-variant]:loadbalance} fails. */
+    private static String parseScheme(final String scheme, final String url) throws SQLException {
         final String[] parts = scheme.split(":", -1);
         if (parts.length < 2 || parts.length > 3) {
             throw LbExceptions.invalidUrl("unrecognized URL scheme '" + scheme + "': " + url, null);
@@ -146,22 +137,30 @@ public final class LoadBalanceUrlParser {
 
         final String variant = parseVariant(parts[1], url);
 
-        boolean loadbalance = false;
-        if (parts.length == 3) {
-            if (!LOADBALANCE_MODE.equalsIgnoreCase(parts[2])) {
-                throw LbExceptions.invalidUrl(
-                        "unknown connection mode '"
-                                + parts[2]
-                                + "' (only '"
-                                + LOADBALANCE_MODE
-                                + "' is supported): "
-                                + url,
-                        null);
-            }
-            loadbalance = true;
+        if (parts.length == 2) {
+            throw LbExceptions.invalidUrl(
+                    "not a loadbalance URL (expected '"
+                            + parts[0]
+                            + ":"
+                            + parts[1]
+                            + ":"
+                            + LOADBALANCE_MODE
+                            + "://'): "
+                            + url,
+                    null);
+        }
+        if (!LOADBALANCE_MODE.equalsIgnoreCase(parts[2])) {
+            throw LbExceptions.invalidUrl(
+                    "unknown connection mode '"
+                            + parts[2]
+                            + "' (only '"
+                            + LOADBALANCE_MODE
+                            + "' is supported): "
+                            + url,
+                    null);
         }
 
-        return new SchemeParts(variant, loadbalance);
+        return variant;
     }
 
     private static String parseVariant(final String token, final String url) throws SQLException {
@@ -376,17 +375,6 @@ public final class LoadBalanceUrlParser {
         return (s == null || s.length() == 0) ? null : s;
     }
 
-    /** Result of parsing the scheme portion (before {@code ://}). */
-    private static final class SchemeParts {
-        private final String variant;
-        private final boolean loadbalance;
-
-        private SchemeParts(final String variant, final boolean loadbalance) {
-            this.variant = variant;
-            this.loadbalance = loadbalance;
-        }
-    }
-
     /**
      * Database name and (optional) positional credentials — the result of parsing the URL's {@code
      * db-cred} section ({@code db[:user:pw:]}).
@@ -477,7 +465,6 @@ public final class LoadBalanceUrlParser {
     /** Structured result of parsing a URI URL. Lists/map are unmodifiable. */
     public static final class ParsedUrl {
         private final String variant;
-        private final boolean loadbalance;
         private final List<HostToken> hosts;
         private final List<ReplicaToken> replicas;
         private final String db;
@@ -487,7 +474,6 @@ public final class LoadBalanceUrlParser {
 
         ParsedUrl(
                 final String variant,
-                final boolean loadbalance,
                 final List<HostToken> hosts,
                 final List<ReplicaToken> replicas,
                 final String db,
@@ -495,7 +481,6 @@ public final class LoadBalanceUrlParser {
                 final String password,
                 final Map<String, String> options) {
             this.variant = variant;
-            this.loadbalance = loadbalance;
             this.hosts = Collections.unmodifiableList(hosts);
             this.replicas = Collections.unmodifiableList(replicas);
             this.db = db;
@@ -511,15 +496,6 @@ public final class LoadBalanceUrlParser {
          */
         String getVariant() {
             return variant;
-        }
-
-        /**
-         * True if the {@code loadbalance} keyword was present, false for single-node.
-         *
-         * @return {@code true} if the URL is a loadbalance URL
-         */
-        boolean isLoadBalance() {
-            return loadbalance;
         }
 
         /**

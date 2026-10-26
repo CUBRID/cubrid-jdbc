@@ -221,7 +221,7 @@ public class MetricsExportersTest {
         options.put(ConfigTestAccess.OPT_ENABLED, "true");
         options.put(ConfigTestAccess.OPT_EXPORT, ConfigTestAccess.EXPORT_CSV);
         options.put(ConfigTestAccess.OPT_INTERVAL_SEC, "1");
-        MetricsExporters.configure(ConfigTestAccess.parseMetricsConfig(options, true));
+        MetricsExporters.configure(ConfigTestAccess.parseMetricsConfig(options));
         try {
             long deadline = System.currentTimeMillis() + 5000L;
             while (rows.isEmpty() && System.currentTimeMillis() < deadline) {
@@ -253,7 +253,7 @@ public class MetricsExportersTest {
         options.put(ConfigTestAccess.OPT_EXPORT, ConfigTestAccess.EXPORT_PROMETHEUS);
         options.put(ConfigTestAccess.OPT_PROMETHEUS_PORT, String.valueOf(port));
         options.put(ConfigTestAccess.OPT_INTERVAL_SEC, String.valueOf(intervalSec));
-        return ConfigTestAccess.parseMetricsConfig(options, true);
+        return ConfigTestAccess.parseMetricsConfig(options);
     }
 
     private static int freePort() throws IOException {

@@ -34,6 +34,7 @@ import static org.junit.Assert.assertEquals;
 
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
+import cubrid.jdbc.lb.metrics.MetricsTestAccess;
 import cubrid.jdbc.lb.route.Router;
 import cubrid.jdbc.lb.sql.SqlClassifierRegistry;
 import cubrid.jdbc.lb.state.SessionRoutingState;
@@ -66,7 +67,7 @@ public class RoutingMetricsRecorderFallbackTest {
         recorder.recordCommandRoute(
                 "setAutoCommit", Router.RouteTarget.TO_READ_WRITE, ENDPOINT, null);
 
-        assertEquals(0L, recorder.runtimeMetrics().getRwFallbackCount());
+        assertEquals(0L, MetricsTestAccess.getRwFallbackCount(recorder.runtimeMetrics()));
     }
 
     @Test
@@ -76,11 +77,11 @@ public class RoutingMetricsRecorderFallbackTest {
 
         recorder.recordCommandRoute(
                 "commit", Router.RouteTarget.TO_READ_WRITE, ENDPOINT, FallbackReason.NONE);
-        assertEquals(0L, recorder.runtimeMetrics().getRwFallbackCount());
+        assertEquals(0L, MetricsTestAccess.getRwFallbackCount(recorder.runtimeMetrics()));
 
         recorder.recordCommandRoute(
                 "commit", Router.RouteTarget.TO_READ_ONLY, ENDPOINT, FallbackReason.RO_PHYSICAL);
-        assertEquals(1L, recorder.runtimeMetrics().getRwFallbackCount());
+        assertEquals(1L, MetricsTestAccess.getRwFallbackCount(recorder.runtimeMetrics()));
     }
 
     @Test
@@ -90,7 +91,7 @@ public class RoutingMetricsRecorderFallbackTest {
         recorder.recordCommandRoute(
                 "commit", Router.RouteTarget.TO_READ_ONLY, ENDPOINT, FallbackReason.RO_PHYSICAL);
 
-        assertEquals(0L, recorder.runtimeMetrics().getRwFallbackCount());
-        assertEquals(0, recorder.runtimeMetrics().getEvents().size());
+        assertEquals(0L, MetricsTestAccess.getRwFallbackCount(recorder.runtimeMetrics()));
+        assertEquals(0, MetricsTestAccess.getEvents(recorder.runtimeMetrics()).size());
     }
 }

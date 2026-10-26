@@ -38,6 +38,7 @@ import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.config.LoadBalanceUrlParser;
 import cubrid.jdbc.lb.metrics.BindingView;
 import cubrid.jdbc.lb.metrics.MetricsRegistry;
+import cubrid.jdbc.lb.metrics.MetricsTestAccess;
 import cubrid.jdbc.lb.metrics.RuntimeMetrics;
 import cubrid.jdbc.lb.sql.SqlClassification;
 import java.sql.SQLException;
@@ -72,7 +73,7 @@ public class LbDistLogTest {
 
     @Before
     public void setUp() {
-        MetricsRegistry.clearForTests();
+        MetricsTestAccess.clearForTests();
         LbDistLog.resetForTests();
         lbLogger = Logger.getLogger("cubrid.jdbc.lb");
         lbLogger.setLevel(Level.ALL);
@@ -87,7 +88,7 @@ public class LbDistLogTest {
         lbLogger.setLevel(null);
         lbLogger.setUseParentHandlers(true);
         LbDistLog.resetForTests();
-        MetricsRegistry.clearForTests();
+        MetricsTestAccess.clearForTests();
     }
 
     @Test
@@ -242,9 +243,9 @@ public class LbDistLogTest {
         LbDistLog.configure(settings(1, twoSlaves()));
         RuntimeMetrics m = session(SLAVE1, 20);
         // This is what the DIST-only path sets: counters on, per-statement events off.
-        assertFalse(m.isEventsEnabled());
+        assertFalse(MetricsTestAccess.isEventsEnabled(m));
         m.recordEvent("would be dropped");
-        assertTrue(m.getEvents().isEmpty());
+        assertTrue(MetricsTestAccess.getEvents(m).isEmpty());
 
         emitAfterWindow();
 

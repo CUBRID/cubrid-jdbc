@@ -64,7 +64,7 @@ import java.util.Set;
  * <p>Note: serial pseudo-columns {@code seq.NEXTVAL}/{@code CURRVAL} (no parentheses) are not
  * function calls and are detected separately in {@link KeywordSqlClassifier}.
  */
-public final class BuiltinFunctionCatalog {
+final class BuiltinFunctionCatalog {
     private static final Set<String> RO_BUILTINS;
     private static final Set<String> RW_BUILTINS;
     private static final Set<String> WRITE_EFFECT_BUILTINS;
@@ -517,7 +517,7 @@ public final class BuiltinFunctionCatalog {
      * @param upperAsciiName built-in name, upper-cased ASCII
      * @return {@code true} if the name is a read-only built-in
      */
-    public static boolean isReadOnlyBuiltin(final String upperAsciiName) {
+    static boolean isReadOnlyBuiltin(final String upperAsciiName) {
         return contains(RO_BUILTINS, upperAsciiName);
     }
 
@@ -527,7 +527,7 @@ public final class BuiltinFunctionCatalog {
      * @param upperAsciiName built-in name, upper-cased ASCII
      * @return {@code true} if the name is an RW built-in
      */
-    public static boolean isWriteBuiltin(final String upperAsciiName) {
+    static boolean isWriteBuiltin(final String upperAsciiName) {
         return contains(RW_BUILTINS, upperAsciiName);
     }
 
@@ -539,7 +539,7 @@ public final class BuiltinFunctionCatalog {
      * @param upperAsciiName built-in name, upper-cased ASCII
      * @return {@code true} if invoking the built-in performs a write
      */
-    public static boolean isWriteEffectBuiltin(final String upperAsciiName) {
+    static boolean isWriteEffectBuiltin(final String upperAsciiName) {
         return contains(WRITE_EFFECT_BUILTINS, upperAsciiName);
     }
 
@@ -549,7 +549,7 @@ public final class BuiltinFunctionCatalog {
      * @param upperAsciiName built-in name, upper-cased ASCII
      * @return {@code true} if the name is a known CUBRID built-in
      */
-    public static boolean isBuiltin(final String upperAsciiName) {
+    static boolean isBuiltin(final String upperAsciiName) {
         return contains(ALL_BUILTINS, upperAsciiName);
     }
 
@@ -559,7 +559,7 @@ public final class BuiltinFunctionCatalog {
      * @param upperAsciiName identifier, upper-cased ASCII
      * @return {@code true} if the name is SQL syntax rather than a function
      */
-    public static boolean isSqlSyntax(final String upperAsciiName) {
+    static boolean isSqlSyntax(final String upperAsciiName) {
         return contains(SQL_SYNTAX, upperAsciiName);
     }
 
@@ -571,7 +571,7 @@ public final class BuiltinFunctionCatalog {
      * @param upperAsciiName pseudo-column name, upper-cased ASCII
      * @return {@code true} if the name is a serial pseudo-column
      */
-    public static boolean isSerialPseudoColumn(final String upperAsciiName) {
+    static boolean isSerialPseudoColumn(final String upperAsciiName) {
         return contains(SERIAL_PSEUDO_COLUMNS, upperAsciiName);
     }
 
@@ -584,7 +584,7 @@ public final class BuiltinFunctionCatalog {
      * @param upperAsciiName pseudo-column name, upper-cased ASCII
      * @return {@code true} if referencing the pseudo-column advances the serial
      */
-    public static boolean isSerialIncrementPseudoColumn(final String upperAsciiName) {
+    static boolean isSerialIncrementPseudoColumn(final String upperAsciiName) {
         return contains(WRITE_EFFECT_PSEUDO_COLUMNS, upperAsciiName);
     }
 

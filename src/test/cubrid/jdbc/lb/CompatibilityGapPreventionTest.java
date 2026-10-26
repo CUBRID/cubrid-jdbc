@@ -38,6 +38,7 @@ import static org.junit.Assert.fail;
 import cubrid.jdbc.lb.route.Router;
 import cubrid.jdbc.lb.statement.LBPreparedStatement;
 import cubrid.jdbc.lb.statement.LBStatement;
+import cubrid.jdbc.lb.statement.StatementTestAccess;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
@@ -89,7 +90,8 @@ public final class CompatibilityGapPreventionTest {
         LoadBalanceConnection connection = new LoadBalanceConnection(LbTestSettings.defaults());
         LBStatement statement = (LBStatement) connection.createStatement();
         final List<String> calls = new ArrayList<String>();
-        statement.setStatementProvider(
+        StatementTestAccess.setStatementProvider(
+                statement,
                 new LBStatement.PhysicalStmtProvider() {
                     public Statement getStatement(
                             final Router.RouteTarget target, final String rawSql)
@@ -125,7 +127,8 @@ public final class CompatibilityGapPreventionTest {
                         connection.createStatement(
                                 ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_READ_ONLY);
         final List<String> calls = new ArrayList<String>();
-        statement.setStatementProvider(
+        StatementTestAccess.setStatementProvider(
+                statement,
                 new LBStatement.PhysicalStmtProvider() {
                     public Statement getStatement(
                             final Router.RouteTarget target, final String rawSql)
@@ -144,7 +147,8 @@ public final class CompatibilityGapPreventionTest {
         LoadBalanceConnection connection = new LoadBalanceConnection(LbTestSettings.defaults());
         LBStatement statement = (LBStatement) connection.createStatement();
         final List<String> calls = new ArrayList<String>();
-        statement.setStatementProvider(
+        StatementTestAccess.setStatementProvider(
+                statement,
                 new LBStatement.PhysicalStmtProvider() {
                     public Statement getStatement(
                             final Router.RouteTarget target, final String rawSql)
@@ -226,7 +230,8 @@ public final class CompatibilityGapPreventionTest {
     public void assertCompatibilitySmokeScenarioHasNoUnexpectedNotSupported() throws Exception {
         LoadBalanceConnection connection = new LoadBalanceConnection(LbTestSettings.defaults());
         LBStatement statement = (LBStatement) connection.createStatement();
-        statement.setStatementProvider(
+        StatementTestAccess.setStatementProvider(
+                statement,
                 new LBStatement.PhysicalStmtProvider() {
                     public Statement getStatement(
                             final Router.RouteTarget target, final String rawSql)

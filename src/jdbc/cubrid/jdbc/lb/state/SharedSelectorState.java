@@ -174,17 +174,17 @@ public class SharedSelectorState {
      * @param key home-slot key (endpoint id)
      * @return the number of sessions holding that home, or {@code 0}
      */
-    public synchronized int liveHomeCount(final String key) {
+    synchronized int liveHomeCount(final String key) {
         final Integer current = liveHomeCounts.get(key);
 
         return current != null ? current.intValue() : 0;
     }
 
-    public synchronized Map<String, Integer> getLiveHomeCounts() {
+    synchronized Map<String, Integer> getLiveHomeCounts() {
         return new HashMap<String, Integer>(liveHomeCounts);
     }
 
-    public synchronized void resetAll() {
+    synchronized void resetAll() {
         groupRoundRobinIndices.clear();
         liveHomeCounts.clear();
     }

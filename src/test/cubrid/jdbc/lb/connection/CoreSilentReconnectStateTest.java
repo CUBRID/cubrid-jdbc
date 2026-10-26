@@ -35,6 +35,7 @@ import static org.junit.Assert.assertTrue;
 
 import cubrid.jdbc.jci.UConnection;
 import cubrid.jdbc.lb.FakePhysicalConnection;
+import cubrid.jdbc.lb.LbTestAccess;
 import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
 import cubrid.jdbc.lb.config.Endpoint;
@@ -137,11 +138,13 @@ public final class CoreSilentReconnectStateTest {
                     }
                 };
 
-        LoadBalanceConnection conn = new LoadBalanceConnection(settings);
-        conn.setConnectionManager(
+        LoadBalanceConnection conn = LbTestAccess.newLoadBalanceConnection(settings);
+        LbTestAccess.setConnectionManager(
+                conn,
                 new SessionPhysicalConnManager(LOGICAL_URL, new Properties(), settings, factory));
-        conn.setSharedSelectorState(new SharedSelectorState());
-        conn.initSessionBindings(
+        LbTestAccess.setSharedSelectorState(conn, new SharedSelectorState());
+        LbTestAccess.initSessionBindings(
+                conn,
                 new EndpointTopology(
                         RW,
                         Arrays.asList(new Endpoint("ro1", 33001)),

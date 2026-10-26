@@ -60,7 +60,7 @@ public final class Router {
         private final RouteTarget target;
         private final String sql;
 
-        public RouteDecision(RouteTarget target, String sql) {
+        private RouteDecision(RouteTarget target, String sql) {
             if (target == null) {
                 throw new IllegalArgumentException("RouteTarget must not be null");
             }
@@ -72,7 +72,7 @@ public final class Router {
             return target;
         }
 
-        public String getSql() {
+        String getSql() {
             return sql;
         }
     }

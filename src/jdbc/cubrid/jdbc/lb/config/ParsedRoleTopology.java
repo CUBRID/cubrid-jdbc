@@ -56,7 +56,7 @@ import java.util.List;
  * HostToken}/{@link ReplicaToken}) through. Port resolution and {@link Endpoint} building happen
  * later in {@link ResolvedRoleTopology}.
  */
-public final class ParsedRoleTopology {
+final class ParsedRoleTopology {
     private final HostToken master;
     private final List<HostToken> slaves;
     private final List<ReplicaToken> replicas;
@@ -83,7 +83,7 @@ public final class ParsedRoleTopology {
      * @return the role topology
      * @throws SQLException if the URL is null or its host-list is empty
      */
-    public static ParsedRoleTopology fromUrl(final ParsedUrl parsed) throws SQLException {
+    static ParsedRoleTopology fromUrl(final ParsedUrl parsed) throws SQLException {
         if (parsed == null) {
             throw LbExceptions.topologyInvalid("parsed URL is null");
         }
@@ -104,7 +104,7 @@ public final class ParsedRoleTopology {
      *
      * @return the master host token
      */
-    public HostToken getMaster() {
+    HostToken getMaster() {
         return master;
     }
 
@@ -113,7 +113,7 @@ public final class ParsedRoleTopology {
      *
      * @return the slave host tokens
      */
-    public List<HostToken> getSlaves() {
+    List<HostToken> getSlaves() {
         return slaves;
     }
 
@@ -122,15 +122,15 @@ public final class ParsedRoleTopology {
      *
      * @return the replica tokens
      */
-    public List<ReplicaToken> getReplicas() {
+    List<ReplicaToken> getReplicas() {
         return replicas;
     }
 
-    public boolean hasSlaves() {
+    boolean hasSlaves() {
         return !slaves.isEmpty();
     }
 
-    public boolean hasReplicas() {
+    boolean hasReplicas() {
         return !replicas.isEmpty();
     }
 
@@ -139,7 +139,7 @@ public final class ParsedRoleTopology {
      *
      * @return the master host name
      */
-    public String getMasterHost() {
+    String getMasterHost() {
         return master.getHost();
     }
 
@@ -148,7 +148,7 @@ public final class ParsedRoleTopology {
      *
      * @return the slave host names
      */
-    public List<String> getSlaveHosts() {
+    List<String> getSlaveHosts() {
         final List<String> hosts = new ArrayList<String>(slaves.size());
         for (int i = 0; i < slaves.size(); i++) {
             hosts.add(slaves.get(i).getHost());
@@ -162,7 +162,7 @@ public final class ParsedRoleTopology {
      *
      * @return the replica host names
      */
-    public List<String> getReplicaHosts() {
+    List<String> getReplicaHosts() {
         final List<String> hosts = new ArrayList<String>(replicas.size());
         for (int i = 0; i < replicas.size(); i++) {
             hosts.add(replicas.get(i).getHost());

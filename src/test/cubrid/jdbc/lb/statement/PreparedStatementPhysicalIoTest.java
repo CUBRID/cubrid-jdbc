@@ -34,11 +34,13 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import cubrid.jdbc.lb.LbTestAccess;
 import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
+import cubrid.jdbc.lb.connection.ConnectionTestAccess;
 import cubrid.jdbc.lb.connection.JdbcConnectionFactory;
 import cubrid.jdbc.lb.connection.SessionPhysicalConnManager;
 import cubrid.jdbc.lb.route.Router;
@@ -119,7 +121,8 @@ public class PreparedStatementPhysicalIoTest {
                     public void closePrepStmts() throws SQLException {}
                 };
 
-        LoadBalanceConnection conn = new LoadBalanceConnection(LbTestSettings.defaults());
+        LoadBalanceConnection conn =
+                LbTestAccess.newLoadBalanceConnection(LbTestSettings.defaults());
         LBPreparedStatement ps = new LBPreparedStatement(conn, "SELECT 1");
         ps.setPsProvider(provider);
         ps.executeQuery();
@@ -206,7 +209,8 @@ public class PreparedStatementPhysicalIoTest {
                     public void closePrepStmts() throws SQLException {}
                 };
 
-        LoadBalanceConnection conn = new LoadBalanceConnection(LbTestSettings.defaults());
+        LoadBalanceConnection conn =
+                LbTestAccess.newLoadBalanceConnection(LbTestSettings.defaults());
         LBPreparedStatement ps = new LBPreparedStatement(conn, "SELECT 1");
         ps.setPsProvider(provider);
         ps.setMaxRows(37);
@@ -267,19 +271,19 @@ public class PreparedStatementPhysicalIoTest {
 
         LoadBalanceSettings loadBalanceSettings = LbTestSettings.defaults();
         SessionPhysicalConnManager pool =
-                new SessionPhysicalConnManager(
+                ConnectionTestAccess.newSessionPhysicalConnManager(
                         "jdbc:cubrid:localhost:30000:testdb:public::",
                         new Properties(),
                         loadBalanceSettings,
                         factory);
 
-        LoadBalanceConnection conn = new LoadBalanceConnection(loadBalanceSettings);
-        conn.setConnectionManager(pool);
-        conn.setSharedSelectorState(new SharedSelectorState());
+        LoadBalanceConnection conn = LbTestAccess.newLoadBalanceConnection(loadBalanceSettings);
+        LbTestAccess.setConnectionManager(conn, pool);
+        LbTestAccess.setSharedSelectorState(conn, new SharedSelectorState());
         List<Endpoint> roList = new ArrayList<Endpoint>();
         roList.add(new Endpoint("ro1", 33000));
         EndpointTopology topology = new EndpointTopology(new Endpoint("rw", 33000), roList, null);
-        conn.initSessionBindings(topology);
+        LbTestAccess.initSessionBindings(conn, topology);
 
         LBPreparedStatement ps = (LBPreparedStatement) conn.prepareStatement("  SELECT  1  ");
         ps.executeQuery();
@@ -349,22 +353,22 @@ public class PreparedStatementPhysicalIoTest {
 
         LoadBalanceSettings loadBalanceSettings = LbTestSettings.defaults();
         SessionPhysicalConnManager pool =
-                new SessionPhysicalConnManager(
+                ConnectionTestAccess.newSessionPhysicalConnManager(
                         "jdbc:cubrid:localhost:30000:testdb:public::",
                         new Properties(),
                         loadBalanceSettings,
                         factory);
 
-        LoadBalanceConnection conn = new LoadBalanceConnection(loadBalanceSettings);
-        conn.setConnectionManager(pool);
-        conn.setSharedSelectorState(new SharedSelectorState());
+        LoadBalanceConnection conn = LbTestAccess.newLoadBalanceConnection(loadBalanceSettings);
+        LbTestAccess.setConnectionManager(conn, pool);
+        LbTestAccess.setSharedSelectorState(conn, new SharedSelectorState());
         List<Endpoint> roList = new ArrayList<Endpoint>();
         roList.add(new Endpoint("ro1", 33000));
         List<Endpoint> replList = new ArrayList<Endpoint>();
         replList.add(new Endpoint("so1", 33004));
         EndpointTopology topology =
                 new EndpointTopology(new Endpoint("rw", 33000), roList, replList);
-        conn.initSessionBindings(topology);
+        LbTestAccess.initSessionBindings(conn, topology);
 
         LBPreparedStatement ps = (LBPreparedStatement) conn.prepareStatement("SELECT 1");
         ps.executeQuery(); // must not throw — routes to the bound read, never the replica

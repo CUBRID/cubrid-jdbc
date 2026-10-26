@@ -30,6 +30,7 @@
 
 package cubrid.jdbc.lb;
 
+import cubrid.jdbc.lb.config.ConfigTestAccess;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
@@ -57,10 +58,10 @@ public final class LbTestSettings {
      */
     public static LoadBalanceSettings forBinding(final Endpoint rw, final Endpoint ro) {
         StringBuilder url = new StringBuilder("jdbc:cubrid:loadbalance://");
-        url.append(rw.getHost()).append(':').append(rw.getPort());
+        url.append(rw.getHost()).append(':').append(ConfigTestAccess.getPort(rw));
         if (ro != null) {
             url.append(',').append(ro.getHost()).append(':').append(UNUSED_SLAVE_RW_PORT);
-            url.append(':').append(ro.getPort());
+            url.append(':').append(ConfigTestAccess.getPort(ro));
         }
         url.append("/testdb");
         if (ro != null) {
@@ -79,7 +80,9 @@ public final class LbTestSettings {
     public static LoadBalanceSettings forTopology(final EndpointTopology topology) {
         return forBinding(
                 topology.getRwEndpoints().get(0),
-                topology.hasRoEndpoints() ? topology.getRoEndpoints().get(0) : null);
+                ConfigTestAccess.hasRoEndpoints(topology)
+                        ? topology.getRoEndpoints().get(0)
+                        : null);
     }
 
     /**

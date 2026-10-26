@@ -111,7 +111,7 @@ public class LBStatement extends CUBRIDStatement {
                         resultSetType, resultSetConcurrency, resultSetHoldability);
     }
 
-    public void setStatementProvider(final PhysicalStmtProvider provider) {
+    void setStatementProvider(final PhysicalStmtProvider provider) {
         if (provider == null) {
             throw new IllegalArgumentException("PhysicalStmtProvider must not be null");
         }

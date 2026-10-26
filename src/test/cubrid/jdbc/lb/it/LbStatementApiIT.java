@@ -35,7 +35,9 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import cubrid.jdbc.lb.LbTestAccess;
 import cubrid.jdbc.lb.LoadBalanceConnection;
+import cubrid.jdbc.lb.metrics.MetricsTestAccess;
 import cubrid.jdbc.lb.metrics.RuntimeMetrics;
 import cubrid.jdbc.lb.statement.LBStatement;
 import java.sql.Connection;
@@ -102,7 +104,7 @@ public final class LbStatementApiIT {
 
             assertEquals(2, rowCount);
             assertEquals(30, sum);
-            String event = lastSqlEvent(connection.getRuntimeMetrics());
+            String event = lastSqlEvent(LbTestAccess.getRuntimeMetrics(connection));
             assertTrue(event.contains("sqlType=READ"));
             assertTrue(event.contains("routeTarget=TO_READ_WRITE"));
         } finally {
@@ -147,7 +149,7 @@ public final class LbStatementApiIT {
             assertFalse(updateResult);
             assertEquals(1, statement.getUpdateCount());
 
-            String event = lastSqlEvent(connection.getRuntimeMetrics());
+            String event = lastSqlEvent(LbTestAccess.getRuntimeMetrics(connection));
             assertTrue(event.contains("sqlType=WRITE"));
             assertTrue(event.contains("routeTarget=TO_READ_WRITE"));
         } finally {
@@ -373,7 +375,7 @@ public final class LbStatementApiIT {
                     "Expected LoadBalanceConnection but got " + connection.getClass().getName());
         }
         LoadBalanceConnection lbConnection = (LoadBalanceConnection) connection;
-        lbConnection.getRuntimeMetrics().setEnabled(true);
+        LbTestAccess.getRuntimeMetrics(lbConnection).setEnabled(true);
         return lbConnection;
     }
 
@@ -428,7 +430,7 @@ public final class LbStatementApiIT {
     }
 
     private static String lastSqlEvent(final RuntimeMetrics metrics) {
-        java.util.List<String> events = metrics.getEvents();
+        java.util.List<String> events = MetricsTestAccess.getEvents(metrics);
         for (int i = events.size() - 1; i >= 0; i--) {
             String event = events.get(i);
             if (event.contains("sqlType=READ")

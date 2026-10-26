@@ -34,29 +34,29 @@ import java.util.HashMap;
 import java.util.Map;
 
 /** LB-JDBC error codes ({@code -23000} band; see {@code docs/LB-JDBC-Error-Codes.md}). */
-public final class LbJDBCErrorCode {
+final class LbJDBCErrorCode {
 
-    public static final int lb_invalid_url = -23003;
+    static final int lb_invalid_url = -23003;
 
-    public static final int lb_session_not_initialized = -23004;
-    public static final int lb_topology_invalid = -23005;
-    public static final int lb_physical_not_bound = -23007;
+    static final int lb_session_not_initialized = -23004;
+    static final int lb_topology_invalid = -23005;
+    static final int lb_physical_not_bound = -23007;
 
-    public static final int lb_broker_group_exhausted = -23009;
-    public static final int lb_broker_candidates_filtered = -23010;
+    static final int lb_broker_group_exhausted = -23009;
+    static final int lb_broker_candidates_filtered = -23010;
 
-    public static final int lb_failover_tx_forbidden = -23011;
-    public static final int lb_failover_exhausted = -23012;
-    public static final int lb_failover_ro_rw_fallback_failed = -23013;
+    static final int lb_failover_tx_forbidden = -23011;
+    static final int lb_failover_exhausted = -23012;
+    static final int lb_failover_ro_rw_fallback_failed = -23013;
 
-    public static final int lb_stmt_no_execution_history = -23014;
-    public static final int lb_delegation_not_configured = -23015;
-    public static final int lb_physical_delegate_failed = -23016;
-    public static final int lb_tx_autocommit_only = -23017;
-    public static final int lb_unsupported_route = -23018;
+    static final int lb_stmt_no_execution_history = -23014;
+    static final int lb_delegation_not_configured = -23015;
+    static final int lb_physical_delegate_failed = -23016;
+    static final int lb_tx_autocommit_only = -23017;
+    static final int lb_unsupported_route = -23018;
 
-    public static final int lb_option_invalid = -23019;
-    public static final int lb_internal_state = -23020;
+    static final int lb_option_invalid = -23019;
+    static final int lb_internal_state = -23020;
 
     private static final Map<Integer, String> MESSAGES = build();
 
@@ -113,7 +113,7 @@ public final class LbJDBCErrorCode {
         return messageString;
     }
 
-    public static String getMessage(final int code) {
+    static String getMessage(final int code) {
         return MESSAGES.get(Integer.valueOf(code));
     }
 }

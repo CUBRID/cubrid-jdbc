@@ -75,7 +75,7 @@ public final class ExecuteFailoverHandler {
                 || UnreachableEndpoints.shouldMarkUnreachable(ex);
     }
 
-    public <T> T executeWithFailover(
+    <T> T executeWithFailover(
             final LoadBalanceConnection connection,
             final Router.RouteTarget routeTarget,
             final String sql,

@@ -110,7 +110,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
                     new java.util.concurrent.ConcurrentHashMap<
                             String, java.util.concurrent.atomic.AtomicInteger>();
 
-    public static final String RO_PHYSICAL_FAILOVER_REASON = FallbackReason.RO_PHYSICAL;
+    static final String RO_PHYSICAL_FAILOVER_REASON = FallbackReason.RO_PHYSICAL;
     public static final JdbcConnectionFactory DRIVER_MANAGER =
             new JdbcConnectionFactory() {
                 public Connection getConnection(final String url, final Properties info)
@@ -177,7 +177,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         RO
     }
 
-    public SessionPhysicalConnManager(
+    SessionPhysicalConnManager(
             final String logicalJdbcUrl,
             final Properties clientInfo,
             final LoadBalanceSettings loadBalanceSettings,
@@ -1837,7 +1837,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
      *
      * @return the home RW endpoint, or {@code null}
      */
-    public synchronized Endpoint getHomeRwEndpoint() {
+    synchronized Endpoint getHomeRwEndpoint() {
         return homeRwEp;
     }
 
@@ -2029,7 +2029,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
      *
      * @return the home read endpoint, or {@code null}
      */
-    public synchronized Endpoint getHomeReadEndpoint() {
+    synchronized Endpoint getHomeReadEndpoint() {
         return homeReadEp;
     }
 

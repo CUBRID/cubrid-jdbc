@@ -32,6 +32,7 @@ package cubrid.jdbc.lb.config;
 
 import static org.junit.Assert.*;
 
+import cubrid.jdbc.lb.LbTestAccess;
 import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
 import java.sql.Connection;
@@ -45,18 +46,18 @@ public class LoadBalanceConnectionTest {
 
     @Test(expected = IllegalArgumentException.class)
     public void assertConstructorRejectsNullConfig() {
-        new LoadBalanceConnection(null);
+        LbTestAccess.newLoadBalanceConnection(null);
     }
 
     @Test
     public void assertGetAutoCommitDefaultTrue() throws Exception {
-        LoadBalanceConnection conn = new LoadBalanceConnection(emptyConfig());
+        LoadBalanceConnection conn = LbTestAccess.newLoadBalanceConnection(emptyConfig());
         assertTrue(conn.getAutoCommit());
     }
 
     @Test
     public void assertCloseAndIsClosed() throws Exception {
-        LoadBalanceConnection conn = new LoadBalanceConnection(emptyConfig());
+        LoadBalanceConnection conn = LbTestAccess.newLoadBalanceConnection(emptyConfig());
         assertFalse(conn.isClosed());
         conn.close();
         assertTrue(conn.isClosed());
@@ -64,15 +65,15 @@ public class LoadBalanceConnectionTest {
 
     @Test
     public void assertDependencyAccessorsNotNull() throws Exception {
-        LoadBalanceConnection conn = new LoadBalanceConnection(emptyConfig());
+        LoadBalanceConnection conn = LbTestAccess.newLoadBalanceConnection(emptyConfig());
         assertNotNull(conn.getLbConfig());
         assertNotNull(conn.getSessionState());
-        assertNotNull(conn.getBoundReadEndpoint());
+        assertNotNull(LbTestAccess.getBoundReadEndpoint(conn));
     }
 
     @Test
     public void assertTransactionIsolationDefault() throws Exception {
-        LoadBalanceConnection conn = new LoadBalanceConnection(emptyConfig());
+        LoadBalanceConnection conn = LbTestAccess.newLoadBalanceConnection(emptyConfig());
         assertEquals(Connection.TRANSACTION_READ_COMMITTED, conn.getTransactionIsolation());
     }
 }

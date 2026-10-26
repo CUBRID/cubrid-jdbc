@@ -43,8 +43,8 @@ import cubrid.jdbc.jci.UUnreachableHostList;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
+import cubrid.jdbc.lb.connection.ConnectionTestAccess;
 import cubrid.jdbc.lb.connection.JdbcConnectionFactory;
-import cubrid.jdbc.lb.connection.SessionPhysicalConnManager;
 import cubrid.jdbc.lb.failover.PhysicalRecoveryContext;
 import cubrid.jdbc.lb.failover.PhysicalRecoveryResult;
 import cubrid.jdbc.lb.failover.UnreachableEndpoints;
@@ -766,7 +766,8 @@ public class LoadBalanceConnectionRecoverPhyBindingTest {
             throws SQLException {
         LoadBalanceConnection conn = new LoadBalanceConnection(config);
         conn.setConnectionManager(
-                new SessionPhysicalConnManager(LOGICAL_URL, new Properties(), config, factory));
+                ConnectionTestAccess.newSessionPhysicalConnManager(
+                        LOGICAL_URL, new Properties(), config, factory));
         conn.setSharedSelectorState(new SharedSelectorState());
         return conn;
     }

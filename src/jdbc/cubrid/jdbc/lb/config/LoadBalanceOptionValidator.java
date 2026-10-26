@@ -52,7 +52,7 @@ import java.util.logging.Logger;
  *       This validator only checks mode applicability.
  * </ul>
  */
-public final class LoadBalanceOptionValidator {
+final class LoadBalanceOptionValidator {
     private static final Logger LOGGER =
             Logger.getLogger(LoadBalanceOptionValidator.class.getName());
 
@@ -87,8 +87,7 @@ public final class LoadBalanceOptionValidator {
      * @param options the raw option map to classify; may be {@code null}
      * @return the retained options and the ignored keys
      */
-    public static Result validate(
-            final boolean loadBalanceMode, final Map<String, String> options) {
+    static Result validate(final boolean loadBalanceMode, final Map<String, String> options) {
         final Map<String, String> retained = new LinkedHashMap<String, String>();
         final List<String> ignoredKeys = new ArrayList<String>();
 
@@ -117,7 +116,7 @@ public final class LoadBalanceOptionValidator {
     }
 
     /** Outcome of {@link #validate}: options to keep, and the keys that were ignored. */
-    public static final class Result {
+    static final class Result {
         private final Map<String, String> retainedOptions;
         private final List<String> ignoredKeys;
 
@@ -131,7 +130,7 @@ public final class LoadBalanceOptionValidator {
          *
          * @return the retained options, as an unmodifiable map
          */
-        public Map<String, String> getRetainedOptions() {
+        Map<String, String> getRetainedOptions() {
             return retainedOptions;
         }
 
@@ -140,11 +139,11 @@ public final class LoadBalanceOptionValidator {
          *
          * @return the ignored keys, as an unmodifiable list
          */
-        public List<String> getIgnoredKeys() {
+        List<String> getIgnoredKeys() {
             return ignoredKeys;
         }
 
-        public boolean hasIgnored() {
+        boolean hasIgnored() {
             return !ignoredKeys.isEmpty();
         }
     }

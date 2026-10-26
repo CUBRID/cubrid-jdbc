@@ -37,7 +37,7 @@ import static org.junit.Assert.assertTrue;
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.config.LoadBalanceUrlParser;
 import cubrid.jdbc.lb.connection.JdbcConnectionFactory;
-import cubrid.jdbc.lb.state.SharedSelectorStateRegistry;
+import cubrid.jdbc.lb.state.StateTestAccess;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
@@ -70,7 +70,7 @@ public class LoadBalanceConnectionUriUrlTest {
 
     @Before
     public void setUp() {
-        SharedSelectorStateRegistry.clearForTests();
+        StateTestAccess.clearForTests();
         requestedUrls.clear();
         requestedProps.clear();
     }

@@ -40,6 +40,7 @@ import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.connection.SimpleEndpointConnManager;
 import cubrid.jdbc.lb.state.SharedSelectorState;
 import cubrid.jdbc.lb.statement.LBStatement;
+import cubrid.jdbc.lb.statement.StatementTestAccess;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
@@ -60,7 +61,8 @@ public final class CommandCoverageFollowupTest {
         LBStatement statement = (LBStatement) connection.createStatement();
         final Statement physicalStatement = newPhysicalStatementProxy();
         final List<String> calls = new ArrayList<String>();
-        statement.setStatementProvider(
+        StatementTestAccess.setStatementProvider(
+                statement,
                 new LBStatement.PhysicalStmtProvider() {
                     public Statement getStatement(
                             final cubrid.jdbc.lb.route.Router.RouteTarget target,
@@ -85,7 +87,8 @@ public final class CommandCoverageFollowupTest {
         LBStatement statement = (LBStatement) connection.createStatement();
         final List<cubrid.jdbc.lb.route.Router.RouteTarget> targets =
                 new ArrayList<cubrid.jdbc.lb.route.Router.RouteTarget>();
-        statement.setStatementProvider(
+        StatementTestAccess.setStatementProvider(
+                statement,
                 new LBStatement.PhysicalStmtProvider() {
                     public Statement getStatement(
                             final cubrid.jdbc.lb.route.Router.RouteTarget target,

@@ -49,7 +49,7 @@ public final class Endpoint {
         this.port = port;
     }
 
-    public static Endpoint parse(String hostPort) throws SQLException {
+    static Endpoint parse(String hostPort) throws SQLException {
         if (hostPort == null || hostPort.trim().length() == 0) {
             throw LbExceptions.optionInvalid("Endpoint is empty");
         }
@@ -83,7 +83,7 @@ public final class Endpoint {
         return host;
     }
 
-    public int getPort() {
+    int getPort() {
         return port;
     }
 

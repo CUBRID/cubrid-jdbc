@@ -52,7 +52,7 @@ package cubrid.jdbc.lb.sql;
  * <p>An unterminated region runs to the end of the input. A caller that treats an unterminated
  * comment as a syntax error sees the same end position and simply finds no further tokens.
  */
-public final class SqlLexer {
+final class SqlLexer {
     private SqlLexer() {}
 
     /**
@@ -63,7 +63,7 @@ public final class SqlLexer {
      * @param pos index to test
      * @return index one past the skipped region, or {@code pos} if none begins there
      */
-    public static int skipCommentOrQuoted(final String sql, final int pos) {
+    static int skipCommentOrQuoted(final String sql, final int pos) {
         final int afterComment = skipComment(sql, pos);
         if (afterComment != pos) {
             return afterComment;
@@ -80,7 +80,7 @@ public final class SqlLexer {
      * @param sql the statement text
      * @return whether the statement's tokens depend on that server setting
      */
-    public static boolean dependsOnBackslashEscapes(final String sql) {
+    static boolean dependsOnBackslashEscapes(final String sql) {
         if (sql == null || sql.indexOf('\\') < 0) {
             return false;
         }
@@ -135,7 +135,7 @@ public final class SqlLexer {
      * @param pos index to start from
      * @return index of the first character that is neither whitespace nor part of a comment
      */
-    public static int skipWhitespaceAndComments(final String sql, int pos) {
+    static int skipWhitespaceAndComments(final String sql, int pos) {
         final int len = sql.length();
 
         while (pos < len) {

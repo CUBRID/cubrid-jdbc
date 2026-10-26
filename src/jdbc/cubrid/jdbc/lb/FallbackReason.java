@@ -44,23 +44,23 @@ public final class FallbackReason {
     /**
      * Read was pinned to RW because a transaction is active and no master read endpoint applies.
      */
-    public static final String TX_ACTIVE_RW_LOCK = "TX_ACTIVE_RW_LOCK";
+    static final String TX_ACTIVE_RW_LOCK = "TX_ACTIVE_RW_LOCK";
 
     /** Physical binding was recovered after a runtime failover. */
-    public static final String RUNTIME_FAILOVER = "RUNTIME_FAILOVER";
+    static final String RUNTIME_FAILOVER = "RUNTIME_FAILOVER";
 
     /** RO physical connection was failed over. */
     public static final String RO_PHYSICAL = "RO_PHYSICAL_FAILOVER";
 
     /** The read-only broker refused a READ as a write (-581), so it ran again on RW. */
-    public static final String RO_WRITE_REJECTED = "RO_WRITE_REJECTED";
+    static final String RO_WRITE_REJECTED = "RO_WRITE_REJECTED";
 
     /** A read touched LOB content, whose files HA does not replicate, and ran again on RW. */
-    public static final String RO_LOB_UNAVAILABLE = "RO_LOB_UNAVAILABLE";
+    static final String RO_LOB_UNAVAILABLE = "RO_LOB_UNAVAILABLE";
 
     /** A session SET the read leg cannot replay keeps the session's reads on RW. */
-    public static final String SESSION_SET_PIN = "SESSION_SET_PIN";
+    static final String SESSION_SET_PIN = "SESSION_SET_PIN";
 
     /** A read named a variable an {@code INTO/TO} clause created on the write leg. */
-    public static final String SESSION_VARIABLE = "SESSION_VARIABLE";
+    static final String SESSION_VARIABLE = "SESSION_VARIABLE";
 }

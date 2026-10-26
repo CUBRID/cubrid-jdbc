@@ -35,6 +35,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import cubrid.jdbc.jci.UUnreachableHostList;
+import cubrid.jdbc.lb.config.ConfigTestAccess;
 import cubrid.jdbc.lb.config.MetricsConfig;
 import cubrid.jdbc.lb.sql.SqlClassification;
 import java.io.IOException;
@@ -217,10 +218,10 @@ public class MetricsExportersTest {
         csv.addHandler(capture);
         csv.setUseParentHandlers(false);
         Map<String, String> options = new HashMap<String, String>();
-        options.put(MetricsConfig.OPT_ENABLED, "true");
-        options.put(MetricsConfig.OPT_EXPORT, MetricsConfig.EXPORT_CSV);
-        options.put(MetricsConfig.OPT_INTERVAL_SEC, "1");
-        MetricsExporters.configure(MetricsConfig.parse(options, true));
+        options.put(ConfigTestAccess.OPT_ENABLED, "true");
+        options.put(ConfigTestAccess.OPT_EXPORT, ConfigTestAccess.EXPORT_CSV);
+        options.put(ConfigTestAccess.OPT_INTERVAL_SEC, "1");
+        MetricsExporters.configure(ConfigTestAccess.parseMetricsConfig(options, true));
         try {
             long deadline = System.currentTimeMillis() + 5000L;
             while (rows.isEmpty() && System.currentTimeMillis() < deadline) {
@@ -246,13 +247,13 @@ public class MetricsExportersTest {
             final int port, final int intervalSec, final String bind) {
         Map<String, String> options = new HashMap<String, String>();
         if (bind != null) {
-            options.put(MetricsConfig.OPT_PROMETHEUS_BIND, bind);
+            options.put(ConfigTestAccess.OPT_PROMETHEUS_BIND, bind);
         }
-        options.put(MetricsConfig.OPT_ENABLED, "true");
-        options.put(MetricsConfig.OPT_EXPORT, MetricsConfig.EXPORT_PROMETHEUS);
-        options.put(MetricsConfig.OPT_PROMETHEUS_PORT, String.valueOf(port));
-        options.put(MetricsConfig.OPT_INTERVAL_SEC, String.valueOf(intervalSec));
-        return MetricsConfig.parse(options, true);
+        options.put(ConfigTestAccess.OPT_ENABLED, "true");
+        options.put(ConfigTestAccess.OPT_EXPORT, ConfigTestAccess.EXPORT_PROMETHEUS);
+        options.put(ConfigTestAccess.OPT_PROMETHEUS_PORT, String.valueOf(port));
+        options.put(ConfigTestAccess.OPT_INTERVAL_SEC, String.valueOf(intervalSec));
+        return ConfigTestAccess.parseMetricsConfig(options, true);
     }
 
     private static int freePort() throws IOException {

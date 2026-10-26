@@ -54,7 +54,7 @@ import java.sql.SQLException;
  * Building this on the physical RW connection would inherit the 173 standard methods untouched, but
  * the captured socket would go stale on failover.
  */
-public class LBDatabaseMetaData extends CUBRIDDatabaseMetaData {
+class LBDatabaseMetaData extends CUBRIDDatabaseMetaData {
 
     private final LoadBalanceConnection owner;
 

@@ -104,7 +104,7 @@ public final class MetricsExporters {
      * {@code Runnable} holds the webapp's class loader - the classic container-side leak. A
      * container hook, or the application's own shutdown path, can call this to release both.
      */
-    public static void stop() {
+    static void stop() {
         synchronized (LOCK) {
             if (prometheusServer != null) {
                 prometheusServer.stop(0);

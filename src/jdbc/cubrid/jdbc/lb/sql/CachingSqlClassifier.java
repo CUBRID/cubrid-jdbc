@@ -47,7 +47,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * map. Under concurrency the count is approximate: it only decides when to rotate, never what a
  * lookup returns.
  */
-public final class CachingSqlClassifier implements SqlClassifier {
+final class CachingSqlClassifier implements SqlClassifier {
     private static final int MIN_MAP_INITIAL_CAPACITY = 16;
     private static final int MAX_MAP_INITIAL_CAPACITY = 4096;
     // Longer statements are classified each time: the cache is JVM-wide and keyed by the full text,
@@ -61,7 +61,7 @@ public final class CachingSqlClassifier implements SqlClassifier {
     private volatile ConcurrentHashMap<String, SqlClassification> hot;
     private volatile ConcurrentHashMap<String, SqlClassification> cold;
 
-    public CachingSqlClassifier(final SqlClassifier delegate, final int maxEntries) {
+    CachingSqlClassifier(final SqlClassifier delegate, final int maxEntries) {
         if (delegate == null) {
             throw new IllegalArgumentException("delegate must not be null");
         }

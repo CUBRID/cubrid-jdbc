@@ -34,8 +34,8 @@ import static org.junit.Assert.assertEquals;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
+import cubrid.jdbc.lb.connection.ConnectionTestAccess;
 import cubrid.jdbc.lb.connection.JdbcConnectionFactory;
-import cubrid.jdbc.lb.connection.SessionPhysicalConnManager;
 import cubrid.jdbc.lb.state.SharedSelectorState;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
@@ -156,7 +156,8 @@ public class LoadBalanceConnectionScrollablePsTest {
 
         LoadBalanceConnection conn = new LoadBalanceConnection(config);
         conn.setConnectionManager(
-                new SessionPhysicalConnManager(LOGICAL_URL, new Properties(), config, factory));
+                ConnectionTestAccess.newSessionPhysicalConnManager(
+                        LOGICAL_URL, new Properties(), config, factory));
         conn.setSharedSelectorState(new SharedSelectorState());
         conn.initSessionBindings(
                 new EndpointTopology(

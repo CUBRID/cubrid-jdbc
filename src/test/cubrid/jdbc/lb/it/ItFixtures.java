@@ -30,9 +30,11 @@
 
 package cubrid.jdbc.lb.it;
 
+import cubrid.jdbc.lb.LbTestAccess;
 import cubrid.jdbc.lb.LoadBalanceConnection;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
+import cubrid.jdbc.lb.metrics.MetricsTestAccess;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -120,14 +122,14 @@ final class ItFixtures {
                     batch.add(connection);
 
                     if (expected == null) {
-                        expected = readEndpointIds(connection.getSessionTopology());
+                        expected = readEndpointIds(LbTestAccess.getSessionTopology(connection));
                         if (expected.isEmpty()) {
                             return; // no separate read endpoint: the master already has the table
                         }
                         size = batchSize(expected.size());
                     }
-                    if (connection.getCurrentRoEndpoint() != null) {
-                        homes.add(connection.getCurrentRoEndpoint().getId());
+                    if (LbTestAccess.getCurrentRoEndpoint(connection) != null) {
+                        homes.add(LbTestAccess.getCurrentRoEndpoint(connection).getId());
                     }
 
                     try {
@@ -209,7 +211,7 @@ final class ItFixtures {
                     batch.add(connection);
 
                     if (expected == null) {
-                        expected = readEndpointIds(connection.getSessionTopology());
+                        expected = readEndpointIds(LbTestAccess.getSessionTopology(connection));
                         if (expected.isEmpty()) {
                             return; // no separate read endpoint: the master drop is the whole story
                         }
@@ -217,10 +219,10 @@ final class ItFixtures {
                     }
                     // A failing probe records no routing event, so the read leg this session bound
                     // is what attributes the result.
-                    if (connection.getCurrentRoEndpoint() == null) {
+                    if (LbTestAccess.getCurrentRoEndpoint(connection) == null) {
                         continue;
                     }
-                    String endpointId = connection.getCurrentRoEndpoint().getId();
+                    String endpointId = LbTestAccess.getCurrentRoEndpoint(connection).getId();
                     try {
                         select(connection, probe);
                         stillReadable.add(endpointId);
@@ -268,7 +270,7 @@ final class ItFixtures {
                     "Expected LoadBalanceConnection but got " + connection.getClass().getName());
         }
         LoadBalanceConnection lbConnection = (LoadBalanceConnection) connection;
-        lbConnection.getRuntimeMetrics().setEnabled(true);
+        LbTestAccess.getRuntimeMetrics(lbConnection).setEnabled(true);
         return lbConnection;
     }
 
@@ -297,7 +299,8 @@ final class ItFixtures {
     }
 
     private static String lastEndpointId(final LoadBalanceConnection connection) {
-        List<String> events = connection.getRuntimeMetrics().getEvents();
+        List<String> events =
+                MetricsTestAccess.getEvents(LbTestAccess.getRuntimeMetrics(connection));
         for (int i = events.size() - 1; i >= 0; i--) {
             String event = events.get(i);
             if (!event.contains("sqlType=READ")) {

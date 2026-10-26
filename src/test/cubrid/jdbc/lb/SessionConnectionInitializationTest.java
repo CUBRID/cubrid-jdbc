@@ -42,6 +42,7 @@ import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.connection.SimpleEndpointConnManager;
 import cubrid.jdbc.lb.state.SharedSelectorState;
+import cubrid.jdbc.lb.state.StateTestAccess;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
@@ -60,7 +61,7 @@ public final class SessionConnectionInitializationTest {
         assertTrue(connection.isSessionInitialized());
         assertEquals("rw-host", connection.getCurrentEp(SessionLeg.RW).getHost());
         assertNotNull(connection.getCurrentEp(SessionLeg.RO));
-        assertTrue(connection.getBoundReadEndpoint().isBound());
+        assertTrue(StateTestAccess.isBound(connection.getBoundReadEndpoint()));
         assertSame(
                 connection.getCurrentEp(SessionLeg.RO),
                 connection.getBoundReadEndpoint().getCurrentRoEndpoint());
@@ -128,7 +129,7 @@ public final class SessionConnectionInitializationTest {
         assertFalse(connection.isSessionInitialized());
         assertEquals(null, connection.getCurrentEp(SessionLeg.RW));
         assertEquals(null, connection.getCurrentEp(SessionLeg.RO));
-        assertFalse(connection.getBoundReadEndpoint().isBound());
+        assertFalse(StateTestAccess.isBound(connection.getBoundReadEndpoint()));
     }
 
     @Test

@@ -35,9 +35,7 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.fail;
 
 import cubrid.jdbc.jci.UErrorCode;
-import cubrid.jdbc.lb.LbTestSettings;
-import cubrid.jdbc.lb.LoadBalanceConnection;
-import cubrid.jdbc.lb.config.Endpoint;
+import cubrid.jdbc.lb.RecoveringConnection;
 import cubrid.jdbc.lb.route.Router;
 import java.net.SocketTimeoutException;
 import java.sql.SQLException;
@@ -51,32 +49,6 @@ import org.junit.Test;
  * the retry decision, not the recovery outcome.
  */
 public class ExecuteFailoverHandlerTest {
-
-    private static final class RecoveringConnection extends LoadBalanceConnection {
-        final AtomicInteger recoverCalls = new AtomicInteger();
-
-        RecoveringConnection() {
-            super(LbTestSettings.defaults());
-        }
-
-        @Override
-        public Endpoint endpointForTarget(final Router.RouteTarget target) {
-            return new Endpoint("failed-host", 33000);
-        }
-
-        @Override
-        public PhysicalRecoveryContext buildRecoveryCtx(
-                final Router.RouteTarget target, final Endpoint failedEp) {
-            return null; // ignored by the recoverPhyBinding stub below
-        }
-
-        @Override
-        public PhysicalRecoveryResult recoverPhyBinding(
-                final PhysicalRecoveryContext ctx, final SQLException originalEx) {
-            recoverCalls.incrementAndGet();
-            return null; // simulate successful rebind
-        }
-    }
 
     private static SQLException commFail() {
         return new SQLException("comm fail", null, UErrorCode.ER_COMMUNICATION);

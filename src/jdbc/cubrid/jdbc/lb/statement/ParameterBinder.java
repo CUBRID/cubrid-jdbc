@@ -46,7 +46,7 @@ import java.util.LinkedHashMap;
  * parameters bound before a route change or a failover rebind are re-applied to the new physical
  * statement.
  */
-public final class ParameterBinder {
+final class ParameterBinder {
     private final OperationList operations = new OperationList();
 
     // True once a parameter is recorded that still holds the caller's stream/reader: the LOB
@@ -57,89 +57,89 @@ public final class ParameterBinder {
     // where core materializes them too.
     private boolean hasStreamParam = false;
 
-    public void recordSetNull(final int parameterIndex, final int sqlType) {
+    void recordSetNull(final int parameterIndex, final int sqlType) {
         operations.add(new SetNullOp(parameterIndex, sqlType));
     }
 
-    public void recordSetNull(final int parameterIndex, final int sqlType, final String typeName) {
+    void recordSetNull(final int parameterIndex, final int sqlType, final String typeName) {
         operations.add(new SetNullTypeNameOp(parameterIndex, sqlType, typeName));
     }
 
-    public void recordSetString(final int parameterIndex, final String value) {
+    void recordSetString(final int parameterIndex, final String value) {
         operations.add(new SetStringOp(parameterIndex, value));
     }
 
-    public void recordSetInt(final int parameterIndex, final int value) {
+    void recordSetInt(final int parameterIndex, final int value) {
         operations.add(new SetIntOp(parameterIndex, value));
     }
 
-    public void recordSetLong(final int parameterIndex, final long value) {
+    void recordSetLong(final int parameterIndex, final long value) {
         operations.add(new SetLongOp(parameterIndex, value));
     }
 
-    public void recordSetByte(final int parameterIndex, final byte value) {
+    void recordSetByte(final int parameterIndex, final byte value) {
         operations.add(new SetByteOp(parameterIndex, value));
     }
 
-    public void recordSetShort(final int parameterIndex, final short value) {
+    void recordSetShort(final int parameterIndex, final short value) {
         operations.add(new SetShortOp(parameterIndex, value));
     }
 
-    public void recordSetDouble(final int parameterIndex, final double value) {
+    void recordSetDouble(final int parameterIndex, final double value) {
         operations.add(new SetDoubleOp(parameterIndex, value));
     }
 
-    public void recordSetFloat(final int parameterIndex, final float value) {
+    void recordSetFloat(final int parameterIndex, final float value) {
         operations.add(new SetFloatOp(parameterIndex, value));
     }
 
-    public void recordSetBoolean(final int parameterIndex, final boolean value) {
+    void recordSetBoolean(final int parameterIndex, final boolean value) {
         operations.add(new SetBooleanOp(parameterIndex, value));
     }
 
-    public void recordSetDate(final int parameterIndex, final java.sql.Date value) {
+    void recordSetDate(final int parameterIndex, final java.sql.Date value) {
         operations.add(new SetDateOp(parameterIndex, value));
     }
 
-    public void recordSetDate(
+    void recordSetDate(
             final int parameterIndex, final java.sql.Date value, final java.util.Calendar cal) {
         operations.add(new SetDateCalOp(parameterIndex, value, cal));
     }
 
-    public void recordSetTime(final int parameterIndex, final java.sql.Time value) {
+    void recordSetTime(final int parameterIndex, final java.sql.Time value) {
         operations.add(new SetTimeOp(parameterIndex, value));
     }
 
-    public void recordSetTime(
+    void recordSetTime(
             final int parameterIndex, final java.sql.Time value, final java.util.Calendar cal) {
         operations.add(new SetTimeCalOp(parameterIndex, value, cal));
     }
 
-    public void recordSetTimestamp(final int parameterIndex, final java.sql.Timestamp value) {
+    void recordSetTimestamp(final int parameterIndex, final java.sql.Timestamp value) {
         operations.add(new SetTimestampOp(parameterIndex, value));
     }
 
-    public void recordSetTimestamp(
+    void recordSetTimestamp(
             final int parameterIndex,
             final java.sql.Timestamp value,
             final java.util.Calendar cal) {
         operations.add(new SetTimestampCalOp(parameterIndex, value, cal));
     }
 
-    public void recordSetBigDecimal(final int parameterIndex, final java.math.BigDecimal value) {
+    void recordSetBigDecimal(final int parameterIndex, final java.math.BigDecimal value) {
         operations.add(new SetBigDecimalOp(parameterIndex, value));
     }
 
-    public void recordSetBytes(final int parameterIndex, final byte[] value) {
+    void recordSetBytes(final int parameterIndex, final byte[] value) {
         operations.add(new SetBytesOp(parameterIndex, snapshot(value)));
     }
 
-    public void recordSetCharacterStream(final int parameterIndex, final java.io.Reader reader) {
+    void recordSetCharacterStream(final int parameterIndex, final java.io.Reader reader) {
         hasStreamParam = true;
         operations.add(new SetCharacterStreamOp(parameterIndex, reader));
     }
 
-    public void recordSetCharacterStream(
+    void recordSetCharacterStream(
             final int parameterIndex, final java.io.Reader reader, final int length)
             throws SQLException {
         operations.add(
@@ -147,19 +147,18 @@ public final class ParameterBinder {
                         parameterIndex, reader == null ? null : materialize(reader, length)));
     }
 
-    public void recordSetCharacterStream(
+    void recordSetCharacterStream(
             final int parameterIndex, final java.io.Reader reader, final long length) {
         hasStreamParam = true;
         operations.add(new SetCharacterStreamLenLongOp(parameterIndex, reader, length));
     }
 
-    public void recordSetBinaryStream(
-            final int parameterIndex, final java.io.InputStream inputStream) {
+    void recordSetBinaryStream(final int parameterIndex, final java.io.InputStream inputStream) {
         hasStreamParam = true;
         operations.add(new SetBinaryStreamOp(parameterIndex, inputStream));
     }
 
-    public void recordSetBinaryStream(
+    void recordSetBinaryStream(
             final int parameterIndex, final java.io.InputStream inputStream, final int length)
             throws SQLException {
         operations.add(
@@ -168,19 +167,18 @@ public final class ParameterBinder {
                         inputStream == null ? null : materialize(inputStream, length)));
     }
 
-    public void recordSetBinaryStream(
+    void recordSetBinaryStream(
             final int parameterIndex, final java.io.InputStream inputStream, final long length) {
         hasStreamParam = true;
         operations.add(new SetBinaryStreamLenLongOp(parameterIndex, inputStream, length));
     }
 
-    public void recordSetAsciiStream(
-            final int parameterIndex, final java.io.InputStream inputStream) {
+    void recordSetAsciiStream(final int parameterIndex, final java.io.InputStream inputStream) {
         hasStreamParam = true;
         operations.add(new SetAsciiStreamOp(parameterIndex, inputStream));
     }
 
-    public void recordSetAsciiStream(
+    void recordSetAsciiStream(
             final int parameterIndex, final java.io.InputStream inputStream, final int length)
             throws SQLException {
         operations.add(
@@ -189,108 +187,105 @@ public final class ParameterBinder {
                         inputStream == null ? null : materialize(inputStream, length)));
     }
 
-    public void recordSetAsciiStream(
+    void recordSetAsciiStream(
             final int parameterIndex, final java.io.InputStream inputStream, final long length) {
         hasStreamParam = true;
         operations.add(new SetAsciiStreamLenLongOp(parameterIndex, inputStream, length));
     }
 
-    public void recordSetURL(final int parameterIndex, final java.net.URL value) {
+    void recordSetURL(final int parameterIndex, final java.net.URL value) {
         operations.add(new SetUrlOp(parameterIndex, value));
     }
 
-    public void recordSetBlob(final int parameterIndex, final java.sql.Blob value) {
+    void recordSetBlob(final int parameterIndex, final java.sql.Blob value) {
         operations.add(new SetBlobObjOp(parameterIndex, value));
     }
 
-    public void recordSetBlob(final int parameterIndex, final java.io.InputStream inputStream) {
+    void recordSetBlob(final int parameterIndex, final java.io.InputStream inputStream) {
         hasStreamParam = true;
         operations.add(new SetBlobStreamOp(parameterIndex, inputStream));
     }
 
-    public void recordSetBlob(
+    void recordSetBlob(
             final int parameterIndex, final java.io.InputStream inputStream, final long length) {
         hasStreamParam = true;
         operations.add(new SetBlobLenOp(parameterIndex, inputStream, length));
     }
 
-    public void recordSetClob(final int parameterIndex, final java.sql.Clob value) {
+    void recordSetClob(final int parameterIndex, final java.sql.Clob value) {
         operations.add(new SetClobObjOp(parameterIndex, value));
     }
 
-    public void recordSetClob(final int parameterIndex, final java.io.Reader reader) {
+    void recordSetClob(final int parameterIndex, final java.io.Reader reader) {
         hasStreamParam = true;
         operations.add(new SetClobReaderOp(parameterIndex, reader));
     }
 
-    public void recordSetClob(
-            final int parameterIndex, final java.io.Reader reader, final long length) {
+    void recordSetClob(final int parameterIndex, final java.io.Reader reader, final long length) {
         hasStreamParam = true;
         operations.add(new SetClobLenOp(parameterIndex, reader, length));
     }
 
-    public void recordSetRef(final int parameterIndex, final java.sql.Ref value) {
+    void recordSetRef(final int parameterIndex, final java.sql.Ref value) {
         operations.add(new SetRefOp(parameterIndex, value));
     }
 
-    public void recordSetArray(final int parameterIndex, final java.sql.Array value) {
+    void recordSetArray(final int parameterIndex, final java.sql.Array value) {
         operations.add(new SetArrayOp(parameterIndex, value));
     }
 
-    public void recordSetRowId(final int parameterIndex, final java.sql.RowId value) {
+    void recordSetRowId(final int parameterIndex, final java.sql.RowId value) {
         operations.add(new SetRowIdOp(parameterIndex, value));
     }
 
-    public void recordSetNString(final int parameterIndex, final String value) {
+    void recordSetNString(final int parameterIndex, final String value) {
         operations.add(new SetNStringOp(parameterIndex, value));
     }
 
-    public void recordSetNCharacterStream(final int parameterIndex, final java.io.Reader reader) {
+    void recordSetNCharacterStream(final int parameterIndex, final java.io.Reader reader) {
         hasStreamParam = true;
         operations.add(new SetNCharacterStreamOp(parameterIndex, reader));
     }
 
-    public void recordSetNCharacterStream(
+    void recordSetNCharacterStream(
             final int parameterIndex, final java.io.Reader reader, final long length) {
         hasStreamParam = true;
         operations.add(new SetNCharacterStreamLenLongOp(parameterIndex, reader, length));
     }
 
-    public void recordSetNClob(final int parameterIndex, final java.sql.NClob value) {
+    void recordSetNClob(final int parameterIndex, final java.sql.NClob value) {
         operations.add(new SetNClobObjOp(parameterIndex, value));
     }
 
-    public void recordSetNClob(final int parameterIndex, final java.io.Reader reader) {
+    void recordSetNClob(final int parameterIndex, final java.io.Reader reader) {
         hasStreamParam = true;
         operations.add(new SetNClobReaderOp(parameterIndex, reader));
     }
 
-    public void recordSetNClob(
-            final int parameterIndex, final java.io.Reader reader, final long length) {
+    void recordSetNClob(final int parameterIndex, final java.io.Reader reader, final long length) {
         hasStreamParam = true;
         operations.add(new SetNClobLenLongOp(parameterIndex, reader, length));
     }
 
-    public void recordSetSQLXML(final int parameterIndex, final java.sql.SQLXML value) {
+    void recordSetSQLXML(final int parameterIndex, final java.sql.SQLXML value) {
         operations.add(new SetSqlxmlOp(parameterIndex, value));
     }
 
-    public void recordSetUnicodeStream(
+    void recordSetUnicodeStream(
             final int parameterIndex, final java.io.InputStream inputStream, final int length) {
         hasStreamParam = true;
         operations.add(new SetUnicodeStreamOp(parameterIndex, inputStream, length));
     }
 
-    public void recordSetObject(final int parameterIndex, final Object value) {
+    void recordSetObject(final int parameterIndex, final Object value) {
         operations.add(new SetObjectOp(parameterIndex, snapshot(value)));
     }
 
-    public void recordSetObject(
-            final int parameterIndex, final Object value, final int targetSqlType) {
+    void recordSetObject(final int parameterIndex, final Object value, final int targetSqlType) {
         operations.add(new SetObjectTypeOp(parameterIndex, snapshot(value), targetSqlType));
     }
 
-    public void recordSetObject(
+    void recordSetObject(
             final int parameterIndex,
             final Object value,
             final int targetSqlType,
@@ -300,20 +295,19 @@ public final class ParameterBinder {
                         parameterIndex, snapshot(value), targetSqlType, scaleOrLength));
     }
 
-    public void recordSetOID(final int parameterIndex, final cubrid.sql.CUBRIDOID value) {
+    void recordSetOID(final int parameterIndex, final cubrid.sql.CUBRIDOID value) {
         operations.add(new SetOidOp(parameterIndex, value));
     }
 
-    public void recordSetCollection(final int parameterIndex, final Object[] value) {
+    void recordSetCollection(final int parameterIndex, final Object[] value) {
         operations.add(new SetCollectionOp(parameterIndex, snapshot(value)));
     }
 
-    public void recordSetTimestamptz(
-            final int parameterIndex, final cubrid.sql.CUBRIDTimestamptz value) {
+    void recordSetTimestamptz(final int parameterIndex, final cubrid.sql.CUBRIDTimestamptz value) {
         operations.add(new SetTimestamptzOp(parameterIndex, value));
     }
 
-    public void recordSetTimestamptz(
+    void recordSetTimestamptz(
             final int parameterIndex,
             final cubrid.sql.CUBRIDTimestamptz value,
             final java.util.Calendar cal) {
@@ -440,7 +434,7 @@ public final class ParameterBinder {
         return value;
     }
 
-    public void clear() {
+    void clear() {
         operations.clear();
         hasStreamParam = false;
     }
@@ -451,19 +445,19 @@ public final class ParameterBinder {
      *
      * @return {@code true} if a bound parameter cannot be replayed
      */
-    public boolean hasNonReplayableParams() {
+    boolean hasNonReplayableParams() {
         return hasStreamParam;
     }
 
-    public int size() {
+    int size() {
         return operations.size();
     }
 
-    public int getMaxParameterIndex() {
+    int getMaxParameterIndex() {
         return operations.maxParameterIndex();
     }
 
-    public ParameterBinder snapshot() {
+    ParameterBinder snapshot() {
         ParameterBinder result = new ParameterBinder();
         result.operations.addAllFrom(operations);
         result.hasStreamParam = hasStreamParam;
@@ -471,7 +465,7 @@ public final class ParameterBinder {
         return result;
     }
 
-    public void replay(final PreparedStatement target) throws SQLException {
+    void replay(final PreparedStatement target) throws SQLException {
         if (null == target) {
             throw LbExceptions.internalState("missing prepared statement");
         }

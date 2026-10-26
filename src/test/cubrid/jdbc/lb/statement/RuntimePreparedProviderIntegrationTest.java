@@ -33,6 +33,7 @@ package cubrid.jdbc.lb.statement;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import cubrid.jdbc.lb.LbTestAccess;
 import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
 import cubrid.jdbc.lb.config.Endpoint;
@@ -49,9 +50,9 @@ public final class RuntimePreparedProviderIntegrationTest {
     public void assertExecuteDelegatesToReadOnlyInSessionMode() throws Exception {
         LoadBalanceConnection connection = createSessionConnection();
         SimpleEndpointConnManager manager = new SimpleEndpointConnManager();
-        connection.setConnectionManager(manager);
-        connection.setSharedSelectorState(new SharedSelectorState());
-        connection.initSessionBindings(createTopology());
+        LbTestAccess.setConnectionManager(connection, manager);
+        LbTestAccess.setSharedSelectorState(connection, new SharedSelectorState());
+        LbTestAccess.initSessionBindings(connection, createTopology());
 
         LBPreparedStatement statement =
                 (LBPreparedStatement) connection.prepareStatement("SELECT * FROM t WHERE id = ?");
@@ -67,9 +68,9 @@ public final class RuntimePreparedProviderIntegrationTest {
     public void assertTransactionReadFallsBackToMasterPath() throws Exception {
         LoadBalanceConnection connection = createSessionConnection();
         SimpleEndpointConnManager manager = new SimpleEndpointConnManager();
-        connection.setConnectionManager(manager);
-        connection.setSharedSelectorState(new SharedSelectorState());
-        connection.initSessionBindings(createTopology());
+        LbTestAccess.setConnectionManager(connection, manager);
+        LbTestAccess.setSharedSelectorState(connection, new SharedSelectorState());
+        LbTestAccess.initSessionBindings(connection, createTopology());
 
         connection.setAutoCommit(false);
         LBPreparedStatement statement =
@@ -84,9 +85,9 @@ public final class RuntimePreparedProviderIntegrationTest {
     public void assertCloseCleansPreparedStatementsViaProvider() throws Exception {
         LoadBalanceConnection connection = createSessionConnection();
         SimpleEndpointConnManager manager = new SimpleEndpointConnManager();
-        connection.setConnectionManager(manager);
-        connection.setSharedSelectorState(new SharedSelectorState());
-        connection.initSessionBindings(createTopology());
+        LbTestAccess.setConnectionManager(connection, manager);
+        LbTestAccess.setSharedSelectorState(connection, new SharedSelectorState());
+        LbTestAccess.initSessionBindings(connection, createTopology());
         LBPreparedStatement statement =
                 (LBPreparedStatement) connection.prepareStatement("SELECT * FROM t");
         statement.execute();
@@ -99,9 +100,9 @@ public final class RuntimePreparedProviderIntegrationTest {
     public void assertWritePrepareUsesMasterOnlyInSessionMode() throws Exception {
         LoadBalanceConnection connection = createSessionConnection();
         SimpleEndpointConnManager manager = new SimpleEndpointConnManager();
-        connection.setConnectionManager(manager);
-        connection.setSharedSelectorState(new SharedSelectorState());
-        connection.initSessionBindings(createTopology());
+        LbTestAccess.setConnectionManager(connection, manager);
+        LbTestAccess.setSharedSelectorState(connection, new SharedSelectorState());
+        LbTestAccess.initSessionBindings(connection, createTopology());
 
         LBPreparedStatement statement =
                 (LBPreparedStatement)
@@ -114,7 +115,7 @@ public final class RuntimePreparedProviderIntegrationTest {
     }
 
     private static LoadBalanceConnection createSessionConnection() {
-        return new LoadBalanceConnection(LbTestSettings.defaults());
+        return LbTestAccess.newLoadBalanceConnection(LbTestSettings.defaults());
     }
 
     private static EndpointTopology createTopology() {

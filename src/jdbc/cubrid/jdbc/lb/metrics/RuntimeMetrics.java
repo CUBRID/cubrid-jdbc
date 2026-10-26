@@ -66,7 +66,7 @@ public final class RuntimeMetrics {
         this(DEFAULT_MAX_EVENTS);
     }
 
-    public RuntimeMetrics(final int maxEvents) {
+    RuntimeMetrics(final int maxEvents) {
         if (maxEvents <= 0) {
             throw new IllegalArgumentException("maxEvents must be positive");
         }
@@ -101,7 +101,7 @@ public final class RuntimeMetrics {
      *
      * @return whether events are retained
      */
-    public boolean isEventsEnabled() {
+    boolean isEventsEnabled() {
         return eventsEnabled;
     }
 
@@ -191,32 +191,9 @@ public final class RuntimeMetrics {
      * @param endpointId endpoint id (host:port)
      * @return the total statement count, or {@code 0} if the endpoint was never observed
      */
-    public synchronized long getEndpointCount(final String endpointId) {
+    synchronized long getEndpointCount(final String endpointId) {
         EndpointTally stat = endpointStats.get(endpointId);
         return stat == null ? 0 : stat.read + stat.write + stat.unknown;
-    }
-
-    /**
-     * Per-endpoint read count. The live-cluster harnesses assert the readWeight distribution and
-     * the failover/failback legs from it.
-     *
-     * @param endpointId endpoint id (host:port)
-     * @return the read count, or {@code 0} if the endpoint was never observed
-     */
-    public synchronized long getEndpointReadCount(final String endpointId) {
-        EndpointTally stat = endpointStats.get(endpointId);
-        return stat == null ? 0 : stat.read;
-    }
-
-    /**
-     * Per-endpoint write count; the write-leg counterpart of {@link #getEndpointReadCount}.
-     *
-     * @param endpointId endpoint id (host:port)
-     * @return the write count, or {@code 0} if the endpoint was never observed
-     */
-    public synchronized long getEndpointWriteCount(final String endpointId) {
-        EndpointTally stat = endpointStats.get(endpointId);
-        return stat == null ? 0 : stat.write;
     }
 
     /**
@@ -225,7 +202,7 @@ public final class RuntimeMetrics {
      *
      * @return one immutable snapshot per observed endpoint
      */
-    public synchronized List<EndpointStatsSnapshot> snapshotEndpoints() {
+    synchronized List<EndpointStatsSnapshot> snapshotEndpoints() {
         List<EndpointStatsSnapshot> out =
                 new ArrayList<EndpointStatsSnapshot>(endpointStats.size());
         for (Map.Entry<String, EndpointTally> each : endpointStats.entrySet()) {
@@ -235,23 +212,11 @@ public final class RuntimeMetrics {
                             each.getKey(),
                             s.read,
                             s.write,
-                            s.unknown,
                             s.fallback,
                             s.readLat.snapshot(),
                             s.writeLat.snapshot()));
         }
         return out;
-    }
-
-    /**
-     * Clears all counters and the event log so a long run can be measured in windows (e.g. reset at
-     * the top of each hour, snapshot at the bottom). Leaves {@link #isEnabled()} untouched.
-     */
-    public synchronized void reset() {
-        roSelectionCount.set(0);
-        rwFallbackCount.set(0);
-        endpointStats.clear();
-        events.clear();
     }
 
     private EndpointTally statFor(final String endpointId) {
@@ -273,20 +238,20 @@ public final class RuntimeMetrics {
         events.addLast(event);
     }
 
-    public synchronized List<String> getEvents() {
+    synchronized List<String> getEvents() {
         return new ArrayList<String>(events);
     }
 
-    public long getRoSelectionCount() {
+    long getRoSelectionCount() {
         return roSelectionCount.get();
     }
 
-    public long getRwFallbackCount() {
+    long getRwFallbackCount() {
         return rwFallbackCount.get();
     }
 
     /** Upper bounds (ms, ascending) for the latency histogram; a final +Inf slot follows. */
-    public static final double[] LATENCY_BUCKETS_MS = {
+    static final double[] LATENCY_BUCKETS_MS = {
         1.0d, 2.0d, 5.0d, 10.0d, 25.0d, 50.0d, 100.0d, 250.0d, 500.0d, 1000.0d, 2500.0d, 5000.0d,
         10000.0d
     };
@@ -334,7 +299,7 @@ public final class RuntimeMetrics {
      * Immutable copy of one latency histogram. Bucket counts are <b>non-cumulative</b> (per slot);
      * a Prometheus exporter cumulates them into {@code le} buckets.
      */
-    public static final class LatencySnapshot {
+    static final class LatencySnapshot {
         private final long[] bucketCounts; // index i pairs with LATENCY_BUCKETS_MS[i]; last = +Inf
         private final long count;
         private final double sumMs;
@@ -346,29 +311,20 @@ public final class RuntimeMetrics {
         }
 
         /**
-         * Number of slots ({@code LATENCY_BUCKETS_MS.length + 1}; the last one is +Inf).
-         *
-         * @return the number of histogram slots
-         */
-        public int slots() {
-            return bucketCounts.length;
-        }
-
-        /**
          * Non-cumulative count in slot {@code i}.
          *
-         * @param i slot index, in {@code [0, slots())}
+         * @param i slot index, in {@code [0, LATENCY_BUCKETS_MS.length]}; the last slot is +Inf
          * @return the count recorded in that slot
          */
-        public long bucketCount(final int i) {
+        long bucketCount(final int i) {
             return bucketCounts[i];
         }
 
-        public long getCount() {
+        long getCount() {
             return count;
         }
 
-        public double getSumMs() {
+        double getSumMs() {
             return sumMs;
         }
     }
@@ -377,11 +333,10 @@ public final class RuntimeMetrics {
      * Immutable point-in-time copy of one endpoint's counts, returned by {@link
      * #snapshotEndpoints()}.
      */
-    public static final class EndpointStatsSnapshot {
+    static final class EndpointStatsSnapshot {
         private final String endpointId;
         private final long readCount;
         private final long writeCount;
-        private final long unknownCount;
         private final long fallbackCount;
         private final LatencySnapshot readLatency;
         private final LatencySnapshot writeLatency;
@@ -390,14 +345,12 @@ public final class RuntimeMetrics {
                 final String endpointId,
                 final long readCount,
                 final long writeCount,
-                final long unknownCount,
                 final long fallbackCount,
                 final LatencySnapshot readLatency,
                 final LatencySnapshot writeLatency) {
             this.endpointId = endpointId;
             this.readCount = readCount;
             this.writeCount = writeCount;
-            this.unknownCount = unknownCount;
             this.fallbackCount = fallbackCount;
             this.readLatency = readLatency;
             this.writeLatency = writeLatency;
@@ -408,7 +361,7 @@ public final class RuntimeMetrics {
          *
          * @return the read-latency snapshot
          */
-        public LatencySnapshot getReadLatency() {
+        LatencySnapshot getReadLatency() {
             return readLatency;
         }
 
@@ -417,37 +370,24 @@ public final class RuntimeMetrics {
          *
          * @return the write-latency snapshot
          */
-        public LatencySnapshot getWriteLatency() {
+        LatencySnapshot getWriteLatency() {
             return writeLatency;
         }
 
-        public String getEndpointId() {
+        String getEndpointId() {
             return endpointId;
         }
 
-        public long getReadCount() {
+        long getReadCount() {
             return readCount;
         }
 
-        public long getWriteCount() {
+        long getWriteCount() {
             return writeCount;
         }
 
-        public long getUnknownCount() {
-            return unknownCount;
-        }
-
-        public long getFallbackCount() {
+        long getFallbackCount() {
             return fallbackCount;
-        }
-
-        /**
-         * Read + write + unclassified: every statement observed on this endpoint.
-         *
-         * @return the total statement count
-         */
-        public long getTotalCount() {
-            return readCount + writeCount + unknownCount;
         }
     }
 }

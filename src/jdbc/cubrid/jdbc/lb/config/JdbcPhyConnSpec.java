@@ -41,7 +41,7 @@ public final class JdbcPhyConnSpec {
     private final String jdbcUrl;
     private final Properties connectionProperties;
 
-    public JdbcPhyConnSpec(String jdbcUrl, Properties connectionProperties) {
+    JdbcPhyConnSpec(String jdbcUrl, Properties connectionProperties) {
         if (jdbcUrl == null) {
             throw new IllegalArgumentException("jdbcUrl must not be null");
         }

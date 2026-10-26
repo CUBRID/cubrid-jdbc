@@ -38,7 +38,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import cubrid.jdbc.driver.CUBRIDException;
-import cubrid.jdbc.lb.LbJDBCErrorCode;
+import cubrid.jdbc.lb.LbTestAccess;
 import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.SessionLeg;
 import cubrid.jdbc.lb.config.Endpoint;
@@ -180,7 +180,7 @@ public class JdbcBrokerConnectionManagerTest {
             fail("Expected SQLException");
         } catch (SQLException e) {
             assertTrue(e instanceof CUBRIDException);
-            assertEquals(LbJDBCErrorCode.lb_broker_group_exhausted, e.getErrorCode());
+            assertEquals(LbTestAccess.lb_broker_group_exhausted, e.getErrorCode());
             assertTrue(e.getMessage().contains("group=RW"));
         }
         mgr.releasePhysicalConnections();
@@ -965,7 +965,7 @@ public class JdbcBrokerConnectionManagerTest {
             fail("Expected SQLException");
         } catch (SQLException e) {
             assertTrue(e instanceof CUBRIDException);
-            assertEquals(LbJDBCErrorCode.lb_failover_tx_forbidden, e.getErrorCode());
+            assertEquals(LbTestAccess.lb_failover_tx_forbidden, e.getErrorCode());
         }
     }
 
@@ -1100,7 +1100,7 @@ public class JdbcBrokerConnectionManagerTest {
             fail("Expected SQLException");
         } catch (SQLException e) {
             assertTrue(e instanceof CUBRIDException);
-            assertEquals(LbJDBCErrorCode.lb_broker_group_exhausted, e.getErrorCode());
+            assertEquals(LbTestAccess.lb_broker_group_exhausted, e.getErrorCode());
             assertTrue(e.getMessage().contains("a:1"));
             assertTrue(e.getMessage().indexOf("b:2") < 0);
             assertNotNull(e.getCause());

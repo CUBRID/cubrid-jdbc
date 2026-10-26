@@ -91,7 +91,7 @@ public final class UnreachableEndpoints {
         this.unreachableHostList = unreachableHostList;
     }
 
-    public boolean isUnreachable(final Endpoint endpoint) {
+    boolean isUnreachable(final Endpoint endpoint) {
         if (endpoint == null) {
             return false;
         }

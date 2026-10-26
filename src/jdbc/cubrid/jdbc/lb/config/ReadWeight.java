@@ -84,7 +84,7 @@ public final class ReadWeight {
      * @return the resolved weights
      * @throws SQLException if the spec is malformed or inconsistent with the topology
      */
-    public static ReadWeight resolve(final String spec, final ParsedRoleTopology topology)
+    static ReadWeight resolve(final String spec, final ParsedRoleTopology topology)
             throws SQLException {
         if (spec == null || spec.trim().length() == 0) {
             return defaultsFor(topology);
@@ -133,7 +133,7 @@ public final class ReadWeight {
      * @return the parsed weights
      * @throws SQLException if the spec is empty or malformed
      */
-    public static ReadWeight parse(final String spec) throws SQLException {
+    static ReadWeight parse(final String spec) throws SQLException {
         if (spec == null || spec.trim().length() == 0) {
             throw LbExceptions.optionInvalid("readWeight is empty");
         }
@@ -178,7 +178,7 @@ public final class ReadWeight {
      * @return the default weights
      * @throws SQLException if the topology is missing
      */
-    public static ReadWeight defaultsFor(final ParsedRoleTopology topology) throws SQLException {
+    static ReadWeight defaultsFor(final ParsedRoleTopology topology) throws SQLException {
         if (topology == null) {
             throw LbExceptions.internalState(
                     "missing topology while building default read weights");
@@ -228,7 +228,7 @@ public final class ReadWeight {
      *
      * @return whether any role can serve reads
      */
-    public boolean hasReadTarget() {
+    boolean hasReadTarget() {
         return total() > 0;
     }
 

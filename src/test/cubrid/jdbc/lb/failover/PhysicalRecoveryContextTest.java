@@ -35,10 +35,11 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
+import cubrid.jdbc.lb.LbTestAccess;
 import cubrid.jdbc.lb.SessionLeg;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
-import cubrid.jdbc.lb.connection.SessionPhysicalConnManager;
+import cubrid.jdbc.lb.connection.ConnectionTestAccess;
 import cubrid.jdbc.lb.route.Router;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -48,8 +49,8 @@ public class PhysicalRecoveryContextTest {
 
     @Test
     public void failedLegMapsFromRouteTarget() {
-        assertEquals(SessionLeg.RW, SessionLeg.fromRouteTarget(Router.RouteTarget.TO_READ_WRITE));
-        assertEquals(SessionLeg.RO, SessionLeg.fromRouteTarget(Router.RouteTarget.TO_READ_ONLY));
+        assertEquals(SessionLeg.RW, LbTestAccess.fromRouteTarget(Router.RouteTarget.TO_READ_WRITE));
+        assertEquals(SessionLeg.RO, LbTestAccess.fromRouteTarget(Router.RouteTarget.TO_READ_ONLY));
     }
 
     @Test
@@ -90,12 +91,9 @@ public class PhysicalRecoveryContextTest {
         Endpoint bound = new Endpoint("rw", 33000);
         PhysicalRecoveryResult result =
                 new PhysicalRecoveryResult(
-                        bound,
-                        SessionLeg.RW,
-                        SessionPhysicalConnManager.RO_PHYSICAL_FAILOVER_REASON);
+                        bound, SessionLeg.RW, ConnectionTestAccess.RO_PHYSICAL_FAILOVER_REASON);
         assertSame(bound, result.getBoundEndpoint());
         assertEquals(SessionLeg.RW, result.getBoundLeg());
-        assertEquals(
-                SessionPhysicalConnManager.RO_PHYSICAL_FAILOVER_REASON, result.getFallbackReason());
+        assertEquals(ConnectionTestAccess.RO_PHYSICAL_FAILOVER_REASON, result.getFallbackReason());
     }
 }

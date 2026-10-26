@@ -57,7 +57,7 @@ public final class SharedSelectorStateRegistry {
     }
 
     /** Clears all registry entries; for unit tests only. */
-    public static void clearForTests() {
+    static void clearForTests() {
         BY_KEY.clear();
     }
 

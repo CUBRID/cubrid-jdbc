@@ -33,7 +33,9 @@ package cubrid.jdbc.lb.it;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import cubrid.jdbc.lb.LbTestAccess;
 import cubrid.jdbc.lb.LoadBalanceConnection;
+import cubrid.jdbc.lb.config.ConfigTestAccess;
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.config.LoadBalanceUrlParser;
 import cubrid.jdbc.lb.config.NodeRole;
@@ -41,6 +43,7 @@ import cubrid.jdbc.lb.config.ReadWeight;
 import cubrid.jdbc.lb.config.ResolvedRoleTopology;
 import cubrid.jdbc.lb.config.ResolvedRoleTopology.ResolvedNode;
 import cubrid.jdbc.lb.config.ResolvedRoleTopology.ResolvedReplica;
+import cubrid.jdbc.lb.metrics.MetricsTestAccess;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
@@ -119,29 +122,29 @@ public final class LbUriUrlIT {
         // credentials + database name from the "/testdb:dba:secret:" segment
         assertEquals("testdb", config.getDatabaseName());
         assertEquals("dba", config.getUrlUser());
-        assertEquals("secret", config.getUrlPassword());
+        assertEquals("secret", ConfigTestAccess.getUrlPassword(config));
 
         ResolvedRoleTopology topology = config.getResolvedTopology();
 
         // node1 -> MASTER, with rwPort/roPort applied from the global options
         ResolvedNode master = topology.getMaster();
-        assertEquals("node1", master.getHost());
-        assertEquals(33000, master.getRw().getPort());
-        assertEquals(33002, master.getRo().getPort());
+        assertEquals("node1", ConfigTestAccess.getHost(master));
+        assertEquals(33000, ConfigTestAccess.getPort(master.getRw()));
+        assertEquals(33002, ConfigTestAccess.getPort(master.getRo()));
 
         // node2, node3 -> SLAVE
         List<ResolvedNode> slaves = topology.getSlaves();
         assertEquals(2, slaves.size());
-        assertEquals("node2", slaves.get(0).getHost());
-        assertEquals("node3", slaves.get(1).getHost());
-        assertEquals(33000, slaves.get(0).getRw().getPort());
-        assertEquals(33002, slaves.get(0).getRo().getPort());
+        assertEquals("node2", ConfigTestAccess.getHost(slaves.get(0)));
+        assertEquals("node3", ConfigTestAccess.getHost(slaves.get(1)));
+        assertEquals(33000, ConfigTestAccess.getPort(slaves.get(0).getRw()));
+        assertEquals(33002, ConfigTestAccess.getPort(slaves.get(0).getRo()));
 
         // rep1 -> REPLICA, with soPort applied
         List<ResolvedReplica> replicas = topology.getReplicas();
         assertEquals(1, replicas.size());
-        assertEquals("rep1", replicas.get(0).getHost());
-        assertEquals(33004, replicas.get(0).getSo().getPort());
+        assertEquals("rep1", ConfigTestAccess.getHost(replicas.get(0)));
+        assertEquals(33004, ConfigTestAccess.getPort(replicas.get(0).getSo()));
 
         // readWeight=slave:40,master:10,replica:50
         ReadWeight weight = config.getReadWeight();
@@ -149,7 +152,7 @@ public final class LbUriUrlIT {
         assertEquals(40, weight.weightOf(NodeRole.SLAVE));
         assertEquals(50, weight.weightOf(NodeRole.REPLICA));
         assertEquals(100, weight.total());
-        assertTrue(weight.hasReadTarget());
+        assertTrue(ConfigTestAccess.hasReadTarget(weight));
     }
 
     @Test
@@ -227,7 +230,7 @@ public final class LbUriUrlIT {
                     "Expected LoadBalanceConnection but got " + connection.getClass().getName());
         }
         LoadBalanceConnection lbConnection = (LoadBalanceConnection) connection;
-        lbConnection.getRuntimeMetrics().setEnabled(true);
+        LbTestAccess.getRuntimeMetrics(lbConnection).setEnabled(true);
         return lbConnection;
     }
 
@@ -277,7 +280,8 @@ public final class LbUriUrlIT {
     }
 
     private static String lastSqlEvent(final LoadBalanceConnection connection) {
-        List<String> events = connection.getRuntimeMetrics().getEvents();
+        List<String> events =
+                MetricsTestAccess.getEvents(LbTestAccess.getRuntimeMetrics(connection));
         for (int i = events.size() - 1; i >= 0; i--) {
             String event = events.get(i);
             if (event.contains("sqlType=READ")

@@ -92,7 +92,7 @@ public final class ResolvedRoleTopology {
      * @return the topology with every broker port resolved
      * @throws SQLException if the topology is missing or a port option is invalid
      */
-    public static ResolvedRoleTopology resolve(
+    static ResolvedRoleTopology resolve(
             final ParsedRoleTopology topology, final Map<String, String> options)
             throws SQLException {
         if (topology == null) {
@@ -245,7 +245,7 @@ public final class ResolvedRoleTopology {
             this.ro = ro;
         }
 
-        public String getHost() {
+        String getHost() {
             return host;
         }
 
@@ -268,7 +268,7 @@ public final class ResolvedRoleTopology {
             this.so = so;
         }
 
-        public String getHost() {
+        String getHost() {
             return host;
         }
 

@@ -36,13 +36,15 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import cubrid.jdbc.jci.UErrorCode;
+import cubrid.jdbc.lb.LbTestAccess;
 import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
+import cubrid.jdbc.lb.connection.ConnectionTestAccess;
 import cubrid.jdbc.lb.connection.JdbcConnectionFactory;
-import cubrid.jdbc.lb.connection.SessionPhysicalConnManager;
+import cubrid.jdbc.lb.metrics.MetricsTestAccess;
 import cubrid.jdbc.lb.state.SharedSelectorState;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
@@ -307,18 +309,20 @@ public final class BrokerDownOutsideExecuteTest {
             throws SQLException {
         LoadBalanceSettings settings = LbTestSettings.forTopology(topology);
 
-        LoadBalanceConnection conn = new LoadBalanceConnection(settings);
-        conn.getRuntimeMetrics().setEnabled(true);
-        conn.setConnectionManager(
-                new SessionPhysicalConnManager(LOGICAL_URL, new Properties(), settings, factory));
-        conn.setSharedSelectorState(new SharedSelectorState());
-        conn.initSessionBindings(topology);
+        LoadBalanceConnection conn = LbTestAccess.newLoadBalanceConnection(settings);
+        LbTestAccess.getRuntimeMetrics(conn).setEnabled(true);
+        LbTestAccess.setConnectionManager(
+                conn,
+                ConnectionTestAccess.newSessionPhysicalConnManager(
+                        LOGICAL_URL, new Properties(), settings, factory));
+        LbTestAccess.setSharedSelectorState(conn, new SharedSelectorState());
+        LbTestAccess.initSessionBindings(conn, topology);
 
         return conn;
     }
 
     private static boolean hasFailoverEvent(final LoadBalanceConnection conn) {
-        for (String event : conn.getRuntimeMetrics().getEvents()) {
+        for (String event : MetricsTestAccess.getEvents(LbTestAccess.getRuntimeMetrics(conn))) {
             if (event.contains("event=RUNTIME_FAILOVER")) {
                 return true;
             }

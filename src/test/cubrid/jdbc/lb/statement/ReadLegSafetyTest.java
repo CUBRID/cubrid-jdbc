@@ -37,12 +37,14 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import cubrid.jdbc.jci.UErrorCode;
+import cubrid.jdbc.lb.LbTestAccess;
 import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
+import cubrid.jdbc.lb.connection.ConnectionTestAccess;
 import cubrid.jdbc.lb.connection.JdbcConnectionFactory;
-import cubrid.jdbc.lb.connection.SessionPhysicalConnManager;
+import cubrid.jdbc.lb.metrics.MetricsTestAccess;
 import cubrid.jdbc.lb.state.SharedSelectorState;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.InvocationTargetException;
@@ -81,20 +83,22 @@ public class ReadLegSafetyTest {
     public void setUp() throws SQLException {
         legs = new Legs();
         conn =
-                new LoadBalanceConnection(
+                LbTestAccess.newLoadBalanceConnection(
                         LbTestSettings.forBinding(
                                 new Endpoint("rw", 33000), new Endpoint("ro", 33001)));
-        conn.getRuntimeMetrics().setEnabled(true);
-        conn.getRuntimeMetrics().setEventsEnabled(true);
-        conn.setConnectionManager(
-                new SessionPhysicalConnManager(
+        LbTestAccess.getRuntimeMetrics(conn).setEnabled(true);
+        LbTestAccess.getRuntimeMetrics(conn).setEventsEnabled(true);
+        LbTestAccess.setConnectionManager(
+                conn,
+                ConnectionTestAccess.newSessionPhysicalConnManager(
                         LOGICAL_URL,
                         new Properties(),
                         LbTestSettings.forBinding(
                                 new Endpoint("rw", 33000), new Endpoint("ro", 33001)),
                         legs));
-        conn.setSharedSelectorState(new SharedSelectorState());
-        conn.initSessionBindings(
+        LbTestAccess.setSharedSelectorState(conn, new SharedSelectorState());
+        LbTestAccess.initSessionBindings(
+                conn,
                 new EndpointTopology(
                         new Endpoint("rw", 33000),
                         Arrays.asList(new Endpoint("ro", 33001)),
@@ -463,7 +467,7 @@ public class ReadLegSafetyTest {
     }
 
     private String lastRouteEvent() {
-        List<String> events = conn.getRuntimeMetrics().getEvents();
+        List<String> events = MetricsTestAccess.getEvents(LbTestAccess.getRuntimeMetrics(conn));
         for (int i = events.size() - 1; i >= 0; i--) {
             if (events.get(i).contains("routeTarget=")) {
                 return events.get(i);

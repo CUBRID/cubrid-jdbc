@@ -32,7 +32,7 @@ package cubrid.jdbc.lb.statement;
 
 import static org.junit.Assert.*;
 
-import cubrid.jdbc.lb.LbJDBCErrorCode;
+import cubrid.jdbc.lb.LbTestAccess;
 import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
 import java.sql.Connection;
@@ -48,7 +48,7 @@ public class LBStatementTest {
 
     @Before
     public void setUp() throws Exception {
-        conn = new LoadBalanceConnection(LbTestSettings.defaults());
+        conn = LbTestAccess.newLoadBalanceConnection(LbTestSettings.defaults());
     }
 
     @Test
@@ -176,7 +176,7 @@ public class LBStatementTest {
             conn.createStatement().executeQuery("SELECT 1");
             fail("expected SQLException: this connection was never bound to a session");
         } catch (SQLException expected) {
-            assertEquals(LbJDBCErrorCode.lb_internal_state, expected.getErrorCode());
+            assertEquals(LbTestAccess.lb_internal_state, expected.getErrorCode());
         }
     }
 
@@ -186,7 +186,7 @@ public class LBStatementTest {
             conn.createStatement().executeUpdate("INSERT INTO t VALUES(1)");
             fail("expected SQLException: this connection was never bound to a session");
         } catch (SQLException expected) {
-            assertEquals(LbJDBCErrorCode.lb_internal_state, expected.getErrorCode());
+            assertEquals(LbTestAccess.lb_internal_state, expected.getErrorCode());
         }
     }
 
@@ -196,7 +196,7 @@ public class LBStatementTest {
             conn.createStatement().execute("SELECT 1");
             fail("expected SQLException: this connection was never bound to a session");
         } catch (SQLException expected) {
-            assertEquals(LbJDBCErrorCode.lb_internal_state, expected.getErrorCode());
+            assertEquals(LbTestAccess.lb_internal_state, expected.getErrorCode());
         }
     }
 

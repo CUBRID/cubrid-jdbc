@@ -53,14 +53,14 @@ public final class LbLogConfig {
     // URL option names. cubrid.jdbc.lb.config.LoadBalanceOptionValidator lists the same names in
     // its LB-only set, so they are ignored (WARN) outside loadbalance and never leak onto physical
     // broker URLs.
-    public static final String OPT_SQL = "lbLogSql";
-    public static final String OPT_SQL_MAX_LEN = "lbLogSqlMaxLen";
-    public static final String OPT_DIST_INTERVAL_SEC = "lbLogDistIntervalSec";
+    static final String OPT_SQL = "lbLogSql";
+    static final String OPT_SQL_MAX_LEN = "lbLogSqlMaxLen";
+    static final String OPT_DIST_INTERVAL_SEC = "lbLogDistIntervalSec";
 
     /** {@code lbLogSql} modes. */
     public static final String SQL_OFF = "off";
 
-    public static final String SQL_MASKED = "masked";
+    private static final String SQL_MASKED = "masked";
 
     public static final String SQL_RAW = "raw";
 
@@ -68,7 +68,7 @@ public final class LbLogConfig {
     static final int DEFAULT_DIST_INTERVAL_SEC = 0;
 
     /** Used for a non-loadbalance URL, where the options do not apply. */
-    public static final LbLogConfig DEFAULTS =
+    static final LbLogConfig DEFAULTS =
             new LbLogConfig(SQL_MASKED, DEFAULT_SQL_MAX_LEN, DEFAULT_DIST_INTERVAL_SEC);
 
     private final String sqlMode;
@@ -89,8 +89,7 @@ public final class LbLogConfig {
      * @param loadBalanceMode whether the URL is a loadbalance URL
      * @return the parsed config, or {@link #DEFAULTS}
      */
-    public static LbLogConfig parse(
-            final Map<String, String> options, final boolean loadBalanceMode) {
+    static LbLogConfig parse(final Map<String, String> options, final boolean loadBalanceMode) {
         if (!loadBalanceMode || options == null) {
             return DEFAULTS;
         }

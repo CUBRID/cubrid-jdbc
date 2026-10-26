@@ -179,7 +179,7 @@ public final class MetricsRegistry {
      *
      * @return the number of registered live metrics objects
      */
-    public static int liveCount() {
+    static int liveCount() {
         return LIVE.size();
     }
 
@@ -188,7 +188,7 @@ public final class MetricsRegistry {
      *
      * @return the known endpoint ids, in first-seen order
      */
-    public static Set<String> knownEndpointIds() {
+    static Set<String> knownEndpointIds() {
         return new java.util.LinkedHashSet<String>(ROLE.keySet());
     }
 
@@ -223,7 +223,7 @@ public final class MetricsRegistry {
      *
      * @return the failover transitions
      */
-    public static List<Transition> failovers() {
+    static List<Transition> failovers() {
         return snapshotTransitions(FAILOVERS);
     }
 
@@ -232,7 +232,7 @@ public final class MetricsRegistry {
      *
      * @return the failback transitions
      */
-    public static List<Transition> failbacks() {
+    static List<Transition> failbacks() {
         return snapshotTransitions(FAILBACKS);
     }
 
@@ -303,7 +303,7 @@ public final class MetricsRegistry {
     }
 
     /** Clears the whole registry; for the export harness / unit tests only. */
-    public static void clearForTests() {
+    static void clearForTests() {
         LIVE.clear();
         PROBES.clear();
         synchronized (CUMULATIVE) {
@@ -327,7 +327,7 @@ public final class MetricsRegistry {
      *
      * @return per-endpoint latency histograms, keyed by endpoint id
      */
-    public static Map<String, EndpointLatency> aggregateLatencyByEndpoint() {
+    static Map<String, EndpointLatency> aggregateLatencyByEndpoint() {
         Map<String, EndpointLatency> out = new LinkedHashMap<String, EndpointLatency>();
         synchronized (CUMULATIVE_LAT) {
             for (Map.Entry<String, EndpointLatency> e : CUMULATIVE_LAT.entrySet()) {
@@ -383,7 +383,7 @@ public final class MetricsRegistry {
      * align with {@link RuntimeMetrics#LATENCY_BUCKETS_MS} (+1 for the +Inf overflow); counts are
      * non-cumulative per slot (the exporter cumulates them into {@code le} buckets).
      */
-    public static final class EndpointLatency {
+    static final class EndpointLatency {
         private final long[] readBuckets;
         private long readCount;
         private double readSumMs;
@@ -423,27 +423,27 @@ public final class MetricsRegistry {
             }
         }
 
-        public long[] getReadBuckets() {
+        long[] getReadBuckets() {
             return readBuckets;
         }
 
-        public long getReadCount() {
+        long getReadCount() {
             return readCount;
         }
 
-        public double getReadSumMs() {
+        double getReadSumMs() {
             return readSumMs;
         }
 
-        public long[] getWriteBuckets() {
+        long[] getWriteBuckets() {
             return writeBuckets;
         }
 
-        public long getWriteCount() {
+        long getWriteCount() {
             return writeCount;
         }
 
-        public double getWriteSumMs() {
+        double getWriteSumMs() {
             return writeSumMs;
         }
     }
@@ -451,7 +451,7 @@ public final class MetricsRegistry {
     /**
      * Immutable count of one distinct read-leg movement: {@code role}, {@code from} to {@code to}.
      */
-    public static final class Transition {
+    static final class Transition {
         private final String role;
         private final String from;
         private final String to;
@@ -464,19 +464,19 @@ public final class MetricsRegistry {
             this.count = count;
         }
 
-        public String getRole() {
+        String getRole() {
             return role;
         }
 
-        public String getFrom() {
+        String getFrom() {
             return from;
         }
 
-        public String getTo() {
+        String getTo() {
             return to;
         }
 
-        public long getCount() {
+        long getCount() {
             return count;
         }
     }

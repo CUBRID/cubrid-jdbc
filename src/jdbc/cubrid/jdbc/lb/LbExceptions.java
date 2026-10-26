@@ -39,7 +39,7 @@ public final class LbExceptions {
 
     private LbExceptions() {}
 
-    public static CUBRIDException connectionClosed() {
+    static CUBRIDException connectionClosed() {
         return new CUBRIDException(CUBRIDJDBCErrorCode.connection_closed);
     }
 
@@ -47,7 +47,7 @@ public final class LbExceptions {
         return new CUBRIDException(CUBRIDJDBCErrorCode.statement_closed);
     }
 
-    public static CUBRIDException notSupported() {
+    static CUBRIDException notSupported() {
         return new CUBRIDException(CUBRIDJDBCErrorCode.not_supported);
     }
 
@@ -135,7 +135,7 @@ public final class LbExceptions {
                 null);
     }
 
-    public static CUBRIDException sessionNotInitialized(final String detail) {
+    static CUBRIDException sessionNotInitialized(final String detail) {
         return withDetail(LbJDBCErrorCode.lb_session_not_initialized, detail, null);
     }
 
@@ -161,11 +161,11 @@ public final class LbExceptions {
                 LbJDBCErrorCode.lb_physical_delegate_failed, "method=" + methodName, cause);
     }
 
-    public static CUBRIDException txAutocommitOnly() {
+    static CUBRIDException txAutocommitOnly() {
         return withDetail(LbJDBCErrorCode.lb_tx_autocommit_only, null, null);
     }
 
-    public static CUBRIDException unsupportedRoute(final String target) {
+    static CUBRIDException unsupportedRoute(final String target) {
         return withDetail(LbJDBCErrorCode.lb_unsupported_route, "target=" + target, null);
     }
 

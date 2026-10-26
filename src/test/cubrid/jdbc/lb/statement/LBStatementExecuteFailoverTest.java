@@ -36,12 +36,14 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import cubrid.jdbc.jci.UErrorCode;
+import cubrid.jdbc.lb.LbTestAccess;
 import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
+import cubrid.jdbc.lb.connection.ConnectionTestAccess;
 import cubrid.jdbc.lb.connection.JdbcConnectionFactory;
-import cubrid.jdbc.lb.connection.SessionPhysicalConnManager;
+import cubrid.jdbc.lb.metrics.MetricsTestAccess;
 import cubrid.jdbc.lb.state.SharedSelectorState;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
@@ -79,13 +81,15 @@ public class LBStatementExecuteFailoverTest {
                     }
                 };
 
-        LoadBalanceConnection conn = new LoadBalanceConnection(LbTestSettings.forTopology(topo));
-        conn.getRuntimeMetrics().setEnabled(true);
-        conn.setConnectionManager(
-                new SessionPhysicalConnManager(
+        LoadBalanceConnection conn =
+                LbTestAccess.newLoadBalanceConnection(LbTestSettings.forTopology(topo));
+        LbTestAccess.getRuntimeMetrics(conn).setEnabled(true);
+        LbTestAccess.setConnectionManager(
+                conn,
+                ConnectionTestAccess.newSessionPhysicalConnManager(
                         LOGICAL_URL, new Properties(), LbTestSettings.forTopology(topo), factory));
-        conn.setSharedSelectorState(new SharedSelectorState());
-        conn.initSessionBindings(topo);
+        LbTestAccess.setSharedSelectorState(conn, new SharedSelectorState());
+        LbTestAccess.initSessionBindings(conn, topo);
 
         LBStatement stmt = new LBStatement(conn);
         stmt.setStatementProvider(conn.createStatementProvider(0, 0, 0));
@@ -95,7 +99,7 @@ public class LBStatementExecuteFailoverTest {
         assertEquals(2, executeCalls.get());
 
         boolean foundFailoverEvent = false;
-        for (String event : conn.getRuntimeMetrics().getEvents()) {
+        for (String event : MetricsTestAccess.getEvents(LbTestAccess.getRuntimeMetrics(conn))) {
             if (event.contains("event=RUNTIME_FAILOVER")) {
                 foundFailoverEvent = true;
                 break;
@@ -124,13 +128,15 @@ public class LBStatementExecuteFailoverTest {
                     }
                 };
 
-        LoadBalanceConnection conn = new LoadBalanceConnection(LbTestSettings.forTopology(topo));
-        conn.getRuntimeMetrics().setEnabled(true);
-        conn.setConnectionManager(
-                new SessionPhysicalConnManager(
+        LoadBalanceConnection conn =
+                LbTestAccess.newLoadBalanceConnection(LbTestSettings.forTopology(topo));
+        LbTestAccess.getRuntimeMetrics(conn).setEnabled(true);
+        LbTestAccess.setConnectionManager(
+                conn,
+                ConnectionTestAccess.newSessionPhysicalConnManager(
                         LOGICAL_URL, new Properties(), LbTestSettings.forTopology(topo), factory));
-        conn.setSharedSelectorState(new SharedSelectorState());
-        conn.initSessionBindings(topo);
+        LbTestAccess.setSharedSelectorState(conn, new SharedSelectorState());
+        LbTestAccess.initSessionBindings(conn, topo);
 
         LBStatement stmt = new LBStatement(conn);
         stmt.setStatementProvider(conn.createStatementProvider(0, 0, 0));
@@ -142,7 +148,7 @@ public class LBStatementExecuteFailoverTest {
         assertEquals(3, executeCalls.get());
 
         int failoverEvents = 0;
-        for (String event : conn.getRuntimeMetrics().getEvents()) {
+        for (String event : MetricsTestAccess.getEvents(LbTestAccess.getRuntimeMetrics(conn))) {
             if (event.contains("event=RUNTIME_FAILOVER")) {
                 failoverEvents++;
             }
@@ -163,13 +169,16 @@ public class LBStatementExecuteFailoverTest {
                     }
                 };
 
-        LoadBalanceConnection conn = new LoadBalanceConnection(LbTestSettings.defaults());
-        conn.getRuntimeMetrics().setEnabled(true);
-        conn.setConnectionManager(
-                new SessionPhysicalConnManager(
+        LoadBalanceConnection conn =
+                LbTestAccess.newLoadBalanceConnection(LbTestSettings.defaults());
+        LbTestAccess.getRuntimeMetrics(conn).setEnabled(true);
+        LbTestAccess.setConnectionManager(
+                conn,
+                ConnectionTestAccess.newSessionPhysicalConnManager(
                         LOGICAL_URL, new Properties(), LbTestSettings.defaults(), factory));
-        conn.setSharedSelectorState(new SharedSelectorState());
-        conn.initSessionBindings(
+        LbTestAccess.setSharedSelectorState(conn, new SharedSelectorState());
+        LbTestAccess.initSessionBindings(
+                conn,
                 new EndpointTopology(
                         new Endpoint("rw", 33000),
                         Arrays.asList(new Endpoint("ro1", 33000)),
@@ -186,7 +195,7 @@ public class LBStatementExecuteFailoverTest {
             assertTrue(UErrorCode.ER_COMMUNICATION == e.getErrorCode());
         }
         assertEquals(1, executeCalls.get());
-        for (String event : conn.getRuntimeMetrics().getEvents()) {
+        for (String event : MetricsTestAccess.getEvents(LbTestAccess.getRuntimeMetrics(conn))) {
             assertTrue(!event.contains("event=RUNTIME_FAILOVER"));
         }
         stmt.close();

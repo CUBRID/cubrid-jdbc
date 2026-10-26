@@ -142,7 +142,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         this.sqlCaches = SqlCaches.compute(sql, lbConnection.sqlClassifier());
     }
 
-    public String getSql() {
+    String getSql() {
         return sql;
     }
 

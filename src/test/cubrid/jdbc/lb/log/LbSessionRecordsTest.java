@@ -38,6 +38,7 @@ import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
+import cubrid.jdbc.lb.connection.ConnectionTestAccess;
 import cubrid.jdbc.lb.connection.JdbcConnectionFactory;
 import cubrid.jdbc.lb.connection.SessionPhysicalConnManager;
 import java.lang.reflect.InvocationHandler;
@@ -184,7 +185,8 @@ public class LbSessionRecordsTest {
                     }
                 };
 
-        return new SessionPhysicalConnManager(LOGICAL_URL, new Properties(), config, factory);
+        return ConnectionTestAccess.newSessionPhysicalConnManager(
+                LOGICAL_URL, new Properties(), config, factory);
     }
 
     private static Connection openConnectionProxy() {

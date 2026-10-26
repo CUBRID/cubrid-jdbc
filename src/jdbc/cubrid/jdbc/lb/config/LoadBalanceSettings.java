@@ -48,47 +48,47 @@ public class LoadBalanceSettings {
      * When session RO physical connect fails after RW succeeds, RO may reuse the RW connection
      * ({@link cubrid.jdbc.lb.connection.SessionPhysicalConnManager}).
      */
-    public static final boolean DEFAULT_RO_PHYSICAL_FAILOVER_TO_RW = true;
+    private static final boolean DEFAULT_RO_PHYSICAL_FAILOVER_TO_RW = true;
 
     /** Master switch for runtime (post-connect) physical failover and SQL retry. */
-    public static final boolean DEFAULT_RT_FAILOVER_ENABLED = true;
+    private static final boolean DEFAULT_RT_FAILOVER_ENABLED = true;
 
     /**
      * Re-execute the same SQL once after physical-binding recovery succeeds. Ignored for writes and
      * for statements whose parameters cannot be replayed.
      */
-    public static final boolean DEFAULT_RT_FAILOVER_RETRY_ONCE = true;
+    private static final boolean DEFAULT_RT_FAILOVER_RETRY_ONCE = true;
 
     /**
      * Max connect dials within each role group while recovering the binding. Counts dials, not
      * candidates — an excluded endpoint is skipped without consuming the budget. {@code 0} means
      * try the entire group.
      */
-    public static final int DEFAULT_RT_FAILOVER_MAX_ATTEMPTS = 1;
+    private static final int DEFAULT_RT_FAILOVER_MAX_ATTEMPTS = 1;
 
     /**
      * Read failback: a displaced read leg (on a sibling, cross-role, or roOnRw) rebinds to its
      * weighted home endpoint once that endpoint recovers.
      */
-    public static final boolean DEFAULT_READ_FAILBACK_ENABLED = true;
+    private static final boolean DEFAULT_READ_FAILBACK_ENABLED = true;
 
     /** Minimum interval (ms) between read failback probes while a session is displaced. */
-    public static final int DEFAULT_READ_FAILBACK_PROBE_INTERVAL_MS = 3000;
+    private static final int DEFAULT_READ_FAILBACK_PROBE_INTERVAL_MS = 3000;
 
     /**
      * Write (RW) failback: a session whose RW leg was bound to a sibling broker (master unreachable
      * or CAS-saturated at bind time) rebinds to the master RW once it recovers.
      */
-    public static final boolean DEFAULT_WRITE_FAILBACK_ENABLED = true;
+    private static final boolean DEFAULT_WRITE_FAILBACK_ENABLED = true;
 
     /** Minimum interval (ms) between RW failback probes while a session is displaced. */
-    public static final int DEFAULT_WRITE_FAILBACK_PROBE_INTERVAL_MS = 3000;
+    private static final int DEFAULT_WRITE_FAILBACK_PROBE_INTERVAL_MS = 3000;
 
     /**
      * Also try RW failback from the pool health probe ({@code Connection.isValid()}). Off, because
      * it turns a pure probe into a path that may open a connection.
      */
-    public static final boolean DEFAULT_WRITE_FAILBACK_ON_VALIDATE = false;
+    private static final boolean DEFAULT_WRITE_FAILBACK_ON_VALIDATE = false;
 
     /**
      * Minimum interval (ms) between recovery probes to an unreachable endpoint. Gates the
@@ -98,7 +98,7 @@ public class LoadBalanceSettings {
     public static final int DEFAULT_RT_RECOVERY_PROBE_INTERVAL_MS = 3000;
 
     /** SQL strings kept in the JVM-wide READ/WRITE classification cache; {@code 0} disables it. */
-    public static final int DEFAULT_SQL_CLASSIFY_CACHE_MAX_ENTRIES = 8192;
+    private static final int DEFAULT_SQL_CLASSIFY_CACHE_MAX_ENTRIES = 8192;
 
     // Pinned to the DEFAULT_* values. Assigned in the constructor, not inline: an inline constant
     // initializer is folded into every getter, and tests that exercise the non-default behavior
@@ -301,7 +301,7 @@ public class LoadBalanceSettings {
      *
      * @return the scheme variant
      */
-    public String getUrlVariant() {
+    String getUrlVariant() {
         return urlVariant;
     }
 
@@ -319,7 +319,7 @@ public class LoadBalanceSettings {
      *
      * @return the URL password, or {@code null}
      */
-    public String getUrlPassword() {
+    String getUrlPassword() {
         return urlPassword;
     }
 
@@ -328,7 +328,7 @@ public class LoadBalanceSettings {
      *
      * @return the propagated options
      */
-    public Map<String, String> getPropagatedOptions() {
+    Map<String, String> getPropagatedOptions() {
         return propagatedOptions;
     }
 

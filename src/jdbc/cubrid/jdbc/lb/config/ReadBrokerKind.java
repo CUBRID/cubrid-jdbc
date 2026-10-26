@@ -33,7 +33,7 @@ package cubrid.jdbc.lb.config;
 /**
  * Read broker pool a {@link NodeRole}'s reads are served from (see {@link NodeRole#readGroup()}).
  */
-public enum ReadBrokerKind {
+enum ReadBrokerKind {
     RW,
 
     RO,

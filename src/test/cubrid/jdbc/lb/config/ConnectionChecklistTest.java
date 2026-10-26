@@ -32,13 +32,16 @@ package cubrid.jdbc.lb.config;
 
 import static org.junit.Assert.*;
 
+import cubrid.jdbc.lb.LbTestAccess;
 import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
 import cubrid.jdbc.lb.state.CurrentReadEndpointHolder;
 import cubrid.jdbc.lb.state.SessionRoutingState;
 import cubrid.jdbc.lb.state.SharedSelectorState;
+import cubrid.jdbc.lb.state.StateTestAccess;
 import cubrid.jdbc.lb.statement.LBPreparedStatement;
 import cubrid.jdbc.lb.statement.LBStatement;
+import cubrid.jdbc.lb.statement.StatementTestAccess;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
@@ -48,7 +51,7 @@ import org.junit.Test;
 public class ConnectionChecklistTest {
 
     private static LoadBalanceConnection newConn() {
-        return new LoadBalanceConnection(LbTestSettings.defaults());
+        return LbTestAccess.newLoadBalanceConnection(LbTestSettings.defaults());
     }
 
     @Test
@@ -72,7 +75,7 @@ public class ConnectionChecklistTest {
         PreparedStatement ps = conn.prepareStatement("SELECT 1");
         assertNotNull(ps);
         assertTrue(ps instanceof LBPreparedStatement);
-        assertEquals("SELECT 1", ((LBPreparedStatement) ps).getSql());
+        assertEquals("SELECT 1", StatementTestAccess.getSql((LBPreparedStatement) ps));
     }
 
     @Test
@@ -172,12 +175,12 @@ public class ConnectionChecklistTest {
     public void assertCL06_closeClearsAffinity() throws Exception {
         LoadBalanceConnection conn = newConn();
         Endpoint ep = new Endpoint("ro1", 33000);
-        conn.getBoundReadEndpoint().setCurrentRoEndpoint(ep);
-        assertTrue(conn.getBoundReadEndpoint().isBound());
+        LbTestAccess.getBoundReadEndpoint(conn).setCurrentRoEndpoint(ep);
+        assertTrue(StateTestAccess.isBound(LbTestAccess.getBoundReadEndpoint(conn)));
 
         conn.close();
 
-        assertFalse(conn.getBoundReadEndpoint().isBound());
+        assertFalse(StateTestAccess.isBound(LbTestAccess.getBoundReadEndpoint(conn)));
     }
 
     @Test
@@ -209,14 +212,14 @@ public class ConnectionChecklistTest {
     @Test
     public void assertCL06_statementTrackingCount() throws Exception {
         LoadBalanceConnection conn = newConn();
-        assertEquals(0, conn.getOpenStatementCount());
+        assertEquals(0, LbTestAccess.getOpenStatementCount(conn));
 
         conn.createStatement();
         conn.prepareStatement("SELECT 1");
-        assertEquals(2, conn.getOpenStatementCount());
+        assertEquals(2, LbTestAccess.getOpenStatementCount(conn));
 
         conn.close();
-        assertEquals(0, conn.getOpenStatementCount());
+        assertEquals(0, LbTestAccess.getOpenStatementCount(conn));
     }
 
     // 01 §M-3: closing a statement must untrack it, so a long-lived connection does not accumulate
@@ -227,18 +230,18 @@ public class ConnectionChecklistTest {
 
         Statement s1 = conn.createStatement();
         PreparedStatement p1 = conn.prepareStatement("SELECT 1");
-        assertEquals(2, conn.getOpenStatementCount());
+        assertEquals(2, LbTestAccess.getOpenStatementCount(conn));
 
         s1.close();
-        assertEquals(1, conn.getOpenStatementCount());
+        assertEquals(1, LbTestAccess.getOpenStatementCount(conn));
         p1.close();
-        assertEquals(0, conn.getOpenStatementCount());
+        assertEquals(0, LbTestAccess.getOpenStatementCount(conn));
 
         // Repeated create/close must not accumulate.
         for (int i = 0; i < 5; i++) {
             conn.createStatement().close();
         }
-        assertEquals(0, conn.getOpenStatementCount());
+        assertEquals(0, LbTestAccess.getOpenStatementCount(conn));
 
         conn.close();
     }
@@ -324,10 +327,10 @@ public class ConnectionChecklistTest {
         LoadBalanceConnection conn = newConn();
 
         Endpoint ep = new Endpoint("ro-slave1", 33000);
-        CurrentReadEndpointHolder tracker = conn.getBoundReadEndpoint();
+        CurrentReadEndpointHolder tracker = LbTestAccess.getBoundReadEndpoint(conn);
         tracker.setCurrentRoEndpoint(ep);
 
-        assertTrue(tracker.isBound());
+        assertTrue(StateTestAccess.isBound(tracker));
         assertEquals("ro-slave1", tracker.getCurrentRoEndpoint().getHost());
         assertEquals(33000, tracker.getCurrentRoEndpoint().getPort());
     }
@@ -336,10 +339,10 @@ public class ConnectionChecklistTest {
     public void assertCL08_sessionModeAffinityPersistsAcrossExecutes() throws Exception {
         LoadBalanceConnection conn = newConn();
         Endpoint ep = new Endpoint("ro-slave2", 33001);
-        conn.getBoundReadEndpoint().setCurrentRoEndpoint(ep);
+        LbTestAccess.getBoundReadEndpoint(conn).setCurrentRoEndpoint(ep);
 
-        assertEquals(ep, conn.getBoundReadEndpoint().getCurrentRoEndpoint());
-        assertEquals(ep, conn.getBoundReadEndpoint().getCurrentRoEndpoint());
+        assertEquals(ep, LbTestAccess.getBoundReadEndpoint(conn).getCurrentRoEndpoint());
+        assertEquals(ep, LbTestAccess.getBoundReadEndpoint(conn).getCurrentRoEndpoint());
     }
 
     @Test
@@ -347,12 +350,14 @@ public class ConnectionChecklistTest {
         SharedSelectorState shared = new SharedSelectorState();
 
         LoadBalanceConnection conn1 = newConn();
-        conn1.setSharedSelectorState(shared);
+        LbTestAccess.setSharedSelectorState(conn1, shared);
 
         LoadBalanceConnection conn2 = newConn();
-        conn2.setSharedSelectorState(shared);
+        LbTestAccess.setSharedSelectorState(conn2, shared);
 
-        assertSame(conn1.getSharedSelectorState(), conn2.getSharedSelectorState());
+        assertSame(
+                LbTestAccess.getSharedSelectorState(conn1),
+                LbTestAccess.getSharedSelectorState(conn2));
 
         int idx1 = shared.nextGroupRoundRobinIndex("read", 3);
         int idx2 = shared.nextGroupRoundRobinIndex("read", 3);
@@ -365,13 +370,13 @@ public class ConnectionChecklistTest {
         SharedSelectorState shared = new SharedSelectorState();
 
         LoadBalanceConnection conn1 = newConn();
-        conn1.setSharedSelectorState(shared);
+        LbTestAccess.setSharedSelectorState(conn1, shared);
         shared.nextGroupRoundRobinIndex("read", 3);
         conn1.close();
 
         // The shared counter survives conn1.close(); a fresh connection continues the sequence.
         LoadBalanceConnection conn2 = newConn();
-        conn2.setSharedSelectorState(shared);
+        LbTestAccess.setSharedSelectorState(conn2, shared);
         int idx = shared.nextGroupRoundRobinIndex("read", 3);
         assertEquals(1, idx);
     }
@@ -389,19 +394,26 @@ public class ConnectionChecklistTest {
         shared.acquireIndexByPopulation(new String[] {"role:slave"}, new int[] {1});
 
         LoadBalanceConnection conn1 = newConn();
-        conn1.setSharedSelectorState(shared);
+        LbTestAccess.setSharedSelectorState(conn1, shared);
 
         LoadBalanceConnection conn2 = newConn();
-        conn2.setSharedSelectorState(shared);
+        LbTestAccess.setSharedSelectorState(conn2, shared);
 
-        assertEquals(2, conn1.getSharedSelectorState().liveHomeCount("role:slave"));
-        assertEquals(2, conn2.getSharedSelectorState().liveHomeCount("role:slave"));
+        assertEquals(
+                2,
+                StateTestAccess.liveHomeCount(
+                        LbTestAccess.getSharedSelectorState(conn1), "role:slave"));
+        assertEquals(
+                2,
+                StateTestAccess.liveHomeCount(
+                        LbTestAccess.getSharedSelectorState(conn2), "role:slave"));
 
-        conn1.getSharedSelectorState().releaseHome("role:slave");
+        LbTestAccess.getSharedSelectorState(conn1).releaseHome("role:slave");
         assertEquals(
                 "a release on one connection is seen by the other",
                 1,
-                conn2.getSharedSelectorState().liveHomeCount("role:slave"));
+                StateTestAccess.liveHomeCount(
+                        LbTestAccess.getSharedSelectorState(conn2), "role:slave"));
     }
 
     @Test
@@ -443,6 +455,6 @@ public class ConnectionChecklistTest {
     @Test
     public void assertSharedSelectorStateDefaultNull() throws Exception {
         LoadBalanceConnection conn = newConn();
-        assertNull(conn.getSharedSelectorState());
+        assertNull(LbTestAccess.getSharedSelectorState(conn));
     }
 }

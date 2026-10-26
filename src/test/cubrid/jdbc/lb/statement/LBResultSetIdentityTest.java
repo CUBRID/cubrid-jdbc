@@ -33,6 +33,7 @@ package cubrid.jdbc.lb.statement;
 import static org.junit.Assert.assertSame;
 
 import cubrid.jdbc.driver.CUBRIDResultSet;
+import cubrid.jdbc.lb.LbTestAccess;
 import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
 import cubrid.jdbc.lb.route.Router;
@@ -68,7 +69,7 @@ public final class LBResultSetIdentityTest {
         // A real CUBRIDResultSet rather than a proxy: identity is only half the contract now — the
         // object must also name the logical statement as its producer, and only the real class
         // carries that field. Constructing it with no socket is safe here; nothing reads one.
-        connection = new LoadBalanceConnection(LbTestSettings.defaults());
+        connection = LbTestAccess.newLoadBalanceConnection(LbTestSettings.defaults());
         physicalRs = new CUBRIDResultSet(null, null);
     }
 

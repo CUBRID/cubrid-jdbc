@@ -64,20 +64,20 @@ public final class MetricsConfig {
     // URL option names. Package cubrid.jdbc.lb.config.LoadBalanceOptionValidator lists the same
     // names in its LB-only set so they are ignored (WARN) outside loadbalance and never leak onto
     // physical broker URLs.
-    public static final String OPT_ENABLED = "metricsEnabled";
-    public static final String OPT_EXPORT = "metricsExport";
-    public static final String OPT_PROMETHEUS_PORT = "metricsPrometheusPort";
-    public static final String OPT_PROMETHEUS_BIND = "metricsPrometheusBind";
-    public static final String OPT_INTERVAL_SEC = "metricsIntervalSec";
+    static final String OPT_ENABLED = "metricsEnabled";
+    static final String OPT_EXPORT = "metricsExport";
+    static final String OPT_PROMETHEUS_PORT = "metricsPrometheusPort";
+    static final String OPT_PROMETHEUS_BIND = "metricsPrometheusBind";
+    static final String OPT_INTERVAL_SEC = "metricsIntervalSec";
 
-    public static final String EXPORT_PROMETHEUS = "prometheus";
-    public static final String EXPORT_CSV = "csv";
+    static final String EXPORT_PROMETHEUS = "prometheus";
+    static final String EXPORT_CSV = "csv";
 
     private static final int DEFAULT_PROMETHEUS_PORT = 9400;
     private static final int DEFAULT_INTERVAL_SEC = 60;
 
     /** Feature-off singleton, also used for every non-loadbalance URL. */
-    public static final MetricsConfig DISABLED =
+    static final MetricsConfig DISABLED =
             new MetricsConfig(
                     false,
                     Collections.<String>emptySet(),
@@ -112,8 +112,7 @@ public final class MetricsConfig {
      * @param loadBalanceMode whether the URL is a loadbalance URL
      * @return the parsed config, or {@link #DISABLED}
      */
-    public static MetricsConfig parse(
-            final Map<String, String> options, final boolean loadBalanceMode) {
+    static MetricsConfig parse(final Map<String, String> options, final boolean loadBalanceMode) {
         if (!loadBalanceMode || options == null) {
             return DISABLED;
         }

@@ -36,6 +36,7 @@ import static org.junit.Assert.assertTrue;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.connection.SimpleEndpointConnManager;
+import cubrid.jdbc.lb.metrics.MetricsTestAccess;
 import cubrid.jdbc.lb.state.SharedSelectorState;
 import java.sql.Connection;
 import java.sql.ResultSet;
@@ -432,7 +433,7 @@ public final class LoadBalanceConnectionPhysicalCommandDelegationTest {
 
         connection.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
 
-        String event = connection.getRuntimeMetrics().getEvents().get(0);
+        String event = MetricsTestAccess.getEvents(connection.getRuntimeMetrics()).get(0);
         assertTrue(event.contains("sqlType=COMMAND"));
         assertTrue(event.contains("command=setTransactionIsolation"));
         assertTrue(event.contains("routeTarget=TO_READ_WRITE"));

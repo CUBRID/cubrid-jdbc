@@ -38,8 +38,8 @@ import cubrid.jdbc.jci.UUnreachableHostList;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
+import cubrid.jdbc.lb.connection.ConnectionTestAccess;
 import cubrid.jdbc.lb.connection.JdbcConnectionFactory;
-import cubrid.jdbc.lb.connection.SessionPhysicalConnManager;
 import cubrid.jdbc.lb.route.Router;
 import cubrid.jdbc.lb.state.SharedSelectorState;
 import java.lang.reflect.InvocationHandler;
@@ -133,7 +133,7 @@ public class LoadBalanceConnectionRwFailbackTriggerTest {
         List<CursorConnection> opened = new ArrayList<CursorConnection>();
         LoadBalanceConnection conn = new LoadBalanceConnection(config);
         conn.setConnectionManager(
-                new SessionPhysicalConnManager(
+                ConnectionTestAccess.newSessionPhysicalConnManager(
                         LOGICAL_URL, new Properties(), config, cursorFactory(opened)));
         conn.setSharedSelectorState(new SharedSelectorState());
         conn.initSessionBindings(topo);
@@ -334,7 +334,8 @@ public class LoadBalanceConnectionRwFailbackTriggerTest {
         }
         LoadBalanceConnection conn = new LoadBalanceConnection(config);
         conn.setConnectionManager(
-                new SessionPhysicalConnManager(LOGICAL_URL, new Properties(), config, factory));
+                ConnectionTestAccess.newSessionPhysicalConnManager(
+                        LOGICAL_URL, new Properties(), config, factory));
         conn.setSharedSelectorState(new SharedSelectorState());
 
         markDown(NODE1_RW);

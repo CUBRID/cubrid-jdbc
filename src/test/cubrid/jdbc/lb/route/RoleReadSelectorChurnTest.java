@@ -38,6 +38,7 @@ import cubrid.jdbc.lb.config.NodeRole;
 import cubrid.jdbc.lb.config.ReadWeight;
 import cubrid.jdbc.lb.config.ResolvedRoleTopology;
 import cubrid.jdbc.lb.state.SharedSelectorState;
+import cubrid.jdbc.lb.state.StateTestAccess;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
@@ -152,7 +153,7 @@ public class RoleReadSelectorChurnTest {
             RoleReadSelector.release(pool.remove(pool.size() - 1), state);
         }
 
-        assertEquals("no live home left", 0, state.getLiveHomeCounts().size());
+        assertEquals("no live home left", 0, StateTestAccess.getLiveHomeCounts(state).size());
 
         bind(c.getResolvedTopology(), c.getReadWeight(), state, POOL);
         assertPoolMatchesWeights("pool refilled from empty");
@@ -165,7 +166,7 @@ public class RoleReadSelectorChurnTest {
         SharedSelectorState state = new SharedSelectorState();
 
         RoleReadSelector.release(NodeRole.REPLICA, state);
-        assertEquals(0, state.liveHomeCount("role:replica"));
+        assertEquals(0, StateTestAccess.liveHomeCount(state, "role:replica"));
 
         bind(c.getResolvedTopology(), c.getReadWeight(), state, POOL);
         assertPoolMatchesWeights("pool built after a stray release");

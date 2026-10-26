@@ -83,7 +83,7 @@ public final class EndpointTopology {
      * @param resolved the resolved role topology
      * @return the endpoint topology
      */
-    public static EndpointTopology fromResolved(ResolvedRoleTopology resolved) {
+    static EndpointTopology fromResolved(ResolvedRoleTopology resolved) {
         List<Endpoint> rwList = new ArrayList<Endpoint>();
         rwList.add(resolved.getMaster().getRw());
 
@@ -121,7 +121,7 @@ public final class EndpointTopology {
         return !rwEndpoints.isEmpty();
     }
 
-    public boolean hasRoEndpoints() {
+    boolean hasRoEndpoints() {
         return !roEndpoints.isEmpty();
     }
 }

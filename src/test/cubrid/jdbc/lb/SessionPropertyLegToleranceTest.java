@@ -40,8 +40,8 @@ import static org.junit.Assert.fail;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
+import cubrid.jdbc.lb.connection.ConnectionTestAccess;
 import cubrid.jdbc.lb.connection.JdbcConnectionFactory;
-import cubrid.jdbc.lb.connection.SessionPhysicalConnManager;
 import cubrid.jdbc.lb.connection.SimpleEndpointConnManager;
 import cubrid.jdbc.lb.state.SharedSelectorState;
 import java.io.UnsupportedEncodingException;
@@ -346,7 +346,7 @@ public final class SessionPropertyLegToleranceTest {
         LoadBalanceSettings config = LbTestSettings.defaults();
         LoadBalanceConnection connection = new LoadBalanceConnection(config);
         connection.setConnectionManager(
-                new SessionPhysicalConnManager(
+                ConnectionTestAccess.newSessionPhysicalConnManager(
                         "jdbc:cubrid:localhost:30000:testdb:public::",
                         new Properties(),
                         config,

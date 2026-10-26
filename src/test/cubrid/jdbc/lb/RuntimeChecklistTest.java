@@ -38,6 +38,7 @@ import static org.junit.Assert.assertTrue;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.connection.SimpleEndpointConnManager;
+import cubrid.jdbc.lb.metrics.MetricsTestAccess;
 import cubrid.jdbc.lb.metrics.RuntimeMetrics;
 import cubrid.jdbc.lb.state.SharedSelectorState;
 import cubrid.jdbc.lb.statement.LBPreparedStatement;
@@ -107,7 +108,7 @@ public final class RuntimeChecklistTest {
         statement.setInt(1, 1);
         statement.executeQuery();
         RuntimeMetrics metrics = connection.getRuntimeMetrics();
-        List<String> events = metrics.getEvents();
+        List<String> events = MetricsTestAccess.getEvents(metrics);
         assertTrue(!events.isEmpty());
         String event = events.get(0);
         assertTrue(event.contains("connectionId="));
@@ -137,12 +138,12 @@ public final class RuntimeChecklistTest {
                         cubrid.jdbc.lb.route.Router.RouteTarget.TO_READ_ONLY, "SELECT * FROM t");
         RuntimeMetrics metrics = connection.getRuntimeMetrics();
 
-        assertTrue(metrics.getRoSelectionCount() > 0);
-        assertTrue(metrics.getRwFallbackCount() > 0);
-        assertTrue(metrics.getEndpointCount("rw:33000") > 0);
+        assertTrue(MetricsTestAccess.getRoSelectionCount(metrics) > 0);
+        assertTrue(MetricsTestAccess.getRwFallbackCount(metrics) > 0);
+        assertTrue(MetricsTestAccess.getEndpointCount(metrics, "rw:33000") > 0);
         assertTrue(
-                metrics.getEndpointCount("ro1:33000") > 0
-                        || metrics.getEndpointCount("ro2:33000") > 0);
+                MetricsTestAccess.getEndpointCount(metrics, "ro1:33000") > 0
+                        || MetricsTestAccess.getEndpointCount(metrics, "ro2:33000") > 0);
     }
 
     private static LoadBalanceConnection createBoundSessionConnection() throws Exception {

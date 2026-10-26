@@ -33,13 +33,14 @@ package cubrid.jdbc.lb.log;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import cubrid.jdbc.lb.LbTestAccess;
 import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
+import cubrid.jdbc.lb.connection.ConnectionTestAccess;
 import cubrid.jdbc.lb.connection.JdbcConnectionFactory;
-import cubrid.jdbc.lb.connection.SessionPhysicalConnManager;
 import cubrid.jdbc.lb.state.SharedSelectorState;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
@@ -150,11 +151,14 @@ public class LbIsolationWarningTest {
                     }
                 };
 
-        LoadBalanceConnection conn = new LoadBalanceConnection(settings);
-        conn.setConnectionManager(
-                new SessionPhysicalConnManager(LOGICAL_URL, new Properties(), settings, factory));
-        conn.setSharedSelectorState(new SharedSelectorState());
-        conn.initSessionBindings(
+        LoadBalanceConnection conn = LbTestAccess.newLoadBalanceConnection(settings);
+        LbTestAccess.setConnectionManager(
+                conn,
+                ConnectionTestAccess.newSessionPhysicalConnManager(
+                        LOGICAL_URL, new Properties(), settings, factory));
+        LbTestAccess.setSharedSelectorState(conn, new SharedSelectorState());
+        LbTestAccess.initSessionBindings(
+                conn,
                 new EndpointTopology(RW, Arrays.asList(RO), Collections.<Endpoint>emptyList()));
 
         return conn;

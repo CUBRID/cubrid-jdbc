@@ -33,9 +33,11 @@ package cubrid.jdbc.lb.it;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import cubrid.jdbc.lb.LbTestAccess;
 import cubrid.jdbc.lb.LoadBalanceConnection;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
+import cubrid.jdbc.lb.metrics.MetricsTestAccess;
 import cubrid.jdbc.lb.metrics.RuntimeMetrics;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
@@ -97,7 +99,7 @@ public final class LbDatabaseMetaDataIT {
         LoadBalanceConnection probe = openLbConnection();
         try {
             databaseName = probe.getLbConfig().getDatabaseName();
-            EndpointTopology topology = probe.getSessionTopology();
+            EndpointTopology topology = LbTestAccess.getSessionTopology(probe);
             rwEndpoint = topology.hasRwEndpoint() ? topology.getRwEndpoints().get(0).getId() : null;
             roEndpoints = new ArrayList<String>();
             for (Endpoint endpoint : topology.getRoEndpoints()) {
@@ -131,7 +133,8 @@ public final class LbDatabaseMetaDataIT {
             assertTrue(metadata.getUserName().length() > 0);
 
             String event =
-                    findLastEventContaining(connection.getRuntimeMetrics(), "sqlType=COMMAND");
+                    findLastEventContaining(
+                            LbTestAccess.getRuntimeMetrics(connection), "sqlType=COMMAND");
             assertTrue(event.contains("command=Call: getUserName"));
             assertTrue(event.contains("routeTarget=TO_READ_WRITE"));
         } finally {
@@ -181,7 +184,7 @@ public final class LbDatabaseMetaDataIT {
                     "Expected LoadBalanceConnection but got " + connection.getClass().getName());
         }
         LoadBalanceConnection lbConnection = (LoadBalanceConnection) connection;
-        lbConnection.getRuntimeMetrics().setEnabled(true);
+        LbTestAccess.getRuntimeMetrics(lbConnection).setEnabled(true);
         return lbConnection;
     }
 
@@ -332,7 +335,7 @@ public final class LbDatabaseMetaDataIT {
 
     private static String findLastEventContaining(
             final RuntimeMetrics metrics, final String needle) {
-        List<String> events = metrics.getEvents();
+        List<String> events = MetricsTestAccess.getEvents(metrics);
         for (int i = events.size() - 1; i >= 0; i--) {
             if (events.get(i).contains(needle)) {
                 return events.get(i);

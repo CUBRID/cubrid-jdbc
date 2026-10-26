@@ -64,7 +64,7 @@ import java.util.Map;
  * <p>An explicit {@code TO_RO} hint still wins, because the {@code Router} resolves hints before it
  * consults the classifier.
  */
-public final class KeywordSqlClassifier implements SqlClassifier {
+final class KeywordSqlClassifier implements SqlClassifier {
     private static final int CAT_NONE = 0;
     private static final int CAT_UNSAFE = 1;
     private static final int CAT_UPDATE = 2;

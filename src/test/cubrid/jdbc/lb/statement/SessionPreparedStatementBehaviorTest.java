@@ -35,6 +35,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import cubrid.jdbc.lb.LbTestAccess;
 import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
 import cubrid.jdbc.lb.route.Router;
@@ -109,7 +110,8 @@ public final class SessionPreparedStatementBehaviorTest {
 
     private static LBPreparedStatement createSessionPreparedStatement(final String sql)
             throws Exception {
-        LoadBalanceConnection connection = new LoadBalanceConnection(LbTestSettings.defaults());
+        LoadBalanceConnection connection =
+                LbTestAccess.newLoadBalanceConnection(LbTestSettings.defaults());
         return (LBPreparedStatement) connection.prepareStatement(sql);
     }
 

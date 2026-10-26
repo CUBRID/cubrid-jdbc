@@ -46,9 +46,12 @@ import cubrid.jdbc.driver.CUBRIDResultSetMetaData;
 import cubrid.jdbc.driver.CUBRIDStatement;
 import cubrid.jdbc.jci.CUBRIDCommandType;
 import cubrid.jdbc.jci.UConnection;
+import cubrid.jdbc.lb.LbTestAccess;
 import cubrid.jdbc.lb.LoadBalanceConnection;
 import cubrid.jdbc.lb.SessionLeg;
+import cubrid.jdbc.lb.config.ConfigTestAccess;
 import cubrid.jdbc.lb.config.Endpoint;
+import cubrid.jdbc.lb.metrics.MetricsTestAccess;
 import cubrid.jdbc.lb.metrics.RuntimeMetrics;
 import cubrid.sql.CUBRIDOID;
 import cubrid.sql.CUBRIDOIDImpl;
@@ -185,10 +188,11 @@ public final class LbVendorApiInheritanceIT {
         UConnection physical = c.getUConnection();
         assertNotNull("the write leg's socket must be reported", physical);
 
-        Endpoint writeLeg = ((LoadBalanceConnection) connection).getCurrentEp(SessionLeg.RW);
+        Endpoint writeLeg =
+                LbTestAccess.getCurrentEp((LoadBalanceConnection) connection, SessionLeg.RW);
         assertEquals(
                 "reported socket must be the bound write leg",
-                writeLeg.getPort(),
+                ConfigTestAccess.getPort(writeLeg),
                 physical.getCasPort());
     }
 
@@ -751,7 +755,7 @@ public final class LbVendorApiInheritanceIT {
     public void anAtSignInsideALiteralKeepsTheStatementOnAReadEndpoint() throws Exception {
         // Routing events are off by default; this test asserts on them, so turn them on for this
         // connection. @Before opens a fresh one per test, so nothing else sees the change.
-        ((LoadBalanceConnection) connection).getRuntimeMetrics().setEnabled(true);
+        LbTestAccess.getRuntimeMetrics((LoadBalanceConnection) connection).setEnabled(true);
 
         Statement stmt = connection.createStatement();
         try {
@@ -766,7 +770,8 @@ public final class LbVendorApiInheritanceIT {
 
             String event =
                     findLastRoutingEvent(
-                            ((LoadBalanceConnection) connection).getRuntimeMetrics(), "sqlType=");
+                            LbTestAccess.getRuntimeMetrics((LoadBalanceConnection) connection),
+                            "sqlType=");
             assertTrue(
                     "a literal @ must not promote the statement to the write endpoint: " + event,
                     event.indexOf("sqlType=READ") >= 0);
@@ -776,7 +781,7 @@ public final class LbVendorApiInheritanceIT {
     }
 
     private static String findLastRoutingEvent(final RuntimeMetrics metrics, final String needle) {
-        java.util.List<String> events = metrics.getEvents();
+        java.util.List<String> events = MetricsTestAccess.getEvents(metrics);
         for (int i = events.size() - 1; i >= 0; i--) {
             if (events.get(i).indexOf(needle) >= 0) {
                 return events.get(i);
@@ -807,13 +812,13 @@ public final class LbVendorApiInheritanceIT {
      */
     private String resolvePhysicalUrl() throws SQLException {
         LoadBalanceConnection lb = (LoadBalanceConnection) connection;
-        Endpoint writeEndpoint = lb.getCurrentRwEndpoint();
+        Endpoint writeEndpoint = LbTestAccess.getCurrentRwEndpoint(lb);
         assertNotNull("the session must be bound before deriving a physical URL", writeEndpoint);
 
         return "jdbc:cubrid:"
                 + writeEndpoint.getHost()
                 + ":"
-                + writeEndpoint.getPort()
+                + ConfigTestAccess.getPort(writeEndpoint)
                 + ":"
                 + lb.getLbConfig().getDatabaseName()
                 + ":::";

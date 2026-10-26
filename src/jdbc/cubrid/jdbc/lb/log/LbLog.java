@@ -88,11 +88,6 @@ public final class LbLog {
         log(logger, Level.FINE, ctx, message, null);
     }
 
-    public static void warn(
-            final Logger logger, final String ctx, final String message, final Throwable thrown) {
-        log(logger, Level.WARNING, ctx, message, thrown);
-    }
-
     /**
      * Logs at a level chosen by the caller, for helpers that carry the level as data.
      *
@@ -101,8 +96,7 @@ public final class LbLog {
      * @param ctx context string (see {@link #conn}), or {@code null}
      * @param message message to log
      */
-    public static void at(
-            final Logger logger, final Level level, final String ctx, final String message) {
+    static void at(final Logger logger, final Level level, final String ctx, final String message) {
         log(logger, level, ctx, message, null);
     }
 
@@ -155,7 +149,7 @@ public final class LbLog {
      * @param message driver message, or {@code null}
      * @return the shortened message, or {@code ""}
      */
-    public static String shortMessage(final String message) {
+    static String shortMessage(final String message) {
         if (message == null) {
             return "";
         }

@@ -90,7 +90,7 @@ public final class PhysicalRecoveryContext {
         return failedEndpoint;
     }
 
-    public Router.RouteTarget getRouteTarget() {
+    Router.RouteTarget getRouteTarget() {
         return routeTarget;
     }
 

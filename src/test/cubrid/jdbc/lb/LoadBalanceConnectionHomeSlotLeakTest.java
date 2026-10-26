@@ -39,6 +39,7 @@ import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.config.LoadBalanceUrlParser;
 import cubrid.jdbc.lb.connection.SimpleEndpointConnManager;
 import cubrid.jdbc.lb.state.SharedSelectorState;
+import cubrid.jdbc.lb.state.StateTestAccess;
 import java.sql.SQLException;
 import java.util.Arrays;
 import java.util.Map;
@@ -107,7 +108,7 @@ public class LoadBalanceConnectionHomeSlotLeakTest {
 
     private static int totalHomes(final SharedSelectorState st) {
         int n = 0;
-        for (Map.Entry<String, Integer> e : st.getLiveHomeCounts().entrySet()) {
+        for (Map.Entry<String, Integer> e : StateTestAccess.getLiveHomeCounts(st).entrySet()) {
             n += e.getValue().intValue();
         }
         return n;

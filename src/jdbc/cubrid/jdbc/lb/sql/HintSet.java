@@ -47,15 +47,15 @@ public final class HintSet {
     private static final HintSet EMPTY = new HintSet(null);
     private final TargetHint targetHint;
 
-    public HintSet(TargetHint targetHint) {
+    HintSet(TargetHint targetHint) {
         this.targetHint = targetHint;
     }
 
-    public static HintSet empty() {
+    static HintSet empty() {
         return EMPTY;
     }
 
-    public boolean isEmpty() {
+    boolean isEmpty() {
         return targetHint == null;
     }
 

@@ -61,17 +61,16 @@ public final class RecoveryBackoffRegistry {
      * Removes the backoff instance for a pool key. Not called from production today: no pool or
      * driver shutdown hook is wired to it, so entries live for the JVM lifetime. That is bounded at
      * one entry per distinct pool key, but a deployment that mints logical URLs dynamically would
-     * grow without bound; wire this into a close hook if that appears. Public for that and for
-     * tests.
+     * grow without bound; wire this into a close hook if that appears.
      *
      * @param registryKey pool key whose backoff instance is removed
      */
-    public static void releaseKey(final String registryKey) {
+    static void releaseKey(final String registryKey) {
         BY_KEY.remove(registryKey);
     }
 
     /** Clears all registry entries; for unit tests only. */
-    public static void clearForTests() {
+    static void clearForTests() {
         BY_KEY.clear();
     }
 }

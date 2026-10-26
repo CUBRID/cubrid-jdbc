@@ -32,7 +32,9 @@ package cubrid.jdbc.lb.it;
 
 import static org.junit.Assert.assertTrue;
 
+import cubrid.jdbc.lb.LbTestAccess;
 import cubrid.jdbc.lb.LoadBalanceConnection;
+import cubrid.jdbc.lb.metrics.MetricsTestAccess;
 import cubrid.jdbc.lb.metrics.RuntimeMetrics;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
@@ -86,7 +88,7 @@ public final class LbRoutingDecisionIT {
         LoadBalanceConnection connection = openLbConnection();
         try {
             executeSelect(connection, "SELECT id FROM " + tableName + " WHERE id = ?");
-            String event = lastSqlEvent(connection.getRuntimeMetrics());
+            String event = lastSqlEvent(LbTestAccess.getRuntimeMetrics(connection));
             assertTrue(event.contains("sqlType=READ"));
             assertTrue(event.contains("routeTarget=TO_READ_ONLY"));
         } finally {
@@ -100,7 +102,7 @@ public final class LbRoutingDecisionIT {
         try {
             connection.setAutoCommit(false);
             executeSelect(connection, "SELECT id FROM " + tableName + " WHERE id = ?");
-            String event = lastSqlEvent(connection.getRuntimeMetrics());
+            String event = lastSqlEvent(LbTestAccess.getRuntimeMetrics(connection));
             assertTrue(event.contains("sqlType=READ"));
             assertTrue(event.contains("routeTarget=TO_READ_WRITE"));
             connection.commit();
@@ -115,7 +117,7 @@ public final class LbRoutingDecisionIT {
         try {
             executeSelect(
                     connection, "SELECT /*+ TO_RW */  id FROM " + tableName + " WHERE id = ?");
-            String event = lastSqlEvent(connection.getRuntimeMetrics());
+            String event = lastSqlEvent(LbTestAccess.getRuntimeMetrics(connection));
             assertTrue(event.contains("sqlType=READ"));
             assertTrue(event.contains("routeTarget=TO_READ_WRITE"));
         } finally {
@@ -129,7 +131,7 @@ public final class LbRoutingDecisionIT {
         try {
             executeSelect(
                     connection, "SELECT CLOB_TO_CHAR(doc) FROM " + tableName + " WHERE id = ?");
-            String event = lastSqlEvent(connection.getRuntimeMetrics());
+            String event = lastSqlEvent(LbTestAccess.getRuntimeMetrics(connection));
             assertTrue(event.contains("sqlType=UNKNOWN"));
             assertTrue(event.contains("routeTarget=TO_READ_WRITE"));
         } finally {
@@ -143,7 +145,7 @@ public final class LbRoutingDecisionIT {
         try {
             executeSelect(
                     connection, "SELECT /*+ TO_RO */  id FROM " + tableName + " WHERE id = ?");
-            String event = lastSqlEvent(connection.getRuntimeMetrics());
+            String event = lastSqlEvent(LbTestAccess.getRuntimeMetrics(connection));
             assertTrue(event.contains("sqlType=READ"));
             assertTrue(event.contains("routeTarget=TO_READ_ONLY"));
         } finally {
@@ -165,7 +167,7 @@ public final class LbRoutingDecisionIT {
                 statement.close();
             }
 
-            String event = lastSqlEvent(connection.getRuntimeMetrics());
+            String event = lastSqlEvent(LbTestAccess.getRuntimeMetrics(connection));
             assertTrue(event.contains("sqlType=WRITE"));
             assertTrue(event.contains("routeTarget=TO_READ_WRITE"));
         } finally {
@@ -178,18 +180,18 @@ public final class LbRoutingDecisionIT {
         LoadBalanceConnection connection = openLbConnection();
         try {
             executeSelect(connection, "SELECT id FROM " + tableName + " WHERE id = ?");
-            String first = lastSqlEvent(connection.getRuntimeMetrics());
+            String first = lastSqlEvent(LbTestAccess.getRuntimeMetrics(connection));
             assertTrue(first.contains("routeTarget=TO_READ_ONLY"));
 
             connection.setAutoCommit(false);
             executeSelect(connection, "SELECT id FROM " + tableName + " WHERE id = ?");
-            String second = lastSqlEvent(connection.getRuntimeMetrics());
+            String second = lastSqlEvent(LbTestAccess.getRuntimeMetrics(connection));
             assertTrue(second.contains("routeTarget=TO_READ_WRITE"));
 
             connection.commit();
             connection.setAutoCommit(true);
             executeSelect(connection, "SELECT id FROM " + tableName + " WHERE id = ?");
-            String third = lastSqlEvent(connection.getRuntimeMetrics());
+            String third = lastSqlEvent(LbTestAccess.getRuntimeMetrics(connection));
             assertTrue(third.contains("routeTarget=TO_READ_ONLY"));
         } finally {
             connection.close();
@@ -207,7 +209,8 @@ public final class LbRoutingDecisionIT {
             assertTrue(dbmd.getDatabaseProductName().length() > 0);
 
             String event =
-                    findLastEventContaining(connection.getRuntimeMetrics(), "sqlType=COMMAND");
+                    findLastEventContaining(
+                            LbTestAccess.getRuntimeMetrics(connection), "sqlType=COMMAND");
             assertTrue(event.contains("command=Call: getDatabaseProductName"));
             assertTrue(event.contains("routeTarget=TO_READ_WRITE"));
         } finally {
@@ -224,7 +227,8 @@ public final class LbRoutingDecisionIT {
                     connection, "SELECT /*+ TO_RW */  id FROM " + tableName + " WHERE id = ?");
             connection.getMetaData().getUserName();
 
-            List<String> events = connection.getRuntimeMetrics().getEvents();
+            List<String> events =
+                    MetricsTestAccess.getEvents(LbTestAccess.getRuntimeMetrics(connection));
             assertTrue(containsEvent(events, "sqlType=READ,routeTarget=TO_READ_ONLY"));
             assertTrue(containsEvent(events, "sqlType=READ,routeTarget=TO_READ_WRITE"));
             assertTrue(containsEvent(events, "sqlType=COMMAND,command=Call: getUserName"));
@@ -248,7 +252,7 @@ public final class LbRoutingDecisionIT {
                     connection,
                     "SELECT /*+ STICKY_TO_RW */ id FROM " + tableName + " WHERE id = ?");
             executeSelect(connection, "SELECT id FROM " + tableName + " WHERE id = ?");
-            String event = lastSqlEvent(connection.getRuntimeMetrics());
+            String event = lastSqlEvent(LbTestAccess.getRuntimeMetrics(connection));
             assertTrue(event.contains("sqlType=READ"));
             assertTrue(event.contains("routeTarget=TO_READ_ONLY"));
         } finally {
@@ -263,12 +267,12 @@ public final class LbRoutingDecisionIT {
         try {
             executeSelect(connection, "SELECT /*+ TO_RW */ id FROM " + tableName + " WHERE id = ?");
             assertTrue(
-                    lastSqlEvent(connection.getRuntimeMetrics())
+                    lastSqlEvent(LbTestAccess.getRuntimeMetrics(connection))
                             .contains("routeTarget=TO_READ_WRITE"));
 
             executeSelect(connection, "SELECT id FROM " + tableName + " WHERE id = ?");
             assertTrue(
-                    lastSqlEvent(connection.getRuntimeMetrics())
+                    lastSqlEvent(LbTestAccess.getRuntimeMetrics(connection))
                             .contains("routeTarget=TO_READ_ONLY"));
         } finally {
             connection.close();
@@ -285,7 +289,7 @@ public final class LbRoutingDecisionIT {
                     "Expected LoadBalanceConnection but got " + connection.getClass().getName());
         }
         LoadBalanceConnection lbConnection = (LoadBalanceConnection) connection;
-        lbConnection.getRuntimeMetrics().setEnabled(true);
+        LbTestAccess.getRuntimeMetrics(lbConnection).setEnabled(true);
         return lbConnection;
     }
 
@@ -369,7 +373,7 @@ public final class LbRoutingDecisionIT {
     }
 
     private static String lastSqlEvent(final RuntimeMetrics metrics) {
-        List<String> events = metrics.getEvents();
+        List<String> events = MetricsTestAccess.getEvents(metrics);
         for (int i = events.size() - 1; i >= 0; i--) {
             String event = events.get(i);
             if (event.contains("sqlType=READ")
@@ -383,7 +387,7 @@ public final class LbRoutingDecisionIT {
 
     private static String findLastEventContaining(
             final RuntimeMetrics metrics, final String needle) {
-        List<String> events = metrics.getEvents();
+        List<String> events = MetricsTestAccess.getEvents(metrics);
         for (int i = events.size() - 1; i >= 0; i--) {
             if (events.get(i).contains(needle)) {
                 return events.get(i);

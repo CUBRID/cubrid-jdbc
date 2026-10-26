@@ -37,6 +37,7 @@ import static org.junit.Assert.fail;
 
 import cubrid.jdbc.driver.CUBRIDPreparedStatement;
 import cubrid.jdbc.driver.CUBRIDStatement;
+import cubrid.jdbc.lb.LbTestAccess;
 import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
 import java.lang.reflect.Method;
@@ -66,7 +67,7 @@ public class LBStatementCastTest {
 
     @Before
     public void setUp() throws Exception {
-        conn = new LoadBalanceConnection(LbTestSettings.defaults());
+        conn = LbTestAccess.newLoadBalanceConnection(LbTestSettings.defaults());
     }
 
     @Test
@@ -170,11 +171,11 @@ public class LBStatementCastTest {
     @Test
     public void closingPreparedStatementUntracksIt() throws Exception {
         PreparedStatement ps = conn.prepareStatement("SELECT 1");
-        assertEquals(1, conn.getOpenStatementCount());
+        assertEquals(1, LbTestAccess.getOpenStatementCount(conn));
 
         ps.close();
 
-        assertEquals(0, conn.getOpenStatementCount());
+        assertEquals(0, LbTestAccess.getOpenStatementCount(conn));
     }
 
     /**

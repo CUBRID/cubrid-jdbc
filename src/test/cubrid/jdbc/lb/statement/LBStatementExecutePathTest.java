@@ -34,6 +34,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import cubrid.jdbc.lb.LbTestAccess;
 import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
 import cubrid.jdbc.lb.route.Router;
@@ -55,7 +56,7 @@ public final class LBStatementExecutePathTest {
 
     @Before
     public void setUp() {
-        connection = new LoadBalanceConnection(LbTestSettings.defaults());
+        connection = LbTestAccess.newLoadBalanceConnection(LbTestSettings.defaults());
     }
 
     @Test

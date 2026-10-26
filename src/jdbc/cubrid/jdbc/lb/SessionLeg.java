@@ -53,7 +53,7 @@ public enum SessionLeg {
      * @return the corresponding leg
      * @throws IllegalArgumentException if {@code target} is {@code null} or does not map to a leg
      */
-    public static SessionLeg fromRouteTarget(final Router.RouteTarget target) {
+    static SessionLeg fromRouteTarget(final Router.RouteTarget target) {
         if (target == null) {
             throw new IllegalArgumentException("RouteTarget must not be null");
         }

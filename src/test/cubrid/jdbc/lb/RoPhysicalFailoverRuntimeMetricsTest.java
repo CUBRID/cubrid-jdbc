@@ -36,8 +36,10 @@ import static org.junit.Assert.assertTrue;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
+import cubrid.jdbc.lb.connection.ConnectionTestAccess;
 import cubrid.jdbc.lb.connection.JdbcConnectionFactory;
 import cubrid.jdbc.lb.connection.SessionPhysicalConnManager;
+import cubrid.jdbc.lb.metrics.MetricsTestAccess;
 import cubrid.jdbc.lb.metrics.RuntimeMetrics;
 import cubrid.jdbc.lb.state.SharedSelectorState;
 import cubrid.jdbc.lb.statement.LBPreparedStatement;
@@ -74,7 +76,7 @@ public final class RoPhysicalFailoverRuntimeMetricsTest {
         LoadBalanceSettings loadBalanceSettings = LbTestSettings.defaults();
 
         SessionPhysicalConnManager pool =
-                new SessionPhysicalConnManager(
+                ConnectionTestAccess.newSessionPhysicalConnManager(
                         "jdbc:cubrid:localhost:30000:testdb:public::",
                         new Properties(),
                         loadBalanceSettings,
@@ -96,9 +98,9 @@ public final class RoPhysicalFailoverRuntimeMetricsTest {
         ps.executeQuery();
 
         RuntimeMetrics metrics = conn.getRuntimeMetrics();
-        assertTrue(metrics.getRwFallbackCount() >= 1);
+        assertTrue(MetricsTestAccess.getRwFallbackCount(metrics) >= 1);
         boolean found = false;
-        for (String event : metrics.getEvents()) {
+        for (String event : MetricsTestAccess.getEvents(metrics)) {
             if (event.contains("fallbackReason=RO_PHYSICAL_FAILOVER")) {
                 found = true;
                 // The read ran on the RW connection, so the record names RW, not ro1.

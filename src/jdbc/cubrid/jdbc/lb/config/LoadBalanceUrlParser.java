@@ -68,7 +68,7 @@ import java.util.regex.Pattern;
 public final class LoadBalanceUrlParser {
 
     /** Inline port not specified in a host/replica token; resolved later from global options. */
-    public static final int PORT_UNSPECIFIED = -1;
+    private static final int PORT_UNSPECIFIED = -1;
 
     private static final int MIN_PORT = 1;
     private static final int MAX_PORT = 65535;
@@ -404,7 +404,7 @@ public final class LoadBalanceUrlParser {
     }
 
     /** A {@code host[:rw_port[:ro_port]]} node from the host-list. */
-    public static final class HostToken {
+    static final class HostToken {
         private final String host;
         private final int rwPort;
         private final int roPort;
@@ -415,7 +415,7 @@ public final class LoadBalanceUrlParser {
             this.roPort = roPort;
         }
 
-        public String getHost() {
+        String getHost() {
             return host;
         }
 
@@ -424,7 +424,7 @@ public final class LoadBalanceUrlParser {
          *
          * @return the inline RW port, or {@link LoadBalanceUrlParser#PORT_UNSPECIFIED}
          */
-        public int getRwPort() {
+        int getRwPort() {
             return rwPort;
         }
 
@@ -433,21 +433,21 @@ public final class LoadBalanceUrlParser {
          *
          * @return the inline RO port, or {@link LoadBalanceUrlParser#PORT_UNSPECIFIED}
          */
-        public int getRoPort() {
+        int getRoPort() {
             return roPort;
         }
 
-        public boolean hasRwPort() {
+        boolean hasRwPort() {
             return rwPort != PORT_UNSPECIFIED;
         }
 
-        public boolean hasRoPort() {
+        boolean hasRoPort() {
             return roPort != PORT_UNSPECIFIED;
         }
     }
 
     /** A {@code host[:so_port]} node from the replica-list. */
-    public static final class ReplicaToken {
+    static final class ReplicaToken {
         private final String host;
         private final int soPort;
 
@@ -456,7 +456,7 @@ public final class LoadBalanceUrlParser {
             this.soPort = soPort;
         }
 
-        public String getHost() {
+        String getHost() {
             return host;
         }
 
@@ -465,11 +465,11 @@ public final class LoadBalanceUrlParser {
          *
          * @return the inline SO port, or {@link LoadBalanceUrlParser#PORT_UNSPECIFIED}
          */
-        public int getSoPort() {
+        int getSoPort() {
             return soPort;
         }
 
-        public boolean hasSoPort() {
+        boolean hasSoPort() {
             return soPort != PORT_UNSPECIFIED;
         }
     }
@@ -509,7 +509,7 @@ public final class LoadBalanceUrlParser {
          *
          * @return the scheme variant
          */
-        public String getVariant() {
+        String getVariant() {
             return variant;
         }
 
@@ -518,7 +518,7 @@ public final class LoadBalanceUrlParser {
          *
          * @return {@code true} if the URL is a loadbalance URL
          */
-        public boolean isLoadBalance() {
+        boolean isLoadBalance() {
             return loadbalance;
         }
 
@@ -527,7 +527,7 @@ public final class LoadBalanceUrlParser {
          *
          * @return the host-list tokens
          */
-        public List<HostToken> getHosts() {
+        List<HostToken> getHosts() {
             return hosts;
         }
 
@@ -536,11 +536,11 @@ public final class LoadBalanceUrlParser {
          *
          * @return the replica-list tokens
          */
-        public List<ReplicaToken> getReplicas() {
+        List<ReplicaToken> getReplicas() {
             return replicas;
         }
 
-        public String getDb() {
+        String getDb() {
             return db;
         }
 
@@ -549,7 +549,7 @@ public final class LoadBalanceUrlParser {
          *
          * @return the URL user, or {@code null}
          */
-        public String getUser() {
+        String getUser() {
             return user;
         }
 
@@ -558,7 +558,7 @@ public final class LoadBalanceUrlParser {
          *
          * @return the URL password, or {@code null}
          */
-        public String getPassword() {
+        String getPassword() {
             return password;
         }
 
@@ -567,7 +567,7 @@ public final class LoadBalanceUrlParser {
          *
          * @return the raw URL options
          */
-        public Map<String, String> getOptions() {
+        Map<String, String> getOptions() {
             return options;
         }
     }

@@ -40,6 +40,7 @@ import cubrid.jdbc.lb.config.ReadWeight;
 import cubrid.jdbc.lb.config.ResolvedRoleTopology;
 import cubrid.jdbc.lb.route.RoleReadSelector.ReadTarget;
 import cubrid.jdbc.lb.state.SharedSelectorState;
+import cubrid.jdbc.lb.state.StateTestAccess;
 import java.sql.SQLException;
 import java.util.HashMap;
 import java.util.Map;
@@ -98,7 +99,7 @@ public class RoleReadSelectorTest {
         assertEquals(3, count(roles, "slave"));
         assertEquals(3, count(roles, "replica"));
 
-        s.resetAll();
+        StateTestAccess.resetAll(s);
         Map<String, Integer> eps = runEndpoints(c.getResolvedTopology(), c.getReadWeight(), s, 9);
         assertEquals(3, count(eps, "node1:33000")); // master, RW reuse
         assertEquals(2, count(eps, "node2:33002")); // slave RO
@@ -124,7 +125,7 @@ public class RoleReadSelectorTest {
         assertEquals(4, count(roles, "slave"));
         assertEquals(5, count(roles, "replica"));
 
-        s.resetAll();
+        StateTestAccess.resetAll(s);
         Map<String, Integer> eps = runEndpoints(c.getResolvedTopology(), c.getReadWeight(), s, 10);
         assertEquals(1, count(eps, "node1:33000"));
         assertEquals(2, count(eps, "node2:33002"));

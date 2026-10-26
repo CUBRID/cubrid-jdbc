@@ -35,6 +35,7 @@ import static org.junit.Assert.assertTrue;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.connection.SimpleEndpointConnManager;
+import cubrid.jdbc.lb.metrics.MetricsTestAccess;
 import cubrid.jdbc.lb.metrics.RuntimeMetrics;
 import cubrid.jdbc.lb.state.SharedSelectorState;
 import cubrid.jdbc.lb.statement.LBPreparedStatement;
@@ -166,7 +167,7 @@ public final class LbRoutingDecisionTest {
         executePrepared(bound.connection, "SELECT /*+ TO_RW */  * FROM t WHERE id = ?");
         bound.connection.getMetaData().getUserName();
 
-        List<String> events = bound.connection.getRuntimeMetrics().getEvents();
+        List<String> events = MetricsTestAccess.getEvents(bound.connection.getRuntimeMetrics());
         assertTrue(containsEvent(events, "sqlType=READ,routeTarget=TO_READ_ONLY"));
         assertTrue(containsEvent(events, "sqlType=READ,routeTarget=TO_READ_WRITE"));
         assertTrue(containsEvent(events, "sqlType=COMMAND,command=Call: getUserName"));
@@ -257,7 +258,7 @@ public final class LbRoutingDecisionTest {
     }
 
     private static String lastSqlEvent(final RuntimeMetrics metrics) {
-        List<String> events = metrics.getEvents();
+        List<String> events = MetricsTestAccess.getEvents(metrics);
         for (int i = events.size() - 1; i >= 0; i--) {
             String event = events.get(i);
             if (event.contains("sqlType=READ")
@@ -271,7 +272,7 @@ public final class LbRoutingDecisionTest {
 
     private static String findLastEventContaining(
             final RuntimeMetrics metrics, final String needle) {
-        List<String> events = metrics.getEvents();
+        List<String> events = MetricsTestAccess.getEvents(metrics);
         for (int i = events.size() - 1; i >= 0; i--) {
             if (events.get(i).contains(needle)) {
                 return events.get(i);

@@ -76,7 +76,7 @@ public enum NodeRole {
      * @param label the role label to look up; may be {@code null}
      * @return the matching role, or {@code null} if unrecognized
      */
-    public static NodeRole fromLabel(final String label) {
+    static NodeRole fromLabel(final String label) {
         if (label == null) {
             return null;
         }
@@ -97,7 +97,7 @@ public enum NodeRole {
      *
      * @return the read weight group for this role
      */
-    public ReadBrokerKind readGroup() {
+    ReadBrokerKind readGroup() {
         return readGroup;
     }
 

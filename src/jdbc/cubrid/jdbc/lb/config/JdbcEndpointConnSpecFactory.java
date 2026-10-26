@@ -40,7 +40,7 @@ import java.util.regex.Pattern;
  * Builds the per-broker physical {@link JdbcPhyConnSpec} for a URI {@code loadbalance://} config
  * and the client {@link java.util.Properties}.
  */
-public final class JdbcEndpointConnSpecFactory {
+final class JdbcEndpointConnSpecFactory {
 
     // The option grammar of the core driver's URL_PATTERN (CUBRIDDriver).
     private static final Pattern PHYSICAL_OPTION_KEY = Pattern.compile("[a-zA-Z_0-9]+");
@@ -60,7 +60,7 @@ public final class JdbcEndpointConnSpecFactory {
      * @return the physical connection spec for {@code endpoint}
      * @throws SQLException if the config or endpoint is missing/unusable
      */
-    public static JdbcPhyConnSpec forEndpoint(
+    static JdbcPhyConnSpec forEndpoint(
             final LoadBalanceSettings config, final Properties clientInfo, final Endpoint endpoint)
             throws SQLException {
         if (config == null) {

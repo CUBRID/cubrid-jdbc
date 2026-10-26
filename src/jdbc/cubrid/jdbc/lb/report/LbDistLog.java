@@ -486,7 +486,7 @@ public final class LbDistLog {
     }
 
     /** Test hook: disarms and forgets the window state. */
-    public static synchronized void resetForTests() {
+    static synchronized void resetForTests() {
         armed = false;
         intervalMs = 0L;
         target = null;

@@ -69,7 +69,7 @@ public final class LbLogDedup {
      * short enough that a genuinely repeating transition (a flapping broker) still shows its
      * rhythm.
      */
-    public static final long DEFAULT_WINDOW_MS = 10000L;
+    private static final long DEFAULT_WINDOW_MS = 10000L;
 
     private static final int MAX_KEYS = 256;
 

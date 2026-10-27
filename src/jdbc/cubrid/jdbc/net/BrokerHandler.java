@@ -100,14 +100,19 @@ public class BrokerHandler {
      * ("ECDHE+AESGCM:ECDHE+CHACHA20:!aNULL:!kRSA"): every TLS 1.3 suite cci offers, and TLS 1.2
      * with ECDHE key exchange and AES-GCM or ChaCha20-Poly1305 only. The JRE's defaults alone still
      * negotiate static RSA (TLS_RSA_*), which has no forward secrecy, with a server that offers
-     * nothing else. The renegotiation signal is not a cipher and stays.
+     * nothing else. The renegotiation signal is not a cipher and stays. SSL_ is accepted for TLS_
+     * because IBM's JSSE names the TLS 1.2 suites so.
      */
     private static final Pattern ALLOWED_CIPHER_SUITE =
             Pattern.compile(
-                    "TLS_AES_(128|256)_GCM_SHA(256|384)|TLS_CHACHA20_POLY1305_SHA256"
-                            + "|TLS_ECDHE_(RSA|ECDSA)_WITH_(AES_(128|256)_GCM_SHA(256|384)"
+                    "(TLS|SSL)_(AES_(128|256)_GCM_SHA(256|384)|CHACHA20_POLY1305_SHA256"
+                            + "|ECDHE_(RSA|ECDSA)_WITH_(AES_(128|256)_GCM_SHA(256|384)"
                             + "|CHACHA20_POLY1305_SHA256)"
-                            + "|TLS_EMPTY_RENEGOTIATION_INFO_SCSV");
+                            + "|EMPTY_RENEGOTIATION_INFO_SCSV)");
+
+    private static final String NO_ALLOWED_CIPHER_SUITE =
+            "the JRE enables none of the cipher suites the driver offers"
+                    + " (TLS 1.3, or TLS 1.2 ECDHE with AES-GCM or ChaCha20-Poly1305)";
 
     private static final Pattern IPV4_LITERAL =
             Pattern.compile("\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}");
@@ -455,7 +460,11 @@ public class BrokerHandler {
         if (protocols.length > 0) {
             params.setProtocols(protocols);
         }
-        params.setCipherSuites(allowedCipherSuites(sslSocket));
+        String[] cipherSuites = allowedCipherSuites(sslSocket);
+        if (cipherSuites.length == 0) {
+            throw new UJciException(UErrorCode.ER_SSL_HANDSHAKE, NO_ALLOWED_CIPHER_SUITE);
+        }
+        params.setCipherSuites(cipherSuites);
         SNIHostName serverName = sniHostName(name);
         if (serverName != null) {
             params.setServerNames(Collections.<SNIServerName>singletonList(serverName));
@@ -496,16 +505,23 @@ public class BrokerHandler {
         return chosen.toArray(new String[chosen.size()]);
     }
 
-    /** The suites the JRE has enabled that {@link #ALLOWED_CIPHER_SUITE} allows, in its order. */
+    /**
+     * The suites the JRE has enabled that {@link #ALLOWED_CIPHER_SUITE} allows, in its order; empty
+     * when none is a cipher, as the renegotiation signal alone cannot carry a handshake.
+     */
     private static String[] allowedCipherSuites(SSLSocket socket) {
         List<String> chosen = new ArrayList<String>();
+        boolean anyCipher = false;
         for (String suite : socket.getEnabledCipherSuites()) {
             if (ALLOWED_CIPHER_SUITE.matcher(suite).matches()) {
                 chosen.add(suite);
+                if (!suite.endsWith("_SCSV")) {
+                    anyCipher = true;
+                }
             }
         }
 
-        return chosen.toArray(new String[chosen.size()]);
+        return anyCipher ? chosen.toArray(new String[chosen.size()]) : new String[0];
     }
 
     /**

@@ -52,6 +52,18 @@ public class UJciException extends Exception {
     }
 
     /**
+     * A driver error whose message is completed by a detail, with no exception behind it.
+     *
+     * @param err the {@link UErrorCode} driver error
+     * @param detail appended to the message for {@code err}
+     */
+    public UJciException(int err, String detail) {
+        super(detail);
+        jciErrCode = err;
+        this.detail = detail;
+    }
+
+    /**
      * A driver error whose message is completed by a detail, such as why a certificate was
      * rejected. The cause itself is not kept, so the detail is all the application gets of it.
      *
@@ -60,9 +72,7 @@ public class UJciException extends Exception {
      * @param t the failure, whose stack trace is kept
      */
     public UJciException(int err, String detail, Throwable t) {
-        super(detail);
-        jciErrCode = err;
-        this.detail = detail;
+        this(err, detail);
         setStackTrace(t.getStackTrace());
     }
 

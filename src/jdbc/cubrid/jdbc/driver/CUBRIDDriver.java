@@ -87,6 +87,8 @@ public class CUBRIDDriver implements Driver {
             "jdbc:cubrid(-oracle|-mysql)?:([a-zA-Z_0-9\\.-]*):([0-9]*):([^:]+):([^:]*):([^:]*):(\\?[a-zA-Z_0-9]+=[^&=?]+(&[a-zA-Z_0-9]+=[^&=?]+)*)?";
     private static final String CUBRID_JDBC_URL_HEADER = "jdbc:cubrid";
     private static final String ENV_JDBC_PROP_NAME = "CUBRID_JDBC_PROP";
+    private static final Pattern TRUST_STORE_PASSWORD =
+            Pattern.compile("(?i)([?&]truststorepassword=)[^&]*");
     private int conn_count = 0;
 
     static {
@@ -249,7 +251,7 @@ public class CUBRIDDriver implements Driver {
 
         resolvedUrl = "jdbc:cubrid:" + host + ":" + port + ":" + db + ":" + user + ":********:";
         if (prop != null) {
-            resolvedUrl += prop;
+            resolvedUrl += TRUST_STORE_PASSWORD.matcher(prop).replaceAll("$1********");
         }
 
         connProperties = new ConnectionProperties();

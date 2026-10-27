@@ -110,9 +110,11 @@ class CUBRIDArray {
             case UUType.U_TYPE_OBJECT:
                 internalArray = (Object[]) (new CUBRIDOID[length]);
                 break;
+            case UUType.U_TYPE_BFILE:
             case UUType.U_TYPE_BLOB:
                 internalArray = (Object[]) (new Blob[length]);
                 break;
+            case UUType.U_TYPE_CFILE:
             case UUType.U_TYPE_CLOB:
                 internalArray = (Object[]) (new Clob[length]);
                 break;

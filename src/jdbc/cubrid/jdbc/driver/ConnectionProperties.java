@@ -700,6 +700,16 @@ public class ConnectionProperties {
                 in.close();
             }
 
+            /* keytool encrypts the certificates in a PKCS12 store, which then loads empty, not
+             * failing, without the password. */
+            if (ks.size() == 0) {
+                String hint = (password == null) ? "; a PKCS12 store needs trustStorePassword" : "";
+                throw new CUBRIDException(
+                        CUBRIDJDBCErrorCode.invalid_url,
+                        "trustStore file " + storePath + " has no certificate" + hint,
+                        null);
+            }
+
             return ks;
         } catch (IOException e) {
             throw new CUBRIDException(

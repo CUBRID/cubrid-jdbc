@@ -121,10 +121,19 @@ public class UBindParameter extends UParameter {
     }
 
     synchronized void writeParameter(UOutputBuffer outBuffer) throws UJciException {
+        writeParameter(outBuffer, false);
+    }
+
+    /*
+     * typedNull: the broker keeps the type a NULL is sent with (PROTOCOL_V13 or later), so a NULL
+     * goes with the type its setter gave it; an older broker gets a NULL without a type.
+     */
+    synchronized void writeParameter(UOutputBuffer outBuffer, boolean typedNull)
+            throws UJciException {
         try {
             for (int i = 0; i < number; i++) {
                 if (isSetDefaultValue(i) == false && values[i] == null) {
-                    outBuffer.addByte(UUType.U_TYPE_NULL);
+                    outBuffer.addByte(typedNull ? (byte) types[i] : UUType.U_TYPE_NULL);
                     outBuffer.addNull();
                 } else {
                     outBuffer.addByte((byte) types[i]);

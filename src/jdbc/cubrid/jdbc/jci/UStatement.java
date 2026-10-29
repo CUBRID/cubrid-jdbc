@@ -460,23 +460,29 @@ public class UStatement {
     }
 
     public void bind(int index, Timestamp value) {
-        byte type = UUType.getObjectDBtype(value);
+        byte type = value == null ? UUType.U_TYPE_DATETIME : UUType.getObjectDBtype(value);
 
         bindValue(index, type, value);
     }
 
     public void bind(int index, CUBRIDTimestamptz value) {
-        byte type = UUType.getObjectDBtype(value);
+        byte type = value == null ? UUType.U_TYPE_DATETIMETZ : UUType.getObjectDBtype(value);
 
         bindValue(index, type, value);
     }
 
     public void bind(int index, Date value, TimeZone zone) {
-        bindValue(index, UUType.U_TYPE_DATE, UDateTimeFields.of(value, UUType.U_TYPE_DATE, zone));
+        bindValue(
+                index,
+                UUType.U_TYPE_DATE,
+                value == null ? null : UDateTimeFields.of(value, UUType.U_TYPE_DATE, zone));
     }
 
     public void bind(int index, Time value, TimeZone zone) {
-        bindValue(index, UUType.U_TYPE_TIME, UDateTimeFields.of(value, UUType.U_TYPE_TIME, zone));
+        bindValue(
+                index,
+                UUType.U_TYPE_TIME,
+                value == null ? null : UDateTimeFields.of(value, UUType.U_TYPE_TIME, zone));
     }
 
     public void bind(int index, Timestamp value, TimeZone zone) {
@@ -484,8 +490,8 @@ public class UStatement {
             bind(index, value);
             return;
         }
-        byte type = UUType.getObjectDBtype(value);
-        bindValue(index, type, UDateTimeFields.of(value, type, zone));
+        byte type = value == null ? UUType.U_TYPE_DATETIME : UUType.getObjectDBtype(value);
+        bindValue(index, type, value == null ? null : UDateTimeFields.of(value, type, zone));
     }
 
     public void bind(int index, Object value) {
@@ -577,6 +583,14 @@ public class UStatement {
 
     public void bindNull(int index) {
         bindValue(index, UUType.U_TYPE_NULL, null);
+    }
+
+    public void bindNull(int index, int sqlType) {
+        bindValue(index, UUType.getNullTypeOfSqlType(sqlType), null);
+    }
+
+    private boolean sendsTypedNull() {
+        return relatedConnection.brokerProtocolVersion() >= UConnection.PROTOCOL_V13;
     }
 
     public UError cancel() {
@@ -819,7 +833,7 @@ public class UStatement {
         outBuffer.addInt((int) remainingTime);
 
         if (bindParameter != null) {
-            bindParameter.writeParameter(outBuffer);
+            bindParameter.writeParameter(outBuffer, sendsTypedNull());
         }
     }
 
@@ -1082,7 +1096,7 @@ public class UStatement {
             synchronized (batchParameter) {
                 for (int i = 0; i < batchParameter.size(); i++) {
                     UBindParameter b = (UBindParameter) batchParameter.get(i);
-                    b.writeParameter(outBuffer);
+                    b.writeParameter(outBuffer, sendsTypedNull());
                 }
             }
         }

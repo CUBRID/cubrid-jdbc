@@ -136,6 +136,59 @@ public abstract class UUType {
         else return UUType.U_TYPE_NULL;
     }
 
+    /*
+     * The type setNull (i, sqlType) sends a NULL with: the type the setter of a value of that SQL
+     * type sends, so that the NULL and the value share one plan; U_TYPE_NULL (a NULL without a
+     * type) for an SQL type no setter binds.
+     */
+    static byte getNullTypeOfSqlType(int sqlType) {
+        switch (sqlType) {
+            case java.sql.Types.BIT:
+            case java.sql.Types.BOOLEAN:
+            case java.sql.Types.TINYINT:
+            case java.sql.Types.SMALLINT:
+                return UUType.U_TYPE_SHORT;
+            case java.sql.Types.INTEGER:
+                return UUType.U_TYPE_INT;
+            case java.sql.Types.BIGINT:
+                return UUType.U_TYPE_BIGINT;
+            case java.sql.Types.REAL:
+                return UUType.U_TYPE_FLOAT;
+            case java.sql.Types.FLOAT:
+            case java.sql.Types.DOUBLE:
+                return UUType.U_TYPE_DOUBLE;
+            case java.sql.Types.NUMERIC:
+            case java.sql.Types.DECIMAL:
+                return UUType.U_TYPE_NUMERIC;
+            case java.sql.Types.CHAR:
+            case java.sql.Types.VARCHAR:
+            case java.sql.Types.LONGVARCHAR:
+            case java.sql.Types.NCHAR:
+            case java.sql.Types.NVARCHAR:
+            case java.sql.Types.LONGNVARCHAR:
+                return UUType.U_TYPE_STRING;
+            case java.sql.Types.BINARY:
+            case java.sql.Types.VARBINARY:
+            case java.sql.Types.LONGVARBINARY:
+                return UUType.U_TYPE_VARBIT;
+            case java.sql.Types.DATE:
+                return UUType.U_TYPE_DATE;
+            case java.sql.Types.TIME:
+                return UUType.U_TYPE_TIME;
+            case java.sql.Types.TIMESTAMP:
+                return UUType.U_TYPE_DATETIME;
+            case java.sql.Types.TIMESTAMP_WITH_TIMEZONE:
+                return UUType.U_TYPE_DATETIMETZ;
+            case java.sql.Types.BLOB:
+                return UUType.U_TYPE_BLOB;
+            case java.sql.Types.CLOB:
+            case java.sql.Types.NCLOB:
+                return UUType.U_TYPE_CLOB;
+            default:
+                return UUType.U_TYPE_NULL;
+        }
+    }
+
     static byte getObjectDBtype(Object value) {
         if (value == null) return UUType.U_TYPE_NULL;
         else if (value instanceof String) return UUType.U_TYPE_STRING;

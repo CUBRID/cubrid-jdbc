@@ -1728,6 +1728,8 @@ public abstract class UConnection {
             try {
                 setBeginTime();
                 checkReconnect();
+                endTransaction(true);
+                errorHandler.clear();
             } catch (IOException e) {
                 logException(e);
                 errorHandler.setErrorCode(UErrorCode.ER_COMMUNICATION);

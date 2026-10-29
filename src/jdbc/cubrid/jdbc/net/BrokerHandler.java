@@ -31,6 +31,7 @@
 
 package cubrid.jdbc.net;
 
+import cubrid.jdbc.jci.SslMode;
 import cubrid.jdbc.jci.UConnection;
 import cubrid.jdbc.jci.UErrorCode;
 import cubrid.jdbc.jci.UJciException;
@@ -38,25 +39,109 @@ import cubrid.jdbc.jci.UTimedDataInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.io.EOFException;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
-import java.security.KeyManagementException;
-import java.security.NoSuchAlgorithmException;
+import java.security.GeneralSecurityException;
+import java.security.KeyStore;
+import java.security.KeyStoreException;
 import java.security.SecureRandom;
+import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
+import java.security.cert.CertificateExpiredException;
+import java.security.cert.CertificateNotYetValidException;
 import java.security.cert.X509Certificate;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Enumeration;
+import java.util.List;
+import java.util.regex.Pattern;
+import javax.net.ssl.SNIHostName;
+import javax.net.ssl.SNIServerName;
 import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLEngine;
+import javax.net.ssl.SSLHandshakeException;
+import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLSocket;
-import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.TrustManager;
+import javax.net.ssl.TrustManagerFactory;
+import javax.net.ssl.X509ExtendedTrustManager;
 import javax.net.ssl.X509TrustManager;
 
 public class BrokerHandler {
     private static int TIMEOUT_UNIT = 1000;
 
+    /** TLS versions this driver offers, newest first. Anything older is not negotiated. */
+    private static final String[] TLS_PROTOCOLS = {"TLSv1.3", "TLSv1.2"};
+
+    /**
+     * Word for word what cci says for the same failure (ssl_handshake_failure_reason() in
+     * cci_network.c): a CAS that cannot load its certificate or key closes the connection before
+     * the handshake - an older one first wrote a plaintext CAS error - and the cause is only in the
+     * CAS log.
+     */
+    private static final String BROKER_DID_NOT_START_TLS =
+            "the broker did not start TLS; its CAS log has the cause, such as an expired or unreadable"
+                    + " certificate";
+
+    /**
+     * Word for word what cci says for a handshake_failure alert, which OpenSSL sends for any of
+     * these - an Ed25519 broker certificate on a JRE before 15 among them. A TLS version mismatch
+     * gets protocol_version instead, whose message is clear as it is.
+     */
+    private static final String NO_COMMON_TLS =
+            "the driver and the broker have no cipher suite, signature algorithm or key exchange"
+                    + " group in common";
+
+    /**
+     * The suites this driver offers, the same set as cci and the broker
+     * ("ECDHE+AESGCM:ECDHE+CHACHA20:!aNULL:!kRSA"): every TLS 1.3 suite cci offers, and TLS 1.2
+     * with ECDHE key exchange and AES-GCM or ChaCha20-Poly1305 only. The JRE's defaults alone still
+     * negotiate static RSA (TLS_RSA_*), which has no forward secrecy, with a server that offers
+     * nothing else. The renegotiation signal is not a cipher and stays. SSL_ is accepted for TLS_
+     * because IBM's JSSE names the TLS 1.2 suites so.
+     */
+    private static final Pattern ALLOWED_CIPHER_SUITE =
+            Pattern.compile(
+                    "(TLS|SSL)_(AES_(128|256)_GCM_SHA(256|384)|CHACHA20_POLY1305_SHA256"
+                            + "|ECDHE_(RSA|ECDSA)_WITH_(AES_(128|256)_GCM_SHA(256|384)"
+                            + "|CHACHA20_POLY1305_SHA256)"
+                            + "|EMPTY_RENEGOTIATION_INFO_SCSV)");
+
+    private static final String NO_ALLOWED_CIPHER_SUITE =
+            "the JRE enables none of the cipher suites the driver offers"
+                    + " (TLS 1.3, or TLS 1.2 ECDHE with AES-GCM or ChaCha20-Poly1305)";
+
+    private static final Pattern IPV4_LITERAL =
+            Pattern.compile("\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}");
+
+    /**
+     * Accepts any certificate. Used only below {@code verify-ca}, which is what {@code useSSL=true}
+     * has always meant: encrypt, verify nothing.
+     */
+    private static final X509TrustManager TRUST_ALL_TM =
+            new X509TrustManager() {
+                public void checkClientTrusted(X509Certificate[] chain, String authType)
+                        throws CertificateException {}
+
+                public void checkServerTrusted(X509Certificate[] chain, String authType)
+                        throws CertificateException {}
+
+                public X509Certificate[] getAcceptedIssuers() {
+                    return new X509Certificate[0];
+                }
+            };
+
     public static Socket connectBroker(String ip, int port, boolean useSSL, int timeout)
+            throws IOException, UJciException {
+        return connectBroker(ip, port, SslMode.fromUseSSL(useSSL), null, timeout);
+    }
+
+    public static Socket connectBroker(
+            String ip, int port, SslMode sslMode, KeyStore trustStore, int timeout)
             throws IOException, UJciException {
         Socket toBroker = null;
         Socket toSSLBroker = null;
@@ -83,7 +168,7 @@ public class BrokerHandler {
             in = new UTimedDataInputStream(toBroker.getInputStream(), ip, port, timeout);
             out = new DataOutputStream(toBroker.getOutputStream());
 
-            if (useSSL == true) {
+            if (sslMode.usesSsl()) {
                 out.write(UConnection.driverInfossl);
             } else {
                 out.write(UConnection.driverInfo);
@@ -107,8 +192,8 @@ public class BrokerHandler {
                 }
 
             } else if (code == 0) {
-                if (useSSL == true) {
-                    toSSLBroker = (Socket) createSSLSocket(toBroker, ip, port);
+                if (sslMode.usesSsl()) {
+                    toSSLBroker = (Socket) createSSLSocket(toBroker, ip, port, sslMode, trustStore);
                     return (Socket) toSSLBroker;
                 } else {
                     return toBroker;
@@ -132,8 +217,8 @@ public class BrokerHandler {
             }
 
             toBroker.setKeepAlive(true);
-            if (useSSL == true) {
-                toSSLBroker = (Socket) createSSLSocket(toBroker, ip, code);
+            if (sslMode.usesSsl()) {
+                toSSLBroker = (Socket) createSSLSocket(toBroker, ip, code, sslMode, trustStore);
                 return (Socket) toSSLBroker;
             } else {
                 return toBroker;
@@ -148,6 +233,17 @@ public class BrokerHandler {
                 toBroker.close();
             }
             throw new UJciException(UErrorCode.ER_CONNECTION, e);
+        } catch (UJciException e) {
+            /* An error code from the broker, or a TLS handshake that failed, leaves the socket open:
+             * JSSE closes it on a fatal alert but not on a read timeout (JDK 11 and later). A close
+             * that fails must not hide the error. */
+            if (toBroker != null) {
+                try {
+                    toBroker.close();
+                } catch (IOException ignored) {
+                }
+            }
+            throw e;
         } finally {
         }
     }
@@ -311,50 +407,357 @@ public class BrokerHandler {
         cancelRequest(ip, port, bao.toByteArray(), timeout);
     }
 
-    private static SSLSocket createSSLSocket(Socket plainSocket, String ip, int port)
+    /**
+     * Wraps the connected socket in TLS.
+     *
+     * <p>Below {@code verify-ca} this keeps the historical behaviour - encrypted, unverified - so
+     * that existing {@code useSSL=true} deployments are unaffected. From {@code verify-ca} up, the
+     * trust managers come from a {@link TrustManagerFactory}: its X509ExtendedTrustManager is what
+     * makes {@code setEndpointIdentificationAlgorithm} effective, which a hand-written
+     * X509TrustManager does not reliably do.
+     *
+     * @param plainSocket the connected TCP socket to upgrade
+     * @param host the host as the caller named it - less a trailing dot, the SNI value and the name
+     *     checked against the certificate
+     * @param port the broker port
+     * @param sslMode how much of the certificate to check
+     * @param trustStore anchors for the chain check; null only below {@code verify-ca}
+     * @return the handshaken TLS socket
+     * @throws UJciException {@code ER_SSL_CERT_VERIFY} when the certificate was rejected, {@code
+     *     ER_SSL_HANDSHAKE} for any other handshake failure
+     */
+    private static SSLSocket createSSLSocket(
+            Socket plainSocket, String host, int port, SslMode sslMode, KeyStore trustStore)
             throws UJciException {
-        SSLSocket sslSocket = null;
-        SSLContext ctx = null;
-        SSLSocketFactory sslsocketfactory = null;
-
-        X509TrustManager tm =
-                new X509TrustManager() {
-                    public void checkClientTrusted(X509Certificate[] chain, String authType)
-                            throws CertificateException {}
-
-                    public void checkServerTrusted(X509Certificate[] xcs, String string)
-                            throws CertificateException {}
-
-                    public X509Certificate[] getAcceptedIssuers() {
-                        return new X509Certificate[0];
-                    }
-                };
-
+        SSLContext ctx;
         try {
             ctx = SSLContext.getInstance("TLS");
-        } catch (NoSuchAlgorithmException e) {
+            if (sslMode.verifiesCertificate()) {
+                /* getTrustStore() never gives null here, but connectBroker() is public: null would
+                 * make tmf.init() take the JVM cacerts, and withDateCheck() throw an NPE. */
+                if (trustStore == null) {
+                    throw new UJciException(UErrorCode.ER_CONNECTION);
+                }
+                TrustManagerFactory tmf =
+                        TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+                tmf.init(trustStore);
+                ctx.init(null, withDateCheck(tmf.getTrustManagers(), trustStore), null);
+            } else {
+                ctx.init(null, new TrustManager[] {TRUST_ALL_TM}, new SecureRandom());
+            }
+        } catch (GeneralSecurityException e) {
             throw new UJciException(UErrorCode.ER_CONNECTION, e);
         }
 
-        try {
-            ctx.init(null, new TrustManager[] {tm}, new SecureRandom());
-        } catch (KeyManagementException e) {
-            throw new UJciException(UErrorCode.ER_CONNECTION, e);
-        }
+        /* An absolute name ("db.example.com.") is the same host without its trailing dot, and SNI and
+         * the certificate check take it without: RFC 6066 writes SNI so, and cci does the same. JSSE
+         * drops the dot itself only from 8u372, 11.0.19 and 17.0.6; before, it refused the name.
+         * The socket is already connected, so the address came from the name as written. */
+        String name =
+                (host != null && host.endsWith(".")) ? host.substring(0, host.length() - 1) : host;
 
-        sslsocketfactory = ctx.getSocketFactory();
+        SSLSocket sslSocket;
         try {
-            sslSocket = (SSLSocket) sslsocketfactory.createSocket(plainSocket, ip, port, true);
+            sslSocket =
+                    (SSLSocket) ctx.getSocketFactory().createSocket(plainSocket, name, port, true);
         } catch (IOException e) {
             throw new UJciException(UErrorCode.ER_CONNECTION, e);
         }
+
+        SSLParameters params = sslSocket.getSSLParameters();
+        String[] protocols = supportedProtocols(sslSocket);
+        if (protocols.length > 0) {
+            params.setProtocols(protocols);
+        }
+        String[] cipherSuites = allowedCipherSuites(sslSocket);
+        if (cipherSuites.length == 0) {
+            throw new UJciException(UErrorCode.ER_SSL_HANDSHAKE, NO_ALLOWED_CIPHER_SUITE);
+        }
+        params.setCipherSuites(cipherSuites);
+        SNIHostName serverName = sniHostName(name);
+        if (serverName != null) {
+            params.setServerNames(Collections.<SNIServerName>singletonList(serverName));
+        }
+        if (sslMode.verifiesHostname()) {
+            params.setEndpointIdentificationAlgorithm("HTTPS");
+        }
+        sslSocket.setSSLParameters(params);
 
         try {
             sslSocket.startHandshake();
+        } catch (SSLHandshakeException e) {
+            if (isCertificateFailure(e)) {
+                throw new UJciException(
+                        UErrorCode.ER_SSL_CERT_VERIFY, certificateFailureReason(e), e);
+            }
+            throw new UJciException(UErrorCode.ER_SSL_HANDSHAKE, handshakeFailureReason(e), e);
         } catch (IOException e) {
-            throw new UJciException(UErrorCode.ER_SSL_HANDSHAKE, e);
+            throw new UJciException(UErrorCode.ER_SSL_HANDSHAKE, handshakeFailureReason(e), e);
         }
 
         return sslSocket;
+    }
+
+    /**
+     * {@link #TLS_PROTOCOLS} narrowed to what this JRE has. TLS 1.3 arrived in 8u261, so asking for
+     * it unconditionally would throw on an older JRE that TLS 1.2 serves perfectly well.
+     */
+    private static String[] supportedProtocols(SSLSocket socket) {
+        List<String> available = Arrays.asList(socket.getSupportedProtocols());
+        List<String> chosen = new ArrayList<String>(TLS_PROTOCOLS.length);
+        for (String protocol : TLS_PROTOCOLS) {
+            if (available.contains(protocol)) {
+                chosen.add(protocol);
+            }
+        }
+
+        return chosen.toArray(new String[chosen.size()]);
+    }
+
+    /**
+     * The suites the JRE has enabled that {@link #ALLOWED_CIPHER_SUITE} allows, in its order; empty
+     * when none is a cipher, as the renegotiation signal alone cannot carry a handshake.
+     */
+    private static String[] allowedCipherSuites(SSLSocket socket) {
+        List<String> chosen = new ArrayList<String>();
+        boolean anyCipher = false;
+        for (String suite : socket.getEnabledCipherSuites()) {
+            if (ALLOWED_CIPHER_SUITE.matcher(suite).matches()) {
+                chosen.add(suite);
+                if (!suite.endsWith("_SCSV")) {
+                    anyCipher = true;
+                }
+            }
+        }
+
+        return anyCipher ? chosen.toArray(new String[chosen.size()]) : new String[0];
+    }
+
+    /**
+     * The SNI value for the host, or null when none is sent. RFC 6066 forbids an IP literal, and a
+     * broker addressed by IP has nothing to match it against anyway. A name SNIHostName refuses -
+     * an underscore, a label over 63 characters - also goes without SNI, as the JRE's own default
+     * does, so such a host connects as it did before the driver set SNI. verify-full still checks
+     * the host against the certificate.
+     */
+    private static SNIHostName sniHostName(String host) {
+        if (host == null || isIpLiteral(host)) {
+            return null;
+        }
+
+        try {
+            return new SNIHostName(host);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    private static boolean isIpLiteral(String host) {
+        if (host == null || host.length() == 0) {
+            return false;
+        }
+        if (host.indexOf(':') >= 0) {
+            return true; /* IPv6 literal */
+        }
+
+        return IPV4_LITERAL.matcher(host).matches();
+    }
+
+    /**
+     * Whether the handshake failed because of the certificate rather than the connection.
+     *
+     * <p>Every case the caller must tell apart - chain building, expiry, a missing or mismatched
+     * subject alternative name - reaches the client as a {@link CertificateException} somewhere in
+     * the cause chain. The walk is bounded because a malformed cause chain must not hang a connect.
+     */
+    private static boolean isCertificateFailure(Throwable t) {
+        for (int depth = 0; t != null && depth < 16; depth++) {
+            if (t instanceof CertificateException) {
+                return true;
+            }
+            t = t.getCause();
+        }
+
+        return false;
+    }
+
+    /**
+     * Why a handshake failed for a reason other than the certificate: {@link
+     * #BROKER_DID_NOT_START_TLS} when the connection ended before the broker answered, or what it
+     * answered was not TLS ("Unrecognized SSL message" before 8u261, "Unsupported or unrecognized
+     * SSL message" since); {@link #NO_COMMON_TLS} when the broker answered with a handshake_failure
+     * alert; otherwise the JSSE message.
+     */
+    private static String handshakeFailureReason(IOException e) {
+        Throwable t = e;
+        for (int depth = 0; t != null && depth < 16; depth++) {
+            if (t instanceof EOFException) {
+                return BROKER_DID_NOT_START_TLS;
+            }
+            t = t.getCause();
+        }
+
+        String message = e.getMessage();
+        if (message != null && message.contains("nrecognized SSL message")) {
+            return BROKER_DID_NOT_START_TLS;
+        }
+        if ("Received fatal alert: handshake_failure".equals(message)) {
+            return NO_COMMON_TLS;
+        }
+
+        return (message != null) ? message : "unknown reason";
+    }
+
+    /**
+     * Why the certificate was rejected: the innermost message of the cause chain, which names the
+     * mismatching host or the missing certification path. Expiry is spelled out, as its innermost
+     * message is only a date.
+     */
+    private static String certificateFailureReason(Throwable t) {
+        Throwable inner = t;
+        for (int depth = 0; inner.getCause() != null && depth < 16; depth++) {
+            inner = inner.getCause();
+        }
+
+        if (inner instanceof CertificateExpiredException) {
+            return "certificate has expired (" + inner.getMessage() + ")";
+        }
+        if (inner instanceof CertificateNotYetValidException) {
+            return "certificate is not yet valid (" + inner.getMessage() + ")";
+        }
+
+        return inner.getMessage();
+    }
+
+    /** The factory's trust managers, each one wrapped in a {@link DateCheckingTrustManager}. */
+    private static TrustManager[] withDateCheck(TrustManager[] managers, KeyStore trustStore)
+            throws KeyStoreException {
+        List<X509Certificate> trusted = new ArrayList<X509Certificate>();
+        for (Enumeration<String> aliases = trustStore.aliases(); aliases.hasMoreElements(); ) {
+            Certificate cert = trustStore.getCertificate(aliases.nextElement());
+            if (cert instanceof X509Certificate) {
+                trusted.add((X509Certificate) cert);
+            }
+        }
+
+        TrustManager[] wrapped = new TrustManager[managers.length];
+        for (int i = 0; i < managers.length; i++) {
+            wrapped[i] =
+                    (managers[i] instanceof X509ExtendedTrustManager)
+                            ? new DateCheckingTrustManager(
+                                    (X509ExtendedTrustManager) managers[i], trusted)
+                            : managers[i];
+        }
+
+        return wrapped;
+    }
+
+    /**
+     * Also rejects a chain the PKIX trust manager accepted when a certificate on it, or the trusted
+     * certificate it ends at, is outside its validity period - the check OpenSSL makes for cci.
+     * JSSE checks the dates of the certificates below the trust anchor only: an anchor, and a
+     * certificate that is itself in the trust store, pass whatever their dates. So an expired CA in
+     * sslca, or a pinned certificate sent with an expired issuer, would connect here and fail in
+     * cci.
+     */
+    private static final class DateCheckingTrustManager extends X509ExtendedTrustManager {
+        private final X509ExtendedTrustManager delegate;
+        private final List<X509Certificate> trusted;
+
+        DateCheckingTrustManager(X509ExtendedTrustManager delegate, List<X509Certificate> trusted) {
+            this.delegate = delegate;
+            this.trusted = trusted;
+        }
+
+        public void checkServerTrusted(X509Certificate[] chain, String authType, Socket socket)
+                throws CertificateException {
+            delegate.checkServerTrusted(chain, authType, socket);
+            checkDates(chain);
+        }
+
+        public void checkServerTrusted(X509Certificate[] chain, String authType, SSLEngine engine)
+                throws CertificateException {
+            delegate.checkServerTrusted(chain, authType, engine);
+            checkDates(chain);
+        }
+
+        public void checkServerTrusted(X509Certificate[] chain, String authType)
+                throws CertificateException {
+            delegate.checkServerTrusted(chain, authType);
+            checkDates(chain);
+        }
+
+        public void checkClientTrusted(X509Certificate[] chain, String authType, Socket socket)
+                throws CertificateException {
+            delegate.checkClientTrusted(chain, authType, socket);
+        }
+
+        public void checkClientTrusted(X509Certificate[] chain, String authType, SSLEngine engine)
+                throws CertificateException {
+            delegate.checkClientTrusted(chain, authType, engine);
+        }
+
+        public void checkClientTrusted(X509Certificate[] chain, String authType)
+                throws CertificateException {
+            delegate.checkClientTrusted(chain, authType);
+        }
+
+        public X509Certificate[] getAcceptedIssuers() {
+            return delegate.getAcceptedIssuers();
+        }
+
+        /**
+         * Walks up from the leaf as OpenSSL builds the chain - through the certificates the broker
+         * sent while each issued the one before, until one was issued by a trusted certificate -
+         * and checks the dates of every certificate on the way and of that trusted one.
+         */
+        private void checkDates(X509Certificate[] chain) throws CertificateException {
+            for (int i = 0; i < chain.length; i++) {
+                chain[i].checkValidity();
+                X509Certificate issuer = trustedIssuer(chain[i]);
+                if (issuer != null) {
+                    issuer.checkValidity();
+                    return;
+                }
+                if (i + 1 < chain.length && !issued(chain[i + 1], chain[i])) {
+                    return;
+                }
+            }
+        }
+
+        /**
+         * The trusted certificate that issued cert, null if none. One within its dates is
+         * preferred, as OpenSSL does when an old and a renewed CA certificate are both trusted.
+         */
+        private X509Certificate trustedIssuer(X509Certificate cert) {
+            X509Certificate outOfDate = null;
+            for (X509Certificate candidate : trusted) {
+                if (!issued(candidate, cert)) {
+                    continue;
+                }
+                try {
+                    candidate.checkValidity();
+                    return candidate;
+                } catch (CertificateException e) {
+                    if (outOfDate == null) {
+                        outOfDate = candidate;
+                    }
+                }
+            }
+
+            return outOfDate;
+        }
+
+        private static boolean issued(X509Certificate issuer, X509Certificate cert) {
+            if (!issuer.getSubjectX500Principal().equals(cert.getIssuerX500Principal())) {
+                return false;
+            }
+            try {
+                cert.verify(issuer.getPublicKey());
+                return true;
+            } catch (GeneralSecurityException e) {
+                return false;
+            }
+        }
     }
 }

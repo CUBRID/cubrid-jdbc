@@ -48,6 +48,8 @@ import cubrid.jdbc.net.BrokerHandler;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.SocketTimeoutException;
+import java.security.KeyStore;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.StringTokenizer;
 
@@ -102,6 +104,11 @@ public class UClientSideConnection extends UConnection {
     }
 
     public void tryConnect() throws CUBRIDException {
+        /* Resolve the trust anchors here: an unreadable sslca/trustStore is a configuration error
+         * and reaches the application as invalid_url only from this method. The connect paths below
+         * can report jci codes only, and ConnectionProperties keeps the result, so this reads the
+         * file once per connection. */
+        connectionProperties.getTrustStore();
         try {
             if (connectionProperties.getUseLazyConnection()) {
                 needReconnection = true;
@@ -198,8 +205,7 @@ public class UClientSideConnection extends UConnection {
         } else {
             int retry = 0;
             UUnreachableHostList unreachableHosts = UUnreachableHostList.getInstance();
-            boolean useSSL = connectionProperties.getUseSSL();
-            unreachableHosts.setUseSSL(useSSL);
+            unreachableHosts.setSslConfig(connectionProperties.getSslMode(), sslTrustStore());
 
             do {
                 for (int hostId = 0; hostId < altHosts.size(); hostId++) {
@@ -250,16 +256,32 @@ public class UClientSideConnection extends UConnection {
         return timestamp + (timeout * 1000);
     }
 
+    /**
+     * The anchors resolved by {@link #tryConnect()}. Re-asking is cheap - the result is kept on the
+     * properties - and a configuration error that somehow reaches here must still stop the connect
+     * rather than fall back to the JVM default store.
+     */
+    private KeyStore sslTrustStore() throws UJciException {
+        try {
+            return connectionProperties.getTrustStore();
+        } catch (SQLException e) {
+            throw new UJciException(UErrorCode.ER_CONNECTION, e);
+        }
+    }
+
     private void reconnectWorker(long endTimestamp) throws IOException, UJciException {
         if (UJCIUtil.isConsoleDebug()) {
             CUBRIDDriver.printDebug(String.format("Try Connect (%s,%d)", casIp, casPort));
         }
 
         int timeout = connectionProperties.getConnectTimeout() * 1000;
-        boolean useSSL = connectionProperties.getUseSSL();
         client =
                 BrokerHandler.connectBroker(
-                        casIp, casPort, useSSL, getTimeout(endTimestamp, timeout));
+                        casIp,
+                        casPort,
+                        connectionProperties.getSslMode(),
+                        sslTrustStore(),
+                        getTimeout(endTimestamp, timeout));
         output = new DataOutputStream(client.getOutputStream());
         connectDB(getTimeout(endTimestamp, timeout));
 

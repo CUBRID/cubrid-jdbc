@@ -47,7 +47,7 @@ package cubrid.jdbc.jci;
  */
 public abstract class USchType {
     public static final int SCH_MIN = 1;
-    public static final int SCH_MAX = 19;
+    public static final int SCH_MAX = 21;
 
     public static final int SCH_CLASS = 1;
     public static final int SCH_VCLASS = 2;
@@ -68,4 +68,5 @@ public abstract class USchType {
     public static final int SCH_IMPORTED_KEYS = 17;
     public static final int SCH_EXPORTED_KEYS = 18;
     public static final int SCH_CROSS_REFERENCE = 19;
+    public static final int SCH_SCHEMAS = 21;
 }

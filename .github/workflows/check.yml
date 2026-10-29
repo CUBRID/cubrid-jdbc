@@ -101,3 +101,21 @@ jobs:
         uses: reviewdog/action-suggester@aa38384ceb608d00f84b4690cacc83a5aba307ff
         with:
           tool_name: code-style (indent, googlejavaformat)
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '8'
+      # build.xml reads the driver version from output/build.properties, which CMake
+      # generates and .gitignore excludes, so it is absent on a fresh checkout.
+      - name: Generate build.properties
+        run: |
+          mkdir -p output
+          cmake -DCUBRID_JDBC_SOURCE_DIR=$PWD -DCUBRID_JDBC_OUTPUT_DIR=$PWD/output \
+                -P cmake/gen_version.cmake
+      - name: Run ant test
+        run: ant test

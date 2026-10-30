@@ -1230,8 +1230,8 @@ public abstract class UConnection {
             inBuffer = send_recv_msg();
 
             /* The reply is the result code every CAS reply starts with, then
-             * the binding's count: rows for COPY, bytes for a value stream.
-             * The count is 64-bit so a 4GB LOB value fits. */
+             * a 64-bit count: rows for COPY and LOB DML, or the handle the
+             * server issues for what a result_is_handle kind staged. */
             int res_code;
             res_code = inBuffer.getResCode();
             if (res_code < 0) {

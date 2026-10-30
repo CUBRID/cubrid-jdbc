@@ -76,6 +76,10 @@ public class UTimedDataInputStream {
         this.timeout = timeout;
     }
 
+    int getTimeout() {
+        return timeout;
+    }
+
     public int readInt(int timeout) throws IOException, UJciException {
         long begin = System.currentTimeMillis();
 

@@ -268,7 +268,7 @@ public class UClientSideConnection extends UConnection {
                         client.getInputStream(), casIp, casPort, casProcessId, sessionId, timeout);
 
         client.setTcpNoDelay(true);
-        client.setSoTimeout(SOCKET_TIMEOUT);
+        client.setSoTimeout(socketTimeout(getNetworkTimeout()));
         needReconnection = false;
         isClosed = false;
 

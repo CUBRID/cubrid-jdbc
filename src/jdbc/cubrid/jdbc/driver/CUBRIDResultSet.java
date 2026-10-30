@@ -2041,7 +2041,17 @@ public class CUBRIDResultSet implements ResultSet {
 
     /* JDK 1.6 */
     public boolean isClosed() throws SQLException {
-        return is_closed;
+        if (is_closed) {
+            return true;
+        }
+
+        CUBRIDStatement s = stmt;
+        if (s != null) {
+            return s.isClosed();
+        }
+
+        CUBRIDConnection c = con;
+        return c != null && c.isClosedWithoutLock();
     }
 
     /* JDK 1.6 */

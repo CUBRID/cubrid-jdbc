@@ -109,7 +109,8 @@ public abstract class UConnection {
     public static final int PROTOCOL_V11 = 11;
     public static final int PROTOCOL_V12 = 12;
     /* CAS-issued session id required (not just optionally checked) for QC/X1 query cancel,
-     * see KVE-2026-1827 and engine ticket CBRD-27389. Mirrors src/broker/cas_protocol.h's
+     * see KVE-2026-1827 and engine ticket CBRD-27389, and the client->server byte-stream
+     * transport (UFunctionCode.STREAM_*). Mirrors src/broker/cas_protocol.h's
      * PROTOCOL_V13 (engine) and src/cci/broker_cas_protocol.h's PROTOCOL_V13 (CCI). */
     public static final int PROTOCOL_V13 = 13;
 
@@ -171,6 +172,7 @@ public abstract class UConnection {
     protected static final byte CAS_INFO_FLAG_MASK_AUTOCOMMIT = 0x01;
     protected static final byte CAS_INFO_FLAG_MASK_FORCE_OUT_TRAN = 0x02;
     protected static final byte CAS_INFO_FLAG_MASK_NEW_SESSION_ID = 0x04;
+    protected static final byte CAS_INFO_FLAG_MASK_STREAM_OPEN = 0x08;
 
     /* broker info */
     protected static final int BROKER_INFO_SIZE = 8;
@@ -1149,6 +1151,83 @@ public abstract class UConnection {
         return -1;
     }
 
+    // UFunctionCode.STREAM_SEND_DATA
+    public synchronized int streamSendData(byte[] data, int start, int len) {
+        errorHandler = new UError(this);
+        if (isClosed == true) {
+            errorHandler.setErrorCode(UErrorCode.ER_IS_CLOSED);
+            return -1;
+        }
+        try {
+            setBeginTime();
+            checkReconnect();
+            if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR) return -1;
+
+            outBuffer.newRequest(output, UFunctionCode.STREAM_SEND_DATA);
+            outBuffer.addBytes(data, start, len);
+
+            UInputBuffer inBuffer;
+            inBuffer = send_recv_msg();
+
+            int res_code;
+            res_code = inBuffer.getResCode();
+            if (res_code < 0) {
+                errorHandler.setErrorCode(UErrorCode.ER_UNKNOWN);
+            }
+            return res_code;
+        } catch (UJciException e) {
+            logException(e);
+            e.toUError(errorHandler);
+        } catch (IOException e) {
+            logException(e);
+            errorHandler.setErrorCode(UErrorCode.ER_COMMUNICATION);
+        } catch (Exception e) {
+            logException(e);
+            errorHandler.setErrorCode(UErrorCode.ER_UNKNOWN);
+        }
+        return -1;
+    }
+
+    // UFunctionCode.STREAM_END
+    public synchronized long streamEnd() {
+        errorHandler = new UError(this);
+        if (isClosed == true) {
+            errorHandler.setErrorCode(UErrorCode.ER_IS_CLOSED);
+            return -1;
+        }
+        try {
+            setBeginTime();
+            checkReconnect();
+            if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR) return -1;
+
+            outBuffer.newRequest(output, UFunctionCode.STREAM_END);
+
+            UInputBuffer inBuffer;
+            inBuffer = send_recv_msg();
+
+            /* The reply is the result code every CAS reply starts with, then
+             * a 64-bit count: rows for COPY and LOB DML, or the handle the
+             * server issues for what a result_is_handle kind staged. */
+            int res_code;
+            res_code = inBuffer.getResCode();
+            if (res_code < 0) {
+                errorHandler.setErrorCode(UErrorCode.ER_UNKNOWN);
+                return res_code;
+            }
+            return inBuffer.readLong();
+        } catch (UJciException e) {
+            logException(e);
+            e.toUError(errorHandler);
+        } catch (IOException e) {
+            logException(e);
+            errorHandler.setErrorCode(UErrorCode.ER_COMMUNICATION);
+        } catch (Exception e) {
+            logException(e);
+            errorHandler.setErrorCode(UErrorCode.ER_UNKNOWN);
+        }
+        return -1;
+    }
+
     /* XA protocols */
     // UFunctionCode.XA_END_TRAN
     public synchronized void xa_endTransaction(Xid xid, boolean type) {
@@ -1907,6 +1986,22 @@ public abstract class UConnection {
 
     public int brokerProtocolVersion() {
         return protocolVersion;
+    }
+
+    /*
+     * Is a stream session open on this connection? The server reports it in
+     * every reply, so the statement that opened one can be recognised as
+     * unfinished: the bytes are still to come and the auto-commit it owes
+     * belongs to the stream's END, which the CAS pays.
+     *
+     * Older servers leave every bit above the three known masks at 1, so the
+     * answer is only meaningful from PROTOCOL_V13 on.
+     */
+    public boolean isStreamOpen() {
+        if (protocolVersion < PROTOCOL_V13 || casInfo == null) {
+            return false;
+        }
+        return (casInfo[CAS_INFO_ADDITIONAL_FLAG] & CAS_INFO_FLAG_MASK_STREAM_OPEN) != 0;
     }
 
     @Deprecated

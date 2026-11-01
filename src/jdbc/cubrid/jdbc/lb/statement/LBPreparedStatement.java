@@ -141,7 +141,13 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         this.sql = sql;
         this.ownerConn = lbConnection;
         this.sessState = lbConnection.getSessionState();
-        this.parameterBinder = new ParameterBinder();
+        this.parameterBinder =
+                new ParameterBinder(
+                        new ParameterBinder.BindCheck() {
+                            public PreparedStatement statement() throws SQLException {
+                                return phyPsProvider.preparedForBindCheck();
+                            }
+                        });
         this.sqlCaches = SqlCaches.compute(sql, lbConnection.sqlClassifier());
     }
 
@@ -270,7 +276,27 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     public void addBatch() throws SQLException {
         statementDelegate.checkClosed();
         validateParamCountCompat();
+        checkAllBound();
         batchedBinders.add(parameterBinder.snapshot());
+        // Core starts every batch row with no parameter bound.
+        parameterBinder.clear();
+    }
+
+    /**
+     * Core's {@code addBatch()} refuses a row with an unbound parameter. The row goes through the
+     * prepared physical statement's own {@code addBatch()} for that answer and is dropped from it
+     * again; {@code executeBatch()} rebuilds the physical batch anyway.
+     */
+    private void checkAllBound() throws SQLException {
+        final PreparedStatement target = phyPsProvider.preparedForBindCheck();
+        // A stream-backed LOB is consumed by its first bind; it is left to the execute.
+        if (target == null || parameterBinder.hasNonReplayableParams()) {
+            return;
+        }
+        target.clearParameters();
+        parameterBinder.replay(target);
+        target.addBatch();
+        target.clearBatch();
     }
 
     /**
@@ -1223,6 +1249,17 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
          * @throws SQLException if the prepare fails
          */
         void prepareOnWriteEndpoint(String rawSql) throws SQLException;
+
+        /**
+         * An open physical statement already prepared for this logical one, which setters and
+         * {@code addBatch()} run through first so they fail where core's do. Never prepares.
+         *
+         * @return that statement, or {@code null} if there is none
+         * @throws SQLException if its state cannot be read
+         */
+        default PreparedStatement preparedForBindCheck() throws SQLException {
+            return null;
+        }
 
         void closePrepStmts() throws SQLException;
     }

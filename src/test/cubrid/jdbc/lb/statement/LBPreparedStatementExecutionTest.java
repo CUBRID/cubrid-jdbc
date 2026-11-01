@@ -644,6 +644,109 @@ public class LBPreparedStatementExecutionTest {
         assertEquals(Arrays.asList(Arrays.asList(1)), context.sentBatches);
     }
 
+    /**
+     * Core rejects a value it cannot bind in the setter, so the row is never added and the rows
+     * before it stay in the batch.
+     */
+    @Test
+    public void assertUnbindableValueIsRejectedInTheSetterLikeCore() throws Exception {
+        LBPreparedStatement statement =
+                (LBPreparedStatement) connection.prepareStatement("INSERT INTO t(v) VALUES (?)");
+        CorePsContext context = new CorePsContext();
+        statement.setPsProvider(context);
+
+        statement.setInt(1, 1);
+        statement.addBatch();
+        statement.setInt(1, 2);
+        statement.addBatch();
+        try {
+            statement.setObject(1, new Object());
+            fail("Expected IllegalArgumentException from the setter");
+        } catch (IllegalArgumentException expected) {
+        }
+        statement.setInt(1, 10);
+        statement.addBatch();
+        statement.executeBatch();
+
+        assertEquals(Arrays.asList(Arrays.asList(1, 2, 10)), context.sentBatches);
+    }
+
+    @Test
+    public void assertRejectedSetterKeepsThePreviousValueLikeCore() throws Exception {
+        LBPreparedStatement statement =
+                (LBPreparedStatement) connection.prepareStatement("UPDATE t SET v = ?");
+        CorePsContext context = new CorePsContext();
+        statement.setPsProvider(context);
+
+        statement.setInt(1, 5);
+        try {
+            statement.setObject(1, new Object());
+            fail("Expected IllegalArgumentException from the setter");
+        } catch (IllegalArgumentException expected) {
+        }
+        statement.executeUpdate();
+
+        assertEquals(Arrays.asList(5), context.sentUpdates);
+    }
+
+    @Test
+    public void assertIndexPastThePlaceholdersIsRejectedInTheSetterLikeCore() throws Exception {
+        LBPreparedStatement statement =
+                (LBPreparedStatement) connection.prepareStatement("UPDATE t SET v = ?");
+        CorePsContext context = new CorePsContext();
+        statement.setPsProvider(context);
+
+        try {
+            statement.setInt(2, 5);
+            fail("Expected SQLException from the setter");
+        } catch (SQLException e) {
+            assertEquals(CUBRIDJDBCErrorCode.invalid_index, e.getErrorCode());
+        }
+    }
+
+    /** Core's {@code addBatch()} refuses a row with an unbound parameter. */
+    @Test
+    public void assertAddBatchRefusesAnUnboundParameterLikeCore() throws Exception {
+        LBPreparedStatement statement =
+                (LBPreparedStatement) connection.prepareStatement("INSERT INTO t(v) VALUES (?)");
+        CorePsContext context = new CorePsContext();
+        statement.setPsProvider(context);
+
+        try {
+            statement.addBatch();
+            fail("Expected SQLException from addBatch");
+        } catch (SQLException expected) {
+            assertTrue(expected.getMessage().contains("ER_NOT_BIND"));
+        }
+
+        assertEquals(0, statement.executeBatch().length);
+        assertTrue(context.sentBatches.isEmpty());
+    }
+
+    /** Core starts every batch row unbound, so a parameter must be set again for the next one. */
+    @Test
+    public void assertAddBatchUnbindsTheParametersLikeCore() throws Exception {
+        LBPreparedStatement statement =
+                (LBPreparedStatement) connection.prepareStatement("INSERT INTO t(v) VALUES (?)");
+        CorePsContext context = new CorePsContext();
+        statement.setPsProvider(context);
+
+        statement.setInt(1, 1);
+        statement.addBatch();
+        try {
+            statement.addBatch();
+            fail("Expected SQLException from addBatch");
+        } catch (SQLException expected) {
+            assertTrue(expected.getMessage().contains("ER_NOT_BIND"));
+        }
+        try {
+            statement.executeUpdate();
+            fail("Expected SQLException from executeUpdate");
+        } catch (SQLException expected) {
+            assertTrue(expected.getMessage().contains("ER_NOT_BIND"));
+        }
+    }
+
     /** Mirrors the session cache: one physical statement per SQL, reused across executions. */
     static final class CachedPsContext implements LBPreparedStatement.PhysicalPsProvider {
 

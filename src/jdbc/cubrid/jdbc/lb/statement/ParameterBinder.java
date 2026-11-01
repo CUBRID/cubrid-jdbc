@@ -59,7 +59,15 @@ import java.util.LinkedHashMap;
  * statement.
  */
 final class ParameterBinder {
+    /** Supplies the physical statement a new value is bound to before it is recorded. */
+    interface BindCheck {
+        PreparedStatement statement() throws SQLException;
+    }
+
     private final OperationList operations = new OperationList();
+
+    // null for a batch row snapshot, which is never set again.
+    private final BindCheck bindCheck;
 
     // True once a parameter is recorded that still holds the caller's stream/reader: the LOB
     // setters, which core streams straight to the server rather than into memory, and the
@@ -69,81 +77,93 @@ final class ParameterBinder {
     // where core materializes them too.
     private boolean hasStreamParam = false;
 
-    void recordSetNull(final int parameterIndex, final int sqlType) {
-        operations.add(new SetNullOp(parameterIndex, sqlType));
+    ParameterBinder() {
+        this(null);
     }
 
-    void recordSetNull(final int parameterIndex, final int sqlType, final String typeName) {
-        operations.add(new SetNullTypeNameOp(parameterIndex, sqlType, typeName));
+    ParameterBinder(final BindCheck bindCheck) {
+        this.bindCheck = bindCheck;
     }
 
-    void recordSetString(final int parameterIndex, final String value) {
-        operations.add(new SetStringOp(parameterIndex, value));
+    void recordSetNull(final int parameterIndex, final int sqlType) throws SQLException {
+        add(new SetNullOp(parameterIndex, sqlType));
     }
 
-    void recordSetInt(final int parameterIndex, final int value) {
-        operations.add(new SetIntOp(parameterIndex, value));
+    void recordSetNull(final int parameterIndex, final int sqlType, final String typeName)
+            throws SQLException {
+        add(new SetNullTypeNameOp(parameterIndex, sqlType, typeName));
     }
 
-    void recordSetLong(final int parameterIndex, final long value) {
-        operations.add(new SetLongOp(parameterIndex, value));
+    void recordSetString(final int parameterIndex, final String value) throws SQLException {
+        add(new SetStringOp(parameterIndex, value));
     }
 
-    void recordSetByte(final int parameterIndex, final byte value) {
-        operations.add(new SetByteOp(parameterIndex, value));
+    void recordSetInt(final int parameterIndex, final int value) throws SQLException {
+        add(new SetIntOp(parameterIndex, value));
     }
 
-    void recordSetShort(final int parameterIndex, final short value) {
-        operations.add(new SetShortOp(parameterIndex, value));
+    void recordSetLong(final int parameterIndex, final long value) throws SQLException {
+        add(new SetLongOp(parameterIndex, value));
     }
 
-    void recordSetDouble(final int parameterIndex, final double value) {
-        operations.add(new SetDoubleOp(parameterIndex, value));
+    void recordSetByte(final int parameterIndex, final byte value) throws SQLException {
+        add(new SetByteOp(parameterIndex, value));
     }
 
-    void recordSetFloat(final int parameterIndex, final float value) {
-        operations.add(new SetFloatOp(parameterIndex, value));
+    void recordSetShort(final int parameterIndex, final short value) throws SQLException {
+        add(new SetShortOp(parameterIndex, value));
     }
 
-    void recordSetBoolean(final int parameterIndex, final boolean value) {
-        operations.add(new SetBooleanOp(parameterIndex, value));
+    void recordSetDouble(final int parameterIndex, final double value) throws SQLException {
+        add(new SetDoubleOp(parameterIndex, value));
     }
 
-    void recordSetDate(final int parameterIndex, final Date value) {
-        operations.add(new SetDateOp(parameterIndex, value));
+    void recordSetFloat(final int parameterIndex, final float value) throws SQLException {
+        add(new SetFloatOp(parameterIndex, value));
     }
 
-    void recordSetDate(final int parameterIndex, final Date value, final Calendar cal) {
-        operations.add(new SetDateCalOp(parameterIndex, value, cal));
+    void recordSetBoolean(final int parameterIndex, final boolean value) throws SQLException {
+        add(new SetBooleanOp(parameterIndex, value));
     }
 
-    void recordSetTime(final int parameterIndex, final Time value) {
-        operations.add(new SetTimeOp(parameterIndex, value));
+    void recordSetDate(final int parameterIndex, final Date value) throws SQLException {
+        add(new SetDateOp(parameterIndex, value));
     }
 
-    void recordSetTime(final int parameterIndex, final Time value, final Calendar cal) {
-        operations.add(new SetTimeCalOp(parameterIndex, value, cal));
+    void recordSetDate(final int parameterIndex, final Date value, final Calendar cal)
+            throws SQLException {
+        add(new SetDateCalOp(parameterIndex, value, cal));
     }
 
-    void recordSetTimestamp(final int parameterIndex, final Timestamp value) {
-        operations.add(new SetTimestampOp(parameterIndex, value));
+    void recordSetTime(final int parameterIndex, final Time value) throws SQLException {
+        add(new SetTimeOp(parameterIndex, value));
     }
 
-    void recordSetTimestamp(final int parameterIndex, final Timestamp value, final Calendar cal) {
-        operations.add(new SetTimestampCalOp(parameterIndex, value, cal));
+    void recordSetTime(final int parameterIndex, final Time value, final Calendar cal)
+            throws SQLException {
+        add(new SetTimeCalOp(parameterIndex, value, cal));
     }
 
-    void recordSetBigDecimal(final int parameterIndex, final BigDecimal value) {
-        operations.add(new SetBigDecimalOp(parameterIndex, value));
+    void recordSetTimestamp(final int parameterIndex, final Timestamp value) throws SQLException {
+        add(new SetTimestampOp(parameterIndex, value));
     }
 
-    void recordSetBytes(final int parameterIndex, final byte[] value) {
-        operations.add(new SetBytesOp(parameterIndex, snapshot(value)));
+    void recordSetTimestamp(final int parameterIndex, final Timestamp value, final Calendar cal)
+            throws SQLException {
+        add(new SetTimestampCalOp(parameterIndex, value, cal));
+    }
+
+    void recordSetBigDecimal(final int parameterIndex, final BigDecimal value) throws SQLException {
+        add(new SetBigDecimalOp(parameterIndex, value));
+    }
+
+    void recordSetBytes(final int parameterIndex, final byte[] value) throws SQLException {
+        add(new SetBytesOp(parameterIndex, snapshot(value)));
     }
 
     void recordSetCharacterStream(final int parameterIndex, final Reader reader, final int length)
             throws SQLException {
-        operations.add(
+        add(
                 new SetCharacterStreamLenIntOp(
                         parameterIndex, reader == null ? null : materialize(reader, length)));
     }
@@ -151,7 +171,7 @@ final class ParameterBinder {
     void recordSetBinaryStream(
             final int parameterIndex, final InputStream inputStream, final int length)
             throws SQLException {
-        operations.add(
+        add(
                 new SetBinaryStreamLenIntOp(
                         parameterIndex,
                         inputStream == null ? null : materialize(inputStream, length)));
@@ -160,16 +180,18 @@ final class ParameterBinder {
     void recordSetAsciiStream(
             final int parameterIndex, final InputStream inputStream, final int length)
             throws SQLException {
-        operations.add(
+        add(
                 new SetAsciiStreamLenIntOp(
                         parameterIndex,
                         inputStream == null ? null : materialize(inputStream, length)));
     }
 
-    void recordSetBlob(final int parameterIndex, final Blob value) {
-        operations.add(new SetBlobObjOp(parameterIndex, value));
+    void recordSetBlob(final int parameterIndex, final Blob value) throws SQLException {
+        add(new SetBlobObjOp(parameterIndex, value));
     }
 
+    // The stream-backed LOB setters skip the bind check: core writes the stream to a server LOB in
+    // the setter, and binding it here would consume the caller's stream.
     void recordSetBlob(final int parameterIndex, final InputStream inputStream) {
         hasStreamParam = true;
         operations.add(new SetBlobStreamOp(parameterIndex, inputStream));
@@ -180,8 +202,8 @@ final class ParameterBinder {
         operations.add(new SetBlobLenOp(parameterIndex, inputStream, length));
     }
 
-    void recordSetClob(final int parameterIndex, final Clob value) {
-        operations.add(new SetClobObjOp(parameterIndex, value));
+    void recordSetClob(final int parameterIndex, final Clob value) throws SQLException {
+        add(new SetClobObjOp(parameterIndex, value));
     }
 
     void recordSetClob(final int parameterIndex, final Reader reader) {
@@ -194,41 +216,57 @@ final class ParameterBinder {
         operations.add(new SetClobLenOp(parameterIndex, reader, length));
     }
 
-    void recordSetObject(final int parameterIndex, final Object value) {
-        operations.add(new SetObjectOp(parameterIndex, snapshot(value)));
+    void recordSetObject(final int parameterIndex, final Object value) throws SQLException {
+        add(new SetObjectOp(parameterIndex, snapshot(value)));
     }
 
-    void recordSetObject(final int parameterIndex, final Object value, final int targetSqlType) {
-        operations.add(new SetObjectTypeOp(parameterIndex, snapshot(value), targetSqlType));
+    void recordSetObject(final int parameterIndex, final Object value, final int targetSqlType)
+            throws SQLException {
+        add(new SetObjectTypeOp(parameterIndex, snapshot(value), targetSqlType));
     }
 
     void recordSetObject(
             final int parameterIndex,
             final Object value,
             final int targetSqlType,
-            final int scaleOrLength) {
-        operations.add(
+            final int scaleOrLength)
+            throws SQLException {
+        add(
                 new SetObjectTypeScaleOp(
                         parameterIndex, snapshot(value), targetSqlType, scaleOrLength));
     }
 
-    void recordSetOID(final int parameterIndex, final cubrid.sql.CUBRIDOID value) {
-        operations.add(new SetOidOp(parameterIndex, value));
+    void recordSetOID(final int parameterIndex, final cubrid.sql.CUBRIDOID value)
+            throws SQLException {
+        add(new SetOidOp(parameterIndex, value));
     }
 
-    void recordSetCollection(final int parameterIndex, final Object[] value) {
-        operations.add(new SetCollectionOp(parameterIndex, snapshot(value)));
+    void recordSetCollection(final int parameterIndex, final Object[] value) throws SQLException {
+        add(new SetCollectionOp(parameterIndex, snapshot(value)));
     }
 
-    void recordSetTimestamptz(final int parameterIndex, final cubrid.sql.CUBRIDTimestamptz value) {
-        operations.add(new SetTimestamptzOp(parameterIndex, value));
+    void recordSetTimestamptz(final int parameterIndex, final cubrid.sql.CUBRIDTimestamptz value)
+            throws SQLException {
+        add(new SetTimestamptzOp(parameterIndex, value));
     }
 
     void recordSetTimestamptz(
-            final int parameterIndex,
-            final cubrid.sql.CUBRIDTimestamptz value,
-            final Calendar cal) {
-        operations.add(new SetTimestamptzCalOp(parameterIndex, value, cal));
+            final int parameterIndex, final cubrid.sql.CUBRIDTimestamptz value, final Calendar cal)
+            throws SQLException {
+        add(new SetTimestamptzCalOp(parameterIndex, value, cal));
+    }
+
+    /**
+     * Core binds inside the setter, so a value it cannot bind fails there and the previous value
+     * stays. Binding to the prepared physical statement first gives that exception at that call;
+     * without one, the value fails only when it is replayed.
+     */
+    private void add(final ParameterOperation operation) throws SQLException {
+        final PreparedStatement target = bindCheck == null ? null : bindCheck.statement();
+        if (target != null) {
+            operation.apply(target);
+        }
+        operations.add(operation);
     }
 
     /* ===== snapshots: match what core captures at set time =====*/

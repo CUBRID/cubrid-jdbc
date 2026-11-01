@@ -260,6 +260,14 @@ public interface EndpointConnManager extends PhysicalResourceReleaser {
     boolean isRwTxOpenOnServer();
 
     /**
+     * The same report as {@link #isRwTxOpenOnServer()}, answering {@code false} when it cannot be
+     * read: it only moves reads onto the write connection, so an unreadable reply routes as usual.
+     *
+     * @return whether the write connection's last reply said a transaction is open
+     */
+    boolean isRwTxReportedOpen();
+
+    /**
      * Lazy RO failback: reconnect to the recovered home read endpoint when reads have been
      * displaced (e.g. roOnRw). Returns the restored endpoint, or {@code null} when nothing changed.
      * Managers without failback return {@code null}.

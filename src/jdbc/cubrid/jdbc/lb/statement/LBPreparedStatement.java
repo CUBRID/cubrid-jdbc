@@ -1093,7 +1093,8 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         // Routing precedence lives in Router.decide(); this only supplies the per-instance caches
         // (hint and classification precomputed at prepare time) so the hot execute path avoids
         // re-running HintParser.parse() and SqlClassifier.classify().
-        return Router.decide(sqlCaches.targetFromHint, sqlCaches.defaultTarget, sessState, sql);
+        return ownerConn.keepReadOnRwWhileTxOpen(
+                Router.decide(sqlCaches.targetFromHint, sqlCaches.defaultTarget, sessState, sql));
     }
 
     private PreparedStatement physicalPsWithParams(final RouteTarget target) throws SQLException {

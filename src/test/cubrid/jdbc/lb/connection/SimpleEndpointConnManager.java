@@ -53,6 +53,17 @@ public final class SimpleEndpointConnManager implements EndpointConnManager {
         return true;
     }
 
+    private boolean rwTxReportedOpen;
+
+    /** What the write leg's CAS reports: nothing, unless a test sets it. */
+    public boolean isRwTxReportedOpen() {
+        return rwTxReportedOpen;
+    }
+
+    public void setRwTxReportedOpen(final boolean open) {
+        this.rwTxReportedOpen = open;
+    }
+
     public java.sql.Connection boundConnection(final SessionLeg leg) {
         return null;
     }

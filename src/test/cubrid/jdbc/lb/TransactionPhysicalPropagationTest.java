@@ -38,9 +38,18 @@ import static org.junit.Assert.fail;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.connection.SimpleEndpointConnManager;
+import cubrid.jdbc.lb.route.Router.RouteTarget;
 import cubrid.jdbc.lb.state.SharedSelectorState;
+import cubrid.jdbc.lb.statement.FakePhysicalPreparedStatement;
+import cubrid.jdbc.lb.statement.FakePhysicalStatement;
+import cubrid.jdbc.lb.statement.LBPreparedStatement;
+import cubrid.jdbc.lb.statement.LBStatement;
+import cubrid.jdbc.lb.statement.StatementTestAccess;
+import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import org.junit.Test;
 
@@ -92,6 +101,66 @@ public final class TransactionPhysicalPropagationTest {
         assertEquals(1, manager.getCommitPhysicalTransactionCallCount());
         assertEquals(1, manager.getRollbackPhysicalTransactionCallCount());
         assertTrue(connection.getAutoCommit());
+    }
+
+    /**
+     * Core leaves an autocommit transaction open after an OID write or a CALL, and the next
+     * statement on that connection ends it. While the write leg's CAS reports one, reads run there.
+     */
+    @Test
+    public void readsRunOnRwWhileTheWriteLegReportsAnOpenTransaction() throws SQLException {
+        SimpleEndpointConnManager manager = new SimpleEndpointConnManager();
+        LoadBalanceConnection connection = createBoundSessionConnection(manager);
+        LBStatement statement = (LBStatement) connection.createStatement();
+        final List<RouteTarget> targets = new ArrayList<RouteTarget>();
+        StatementTestAccess.setStatementProvider(
+                statement,
+                new LBStatement.PhysicalStmtProvider() {
+                    public Statement getStatement(final RouteTarget target, final String rawSql) {
+                        targets.add(target);
+                        return new FakePhysicalStatement();
+                    }
+                });
+
+        statement.executeQuery("SELECT 1");
+        manager.setRwTxReportedOpen(true);
+        statement.executeQuery("SELECT 1");
+        manager.setRwTxReportedOpen(false);
+        statement.executeQuery("SELECT 1");
+
+        assertEquals(
+                Arrays.asList(
+                        RouteTarget.TO_READ_ONLY,
+                        RouteTarget.TO_READ_WRITE,
+                        RouteTarget.TO_READ_ONLY),
+                targets);
+    }
+
+    @Test
+    public void preparedReadsRunOnRwWhileTheWriteLegReportsAnOpenTransaction() throws SQLException {
+        SimpleEndpointConnManager manager = new SimpleEndpointConnManager();
+        LoadBalanceConnection connection = createBoundSessionConnection(manager);
+        LBPreparedStatement statement = new LBPreparedStatement(connection, "SELECT 1");
+        final List<RouteTarget> targets = new ArrayList<RouteTarget>();
+        statement.setPsProvider(
+                new LBPreparedStatement.PhysicalPsProvider() {
+                    public PreparedStatement getPreparedStatement(
+                            final RouteTarget target, final String rawSql) {
+                        targets.add(target);
+                        return new FakePhysicalPreparedStatement();
+                    }
+
+                    public void prepareOnBoundReadEndpoint(final String rawSql) {}
+
+                    public void prepareOnWriteEndpoint(final String rawSql) {}
+
+                    public void closePrepStmts() {}
+                });
+
+        manager.setRwTxReportedOpen(true);
+        statement.executeQuery();
+
+        assertEquals(Arrays.asList(RouteTarget.TO_READ_WRITE), targets);
     }
 
     @Test

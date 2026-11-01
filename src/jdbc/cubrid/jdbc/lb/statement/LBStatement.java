@@ -948,24 +948,25 @@ public class LBStatement extends CUBRIDStatement {
     }
 
     private RouteTarget routeFor(final String sql) {
-        return Router.decide(
-                        sql,
-                        lbConnection.getSessionState(),
-                        new Router.DefaultRouteAdvisor() {
-                            public RouteTarget defaultTarget(final String rawSql) {
-                                if (producesUpdatableResults()) {
-                                    return RouteTarget.TO_READ_WRITE;
-                                }
-                                SqlClassification classification =
-                                        lbConnection.sqlClassifier().classify(rawSql);
-                                if (SqlClassification.READ == classification) {
-                                    return RouteTarget.TO_READ_ONLY;
-                                }
+        return lbConnection.keepReadOnRwWhileTxOpen(
+                Router.decide(
+                                sql,
+                                lbConnection.getSessionState(),
+                                new Router.DefaultRouteAdvisor() {
+                                    public RouteTarget defaultTarget(final String rawSql) {
+                                        if (producesUpdatableResults()) {
+                                            return RouteTarget.TO_READ_WRITE;
+                                        }
+                                        SqlClassification classification =
+                                                lbConnection.sqlClassifier().classify(rawSql);
+                                        if (SqlClassification.READ == classification) {
+                                            return RouteTarget.TO_READ_ONLY;
+                                        }
 
-                                return RouteTarget.TO_READ_WRITE;
-                            }
-                        })
-                .getTarget();
+                                        return RouteTarget.TO_READ_WRITE;
+                                    }
+                                })
+                        .getTarget());
     }
 
     private RouteTarget routeForBatch() {

@@ -588,6 +588,27 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     /**
+     * Core leaves an autocommit transaction open after an OID write or a CALL and ends it when the
+     * next statement on that connection completes. While the write leg's CAS reports one, a read
+     * runs there too, so core ends it as it would on its single connection.
+     *
+     * @param target the target the statement's routing chose
+     * @return {@code TO_READ_WRITE} for such a read, otherwise {@code target}
+     */
+    public RouteTarget keepReadOnRwWhileTxOpen(final RouteTarget target) {
+        return target == RouteTarget.TO_READ_ONLY && rwHoldsOpenAutoCommitTx()
+                ? RouteTarget.TO_READ_WRITE
+                : target;
+    }
+
+    private boolean rwHoldsOpenAutoCommitTx() {
+        return sessionState.isAutoCommit()
+                && isSessionInitialized()
+                && connMgr != null
+                && connMgr.isRwTxReportedOpen();
+    }
+
+    /**
      * Resolves the endpoint one statement must run on, and records the routing decision.
      *
      * <p>Aligns both legs first (read restore, then RW failback) so the selection sees the current
@@ -2989,8 +3010,9 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      */
     private String readPinReason(final String rawSql, final String reason) {
         final boolean pinned = sessionState.isReadsPinnedToRw();
+        final boolean rwTxOpen = rwHoldsOpenAutoCommitTx();
         if (!FallbackReason.NONE.equals(reason)
-                || (!pinned && sessionState.getSessionVariables().isEmpty())
+                || (!pinned && !rwTxOpen && sessionState.getSessionVariables().isEmpty())
                 || sessionState.isTransactionActive()
                 || HintParser.parse(rawSql).hasTargetHint()
                 || sqlClassifier.classify(rawSql) != SqlClassification.READ) {
@@ -2998,6 +3020,9 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         }
         if (pinned) {
             return FallbackReason.SESSION_SET_PIN;
+        }
+        if (rwTxOpen) {
+            return FallbackReason.RW_TX_OPEN;
         }
         return IntoVariables.isReferencedIn(rawSql, sessionState.getSessionVariables())
                 ? FallbackReason.SESSION_VARIABLE

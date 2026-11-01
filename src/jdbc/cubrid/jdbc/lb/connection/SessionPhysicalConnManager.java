@@ -758,22 +758,32 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
     }
 
     public synchronized boolean isRwTxOpenOnServer() {
+        final Boolean open = rwTxReport();
+        return open == null || open.booleanValue();
+    }
+
+    public synchronized boolean isRwTxReportedOpen() {
+        return Boolean.TRUE.equals(rwTxReport());
+    }
+
+    /** The write connection's last reply on an open transaction, or null when unreadable. */
+    private Boolean rwTxReport() {
         if (sessRwEp == null) {
-            return true;
+            return null;
         }
 
         Connection rw = connsByEpId.get(sessRwEp.getId());
         if (!(rw instanceof CUBRIDConnection)) {
-            return true;
+            return null;
         }
 
         try {
             UConnection u = ((CUBRIDConnection) rw).getUConnection();
-            return u == null || u.isActive();
+            return u == null ? null : Boolean.valueOf(u.isActive());
         } catch (SQLException unreadable) {
-            return true;
+            return null;
         } catch (RuntimeException unreadable) {
-            return true; // a stub connection may not carry a UConnection at all
+            return null; // a stub connection may not carry a UConnection at all
         }
     }
 

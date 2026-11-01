@@ -63,4 +63,7 @@ public final class FallbackReason {
 
     /** A read named a variable an {@code INTO/TO} clause created on the write leg. */
     static final String SESSION_VARIABLE = "SESSION_VARIABLE";
+
+    /** A read ran on RW: core left an autocommit transaction open there (OID write, CALL). */
+    static final String RW_TX_OPEN = "RW_TX_OPEN";
 }

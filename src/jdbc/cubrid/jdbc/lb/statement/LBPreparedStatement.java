@@ -794,7 +794,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
 
     @Override
     public ResultSet getGeneratedKeys() throws SQLException {
-        return LBStatement.stampProducer(statementDelegate.getGeneratedKeys(), this);
+        return statementDelegate.generatedKeysFor(this);
     }
 
     @Override

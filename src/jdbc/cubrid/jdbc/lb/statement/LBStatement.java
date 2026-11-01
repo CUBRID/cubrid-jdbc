@@ -394,13 +394,20 @@ public class LBStatement extends CUBRIDStatement {
     }
 
     public ResultSet getGeneratedKeys() throws SQLException {
+        return generatedKeysFor(this);
+    }
+
+    /**
+     * Before any execution, core's own answer (an empty result set); after one, the physical
+     * statement's keys, reported as {@code logical}'s.
+     */
+    ResultSet generatedKeysFor(final Statement logical) throws SQLException {
         checkClosed();
         if (lastExecStmt == null) {
-            throw LbExceptions.noExecutionHistory(
-                    "getGeneratedKeys() requires the statement to be executed first");
+            return super.getGeneratedKeys();
         }
 
-        return stampProducer(lastExecStmt.getGeneratedKeys(), this);
+        return stampProducer(lastExecStmt.getGeneratedKeys(), logical);
     }
 
     /* ===== property accessors =====*/

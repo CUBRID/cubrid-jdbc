@@ -211,6 +211,18 @@ public class LBStatementTest {
         assertEquals(ResultSet.FETCH_FORWARD, stmt.getFetchDirection());
     }
 
+    /** Core answers an empty result set, the same one until the statement executes. */
+    @Test
+    public void assertGeneratedKeysBeforeAnyExecutionAreEmptyLikeCore() throws Exception {
+        Statement stmt = conn.createStatement();
+
+        ResultSet keys = stmt.getGeneratedKeys();
+
+        assertFalse(keys.next());
+        assertNull(keys.getStatement());
+        assertSame(keys, stmt.getGeneratedKeys());
+    }
+
     @Test
     public void assertPoolableUnsupportedLikeCubridStatement() throws Exception {
         Statement stmt = conn.createStatement();

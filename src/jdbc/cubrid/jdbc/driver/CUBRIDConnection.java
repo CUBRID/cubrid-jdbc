@@ -233,6 +233,7 @@ public class CUBRIDConnection implements Connection {
         completeStatementForCommit();
 
         try {
+            tellOwnerTransactionEnds(true);
             end(true);
         } finally {
             ending = false;
@@ -251,6 +252,7 @@ public class CUBRIDConnection implements Connection {
         completeAllStatements();
 
         try {
+            tellOwnerTransactionEnds(false);
             end(false);
         } finally {
             ending = false;
@@ -654,6 +656,23 @@ public class CUBRIDConnection implements Connection {
     protected void autoRollback() throws SQLException {
         checkIsOpen();
         if (auto_commit) rollback();
+    }
+
+    /**
+     * Called on the connection that owns a leg's value objects ({@link
+     * UConnection#setCUBRIDConnection}) when that leg commits or rolls back, after it completed its
+     * own statements. A connection spread over several legs completes the others' the same way.
+     *
+     * @param leg the leg ending a transaction
+     * @param commit {@code true} for a commit, {@code false} for a rollback
+     */
+    protected void legTransactionEnding(final CUBRIDConnection leg, final boolean commit) {}
+
+    private void tellOwnerTransactionEnds(final boolean commit) {
+        final CUBRIDConnection owner = u_con == null ? null : u_con.getCUBRIDConnection();
+        if (owner != null && owner != this) {
+            owner.legTransactionEnding(this, commit);
+        }
     }
 
     synchronized void closeConnection() throws SQLException {

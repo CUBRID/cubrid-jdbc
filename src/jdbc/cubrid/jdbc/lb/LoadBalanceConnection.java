@@ -102,6 +102,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -181,6 +183,11 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     // only says that it holds within one node.
     private boolean isolationSpreadWarned;
     private Integer casChangeMode = null;
+    // The legs this session claimed (claimValueObjectOwnership). They report their transaction
+    // ends to legTransactionEnding, which may run inside core's lock, so this needs no lock of
+    // ours.
+    private final Set<Connection> ownedLegs =
+            Collections.newSetFromMap(new ConcurrentHashMap<Connection, Boolean>());
     // SQL SETs re-run on every leg opened later (replay key -> statement), in the order they last
     // ran, so a newer SET of the same setting replaces the older one.
     private final Map<String, String> sessionSets = new LinkedHashMap<String, String>();
@@ -1360,6 +1367,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         closeOutResultSets();
         releasePreparedStatements();
         releasePhysicalConnections();
+        ownedLegs.clear();
         sessionState.reset();
         boundReadEndpoint.clear();
         // Endpoint/init fields are otherwise mutated under recoveryLock (recoverPhyBinding); guard
@@ -2789,6 +2797,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             UConnection socket = extConn(physical, "getUConnection").getUConnection();
             if (socket != null) {
                 socket.setCUBRIDConnection(this);
+                ownedLegs.add(physical);
             }
         } catch (SQLException notCubrid) {
             // A physical delegate that is not a CUBRID connection produces no CUBRID value objects,
@@ -2797,6 +2806,57 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                     LOGGER,
                     LbLog.conn(connectionId),
                     "LB VALUE OWNERSHIP: skipped, delegate is not a CUBRID connection");
+        }
+    }
+
+    /**
+     * Core completes all of its one connection's statements when a transaction ends there. When the
+     * write leg, which stands for that connection, ends one, the other legs run core's own commit
+     * or rollback to complete theirs. A read leg's ends are not passed on: some exist only in LB (a
+     * refused read, a leg closed by failover).
+     */
+    @Override
+    protected void legTransactionEnding(final CUBRIDConnection leg, final boolean commit) {
+        if (!isWriteLeg(leg)) {
+            return;
+        }
+        for (Connection other : ownedLegs) {
+            if (other != leg) {
+                endLegLikeCore(other, commit);
+            }
+        }
+    }
+
+    /**
+     * By address: the manager's record of the legs is behind a lock that core may be waiting on.
+     */
+    private boolean isWriteLeg(final CUBRIDConnection leg) {
+        final Endpoint rw = currentRwEndpoint;
+        try {
+            final UConnection socket = leg.getUConnection();
+            return rw != null
+                    && socket != null
+                    && rw.getId().equals(socket.getCasIp() + ":" + socket.getCasPort());
+        } catch (SQLException unreadable) {
+            return false;
+        }
+    }
+
+    private void endLegLikeCore(final Connection leg, final boolean commit) {
+        try {
+            if (leg.isClosed()) {
+                ownedLegs.remove(leg);
+            } else if (commit) {
+                leg.commit();
+            } else {
+                leg.rollback();
+            }
+        } catch (SQLException failed) {
+            // The leg reports its own trouble when it is next used; the ending leg's end goes on.
+            LbLog.fine(
+                    LOGGER,
+                    LbLog.conn(connectionId),
+                    "LB LEG END: completing the other leg failed | cause: " + LbLog.cause(failed));
         }
     }
 

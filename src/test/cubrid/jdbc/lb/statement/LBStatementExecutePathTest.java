@@ -345,7 +345,6 @@ public final class LBStatementExecutePathTest {
         statement.setQueryTimeout(5);
         statement.setMaxRows(100);
         statement.setMaxFieldSize(256);
-        statement.setFetchDirection(ResultSet.FETCH_FORWARD);
 
         statement.executeQuery("SELECT 1");
 

@@ -63,11 +63,6 @@ public class LBStatement extends CUBRIDStatement {
     private final int resultSetConcurrency;
     private final int resultSetHoldability;
     private boolean closed = false;
-    private int maxRows = 0;
-    private int queryTimeout = 0;
-    private int fetchSize = 0;
-    private int fetchDirection = ResultSet.FETCH_FORWARD;
-    private int maxFieldSize = 0;
     private boolean escapeProcessing = true;
     private boolean queryInfo;
     private boolean onlyQueryPlan;
@@ -102,7 +97,7 @@ public class LBStatement extends CUBRIDStatement {
             int resultSetType,
             int resultSetConcurrency,
             int resultSetHoldability) {
-        super(lbConnection);
+        super(lbConnection, resultSetType, resultSetConcurrency);
         this.lbConnection = lbConnection;
         this.resultSetType = resultSetType;
         this.resultSetConcurrency = resultSetConcurrency;
@@ -409,59 +404,46 @@ public class LBStatement extends CUBRIDStatement {
     }
 
     /* ===== property accessors =====*/
+    // Core validates, stores and checks closed (close() sets is_closed); overridden only so every
+    // inherited method stays an explicit decision.
     public void setMaxRows(int max) throws SQLException {
-        checkClosed();
-        this.maxRows = max;
+        super.setMaxRows(max);
     }
 
     public int getMaxRows() throws SQLException {
-        checkClosed();
-
-        return maxRows;
+        return super.getMaxRows();
     }
 
     public void setQueryTimeout(int seconds) throws SQLException {
-        checkClosed();
-        this.queryTimeout = seconds;
+        super.setQueryTimeout(seconds);
     }
 
     public int getQueryTimeout() throws SQLException {
-        checkClosed();
-
-        return queryTimeout;
+        return super.getQueryTimeout();
     }
 
     public void setFetchSize(int rows) throws SQLException {
-        checkClosed();
-        this.fetchSize = rows;
+        super.setFetchSize(rows);
     }
 
     public int getFetchSize() throws SQLException {
-        checkClosed();
-
-        return fetchSize;
+        return super.getFetchSize();
     }
 
     public void setFetchDirection(int direction) throws SQLException {
-        checkClosed();
-        this.fetchDirection = direction;
+        super.setFetchDirection(direction);
     }
 
     public int getFetchDirection() throws SQLException {
-        checkClosed();
-
-        return fetchDirection;
+        return super.getFetchDirection();
     }
 
     public void setMaxFieldSize(int max) throws SQLException {
-        checkClosed();
-        this.maxFieldSize = max;
+        super.setMaxFieldSize(max);
     }
 
     public int getMaxFieldSize() throws SQLException {
-        checkClosed();
-
-        return maxFieldSize;
+        return super.getMaxFieldSize();
     }
 
     public void setEscapeProcessing(boolean enable) throws SQLException {
@@ -520,6 +502,8 @@ public class LBStatement extends CUBRIDStatement {
             lastRs = null;
             lastUpdCnt = -1;
             closed = true;
+            // The inherited core methods (the property setters and getters) check this flag.
+            is_closed = true;
             lbConnection.untrackStatement(this);
         }
     }
@@ -737,16 +721,16 @@ public class LBStatement extends CUBRIDStatement {
     }
 
     protected void applyStmtProps(final Statement target) throws SQLException {
-        target.setMaxRows(maxRows);
-        target.setQueryTimeout(queryTimeout);
-        target.setFetchSize(fetchSize);
+        target.setMaxRows(getMaxRows());
+        target.setQueryTimeout(getQueryTimeout());
+        target.setFetchSize(getFetchSize());
 
         // CUBRIDStatement.setFetchDirection throws for TYPE_FORWARD_ONLY (non-scrollable); mirror
         // CUBRIDConnection.createStatement() which uses TYPE_FORWARD_ONLY by default.
         if (resultSetType != ResultSet.TYPE_FORWARD_ONLY) {
-            target.setFetchDirection(fetchDirection);
+            target.setFetchDirection(getFetchDirection());
         }
-        target.setMaxFieldSize(maxFieldSize);
+        target.setMaxFieldSize(getMaxFieldSize());
         target.setEscapeProcessing(escapeProcessing);
         applyVendorFlags(target);
         if (target instanceof CUBRIDStatement) {

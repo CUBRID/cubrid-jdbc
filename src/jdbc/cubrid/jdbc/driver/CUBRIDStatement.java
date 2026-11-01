@@ -153,9 +153,14 @@ public class CUBRIDStatement implements Statement {
      * NullPointerException from a stack trace that never mentions the subclass, and one reading
      * {@code is_closed} silently sees the wrong state because the subclass tracks closing itself.
      *
+     * <p>The type and concurrency are recorded as the regular constructor records them, so the
+     * inherited property setters validate against the subclass's real cursor kind.
+     *
      * @param c the logical connection that produced this statement
+     * @param t the result set type
+     * @param concur the result set concurrency
      */
-    protected CUBRIDStatement(CUBRIDConnection c) {
+    protected CUBRIDStatement(CUBRIDConnection c, int t, int concur) {
         con = c;
         u_con = null;
         u_stmt = null;
@@ -168,12 +173,12 @@ public class CUBRIDStatement implements Statement {
         auto_generatedkeys_stmt = null;
         query_timeout = 0;
         error = null;
-        type = ResultSet.TYPE_FORWARD_ONLY;
-        concurrency = ResultSet.CONCUR_READ_ONLY;
-        is_scrollable = false;
-        is_updatable = false;
+        type = t;
+        concurrency = concur;
+        is_scrollable = t != ResultSet.TYPE_FORWARD_ONLY;
+        is_updatable = concur == ResultSet.CONCUR_UPDATABLE;
         is_holdable = false;
-        is_sensitive = false;
+        is_sensitive = t == ResultSet.TYPE_SCROLL_SENSITIVE;
         fetch_direction = ResultSet.FETCH_FORWARD;
         fetch_size = 0;
         batchs = new ArrayList<String>();
@@ -183,6 +188,11 @@ public class CUBRIDStatement implements Statement {
         only_query_plan = false;
         is_from_current_transaction = true;
         lastShardId = UShardInfo.SHARD_ID_INVALID;
+    }
+
+    /** The logical-statement constructor for a forward-only, read-only statement. */
+    protected CUBRIDStatement(CUBRIDConnection c) {
+        this(c, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
     }
 
     /*

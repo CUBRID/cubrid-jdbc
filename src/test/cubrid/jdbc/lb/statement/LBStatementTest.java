@@ -33,6 +33,7 @@ package cubrid.jdbc.lb.statement;
 import static org.junit.Assert.*;
 
 import cubrid.jdbc.driver.CUBRIDJDBCErrorCode;
+import cubrid.jdbc.jci.UConnection;
 import cubrid.jdbc.lb.LbTestAccess;
 import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
@@ -141,10 +142,73 @@ public class LBStatementTest {
 
     @Test
     public void assertFetchDirectionProperty() throws Exception {
-        Statement stmt = conn.createStatement();
+        Statement stmt =
+                conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_READ_ONLY);
         assertEquals(ResultSet.FETCH_FORWARD, stmt.getFetchDirection());
         stmt.setFetchDirection(ResultSet.FETCH_REVERSE);
         assertEquals(ResultSet.FETCH_REVERSE, stmt.getFetchDirection());
+    }
+
+    /**
+     * Core rejects these in the setter, so the statement never holds a value its execute refuses.
+     */
+    @Test
+    public void assertOutOfRangePropertyValuesAreRejectedInTheSetterLikeCore() throws Exception {
+        Statement stmt = conn.createStatement();
+        try {
+            stmt.setMaxRows(-1);
+            fail("expected IllegalArgumentException");
+        } catch (IllegalArgumentException expected) {
+        }
+        try {
+            stmt.setMaxFieldSize(-1);
+            fail("expected IllegalArgumentException");
+        } catch (IllegalArgumentException expected) {
+        }
+        try {
+            stmt.setFetchSize(-1);
+            fail("expected IllegalArgumentException");
+        } catch (IllegalArgumentException expected) {
+        }
+        try {
+            stmt.setQueryTimeout(-1);
+            fail("expected IllegalArgumentException");
+        } catch (IllegalArgumentException expected) {
+        }
+        try {
+            stmt.setQueryTimeout(UConnection.MAX_QUERY_TIMEOUT + 1);
+            fail("expected IllegalArgumentException");
+        } catch (IllegalArgumentException expected) {
+        }
+
+        assertEquals(0, stmt.getMaxRows());
+        assertEquals(0, stmt.getMaxFieldSize());
+        assertEquals(0, stmt.getFetchSize());
+        assertEquals(0, stmt.getQueryTimeout());
+    }
+
+    @Test
+    public void assertFetchDirectionOnForwardOnlyStatementIsRefusedLikeCore() throws Exception {
+        Statement stmt = conn.createStatement();
+        try {
+            stmt.setFetchDirection(ResultSet.FETCH_REVERSE);
+            fail("expected SQLException");
+        } catch (SQLException e) {
+            assertEquals(CUBRIDJDBCErrorCode.non_scrollable_statement, e.getErrorCode());
+        }
+        assertEquals(ResultSet.FETCH_FORWARD, stmt.getFetchDirection());
+    }
+
+    @Test
+    public void assertUnknownFetchDirectionIsRejectedLikeCore() throws Exception {
+        Statement stmt =
+                conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_READ_ONLY);
+        try {
+            stmt.setFetchDirection(12345);
+            fail("expected IllegalArgumentException");
+        } catch (IllegalArgumentException expected) {
+        }
+        assertEquals(ResultSet.FETCH_FORWARD, stmt.getFetchDirection());
     }
 
     @Test

@@ -107,7 +107,6 @@ public final class CompatibilityGapPreventionTest {
         statement.setMaxRows(11);
         statement.setQueryTimeout(12);
         statement.setFetchSize(13);
-        statement.setFetchDirection(ResultSet.FETCH_REVERSE);
         statement.setMaxFieldSize(14);
 
         statement.executeQuery("SELECT 1");
@@ -115,9 +114,9 @@ public final class CompatibilityGapPreventionTest {
         assertTrue(calls.contains("setMaxRows:11"));
         assertTrue(calls.contains("setQueryTimeout:12"));
         assertTrue(calls.contains("setFetchSize:13"));
-        // Forward-only physical statement: CUBRID does not allow setFetchDirection (see
-        // CUBRIDStatement.is_scrollable).
-        assertFalse(calls.contains("setFetchDirection:" + ResultSet.FETCH_REVERSE));
+        // Forward-only: the logical setter refuses a fetch direction as core does, and none is
+        // applied to the physical statement.
+        assertFalse(calls.contains("setFetchDirection:" + ResultSet.FETCH_FORWARD));
         assertTrue(calls.contains("setMaxFieldSize:14"));
         assertTrue(calls.contains("executeQuery:SELECT 1"));
     }

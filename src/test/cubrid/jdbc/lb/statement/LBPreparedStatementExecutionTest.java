@@ -36,6 +36,8 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import cubrid.jdbc.driver.CUBRIDException;
+import cubrid.jdbc.driver.CUBRIDJDBCErrorCode;
 import cubrid.jdbc.lb.LbTestAccess;
 import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
@@ -44,6 +46,7 @@ import cubrid.sql.CUBRIDOID;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.sql.BatchUpdateException;
 import java.sql.ParameterMetaData;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -507,6 +510,68 @@ public class LBPreparedStatementExecutionTest {
                 context.calls);
     }
 
+    /**
+     * With no prepared statement to check setters against, an unbindable value fails only when
+     * {@code executeBatch()} replays it, after the earlier rows reached the cached physical
+     * statement. Those rows must not ride along with a later batch.
+     */
+    @Test
+    public void assertBatchAfterFailedReplaySendsOnlyItsOwnRows() throws Exception {
+        LBPreparedStatement statement =
+                (LBPreparedStatement) connection.prepareStatement("INSERT INTO t(v) VALUES (?)");
+        CorePsContext context = new CorePsContext();
+        context.bindCheck = false;
+        statement.setPsProvider(context);
+
+        statement.setInt(1, 1);
+        statement.addBatch();
+        statement.setInt(1, 2);
+        statement.addBatch();
+        statement.setObject(1, new Object());
+        statement.addBatch();
+        try {
+            statement.executeBatch();
+            fail("Expected the replay of the unbindable row to fail");
+        } catch (IllegalArgumentException expected) {
+        }
+        statement.clearBatch();
+
+        statement.setInt(1, 10);
+        statement.addBatch();
+        int[] result = statement.executeBatch();
+
+        assertEquals(1, result.length);
+        assertEquals(Arrays.asList(Arrays.asList(10)), context.sentBatches);
+    }
+
+    /** Core's {@code clearBatch()} drops a batch kept by a request that did not complete. */
+    @Test
+    public void assertBatchAfterFailedPhysicalExecuteSendsOnlyItsOwnRows() throws Exception {
+        LBPreparedStatement statement =
+                (LBPreparedStatement) connection.prepareStatement("INSERT INTO t(v) VALUES (?)");
+        CorePsContext context = new CorePsContext();
+        statement.setPsProvider(context);
+
+        statement.setInt(1, 1);
+        statement.addBatch();
+        statement.setInt(1, 2);
+        statement.addBatch();
+        context.failNextExecuteBatch = true;
+        try {
+            statement.executeBatch();
+            fail("Expected the physical executeBatch to fail");
+        } catch (SQLException expected) {
+        }
+        statement.clearBatch();
+
+        statement.setInt(1, 10);
+        statement.addBatch();
+        int[] result = statement.executeBatch();
+
+        assertEquals(1, result.length);
+        assertEquals(Arrays.asList(Arrays.asList(10)), context.sentBatches);
+    }
+
     /** Mirrors the session cache: one physical statement per SQL, reused across executions. */
     static final class CachedPsContext implements LBPreparedStatement.PhysicalPsProvider {
 
@@ -541,6 +606,104 @@ public class LBPreparedStatementExecutionTest {
         public void prepareOnBoundReadEndpoint(final String rawSql) {}
 
         public void prepareOnWriteEndpoint(final String rawSql) {}
+
+        public void closePrepStmts() {}
+    }
+
+    /**
+     * One cached physical statement of a single-parameter SQL with core's semantics ({@code
+     * UStatement}): a setter rejects an index past the placeholder and an object core cannot bind,
+     * {@code addBatch()} refuses an unbound parameter and unbinds it after moving it into the
+     * batch, an answered execute empties the batch and one that did not complete keeps it. It is
+     * also the statement setters are checked against, as the eagerly prepared one is, unless {@code
+     * bindCheck} is off.
+     */
+    static final class CorePsContext implements LBPreparedStatement.PhysicalPsProvider {
+
+        final List<List<Integer>> sentBatches = new ArrayList<List<Integer>>();
+
+        final List<Integer> sentUpdates = new ArrayList<Integer>();
+
+        boolean bindCheck = true;
+
+        boolean failNextExecuteBatch;
+
+        boolean failNextRow;
+
+        private Integer bind;
+
+        private final List<Integer> batch = new ArrayList<Integer>();
+
+        private final PreparedStatement statement =
+                new FakePhysicalPreparedStatement() {
+                    @Override
+                    protected Object dispatch(final String name, final Object[] args)
+                            throws SQLException {
+                        if ("setInt".equals(name)) {
+                            if (((Integer) args[0]).intValue() != 1) {
+                                throw new CUBRIDException(CUBRIDJDBCErrorCode.invalid_index);
+                            }
+                            bind = (Integer) args[1];
+                            return null;
+                        }
+                        if ("setObject".equals(name)) {
+                            throw new IllegalArgumentException();
+                        }
+                        if ("clearParameters".equals(name)) {
+                            bind = null;
+                            return null;
+                        }
+                        if ("addBatch".equals(name)) {
+                            if (bind == null) {
+                                throw new SQLException("ER_NOT_BIND");
+                            }
+                            batch.add(bind);
+                            bind = null;
+                            return null;
+                        }
+                        if ("clearBatch".equals(name)) {
+                            batch.clear();
+                            return null;
+                        }
+                        if ("executeUpdate".equals(name)) {
+                            if (bind == null) {
+                                throw new SQLException("ER_NOT_BIND");
+                            }
+                            sentUpdates.add(bind);
+                            return Integer.valueOf(1);
+                        }
+                        if ("executeBatch".equals(name)) {
+                            if (failNextExecuteBatch) {
+                                failNextExecuteBatch = false;
+                                throw new SQLException("execute request did not complete");
+                            }
+                            sentBatches.add(new ArrayList<Integer>(batch));
+                            int[] result = new int[batch.size()];
+                            Arrays.fill(result, 1);
+                            batch.clear();
+                            if (failNextRow) {
+                                failNextRow = false;
+                                throw new BatchUpdateException(new int[] {-3});
+                            }
+                            return result;
+                        }
+
+                        return null;
+                    }
+                };
+
+        public PreparedStatement getPreparedStatement(
+                final RouteTarget target, final String rawSql) {
+            return statement;
+        }
+
+        public void prepareOnBoundReadEndpoint(final String rawSql) {}
+
+        public void prepareOnWriteEndpoint(final String rawSql) {}
+
+        public PreparedStatement preparedForBindCheck() {
+            return bindCheck ? statement : null;
+        }
 
         public void closePrepStmts() {}
     }

@@ -281,6 +281,9 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         try {
             final RouteTarget target = resolveRouteTarget();
             PreparedStatement physicalStatement = physicalPsForTarget(target);
+            // The cached physical statement may still hold rows of an earlier batch whose replay
+            // or execute failed. That batch was consumed below, so drop them before this one.
+            physicalStatement.clearBatch();
 
             for (int i = 0; i < batchedBinders.size(); i++) {
                 physicalStatement.clearParameters();

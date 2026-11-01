@@ -572,6 +572,78 @@ public class LBPreparedStatementExecutionTest {
         assertEquals(Arrays.asList(Arrays.asList(10)), context.sentBatches);
     }
 
+    /**
+     * Core empties the batch only once the server has answered it, so after a request that did not
+     * complete (a deadlock victim, for one) running {@code executeBatch()} again sends the rows.
+     */
+    @Test
+    public void assertBatchKeptAfterFailedPhysicalExecuteIsSentAgainLikeCore() throws Exception {
+        LBPreparedStatement statement =
+                (LBPreparedStatement) connection.prepareStatement("INSERT INTO t(v) VALUES (?)");
+        CorePsContext context = new CorePsContext();
+        statement.setPsProvider(context);
+
+        statement.setInt(1, 1);
+        statement.addBatch();
+        statement.setInt(1, 2);
+        statement.addBatch();
+        context.failNextExecuteBatch = true;
+        try {
+            statement.executeBatch();
+            fail("Expected the physical executeBatch to fail");
+        } catch (SQLException expected) {
+        }
+        int[] result = statement.executeBatch();
+
+        assertEquals(2, result.length);
+        assertEquals(Arrays.asList(Arrays.asList(1, 2)), context.sentBatches);
+    }
+
+    /** As in core, rows added after a request that did not complete join the kept ones. */
+    @Test
+    public void assertRowsAddedAfterFailedPhysicalExecuteJoinTheKeptBatchLikeCore()
+            throws Exception {
+        LBPreparedStatement statement =
+                (LBPreparedStatement) connection.prepareStatement("INSERT INTO t(v) VALUES (?)");
+        CorePsContext context = new CorePsContext();
+        statement.setPsProvider(context);
+
+        statement.setInt(1, 1);
+        statement.addBatch();
+        context.failNextExecuteBatch = true;
+        try {
+            statement.executeBatch();
+            fail("Expected the physical executeBatch to fail");
+        } catch (SQLException expected) {
+        }
+        statement.setInt(1, 1);
+        statement.addBatch();
+        statement.executeBatch();
+
+        assertEquals(Arrays.asList(Arrays.asList(1, 1)), context.sentBatches);
+    }
+
+    /** A batch the server answered with a failed row is consumed, in core as here. */
+    @Test
+    public void assertBatchAnsweredWithFailedRowsIsConsumedLikeCore() throws Exception {
+        LBPreparedStatement statement =
+                (LBPreparedStatement) connection.prepareStatement("INSERT INTO t(v) VALUES (?)");
+        CorePsContext context = new CorePsContext();
+        statement.setPsProvider(context);
+
+        statement.setInt(1, 1);
+        statement.addBatch();
+        context.failNextRow = true;
+        try {
+            statement.executeBatch();
+            fail("Expected BatchUpdateException");
+        } catch (BatchUpdateException expected) {
+        }
+
+        assertEquals(0, statement.executeBatch().length);
+        assertEquals(Arrays.asList(Arrays.asList(1)), context.sentBatches);
+    }
+
     /** Mirrors the session cache: one physical statement per SQL, reused across executions. */
     static final class CachedPsContext implements LBPreparedStatement.PhysicalPsProvider {
 

@@ -53,6 +53,7 @@ import java.io.Reader;
 import java.math.BigDecimal;
 import java.net.URL;
 import java.sql.Array;
+import java.sql.BatchUpdateException;
 import java.sql.Blob;
 import java.sql.Clob;
 import java.sql.Connection;
@@ -272,35 +273,40 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         batchedBinders.add(parameterBinder.snapshot());
     }
 
+    /**
+     * Core empties the batch once the server has answered it, failed rows included, and keeps it
+     * when the request does not complete (a deadlock victim, a lost connection), so a second {@code
+     * executeBatch()} sends it again. The rows are kept here on the same terms.
+     */
     public int[] executeBatch() throws SQLException {
         statementDelegate.checkClosed();
         if (batchedBinders.isEmpty()) {
             return new int[0];
         }
 
-        try {
-            final RouteTarget target = resolveRouteTarget();
-            PreparedStatement physicalStatement = physicalPsForTarget(target);
-            // The cached physical statement may still hold rows of an earlier batch whose replay
-            // or execute failed. That batch was consumed below, so drop them before this one.
-            physicalStatement.clearBatch();
+        final RouteTarget target = resolveRouteTarget();
+        PreparedStatement physicalStatement = physicalPsForTarget(target);
+        // The cached physical statement may still hold rows of an earlier attempt that failed.
+        physicalStatement.clearBatch();
 
-            for (int i = 0; i < batchedBinders.size(); i++) {
-                physicalStatement.clearParameters();
-                batchedBinders.get(i).replay(physicalStatement);
-                physicalStatement.addBatch();
-            }
-
-            int[] result = physicalStatement.executeBatch();
-            statementDelegate.afterBatchSucceeded(Collections.singletonList(sql), target);
-            statementDelegate.recordExec(physicalStatement, null, -1);
-
-            return result;
-        } finally {
-            // JDBC convention: consume the batch on any executeBatch() attempt so a later call does
-            // not silently re-run it after a failure.
-            batchedBinders.clear();
+        for (int i = 0; i < batchedBinders.size(); i++) {
+            physicalStatement.clearParameters();
+            batchedBinders.get(i).replay(physicalStatement);
+            physicalStatement.addBatch();
         }
+
+        final int[] result;
+        try {
+            result = physicalStatement.executeBatch();
+        } catch (BatchUpdateException answered) {
+            batchedBinders.clear();
+            throw answered;
+        }
+        batchedBinders.clear();
+        statementDelegate.afterBatchSucceeded(Collections.singletonList(sql), target);
+        statementDelegate.recordExec(physicalStatement, null, -1);
+
+        return result;
     }
 
     /**

@@ -166,7 +166,9 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     // volatile: close() may run on a pool-eviction thread other than the one using the
     // connection, so the closed flag must be visible across threads.
     private volatile boolean closed = false;
-    private int transactionIsolation = Connection.TRANSACTION_READ_COMMITTED;
+    // Set only by the application. Until then every leg keeps the server's level, as a core
+    // connection does.
+    private Integer transactionIsolation = null;
     private int holdability = ResultSet.HOLD_CURSORS_OVER_COMMIT;
     private boolean readOnly = false;
     private String catalog = null;
@@ -1525,7 +1527,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     /* ===== Connection: basic property API =====*/
     public void setTransactionIsolation(int level) throws SQLException {
         checkClosed();
-        final int previous = this.transactionIsolation;
+        final Integer previous = this.transactionIsolation;
         this.transactionIsolation = level;
         LegOutcome outcome = applyTxnIsolation();
         if (outcome.rwFailed()) {
@@ -1552,12 +1554,13 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                                         }
                                     })
                             .intValue();
-            transactionIsolation = delegated;
 
             return delegated;
         }
 
-        return transactionIsolation;
+        return transactionIsolation == null
+                ? TRANSACTION_READ_COMMITTED
+                : transactionIsolation.intValue();
     }
 
     public void setLockTimeout(final int timeout) throws SQLException {
@@ -2700,13 +2703,13 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     private LegOutcome applyTxnIsolation() {
-        if (!isSessionInitialized()) {
+        if (null == transactionIsolation || !isSessionInitialized()) {
             return LegOutcome.OK;
         }
         return forEachSessPhyConn(
                 new PhyConnAction() {
                     public void apply(Connection physical) throws SQLException {
-                        physical.setTransactionIsolation(transactionIsolation);
+                        physical.setTransactionIsolation(transactionIsolation.intValue());
                     }
                 });
     }
@@ -2777,12 +2780,14 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      * Invoked by {@link SessionPhysicalConnManager} for every connection it opens, so a connection
      * created mid-session (failover, recovery, failback, reopen) matches the session instead of
      * running at driver defaults. Mirrors the per-property setters used at initial binding;
-     * nullable properties (lockTimeout/casChangeMode) are applied only when set.
+     * nullable properties (isolation/lockTimeout/casChangeMode) are applied only when set.
      */
     private void applySessionStateTo(final Connection physical) throws SQLException {
         claimValueObjectOwnership(physical);
         physical.setAutoCommit(sessionState.isAutoCommit());
-        physical.setTransactionIsolation(transactionIsolation);
+        if (transactionIsolation != null) {
+            physical.setTransactionIsolation(transactionIsolation.intValue());
+        }
         if (lockTimeout != null) {
             extConn(physical, "setLockTimeout").setLockTimeout(lockTimeout.intValue());
         }
@@ -3082,15 +3087,17 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      * @param readEndpoint the node this read is about to run on
      */
     private void warnIfIsolationCannotHoldAcrossNodes(final Endpoint readEndpoint) {
+        final Integer isolation = transactionIsolation;
         if (isolationSpreadWarned
-                || (transactionIsolation != TRANSACTION_REPEATABLE_READ
-                        && transactionIsolation != TRANSACTION_SERIALIZABLE)) {
+                || isolation == null
+                || (isolation.intValue() != TRANSACTION_REPEATABLE_READ
+                        && isolation.intValue() != TRANSACTION_SERIALIZABLE)) {
             return;
         }
 
         isolationSpreadWarned = true;
         final String level =
-                transactionIsolation == TRANSACTION_SERIALIZABLE
+                isolation.intValue() == TRANSACTION_SERIALIZABLE
                         ? "SERIALIZABLE"
                         : "REPEATABLE_READ";
         LbLogDedup.warn(

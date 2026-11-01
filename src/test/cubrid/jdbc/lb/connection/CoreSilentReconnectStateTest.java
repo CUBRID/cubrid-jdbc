@@ -31,7 +31,6 @@
 package cubrid.jdbc.lb.connection;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
 
 import cubrid.jdbc.jci.UConnection;
 import cubrid.jdbc.lb.FakePhysicalConnection;
@@ -54,15 +53,10 @@ import org.junit.Test;
  * Core reconnects a leg underneath LB and LB is not told.
  *
  * <p>{@code UConnection.checkReconnect()} runs before every request, and when the socket is gone
- * {@code reconnectWorker()} opens a new one — the {@code Connection} object the LB layer holds is
- * unchanged, so LB's own re-application chokepoint ({@code openConnection} &rarr; {@code
- * applySessionStateTo}) is never reached. Core restores isolation and lock timeout; {@code
- * autoCommit} rides on every execute. What nobody restores is {@code casChangeMode}, which is CAS
- * state set by a request.
- *
- * <p>The broker assigns a fresh {@code casId}/{@code casProcessId} on every connect, so LB compares
- * that tuple against the one recorded when it last applied the state. These tests drive that
- * comparison: a changed identity must re-apply, an unchanged one must not.
+ * {@code reconnectWorker()} opens a new one behind the same {@code Connection} object. What core
+ * restores there is what a core connection gets back, so LB adds nothing. Re-applying the session
+ * state ran {@code setTransactionIsolation}, which commits first in core, inside the application's
+ * transaction.
  */
 public final class CoreSilentReconnectStateTest {
 
@@ -70,58 +64,34 @@ public final class CoreSilentReconnectStateTest {
     private static final Endpoint RW = new Endpoint("rw", 33000);
 
     @Test
-    public void sessionStateIsReAppliedAfterCoreReconnectsTheLegUnderLb() throws SQLException {
+    public void coreReconnectingTheLegLeavesTheSessionStateToCore() throws SQLException {
         IdentityConnection physical = new IdentityConnection();
         LoadBalanceConnection conn = session(physical);
         int afterBind = physical.stateApplications.get();
-        assertTrue("binding applies the session state once", afterBind >= 1);
 
         // Core reconnected: same Connection object, new CAS behind it.
         physical.casProcessId(4242);
-
-        // Any physical access goes through ensureConn, which is where the identity is compared.
-        conn.isReadOnly();
-
-        assertEquals(
-                "a new CAS must have the session state re-applied",
-                afterBind + 1,
-                physical.stateApplications.get());
-        conn.close();
-    }
-
-    @Test
-    public void anUnchangedCasDoesNotReApplyTheSessionState() throws SQLException {
-        IdentityConnection physical = new IdentityConnection();
-        LoadBalanceConnection conn = session(physical);
-        int afterBind = physical.stateApplications.get();
-
-        conn.isReadOnly();
-        conn.isReadOnly();
-
-        assertEquals(
-                "the same CAS must not be re-configured on every call",
-                afterBind,
-                physical.stateApplications.get());
-        conn.close();
-    }
-
-    @Test
-    public void aConnectionWithoutAReadableCasIdentityIsLeftAlone() throws SQLException {
-        // A physical connection whose UConnection cannot be read (a stub, or a proxy in another
-        // test): the check must skip rather than re-apply on every call.
-        IdentityConnection physical =
-                new IdentityConnection() {
-                    @Override
-                    public UConnection getUConnection() throws SQLException {
-                        return null;
-                    }
-                };
-        LoadBalanceConnection conn = session(physical);
-        int afterBind = physical.stateApplications.get();
-
         conn.isReadOnly();
 
         assertEquals(afterBind, physical.stateApplications.get());
+        conn.close();
+    }
+
+    @Test
+    public void coreReconnectingTheLegInATransactionDoesNotCommitIt() throws SQLException {
+        IdentityConnection physical = new IdentityConnection();
+        LoadBalanceConnection conn = session(physical);
+        conn.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
+        conn.setAutoCommit(false);
+        int isolationCalls = physical.isolationCalls.get();
+
+        physical.casProcessId(4242);
+        conn.isReadOnly();
+
+        assertEquals(
+                "setTransactionIsolation commits first in core",
+                isolationCalls,
+                physical.isolationCalls.get());
         conn.close();
     }
 
@@ -161,6 +131,7 @@ public final class CoreSilentReconnectStateTest {
     private static class IdentityConnection extends FakePhysicalConnection {
 
         private final AtomicInteger stateApplications = new AtomicInteger();
+        private final AtomicInteger isolationCalls = new AtomicInteger();
         private final FakeUConnection u = new FakeUConnection();
 
         private void casProcessId(final int id) {
@@ -176,6 +147,9 @@ public final class CoreSilentReconnectStateTest {
         protected Object dispatch(final String name, final Object[] args) throws SQLException {
             if ("setAutoCommit".equals(name)) {
                 stateApplications.incrementAndGet();
+            }
+            if ("setTransactionIsolation".equals(name)) {
+                isolationCalls.incrementAndGet();
             }
             if ("isClosed".equals(name)) {
                 return Boolean.FALSE;

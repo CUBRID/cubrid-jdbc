@@ -651,6 +651,55 @@ public class LoadBalanceConnectionRecoverPhyBindingTest {
     }
 
     /**
+     * A core connection keeps the server's isolation until the application sets one. LB has no
+     * level of its own to push: binding and a recovered leg leave it alone, and reading it does not
+     * turn the server's answer into a level to re-apply.
+     */
+    @Test
+    public void legsKeepTheServerIsolationUntilTheApplicationSetsOne() throws SQLException {
+        Endpoint rw = new Endpoint("rw", 33000);
+        Endpoint ro1 = new Endpoint("ro1", 33001);
+        Endpoint ro2 = new Endpoint("ro2", 33001);
+        EndpointTopology topo =
+                new EndpointTopology(
+                        rw, Arrays.asList(ro1, ro2), Collections.<Endpoint>emptyList());
+
+        final AtomicInteger openCalls = new AtomicInteger();
+        JdbcConnectionFactory factory =
+                new JdbcConnectionFactory() {
+                    public Connection getConnection(final String url, final Properties info)
+                            throws SQLException {
+                        int n = openCalls.incrementAndGet();
+                        if (n > 2 && url.contains("ro1:33001")) {
+                            throw new SQLException("ro1 down");
+                        }
+                        return isolationTrackingProxy(Connection.TRANSACTION_REPEATABLE_READ);
+                    }
+                };
+
+        LoadBalanceConnection conn = newConnection(LbTestSettings.forTopology(topo), factory);
+        conn.initSessionBindings(topo);
+        assertEquals(Connection.TRANSACTION_REPEATABLE_READ, conn.getTransactionIsolation());
+
+        SQLException original = new SQLException("comm fail", null, UErrorCode.ER_COMMUNICATION);
+        PhysicalRecoveryContext ctx =
+                new PhysicalRecoveryContext(
+                        SessionLeg.RO,
+                        ro1,
+                        RouteTarget.TO_READ_ONLY,
+                        topo,
+                        Collections.<String>emptySet(),
+                        false);
+
+        PhysicalRecoveryResult result = conn.recoverPhyBinding(ctx, original);
+        assertEquals("ro2:33001", result.getBoundEndpoint().getId());
+        assertEquals(
+                Connection.TRANSACTION_REPEATABLE_READ,
+                conn.getConnectionManager().getPhyConn(ro2).getTransactionIsolation());
+        conn.close();
+    }
+
+    /**
      * Regression (01 §M-5): in manual-commit mode a read routed to a separate RO physical
      * connection opens a transaction there (autoCommit=false). The logical commit()/rollback() must
      * terminate that RO transaction too, or it lingers on the slave for the session's lifetime.
@@ -719,8 +768,12 @@ public class LoadBalanceConnectionRecoverPhyBindingTest {
     }
 
     private static Connection isolationTrackingProxy() {
-        final AtomicInteger isolation =
-                new AtomicInteger(Connection.TRANSACTION_READ_COMMITTED); // driver default
+        return isolationTrackingProxy(Connection.TRANSACTION_READ_COMMITTED); // driver default
+    }
+
+    /** {@code serverLevel} is what the leg runs at before anyone sets a level on it. */
+    private static Connection isolationTrackingProxy(final int serverLevel) {
+        final AtomicInteger isolation = new AtomicInteger(serverLevel);
         return (Connection)
                 Proxy.newProxyInstance(
                         Connection.class.getClassLoader(),

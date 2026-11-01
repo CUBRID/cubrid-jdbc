@@ -31,6 +31,7 @@
 package cubrid.jdbc.lb;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -76,6 +77,23 @@ public final class TransactionPhysicalPropagationTest {
         assertEquals(1, manager.getRollbackPhysicalTransactionCallCount());
     }
 
+    /**
+     * Core's commit and rollback in autocommit end no transaction but still complete the open
+     * statements, closing their cursors, so each leg runs core's own.
+     */
+    @Test
+    public void commitAndRollbackInAutoCommitRunOnThePhysicalLegsLikeCore() throws SQLException {
+        SimpleEndpointConnManager manager = new SimpleEndpointConnManager();
+        LoadBalanceConnection connection = createBoundSessionConnection(manager);
+
+        connection.commit();
+        connection.rollback();
+
+        assertEquals(1, manager.getCommitPhysicalTransactionCallCount());
+        assertEquals(1, manager.getRollbackPhysicalTransactionCallCount());
+        assertTrue(connection.getAutoCommit());
+    }
+
     @Test
     public void setAutoCommitTrueWithOpenTransactionCommitsPhysicallyFirst() throws SQLException {
         SimpleEndpointConnManager manager = new SimpleEndpointConnManager();
@@ -108,14 +126,8 @@ public final class TransactionPhysicalPropagationTest {
         // Physical commit ran; logical state reflects it despite the later propagation failure.
         assertEquals(1, manager.getCommitPhysicalTransactionCallCount());
         assertTrue(connection.getAutoCommit());
-
-        // The session is not stuck manual+txActive: a rollback is now rejected as autocommit-only,
-        // rather than appearing to undo the already-committed work.
-        try {
-            connection.rollback();
-            fail("expected rollback() to be rejected in autocommit mode");
-        } catch (SQLException expected) {
-        }
+        // The session is not stuck manual+txActive over the committed work.
+        assertFalse(connection.getSessionState().isTransactionActive());
     }
 
     private static LoadBalanceConnection createSessionConnection() {

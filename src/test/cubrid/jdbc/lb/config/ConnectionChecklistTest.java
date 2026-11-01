@@ -124,25 +124,17 @@ public class ConnectionChecklistTest {
     }
 
     @Test
-    public void assertCL05_commitInAutoCommitThrows() throws Exception {
+    public void assertCL05_commitInAutoCommitReturnsLikeCore() throws Exception {
         LoadBalanceConnection conn = newConn();
-        try {
-            conn.commit();
-            fail("Expected SQLException");
-        } catch (SQLException e) {
-            assertTrue(e.getMessage().contains("auto-commit"));
-        }
+        conn.commit();
+        assertTrue(conn.getAutoCommit());
     }
 
     @Test
-    public void assertCL05_rollbackInAutoCommitThrows() throws Exception {
+    public void assertCL05_rollbackInAutoCommitReturnsLikeCore() throws Exception {
         LoadBalanceConnection conn = newConn();
-        try {
-            conn.rollback();
-            fail("Expected SQLException");
-        } catch (SQLException e) {
-            assertTrue(e.getMessage().contains("auto-commit"));
-        }
+        conn.rollback();
+        assertTrue(conn.getAutoCommit());
     }
 
     @Test

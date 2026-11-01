@@ -1167,7 +1167,9 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     public void commit() throws SQLException {
         checkClosed();
         if (sessionState.isAutoCommit()) {
-            throw LbExceptions.txAutocommitOnly();
+            // No transaction to end, but core's commit still completes the open statements.
+            propagatePhyCommit();
+            return;
         }
         try {
             propagatePhyCommit();
@@ -1187,7 +1189,9 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     public void rollback() throws SQLException {
         checkClosed();
         if (sessionState.isAutoCommit()) {
-            throw LbExceptions.txAutocommitOnly();
+            // No transaction to end, but core's rollback still completes the open statements.
+            propagatePhyRollback();
+            return;
         }
         try {
             propagatePhyRollback();

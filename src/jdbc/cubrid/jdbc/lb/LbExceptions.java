@@ -179,10 +179,6 @@ public final class LbExceptions {
                 LbJDBCErrorCode.lb_physical_delegate_failed, "method=" + methodName, cause);
     }
 
-    static CUBRIDException txAutocommitOnly() {
-        return withDetail(LbJDBCErrorCode.lb_tx_autocommit_only, null, null);
-    }
-
     static CUBRIDException unsupportedRoute(final String target) {
         return withDetail(LbJDBCErrorCode.lb_unsupported_route, "target=" + target, null);
     }

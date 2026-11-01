@@ -52,7 +52,6 @@ final class LbJDBCErrorCode {
     static final int lb_stmt_no_execution_history = -23014;
     static final int lb_delegation_not_configured = -23015;
     static final int lb_physical_delegate_failed = -23016;
-    static final int lb_tx_autocommit_only = -23017;
     static final int lb_unsupported_route = -23018;
 
     static final int lb_option_invalid = -23019;
@@ -101,9 +100,6 @@ final class LbJDBCErrorCode {
         messageString.put(
                 Integer.valueOf(lb_physical_delegate_failed),
                 "Failed to invoke physical JDBC extension.");
-        messageString.put(
-                Integer.valueOf(lb_tx_autocommit_only),
-                "Transaction control is not allowed in auto-commit mode.");
         messageString.put(
                 Integer.valueOf(lb_unsupported_route),
                 "Unsupported route target for load balance.");

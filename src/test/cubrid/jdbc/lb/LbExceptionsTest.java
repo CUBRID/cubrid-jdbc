@@ -165,9 +165,6 @@ public class LbExceptionsTest {
         assertEquals(
                 CUBRIDJDBCErrorCode.statement_closed,
                 LbExceptions.statementClosed().getErrorCode());
-        assertEquals(
-                LbJDBCErrorCode.lb_tx_autocommit_only,
-                LbExceptions.txAutocommitOnly().getErrorCode());
     }
 
     @Test

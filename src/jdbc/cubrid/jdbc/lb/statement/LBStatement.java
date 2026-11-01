@@ -939,12 +939,23 @@ public class LBStatement extends CUBRIDStatement {
         return (CUBRIDStatement) statement;
     }
 
+    /**
+     * An updatable result set writes through the statement that produced it, and a read-only broker
+     * refuses the write, so such a statement runs on RW whatever its SQL.
+     */
+    boolean producesUpdatableResults() {
+        return resultSetConcurrency == ResultSet.CONCUR_UPDATABLE;
+    }
+
     private RouteTarget routeFor(final String sql) {
         return Router.decide(
                         sql,
                         lbConnection.getSessionState(),
                         new Router.DefaultRouteAdvisor() {
                             public RouteTarget defaultTarget(final String rawSql) {
+                                if (producesUpdatableResults()) {
+                                    return RouteTarget.TO_READ_WRITE;
+                                }
                                 SqlClassification classification =
                                         lbConnection.sqlClassifier().classify(rawSql);
                                 if (SqlClassification.READ == classification) {

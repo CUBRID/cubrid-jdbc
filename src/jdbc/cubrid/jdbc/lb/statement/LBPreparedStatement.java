@@ -148,7 +148,11 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
                                 return phyPsProvider.preparedForBindCheck();
                             }
                         });
-        this.sqlCaches = SqlCaches.compute(sql, lbConnection.sqlClassifier());
+        this.sqlCaches =
+                SqlCaches.compute(
+                        sql,
+                        lbConnection.sqlClassifier(),
+                        statementDelegate.producesUpdatableResults());
     }
 
     String getSql() {
@@ -1176,7 +1180,8 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
             this.expectedParameterCount = expectedParameterCount;
         }
 
-        static SqlCaches compute(final String sql, final SqlClassifier classifier) {
+        static SqlCaches compute(
+                final String sql, final SqlClassifier classifier, final boolean updatable) {
             final HintSet hints = HintParser.parse(sql);
 
             final RouteTarget targetFromHint =
@@ -1184,7 +1189,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
             final SqlClassification classification = classifier.classify(sql);
 
             final RouteTarget defaultTarget =
-                    SqlClassification.READ == classification
+                    SqlClassification.READ == classification && !updatable
                             ? RouteTarget.TO_READ_ONLY
                             : RouteTarget.TO_READ_WRITE;
             return new SqlCaches(targetFromHint, defaultTarget, countParamPlaceholders(sql));

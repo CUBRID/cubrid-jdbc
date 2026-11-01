@@ -87,6 +87,24 @@ public class LBPreparedStatementExecutionTest {
         assertTrue(context.calls.contains("executeQuery"));
     }
 
+    /** An updatable result set writes through its statement, which the read-only broker refuses. */
+    @Test
+    public void assertUpdatableQueryUsesMaster() throws Exception {
+        LBPreparedStatement statement =
+                (LBPreparedStatement)
+                        connection.prepareStatement(
+                                "SELECT * FROM t WHERE id = ?",
+                                ResultSet.TYPE_SCROLL_INSENSITIVE,
+                                ResultSet.CONCUR_UPDATABLE);
+        statement.setInt(1, 7);
+        DelegationContext context = new DelegationContext();
+        statement.setPsProvider(context);
+
+        statement.executeQuery();
+
+        assertEquals(RouteTarget.TO_READ_WRITE, context.lastTarget);
+    }
+
     @Test
     public void assertExecuteUpdateUsesMasterWhenTransactionActive() throws Exception {
         connection.setAutoCommit(false);

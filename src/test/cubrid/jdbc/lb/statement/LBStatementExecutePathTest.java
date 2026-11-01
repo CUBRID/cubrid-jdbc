@@ -71,6 +71,21 @@ public final class LBStatementExecutePathTest {
         assertEquals(0, context.masterCreateCount);
     }
 
+    /** An updatable result set writes through its statement, which the read-only broker refuses. */
+    @Test
+    public void assertUpdatableQueryRoutesToMaster() throws Exception {
+        LBStatement statement =
+                new LBStatement(
+                        connection, ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
+        DelegationContext context = new DelegationContext();
+        statement.setStatementProvider(context);
+
+        statement.executeQuery("SELECT id FROM t");
+
+        assertEquals(0, context.readOnlyCreateCount);
+        assertEquals(1, context.masterCreateCount);
+    }
+
     @Test
     public void assertExecuteQueryRoutesToReadOnlyForReadSql() throws Exception {
         LBStatement statement = new LBStatement(connection);

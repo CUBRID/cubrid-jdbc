@@ -68,14 +68,6 @@ final class ParameterBinder {
     // null for a batch row snapshot, which is never set again.
     private final BindCheck bindCheck;
 
-    // True once a parameter is recorded that still holds the caller's stream/reader: the LOB
-    // setters, which core streams straight to the server rather than into memory, and the
-    // overloads core refuses outright. Such a value is consumed by the first execution and cannot
-    // be replayed, so failover must not retry a statement bound with one. The length-taking
-    // ascii/binary/character setters are not among them - they are materialized at record time,
-    // where core materializes them too.
-    private boolean hasStreamParam = false;
-
     ParameterBinder() {
         this(null);
     }
@@ -210,30 +202,8 @@ final class ParameterBinder {
         add(new SetBlobObjOp(parameterIndex, value));
     }
 
-    // The stream-backed LOB setters skip the bind check: core writes the stream to a server LOB in
-    // the setter, and binding it here would consume the caller's stream.
-    void recordSetBlob(final int parameterIndex, final InputStream inputStream) {
-        hasStreamParam = true;
-        operations.add(new SetBlobStreamOp(parameterIndex, inputStream));
-    }
-
-    void recordSetBlob(final int parameterIndex, final InputStream inputStream, final long length) {
-        hasStreamParam = true;
-        operations.add(new SetBlobLenOp(parameterIndex, inputStream, length));
-    }
-
     void recordSetClob(final int parameterIndex, final Clob value) throws SQLException {
         add(new SetClobObjOp(parameterIndex, value));
-    }
-
-    void recordSetClob(final int parameterIndex, final Reader reader) {
-        hasStreamParam = true;
-        operations.add(new SetClobReaderOp(parameterIndex, reader));
-    }
-
-    void recordSetClob(final int parameterIndex, final Reader reader, final long length) {
-        hasStreamParam = true;
-        operations.add(new SetClobLenOp(parameterIndex, reader, length));
     }
 
     void recordSetObject(final int parameterIndex, final Object value) throws SQLException {
@@ -450,17 +420,6 @@ final class ParameterBinder {
 
     void clear() {
         operations.clear();
-        hasStreamParam = false;
-    }
-
-    /**
-     * Whether any bound parameter is a stream or reader that the first execution consumes and that
-     * therefore cannot be replayed on a failover retry.
-     *
-     * @return {@code true} if a bound parameter cannot be replayed
-     */
-    boolean hasNonReplayableParams() {
-        return hasStreamParam;
     }
 
     int size() {
@@ -474,7 +433,6 @@ final class ParameterBinder {
     ParameterBinder snapshot() {
         ParameterBinder result = new ParameterBinder();
         result.operations.addAllFrom(operations);
-        result.hasStreamParam = hasStreamParam;
 
         return result;
     }
@@ -824,36 +782,6 @@ final class ParameterBinder {
         }
     }
 
-    private static final class SetBlobStreamOp extends ParameterOperation {
-        private final InputStream stream;
-
-        SetBlobStreamOp(final int parameterIndex, final InputStream stream) {
-            super(parameterIndex);
-            this.stream = stream;
-        }
-
-        @Override
-        void apply(final PreparedStatement target) throws SQLException {
-            target.setBlob(parameterIndex, stream);
-        }
-    }
-
-    private static final class SetBlobLenOp extends ParameterOperation {
-        private final InputStream stream;
-        private final long length;
-
-        SetBlobLenOp(final int parameterIndex, final InputStream stream, final long length) {
-            super(parameterIndex);
-            this.stream = stream;
-            this.length = length;
-        }
-
-        @Override
-        void apply(final PreparedStatement target) throws SQLException {
-            target.setBlob(parameterIndex, stream, length);
-        }
-    }
-
     private static final class SetClobObjOp extends ParameterOperation {
         private final Clob value;
 
@@ -865,36 +793,6 @@ final class ParameterBinder {
         @Override
         void apply(final PreparedStatement target) throws SQLException {
             target.setClob(parameterIndex, value);
-        }
-    }
-
-    private static final class SetClobReaderOp extends ParameterOperation {
-        private final Reader reader;
-
-        SetClobReaderOp(final int parameterIndex, final Reader reader) {
-            super(parameterIndex);
-            this.reader = reader;
-        }
-
-        @Override
-        void apply(final PreparedStatement target) throws SQLException {
-            target.setClob(parameterIndex, reader);
-        }
-    }
-
-    private static final class SetClobLenOp extends ParameterOperation {
-        private final Reader reader;
-        private final long length;
-
-        SetClobLenOp(final int parameterIndex, final Reader reader, final long length) {
-            super(parameterIndex);
-            this.reader = reader;
-            this.length = length;
-        }
-
-        @Override
-        void apply(final PreparedStatement target) throws SQLException {
-            target.setClob(parameterIndex, reader, length);
         }
     }
 

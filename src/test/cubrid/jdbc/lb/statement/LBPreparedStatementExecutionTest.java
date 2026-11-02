@@ -320,8 +320,6 @@ public class LBPreparedStatementExecutionTest {
                                         return null;
                                     }
                                 }));
-        statement.setBlob(1, new java.io.ByteArrayInputStream(new byte[] {1}), 1L);
-        statement.setBlob(1, new java.io.ByteArrayInputStream(new byte[] {2}));
         statement.setClob(
                 1,
                 (java.sql.Clob)
@@ -334,8 +332,6 @@ public class LBPreparedStatementExecutionTest {
                                         return null;
                                     }
                                 }));
-        statement.setClob(1, new java.io.StringReader("a"), 1L);
-        statement.setClob(1, new java.io.StringReader("b"));
         statement.setAsciiStream(1, new java.io.ByteArrayInputStream(new byte[] {1}), 1);
         statement.setBinaryStream(1, new java.io.ByteArrayInputStream(new byte[] {3}), 3);
         statement.setCharacterStream(1, new java.io.StringReader("c"), 1);

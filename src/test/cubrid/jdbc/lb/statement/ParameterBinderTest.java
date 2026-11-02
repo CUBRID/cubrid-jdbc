@@ -32,7 +32,6 @@ package cubrid.jdbc.lb.statement;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
@@ -167,25 +166,6 @@ public class ParameterBinderTest {
         assertEquals("a spent stream answers -1", -1, captured.read("setBinaryStream", out));
     }
 
-    /**
-     * The gate that keeps failover from retrying a binding it cannot reproduce. A materialized
-     * parameter is reproducible, so it must no longer close the gate; a LOB stream, which core
-     * copies straight to the server instead of into memory, still does.
-     */
-    @Test
-    public void assertOnlyNonMaterializedStreamParamsBlockFailover() throws Exception {
-        ParameterBinder binder = new ParameterBinder();
-        binder.recordSetBinaryStream(1, new ByteArrayInputStream(new byte[] {1}), 1);
-        binder.recordSetAsciiStream(2, new ByteArrayInputStream(new byte[] {65}), 1);
-        binder.recordSetCharacterStream(3, new StringReader("x"), 1);
-
-        assertFalse(binder.hasNonReplayableParams());
-
-        binder.recordSetBlob(4, new ByteArrayInputStream(new byte[] {1}));
-
-        assertTrue(binder.hasNonReplayableParams());
-    }
-
     @Test
     public void assertReplayWithNullTargetThrowsSQLException() throws Exception {
         ParameterBinder binder = new ParameterBinder();
@@ -246,11 +226,7 @@ public class ParameterBinderTest {
         binder.recordSetObject(28, "obj", Types.VARCHAR, 10);
         binder.recordSetCharacterStream(29, reader, 4);
         binder.recordSetBlob(33, blob);
-        binder.recordSetBlob(34, binaryStream, 3L);
-        binder.recordSetBlob(35, binaryStream);
         binder.recordSetClob(36, clob);
-        binder.recordSetClob(37, reader, 4L);
-        binder.recordSetClob(38, reader);
         binder.recordSetOID(49, (CUBRIDOID) null);
         binder.recordSetCollection(50, new Object[] {"a", Integer.valueOf(1)});
         binder.recordSetTimestamptz(51, (CUBRIDTimestamptz) null);
@@ -260,7 +236,7 @@ public class ParameterBinderTest {
         PreparedStatement target = handler.createProxy();
         binder.replay(target);
 
-        assertEquals(34, handler.calls.size());
+        assertEquals(30, handler.calls.size());
         assertTrue(handler.calls.contains("setCollection:2:50"));
         assertTrue(handler.calls.contains("setTimestamptz:2:51"));
         assertTrue(handler.calls.contains("setTimestamptz:3:52"));

@@ -231,7 +231,6 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
                 statementDelegate.executeWithFailover(
                         sql,
                         target,
-                        !parameterBinder.hasNonReplayableParams(),
                         new SqlExecution<ResultSet>() {
                             public ResultSet run() throws SQLException {
                                 PreparedStatement physicalStatement = physicalPsWithParams(target);
@@ -251,7 +250,6 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
                 .executeWithFailover(
                         sql,
                         target,
-                        !parameterBinder.hasNonReplayableParams(),
                         new SqlExecution<Integer>() {
                             public Integer run() throws SQLException {
                                 PreparedStatement physicalStatement = physicalPsWithParams(target);
@@ -271,7 +269,6 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
                 .executeWithFailover(
                         sql,
                         target,
-                        !parameterBinder.hasNonReplayableParams(),
                         new SqlExecution<Boolean>() {
                             public Boolean run() throws SQLException {
                                 PreparedStatement physicalStatement = physicalPsWithParams(target);
@@ -300,8 +297,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
      */
     private void checkAllBound() throws SQLException {
         final PreparedStatement target = phyPsProvider.preparedForBindCheck();
-        // A stream-backed LOB is consumed by its first bind; it is left to the execute.
-        if (target == null || parameterBinder.hasNonReplayableParams()) {
+        if (target == null) {
             return;
         }
         target.clearParameters();
@@ -323,10 +319,6 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
 
         // As in LBStatement.executeBatch, every batch runs on RW, under failover.
         final RouteTarget target = RouteTarget.TO_READ_WRITE;
-        boolean replayable = true;
-        for (int i = 0; i < batchedBinders.size(); i++) {
-            replayable &= !batchedBinders.get(i).hasNonReplayableParams();
-        }
 
         final int[] result;
         try {
@@ -337,7 +329,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
                                     ownerConn,
                                     target,
                                     sql,
-                                    replayable,
+                                    true,
                                     new SqlExecution<int[]>() {
                                         public int[] run() throws SQLException {
                                             return runBatchOn(physicalPsForTarget(target));
@@ -575,15 +567,15 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         parameterBinder.recordSetBlob(parameterIndex, x);
     }
 
+    // Core writes the stream to a LOB that this connection's createBlob() makes, in the setter,
+    // and binds that LOB through setBlob(int, Blob).
     public void setBlob(int parameterIndex, InputStream inputStream, long length)
             throws SQLException {
-        checkIsOpen();
-        parameterBinder.recordSetBlob(parameterIndex, inputStream, length);
+        super.setBlob(parameterIndex, inputStream, length);
     }
 
     public void setBlob(int parameterIndex, InputStream inputStream) throws SQLException {
-        checkIsOpen();
-        parameterBinder.recordSetBlob(parameterIndex, inputStream);
+        super.setBlob(parameterIndex, inputStream);
     }
 
     public void setClob(int parameterIndex, Clob x) throws SQLException {
@@ -592,13 +584,11 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     }
 
     public void setClob(int parameterIndex, Reader reader, long length) throws SQLException {
-        checkIsOpen();
-        parameterBinder.recordSetClob(parameterIndex, reader, length);
+        super.setClob(parameterIndex, reader, length);
     }
 
     public void setClob(int parameterIndex, Reader reader) throws SQLException {
-        checkIsOpen();
-        parameterBinder.recordSetClob(parameterIndex, reader);
+        super.setClob(parameterIndex, reader);
     }
 
     public void setArray(int parameterIndex, Array x) throws SQLException {

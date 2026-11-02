@@ -914,6 +914,22 @@ public class LBStatement extends CUBRIDStatement {
     }
 
     /**
+     * An execution closes the previous result set, as core's does. Core's own close on re-execute
+     * reaches it only when {@code next} is the statement that produced it, on the same leg.
+     */
+    protected void closeResultOfAnotherStatement(final Statement next) {
+        if (lastRs == null || lastExecStmt == next) {
+            return;
+        }
+        try {
+            lastRs.close();
+        } catch (SQLException ignored) {
+            // the leg it came from is gone; nothing is left to close
+        }
+        lastRs = null;
+    }
+
+    /**
      * The physical connection under a result set this statement handed out and the application has
      * not closed, or null. Failback must not close that connection.
      *

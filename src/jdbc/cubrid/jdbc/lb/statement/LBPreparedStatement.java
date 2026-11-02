@@ -1154,6 +1154,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         PreparedStatement ps =
                 phyPsProvider.getPreparedStatement(statementDelegate.effectiveTarget(target), sql);
         rememberPrepared(ps);
+        statementDelegate.closeResultOfAnotherStatement(ps);
         // The physical PS comes from the session cache, so statement attributes (queryTimeout,
         // maxRows, fetchSize, maxFieldSize, escapeProcessing) are re-applied on every execution:
         // another logical PS sharing the endpoint may have changed them.

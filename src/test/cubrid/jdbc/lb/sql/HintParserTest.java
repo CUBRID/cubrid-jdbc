@@ -227,6 +227,18 @@ public class HintParserTest {
         assertEquals(HintSet.TargetHint.TO_RO, hs.getTargetHint());
     }
 
+    /** An optimizer hint's arguments are table names or aliases, which may read like LB tokens. */
+    @Test
+    public void assertTokenInsideOptimizerHintArgumentsIsNotATargetHint() {
+        assertTrue(HintParser.parse("SELECT /*+ USE_NL( to_ro ) */ @v FROM t to_ro").isEmpty());
+        assertTrue(
+                HintParser.parse("SELECT /*+ USE_NL(x, to_ro, y) */ * FROM x, to_ro, y").isEmpty());
+        assertTrue(HintParser.parse("SELECT /*+ USE_MERGE(a to_master) */ * FROM a").isEmpty());
+
+        HintSet hs = HintParser.parse("SELECT /*+ USE_NL( to_rw ) TO_RO */ * FROM t to_rw");
+        assertEquals(HintSet.TargetHint.TO_RO, hs.getTargetHint());
+    }
+
     @Test
     public void assertDeterministicOutput() {
         String sql = "SELECT /*+ TO_RW TO_RO */ * FROM t";

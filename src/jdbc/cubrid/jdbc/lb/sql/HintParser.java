@@ -257,6 +257,8 @@ public final class HintParser {
         HintSet.TargetHint target = null;
 
         StringTokenizer st = new StringTokenizer(hintContent, " \t\r\n,");
+        // An optimizer hint's arguments, as in USE_NL(t to_ro), are table names or aliases.
+        int depth = 0;
 
         while (st.hasMoreTokens()) {
             String token = st.nextToken().trim().toUpperCase(Locale.ROOT);
@@ -265,11 +267,19 @@ public final class HintParser {
             }
 
             // Duplicates: first-wins, the way CUBRID resolves a duplicate LEADING hint.
-            if (target == null && TARGET_BY_TOKEN.containsKey(token)) {
+            if (target == null && depth == 0 && TARGET_BY_TOKEN.containsKey(token)) {
                 target = TARGET_BY_TOKEN.get(token);
             }
 
             // unsupported tokens (optimizer hints etc.) silently ignored
+
+            for (int i = 0; i < token.length(); i++) {
+                if (token.charAt(i) == '(') {
+                    depth++;
+                } else if (token.charAt(i) == ')' && depth > 0) {
+                    depth--;
+                }
+            }
         }
 
         if (target == null) {

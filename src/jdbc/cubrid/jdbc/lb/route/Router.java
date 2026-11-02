@@ -166,6 +166,19 @@ public final class Router {
         return target;
     }
 
+    /**
+     * The default target of a read that reports on the statement before it ({@code
+     * READ_ON_PREVIOUS_LEG}): the leg that statement ran on.
+     *
+     * @param session the session routing state
+     * @return the leg the session's last successful statement ran on
+     */
+    public static RouteTarget previousStatementLeg(final SessionRoutingState session) {
+        return session.isLastStatementOnReadLeg()
+                ? RouteTarget.TO_READ_ONLY
+                : RouteTarget.TO_READ_WRITE;
+    }
+
     public static RouteTarget mapTargetHint(final HintSet.TargetHint hint) {
         switch (hint) {
             case TO_RW:

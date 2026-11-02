@@ -95,10 +95,11 @@ public class KeywordSqlClassifierTest {
 
     @Test
     public void assertSqlClassificationEnumValues() {
-        assertEquals(3, SqlClassification.values().length);
+        assertEquals(4, SqlClassification.values().length);
         assertNotNull(SqlClassification.valueOf("READ"));
         assertNotNull(SqlClassification.valueOf("WRITE"));
         assertNotNull(SqlClassification.valueOf("UNKNOWN"));
+        assertNotNull(SqlClassification.valueOf("READ_ON_PREVIOUS_LEG"));
     }
 
     @Test
@@ -634,7 +635,6 @@ public class KeywordSqlClassifierTest {
     @Test
     public void assertSelectWithWriteStateFunctionClassifiedAsUnknown() {
         assertEquals(SqlClassification.UNKNOWN, classifier.classify("SELECT LAST_INSERT_ID()"));
-        assertEquals(SqlClassification.UNKNOWN, classifier.classify("SELECT ROW_COUNT()"));
         assertEquals(
                 SqlClassification.UNKNOWN,
                 classifier.classify("SELECT id, LAST_INSERT_ID() FROM tbl"));
@@ -647,7 +647,31 @@ public class KeywordSqlClassifierTest {
     @Test
     public void assertSelectWithWriteStateFunctionCaseInsensitive() {
         assertEquals(SqlClassification.UNKNOWN, classifier.classify("select last_insert_id()"));
-        assertEquals(SqlClassification.UNKNOWN, classifier.classify("SELECT Row_Count()"));
+    }
+
+    /**
+     * {@code ROW_COUNT()} reports on the statement before it in its own session, so it runs on the
+     * leg that statement ran on; anything else that keeps a statement off the read leg still does.
+     */
+    @Test
+    public void assertRowCountReadFollowsThePreviousStatement() {
+        final SqlClassification previous = SqlClassification.READ_ON_PREVIOUS_LEG;
+        assertEquals(previous, classifier.classify("SELECT ROW_COUNT()"));
+        assertEquals(previous, classifier.classify("select Row_Count() from db_root"));
+        assertEquals(previous, classifier.classify("SELECT \"ROW_COUNT\"()"));
+        assertEquals(previous, classifier.classify("SELECT 1; SELECT ROW_COUNT()"));
+
+        assertEquals(
+                SqlClassification.UNKNOWN,
+                classifier.classify("SELECT ROW_COUNT(), LAST_INSERT_ID()"));
+        assertEquals(
+                SqlClassification.UNKNOWN, classifier.classify("SELECT ROW_COUNT(), my_fn(1)"));
+        assertEquals(SqlClassification.UNKNOWN, classifier.classify("SELECT ROW_COUNT() INTO :rc"));
+        assertEquals(
+                SqlClassification.WRITE,
+                classifier.classify("SELECT ROW_COUNT(), s.NEXTVAL FROM db_root"));
+        assertEquals(
+                SqlClassification.WRITE, classifier.classify("INSERT INTO t SELECT ROW_COUNT()"));
     }
 
     /**

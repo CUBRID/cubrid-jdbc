@@ -2903,12 +2903,13 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      * only on the leg it was routed to (RW): a session-scoped one is replayed on the read leg now
      * and on every leg opened later; any other keeps this session's reads on RW. Variables an
      * {@code INTO/TO} clause created on RW are remembered so reads naming them follow, until a
-     * {@code DROP VARIABLE} removes them.
+     * {@code DROP VARIABLE} removes them. Its leg is where a following {@code ROW_COUNT()} runs.
      *
      * @param sql the statement as the application issued it
      * @param ranOn the leg it ran on
      */
     public void afterStatementSucceeded(final String sql, final RouteTarget ranOn) {
+        sessionState.setLastStatementOnReadLeg(ranOn == RouteTarget.TO_READ_ONLY);
         if (ranOn == RouteTarget.TO_READ_WRITE) {
             sessionState.addSessionVariables(IntoVariables.assignedBy(sql));
             sessionState.removeSessionVariables(IntoVariables.droppedBy(sql));

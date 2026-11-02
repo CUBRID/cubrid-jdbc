@@ -366,7 +366,9 @@ final class BuiltinFunctionCatalog {
      * Session-dependent functions: the value depends on the session's latest state, so they must
      * run on the same CAS (RW) as the preceding write. They write nothing, so a {@code SELECT}
      * using them is {@code UNKNOWN}. {@code SERIAL_CURRENT_VALUE} returns the session's last
-     * NEXTVAL; {@code LAST_INSERT_ID}/{@code ROW_COUNT} return its last DML state.
+     * NEXTVAL; {@code LAST_INSERT_ID}/{@code ROW_COUNT} return its last DML state. {@code
+     * ROW_COUNT} reports on the statement right before it, so it follows that statement's leg
+     * ({@link #reportsPreviousStatement}).
      */
     private static final String[] SESSION_RW = {
         "SERIAL_CURRENT_VALUE", "LAST_INSERT_ID", "ROW_COUNT"
@@ -553,6 +555,17 @@ final class BuiltinFunctionCatalog {
      */
     static boolean isWriteEffectBuiltin(final String upperAsciiName) {
         return contains(WRITE_EFFECT_BUILTINS, upperAsciiName);
+    }
+
+    /**
+     * Session function that reports on the statement right before it ({@code ROW_COUNT}), so it
+     * answers for whichever session ran that statement.
+     *
+     * @param upperAsciiName built-in name, upper-cased ASCII
+     * @return {@code true} if the built-in reports on the previous statement
+     */
+    static boolean reportsPreviousStatement(final String upperAsciiName) {
+        return "ROW_COUNT".equals(upperAsciiName);
     }
 
     /**

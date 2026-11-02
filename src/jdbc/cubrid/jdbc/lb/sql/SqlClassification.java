@@ -34,5 +34,10 @@ package cubrid.jdbc.lb.sql;
 public enum SqlClassification {
     READ,
     WRITE,
-    UNKNOWN
+    UNKNOWN,
+    /**
+     * A read that reports on the statement before it, such as {@code ROW_COUNT()}: each leg is a
+     * server session of its own, so it runs on the leg that statement ran on.
+     */
+    READ_ON_PREVIOUS_LEG
 }

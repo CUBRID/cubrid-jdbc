@@ -51,7 +51,8 @@ import java.util.Map;
  *       session's last DML state, so they only mean something on the CAS that ran that write.
  *       {@link SqlClassification#UNKNOWN} sends them down the {@code Router}'s default path to the
  *       RW endpoint, which is that same CAS (one RW endpoint per {@code LoadBalanceConnection}).
- *       See <a
+ *       {@code ROW_COUNT()} reports on the statement right before it, wherever that ran: {@link
+ *       SqlClassification#READ_ON_PREVIOUS_LEG}. See <a
  *       href="https://www.cubrid.org/manual/ko/11.4/sql/function/information_fn.html#LAST_INSERT_ID">information
  *       functions</a>.
  *   <li>session ({@code @name}) and host ({@code :name}) variables - they live on the leg that set
@@ -161,13 +162,14 @@ final class KeywordSqlClassifier implements SqlClassifier {
     @Override
     public SqlClassification classify(final String sql) {
         final SqlClassification result = classifyStatements(sql);
-        if (result != SqlClassification.READ || sql.indexOf('\\') < 0) {
+        if ((result != SqlClassification.READ && result != SqlClassification.READ_ON_PREVIOUS_LEG)
+                || sql.indexOf('\\') < 0) {
             return result;
         }
 
-        // Whether a backslash escapes depends on a server setting: READ only if READ either way.
+        // Backslash escaping depends on a server setting: a read only if a read either way.
         final String escaped = SqlLexer.withBackslashEscapes(sql);
-        return escaped == null ? result : classifyStatements(escaped);
+        return escaped == null ? result : mostRestrictive(result, classifyStatements(escaped));
     }
 
     private SqlClassification classifyStatements(final String sql) {
@@ -319,7 +321,7 @@ final class KeywordSqlClassifier implements SqlClassifier {
         return len;
     }
 
-    /** WRITE over UNKNOWN over READ. */
+    /** WRITE over UNKNOWN over READ_ON_PREVIOUS_LEG over READ. */
     private static SqlClassification mostRestrictive(
             final SqlClassification a, final SqlClassification b) {
         if (a == SqlClassification.WRITE || b == SqlClassification.WRITE) {
@@ -327,6 +329,10 @@ final class KeywordSqlClassifier implements SqlClassifier {
         }
         if (a == SqlClassification.UNKNOWN || b == SqlClassification.UNKNOWN) {
             return SqlClassification.UNKNOWN;
+        }
+        if (a == SqlClassification.READ_ON_PREVIOUS_LEG
+                || b == SqlClassification.READ_ON_PREVIOUS_LEG) {
+            return SqlClassification.READ_ON_PREVIOUS_LEG;
         }
         return SqlClassification.READ;
     }
@@ -410,6 +416,7 @@ final class KeywordSqlClassifier implements SqlClassifier {
 
         boolean sawWrite = false;
         boolean sawUnsafe = false;
+        boolean sawRowCount = false;
 
         while (i < len) {
             // A quoted name is the name the engine looks up: seq."NEXTVAL" is the serial
@@ -429,6 +436,8 @@ final class KeywordSqlClassifier implements SqlClassifier {
                         && !isColumnListAt(name, prevWord, wordBefore, prevWasValue)) {
                     if (BuiltinFunctionCatalog.isWriteEffectBuiltin(name)) {
                         sawWrite = true;
+                    } else if (BuiltinFunctionCatalog.reportsPreviousStatement(name)) {
+                        sawRowCount = true;
                     } else {
                         sawUnsafe = true;
                     }
@@ -511,9 +520,12 @@ final class KeywordSqlClassifier implements SqlClassifier {
                         if (isFunctionCallAt(sql, end) && !isRoSafeName(name) && !columnList) {
                             // Non-RO-safe ident(...): RW built-in or user routine.
                             // Write-effect built-ins (SERIAL_NEXT_VALUE/INCR/DECR) → WRITE;
-                            // session-dependent built-ins / LOB / user routines → UNKNOWN.
+                            // ROW_COUNT → READ_ON_PREVIOUS_LEG; other session-dependent
+                            // built-ins / LOB / user routines → UNKNOWN.
                             if (BuiltinFunctionCatalog.isWriteEffectBuiltin(name)) {
                                 sawWrite = true;
+                            } else if (BuiltinFunctionCatalog.reportsPreviousStatement(name)) {
+                                sawRowCount = true;
                             } else {
                                 sawUnsafe = true;
                             }
@@ -550,8 +562,11 @@ final class KeywordSqlClassifier implements SqlClassifier {
         if (sawWrite) {
             return SqlClassification.WRITE;
         }
+        if (sawUnsafe) {
+            return SqlClassification.UNKNOWN;
+        }
 
-        return sawUnsafe ? SqlClassification.UNKNOWN : SqlClassification.READ;
+        return sawRowCount ? SqlClassification.READ_ON_PREVIOUS_LEG : SqlClassification.READ;
     }
 
     /**

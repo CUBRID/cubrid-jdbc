@@ -752,9 +752,11 @@ public class LBStatement extends CUBRIDStatement {
     public CUBRIDOID executeInsert(final String sql) throws SQLException {
         checkClosed();
 
-        Statement statement = createPhyStmt(sql, routeFor(sql));
+        final RouteTarget target = routeFor(sql);
+        Statement statement = createPhyStmt(sql, target);
 
         CUBRIDOID result = invokeExecInsert(statement, sql);
+        lbConnection.afterStatementSucceeded(sql, target);
         lastExecStmt = statement;
         lastRs = null;
         lastUpdCnt = -1;
@@ -963,6 +965,11 @@ public class LBStatement extends CUBRIDStatement {
                                                 lbConnection.sqlClassifier().classify(rawSql);
                                         if (SqlClassification.READ == classification) {
                                             return RouteTarget.TO_READ_ONLY;
+                                        }
+                                        if (SqlClassification.READ_ON_PREVIOUS_LEG
+                                                == classification) {
+                                            return Router.previousStatementLeg(
+                                                    lbConnection.getSessionState());
                                         }
 
                                         return RouteTarget.TO_READ_WRITE;

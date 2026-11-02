@@ -658,9 +658,11 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     public CUBRIDOID executeInsert() throws SQLException {
         statementDelegate.checkClosed();
 
-        PreparedStatement physicalStatement = physicalPsWithParams(resolveRouteTarget());
+        final RouteTarget target = resolveRouteTarget();
+        PreparedStatement physicalStatement = physicalPsWithParams(target);
 
         CUBRIDOID oid = invokeExecInsert(physicalStatement);
+        ownerConn.afterStatementSucceeded(sql, target);
         statementDelegate.recordExec(physicalStatement, null, -1);
 
         return oid;
@@ -1094,8 +1096,12 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         // Routing precedence lives in Router.decide(); this only supplies the per-instance caches
         // (hint and classification precomputed at prepare time) so the hot execute path avoids
         // re-running HintParser.parse() and SqlClassifier.classify().
+        final RouteTarget defaultTarget =
+                sqlCaches.followsPreviousStatement
+                        ? Router.previousStatementLeg(sessState)
+                        : sqlCaches.defaultTarget;
         return ownerConn.keepReadOnRwWhileTxOpen(
-                Router.decide(sqlCaches.targetFromHint, sqlCaches.defaultTarget, sessState, sql));
+                Router.decide(sqlCaches.targetFromHint, defaultTarget, sessState, sql));
     }
 
     private PreparedStatement physicalPsWithParams(final RouteTarget target) throws SQLException {
@@ -1171,14 +1177,19 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
 
         final RouteTarget defaultTarget;
 
+        /** Whether the default target is the leg the previous statement ran on, at execution. */
+        final boolean followsPreviousStatement;
+
         final int expectedParameterCount;
 
         private SqlCaches(
                 final RouteTarget targetFromHint,
                 final RouteTarget defaultTarget,
+                final boolean followsPreviousStatement,
                 final int expectedParameterCount) {
             this.targetFromHint = targetFromHint;
             this.defaultTarget = defaultTarget;
+            this.followsPreviousStatement = followsPreviousStatement;
             this.expectedParameterCount = expectedParameterCount;
         }
 
@@ -1194,7 +1205,10 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
                     SqlClassification.READ == classification && !updatable
                             ? RouteTarget.TO_READ_ONLY
                             : RouteTarget.TO_READ_WRITE;
-            return new SqlCaches(targetFromHint, defaultTarget, countParamPlaceholders(sql));
+            final boolean followsPrevious =
+                    SqlClassification.READ_ON_PREVIOUS_LEG == classification && !updatable;
+            return new SqlCaches(
+                    targetFromHint, defaultTarget, followsPrevious, countParamPlaceholders(sql));
         }
     }
 

@@ -49,6 +49,7 @@ public class SessionRoutingState {
     private boolean transactionActive = false;
     private boolean readsPinnedToRw = false;
     private Set<String> sessionVariables = Collections.emptySet();
+    private boolean lastStatementOnReadLeg = false;
 
     public boolean isAutoCommit() {
         return autoCommit;
@@ -147,10 +148,25 @@ public class SessionRoutingState {
         return sessionVariables;
     }
 
+    /**
+     * Records the leg the last statement that succeeded ran on: {@code ROW_COUNT()} reports on the
+     * statement before it in its own server session, so it is sent where that statement ran.
+     *
+     * @param onReadLeg whether that statement ran on the read leg
+     */
+    public void setLastStatementOnReadLeg(final boolean onReadLeg) {
+        this.lastStatementOnReadLeg = onReadLeg;
+    }
+
+    public boolean isLastStatementOnReadLeg() {
+        return lastStatementOnReadLeg;
+    }
+
     public void reset() {
         this.autoCommit = true;
         this.transactionActive = false;
         this.readsPinnedToRw = false;
         this.sessionVariables = Collections.emptySet();
+        this.lastStatementOnReadLeg = false;
     }
 }

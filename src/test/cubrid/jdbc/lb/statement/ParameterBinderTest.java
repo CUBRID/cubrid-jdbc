@@ -254,14 +254,31 @@ public class ParameterBinderTest {
      * <p>LB keeps each setter as an operation and replays it at execute time; core binds inside the
      * setter. That is observable only where core copies or converts the value at set time: a {@code
      * byte[]} ({@code UStatement.bind} clones it), a collection array ({@code CUBRIDArray}
-     * shallow-clones it) and the calendar forms of the temporal setters. A plain temporal value and
-     * an arbitrary object core keeps by reference and serializes at execute time, so copying those
-     * in LB would create a divergence, not remove one.
+     * shallow-clones it), the calendar forms of the temporal setters and a NUMERIC/DECIMAL {@code
+     * Number}. A plain temporal value and an arbitrary object core keeps by reference and
+     * serializes at execute time, so copying those in LB would create a divergence, not remove one.
      *
      * <p>Against a classic connection to a live broker, a {@code Timestamp} mutated between {@code
      * setTimestamp} and {@code executeUpdate} lands in the row with its new value, a mutated {@code
      * byte[]} with its old one. These tests pin both halves.
      */
+    /** Core binds a NUMERIC/DECIMAL Number as a BigDecimal of its value when it is set. */
+    @Test
+    public void assertNumericNumberReplaysTheValueAsItWasWhenSet() throws Exception {
+        java.util.concurrent.atomic.AtomicLong value =
+                new java.util.concurrent.atomic.AtomicLong(5);
+        ParameterBinder binder = new ParameterBinder();
+        binder.recordSetObject(1, value, Types.NUMERIC, 3);
+
+        value.set(9);
+
+        ValueCapturingHandler handler = new ValueCapturingHandler();
+        binder.replay(handler.createProxy());
+
+        List<Object[]> calls = handler.calls("setObject");
+        assertEquals(new BigDecimal("5"), calls.get(0)[1]);
+    }
+
     @Test
     public void assertMutatedByteArrayReplaysTheValueAsItWasWhenSet() throws Exception {
         byte[] value = new byte[] {1, 2, 3};

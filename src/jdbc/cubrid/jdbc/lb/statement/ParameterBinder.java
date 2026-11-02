@@ -45,6 +45,7 @@ import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Time;
 import java.sql.Timestamp;
+import java.sql.Types;
 import java.util.Calendar;
 import java.util.LinkedHashMap;
 
@@ -248,9 +249,13 @@ final class ParameterBinder {
             final int targetSqlType,
             final int scaleOrLength)
             throws SQLException {
-        add(
-                new SetObjectTypeScaleOp(
-                        parameterIndex, snapshot(value), targetSqlType, scaleOrLength));
+        final Object recorded =
+                value instanceof Number
+                                && (targetSqlType == Types.NUMERIC
+                                        || targetSqlType == Types.DECIMAL)
+                        ? new BigDecimal(value.toString())
+                        : snapshot(value);
+        add(new SetObjectTypeScaleOp(parameterIndex, recorded, targetSqlType, scaleOrLength));
     }
 
     void recordSetOID(final int parameterIndex, final cubrid.sql.CUBRIDOID value)
@@ -311,6 +316,8 @@ final class ParameterBinder {
      *       given.
      *   <li>the calendar forms of {@code setDate}/{@code setTime}/{@code setTimestamp} - converted
      *       in the calendar's zone.
+     *   <li>a {@code Number} set as NUMERIC or DECIMAL - bound as a {@code BigDecimal} of its
+     *       value.
      * </ul>
      *
      * <p>Everything else (a plain {@code Date}, {@code Time}, {@code Timestamp}, any object) core

@@ -148,6 +148,22 @@ public class SessionSetStatementTest {
         assertEquals(Action.REPLAY, action("set system parameters 'query_trace_format=json'"));
     }
 
+    /**
+     * SHOW EXEC STATISTICS reports what its own session collected, and a session collects only
+     * while its {@code @collect_exec_stats} is on, so collecting keeps reads on RW like tracing.
+     */
+    @Test
+    public void execStatisticsCollectionPins() {
+        assertEquals(Action.PIN_TO_RW, action("SET @collect_exec_stats = 1"));
+        assertEquals(Action.PIN_TO_RW, action("set @COLLECT_EXEC_STATS := 1"));
+        assertEquals(Action.PIN_TO_RW, action("SET @a = (1, 2), @collect_exec_stats = 1"));
+        assertEquals(Action.PIN_TO_RW, action("SET @collect_exec_stats = ?"));
+        assertEquals(Action.NONE, action("SET @collect_exec_stats = 0 -- off"));
+        assertEquals(Action.NONE, action("SET @collect_exec_stats = 0, @v = 1"));
+        assertEquals(
+                Action.NONE, action("SET @collect_exec_statsx = 1, @v = '@collect_exec_stats'"));
+    }
+
     @Test
     public void otherStatementsAreNotTracked() {
         assertEquals(Action.NONE, action("SET @v = 1"));

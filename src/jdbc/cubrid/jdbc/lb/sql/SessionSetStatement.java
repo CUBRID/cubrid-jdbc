@@ -144,6 +144,12 @@ public final class SessionSetStatement {
 
     private static final Set<String> FALSE_WORDS = names("no", "n", "0", "false", "off");
 
+    /**
+     * Execution statistics pin like tracing: {@code SHOW EXEC STATISTICS} reports what its own
+     * session collected, and a session collects while this variable is set to a value other than 0.
+     */
+    private static final String COLLECT_EXEC_STATS = "@collect_exec_stats";
+
     private static final SessionSetStatement NONE_RESULT =
             new SessionSetStatement(Action.NONE, Collections.<String, String>emptyMap());
     private static final SessionSetStatement PIN_RESULT =
@@ -266,8 +272,53 @@ public final class SessionSetStatement {
         if ("TRANSACTION".equals(target)) {
             return parseTransaction(text);
         }
-        // SET @var, SET TRIGGER ...: not tracked.
-        return NONE_RESULT;
+        // SET @collect_exec_stats pins; other SET @var and SET TRIGGER ...: not tracked.
+        return collectsExecStatistics(stmt, pos) ? PIN_RESULT : NONE_RESULT;
+    }
+
+    /** Whether an assignment from {@code pos} sets {@link #COLLECT_EXEC_STATS} to non-zero. */
+    private static boolean collectsExecStatistics(final String stmt, final int pos) {
+        int start = pos;
+        int depth = 0;
+        int i = pos;
+        while (i <= stmt.length()) {
+            if (i < stmt.length()) {
+                final int after = SqlLexer.skipCommentOrQuoted(stmt, i);
+                if (after != i) {
+                    i = after;
+                    continue;
+                }
+                final char c = stmt.charAt(i);
+                if (c == '(') {
+                    depth++;
+                } else if (c == ')') {
+                    depth--;
+                }
+                if (c != ',' || depth != 0) {
+                    i++;
+                    continue;
+                }
+            }
+            if (setsNonZeroExecStats(stmt.substring(start, i))) {
+                return true;
+            }
+            start = i + 1;
+            i++;
+        }
+        return false;
+    }
+
+    private static boolean setsNonZeroExecStats(final String assignment) {
+        final int eq = assignment.indexOf('=');
+        if (eq < 0
+                || !COLLECT_EXEC_STATS.equalsIgnoreCase(
+                        assignment.substring(0, eq).replace(":", "").trim())) {
+            return false;
+        }
+        final int value = SqlLexer.skipWhitespaceAndComments(assignment, eq + 1);
+        return value >= assignment.length()
+                || assignment.charAt(value) != '0'
+                || SqlLexer.skipWhitespaceAndComments(assignment, value + 1) < assignment.length();
     }
 
     /**

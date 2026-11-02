@@ -209,9 +209,11 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
             }
             rememberPrepared(phyPsProvider.preparedForBindCheck());
         } catch (SQLException ex) {
+            // A malformed reply is core's to report, as its prepareStatement does.
             final boolean reported =
-                    !ReconnectPolicy.isRetriableSqlException(ex)
-                            && !UnreachableEndpoints.shouldMarkUnreachable(ex);
+                    ExecuteFailoverHandler.isMalformedReply(ex)
+                            || !ReconnectPolicy.isRetriableSqlException(ex)
+                                    && !UnreachableEndpoints.shouldMarkUnreachable(ex);
             ownerConn.settleReadLegRollback(reported);
             if (reported) {
                 throw ex;

@@ -62,13 +62,14 @@ public final class ExecuteFailoverHandler {
      * core JCI althost reconnect (UClientSideConnection.reconnect) and the LB unreachable filter.
      * That covers a broker stopped with {@code cubrid broker off}, which surfaces as ER_CONNECTION
      * - an unreachable-host error ReconnectPolicy alone does not retry. A timeout is not a broker
-     * failure: the statement ran out of time on a broker that answered, or may yet.
+     * failure: the statement ran out of time on a broker that answered, or may yet. Neither is a
+     * {@link #isMalformedReply malformed reply}.
      *
      * @param ex the failure to classify
      * @return whether the failure is the broker's rather than the statement's
      */
     public static boolean isBrokerFailure(final SQLException ex) {
-        if (UnreachableEndpoints.isTimeout(ex)) {
+        if (UnreachableEndpoints.isTimeout(ex) || isMalformedReply(ex)) {
             return false;
         }
 
@@ -77,15 +78,15 @@ public final class ExecuteFailoverHandler {
     }
 
     /**
-     * {@link #isBrokerFailure} for a call that neither prepares nor executes. Core reconnects after
-     * a malformed reply (ER_ILLEGAL_DATA_SIZE) only on those two; elsewhere it reports the reply
-     * and keeps the connection, and the session with it.
+     * Whether core reported a reply it could not read. Core reconnects for one itself where it
+     * does, so when this reaches LB core still holds a connection and its session; one that cannot
+     * reach the broker reports a connection error instead.
      *
      * @param ex the failure to classify
-     * @return whether the failure is the broker's rather than the command's
+     * @return whether the failure is a malformed reply
      */
-    public static boolean isBrokerFailureOfCommand(final SQLException ex) {
-        return isBrokerFailure(ex) && ex.getErrorCode() != UErrorCode.ER_ILLEGAL_DATA_SIZE;
+    public static boolean isMalformedReply(final SQLException ex) {
+        return ex.getErrorCode() == UErrorCode.ER_ILLEGAL_DATA_SIZE;
     }
 
     <T> T executeWithFailover(
@@ -120,7 +121,7 @@ public final class ExecuteFailoverHandler {
             final boolean retrySafe,
             final SqlExecution<T> execution)
             throws SQLException {
-        return run(connection, routeTarget, sql, retrySafe, true, true, execution);
+        return run(connection, routeTarget, sql, retrySafe, true, execution);
     }
 
     /**
@@ -131,8 +132,7 @@ public final class ExecuteFailoverHandler {
      * <p>The call is not timed. Execution latency is defined as statement latency
      * (LB-Metrics-Architecture.md), and a pool that reads {@code isReadOnly()} on every checkout
      * would otherwise flood the read/write histograms with calls that never touched a SQL
-     * statement. And unless it prepares, a malformed reply does not rebind the leg ({@link
-     * #isBrokerFailureOfCommand}).
+     * statement.
      *
      * @param <T> the command's result type
      * @param connection the logical LB connection issuing the command
@@ -150,33 +150,7 @@ public final class ExecuteFailoverHandler {
             final boolean retrySafe,
             final SqlExecution<T> execution)
             throws SQLException {
-        return executeCommandWithFailover(
-                connection, routeTarget, label, retrySafe, false, execution);
-    }
-
-    /**
-     * {@link #executeCommandWithFailover} for a command that may prepare a statement, which core
-     * reconnects after as it does after an execute.
-     *
-     * @param <T> the command's result type
-     * @param connection the logical LB connection issuing the command
-     * @param routeTarget the leg the command runs on
-     * @param label the command name, for logging
-     * @param retrySafe whether re-running the command after a rebind is safe
-     * @param prepares whether the command prepares a statement
-     * @param execution the physical command to run
-     * @return the command's result
-     * @throws SQLException if the command fails and cannot be recovered/retried
-     */
-    public <T> T executeCommandWithFailover(
-            final LoadBalanceConnection connection,
-            final RouteTarget routeTarget,
-            final String label,
-            final boolean retrySafe,
-            final boolean prepares,
-            final SqlExecution<T> execution)
-            throws SQLException {
-        return run(connection, routeTarget, label, retrySafe, false, prepares, execution);
+        return run(connection, routeTarget, label, retrySafe, false, execution);
     }
 
     private <T> T run(
@@ -185,7 +159,6 @@ public final class ExecuteFailoverHandler {
             final String sql,
             final boolean retrySafe,
             final boolean timed,
-            final boolean preparesOrExecutes,
             final SqlExecution<T> execution)
             throws SQLException {
         if (connection == null) {
@@ -203,7 +176,7 @@ public final class ExecuteFailoverHandler {
         try {
             return timedRun(connection, routeTarget, timed, execution);
         } catch (SQLException ex) {
-            if (preparesOrExecutes ? !isBrokerFailure(ex) : !isBrokerFailureOfCommand(ex)) {
+            if (!isBrokerFailure(ex)) {
                 // Not a broker failure: the statement itself failed and no leg is rebound.
                 // Recorded, so a log showing no failover after an error is explained rather than
                 // silent.

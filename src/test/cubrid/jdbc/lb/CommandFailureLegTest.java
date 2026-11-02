@@ -55,8 +55,8 @@ import org.junit.Before;
 import org.junit.Test;
 
 /**
- * Core reconnects after a malformed reply (-21019) only when preparing or executing. Other commands
- * report it and keep the connection, and the session with it, so the leg stays.
+ * A malformed reply (-21019) is core's to report: core reconnects for one itself where it does and
+ * keeps its connection and session, so the leg stays. A lost connection still rebinds it.
  */
 public final class CommandFailureLegTest {
 
@@ -117,7 +117,7 @@ public final class CommandFailureLegTest {
     }
 
     @Test
-    public void aMalformedReplyToPrepareCallRebindsTheLegAsCoreReconnects() throws SQLException {
+    public void aMalformedReplyToPrepareCallKeepsTheLeg() throws SQLException {
         failure = UErrorCode.ER_ILLEGAL_DATA_SIZE;
         final int legs = opened.size();
 
@@ -128,7 +128,8 @@ public final class CommandFailureLegTest {
                     }
                 });
 
-        assertTrue(opened.size() > legs);
+        assertEquals(NODE1, conn.getCurrentRwEndpoint());
+        assertEquals(legs, opened.size());
     }
 
     @Test

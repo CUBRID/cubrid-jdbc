@@ -132,6 +132,37 @@ public final class BrokerDownOutsideExecuteTest {
         conn.close();
     }
 
+    /** Core's prepareStatement reports a malformed reply and keeps its connection. */
+    @Test
+    public void eagerPrepareReportsAMalformedReplyWithoutFailover() throws SQLException {
+        JdbcConnectionFactory factory =
+                new JdbcConnectionFactory() {
+                    public Connection getConnection(final String url, final Properties info) {
+                        return connectionProxy(
+                                new PrepareBehavior() {
+                                    public PreparedStatement prepare() throws SQLException {
+                                        throw new SQLException(
+                                                "invalid packet",
+                                                null,
+                                                UErrorCode.ER_ILLEGAL_DATA_SIZE);
+                                    }
+                                });
+                    }
+                };
+
+        LoadBalanceConnection conn = sessionOverTwoReadEndpoints(factory);
+
+        try {
+            conn.prepareStatement("SELECT 1");
+            fail("Expected the malformed reply to propagate from the eager prepare");
+        } catch (SQLException expected) {
+            assertEquals(UErrorCode.ER_ILLEGAL_DATA_SIZE, expected.getErrorCode());
+        }
+
+        assertTrue(!hasFailoverEvent(conn));
+        conn.close();
+    }
+
     /**
      * The write broker is stopped. Taking the {@code DatabaseMetaData} handle rebinds the write leg
      * to the surviving write broker; the handler never replays a write target, so the original

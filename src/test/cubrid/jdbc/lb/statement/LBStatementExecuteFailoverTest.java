@@ -31,6 +31,7 @@
 package cubrid.jdbc.lb.statement;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -208,7 +209,108 @@ public class LBStatementExecuteFailoverTest {
         conn.close();
     }
 
+    /**
+     * Core sends a Statement batch without the reconnect that follows a malformed reply to an
+     * execute, and keeps its connection and session; the leg is not rebound either.
+     */
+    @Test
+    public void executeBatchKeepsTheLegAfterAMalformedReply() throws SQLException {
+        final AtomicInteger executeCalls = new AtomicInteger();
+        JdbcConnectionFactory factory =
+                new JdbcConnectionFactory() {
+                    public Connection getConnection(final String url, final Properties info)
+                            throws SQLException {
+                        return connectionProxy(executeCalls, UErrorCode.ER_ILLEGAL_DATA_SIZE);
+                    }
+                };
+
+        LoadBalanceConnection conn =
+                LbTestAccess.newLoadBalanceConnection(LbTestSettings.defaults());
+        LbTestAccess.getRuntimeMetrics(conn).setEnabled(true);
+        LbTestAccess.setConnectionManager(
+                conn,
+                ConnectionTestAccess.newSessionPhysicalConnManager(
+                        LOGICAL_URL, new Properties(), LbTestSettings.defaults(), factory));
+        LbTestAccess.setSharedSelectorState(conn, new SharedSelectorState());
+        LbTestAccess.initSessionBindings(
+                conn,
+                new EndpointTopology(
+                        new Endpoint("rw", 33000),
+                        Arrays.asList(new Endpoint("ro1", 33000)),
+                        Collections.<Endpoint>emptyList()));
+
+        LBStatement stmt = new LBStatement(conn);
+        stmt.setStatementProvider(conn.createStatementProvider(0, 0, 0));
+        stmt.addBatch("SELECT 1");
+
+        try {
+            stmt.executeBatch();
+            fail("Expected SQLException");
+        } catch (SQLException e) {
+            assertEquals(UErrorCode.ER_ILLEGAL_DATA_SIZE, e.getErrorCode());
+        }
+        assertEquals(1, executeCalls.get());
+        for (String event : MetricsTestAccess.getEvents(LbTestAccess.getRuntimeMetrics(conn))) {
+            assertFalse(event, event.contains("event=RUNTIME_FAILOVER"));
+        }
+        stmt.close();
+        conn.close();
+    }
+
+    /**
+     * A malformed reply to an execute is core's to report: core reconnects for one itself where it
+     * does, so the leg is neither rebound nor the read run again.
+     */
+    @Test
+    public void executeQueryKeepsTheLegAfterAMalformedReply() throws SQLException {
+        Endpoint rw = new Endpoint("rw", 33000);
+        EndpointTopology topo =
+                new EndpointTopology(
+                        rw,
+                        Arrays.asList(new Endpoint("ro1", 33001), new Endpoint("ro2", 33001)),
+                        Collections.<Endpoint>emptyList());
+        final AtomicInteger executeCalls = new AtomicInteger();
+        JdbcConnectionFactory factory =
+                new JdbcConnectionFactory() {
+                    public Connection getConnection(final String url, final Properties info)
+                            throws SQLException {
+                        return connectionProxy(executeCalls, UErrorCode.ER_ILLEGAL_DATA_SIZE);
+                    }
+                };
+
+        LoadBalanceConnection conn =
+                LbTestAccess.newLoadBalanceConnection(LbTestSettings.forTopology(topo));
+        LbTestAccess.getRuntimeMetrics(conn).setEnabled(true);
+        LbTestAccess.setConnectionManager(
+                conn,
+                ConnectionTestAccess.newSessionPhysicalConnManager(
+                        LOGICAL_URL, new Properties(), LbTestSettings.forTopology(topo), factory));
+        LbTestAccess.setSharedSelectorState(conn, new SharedSelectorState());
+        LbTestAccess.initSessionBindings(conn, topo);
+
+        LBStatement stmt = new LBStatement(conn);
+        stmt.setStatementProvider(conn.createStatementProvider(0, 0, 0));
+
+        try {
+            stmt.executeQuery("SELECT 1");
+            fail("Expected SQLException");
+        } catch (SQLException e) {
+            assertEquals(UErrorCode.ER_ILLEGAL_DATA_SIZE, e.getErrorCode());
+        }
+        assertEquals(1, executeCalls.get());
+        for (String event : MetricsTestAccess.getEvents(LbTestAccess.getRuntimeMetrics(conn))) {
+            assertFalse(event, event.contains("event=RUNTIME_FAILOVER"));
+        }
+        stmt.close();
+        conn.close();
+    }
+
     private static Connection connectionProxy(final AtomicInteger executeCalls) {
+        return connectionProxy(executeCalls, UErrorCode.ER_COMMUNICATION);
+    }
+
+    private static Connection connectionProxy(
+            final AtomicInteger executeCalls, final int firstFailure) {
         return (Connection)
                 Proxy.newProxyInstance(
                         Connection.class.getClassLoader(),
@@ -224,7 +326,7 @@ public class LBStatementExecuteFailoverTest {
                                     return Boolean.FALSE;
                                 }
                                 if ("createStatement".equals(method.getName())) {
-                                    return statementProxy(executeCalls);
+                                    return statementProxy(executeCalls, firstFailure);
                                 }
                                 if ("setAutoCommit".equals(method.getName())) {
                                     return null;
@@ -241,7 +343,8 @@ public class LBStatementExecuteFailoverTest {
                         });
     }
 
-    private static Statement statementProxy(final AtomicInteger executeCalls) {
+    private static Statement statementProxy(
+            final AtomicInteger executeCalls, final int firstFailure) {
         return (Statement)
                 Proxy.newProxyInstance(
                         Statement.class.getClassLoader(),
@@ -252,15 +355,13 @@ public class LBStatementExecuteFailoverTest {
                                     throws Throwable {
                                 if ("executeQuery".equals(method.getName())) {
                                     if (executeCalls.incrementAndGet() == 1) {
-                                        throw new SQLException(
-                                                "comm fail", null, UErrorCode.ER_COMMUNICATION);
+                                        throw new SQLException("comm fail", null, firstFailure);
                                     }
                                     return resultSetProxy();
                                 }
                                 if ("executeBatch".equals(method.getName())) {
                                     if (executeCalls.incrementAndGet() == 1) {
-                                        throw new SQLException(
-                                                "comm fail", null, UErrorCode.ER_COMMUNICATION);
+                                        throw new SQLException("comm fail", null, firstFailure);
                                     }
                                     return new int[] {1};
                                 }

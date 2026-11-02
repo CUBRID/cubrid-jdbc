@@ -436,11 +436,7 @@ public class CUBRIDConnection implements Connection {
     public synchronized Statement createStatement(int type, int concur, int holdable)
             throws SQLException {
         checkIsOpen();
-        if (holdable == ResultSet.HOLD_CURSORS_OVER_COMMIT) {
-            if (type == ResultSet.TYPE_SCROLL_SENSITIVE || concur == ResultSet.CONCUR_UPDATABLE) {
-                throw CUBRIDException.notSupported();
-            }
-        }
+        checkHoldableResultType(type, concur, holdable);
         Statement stmt = new CUBRIDStatement(this, type, concur, holdable);
         addStatement(stmt);
 
@@ -478,12 +474,18 @@ public class CUBRIDConnection implements Connection {
 
     public synchronized PreparedStatement prepareStatement(
             String sql, int type, int concur, int holdable) throws SQLException {
+        checkHoldableResultType(type, concur, holdable);
+        return prepare(sql, type, concur, holdable, Statement.NO_GENERATED_KEYS);
+    }
+
+    /** A holdable cursor can be neither sensitive nor updatable. */
+    protected static void checkHoldableResultType(int type, int concur, int holdable)
+            throws SQLException {
         if (holdable == ResultSet.HOLD_CURSORS_OVER_COMMIT) {
             if (type == ResultSet.TYPE_SCROLL_SENSITIVE || concur == ResultSet.CONCUR_UPDATABLE) {
                 throw CUBRIDException.notSupported();
             }
         }
-        return prepare(sql, type, concur, holdable, Statement.NO_GENERATED_KEYS);
     }
 
     public synchronized PreparedStatement prepareStatement(String sql, int[] indexes)

@@ -104,7 +104,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     private PhysicalPsProvider phyPsProvider = new UnsupportedPsProvider();
     private final SqlCaches sqlCaches;
 
-    public LBPreparedStatement(LoadBalanceConnection lbConnection, String sql) {
+    public LBPreparedStatement(LoadBalanceConnection lbConnection, String sql) throws SQLException {
         this(lbConnection, sql, new LBStatement(lbConnection));
     }
 
@@ -112,7 +112,8 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
             LoadBalanceConnection lbConnection,
             String sql,
             int resultSetType,
-            int resultSetConcurrency) {
+            int resultSetConcurrency)
+            throws SQLException {
         this(lbConnection, sql, new LBStatement(lbConnection, resultSetType, resultSetConcurrency));
     }
 
@@ -121,7 +122,8 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
             String sql,
             int resultSetType,
             int resultSetConcurrency,
-            int resultSetHoldability) {
+            int resultSetHoldability)
+            throws SQLException {
         this(
                 lbConnection,
                 sql,

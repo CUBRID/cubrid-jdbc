@@ -79,32 +79,34 @@ public class LBStatement extends CUBRIDStatement {
     // True while a READ the read-only broker refused runs again on RW (see executeWithFailover).
     private boolean rejectedReadRetry = false;
 
-    public LBStatement(LoadBalanceConnection lbConnection) {
-        this(
-                lbConnection,
-                ResultSet.TYPE_FORWARD_ONLY,
-                ResultSet.CONCUR_READ_ONLY,
-                ResultSet.HOLD_CURSORS_OVER_COMMIT);
+    public LBStatement(LoadBalanceConnection lbConnection) throws SQLException {
+        this(lbConnection, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
     }
 
     public LBStatement(
-            LoadBalanceConnection lbConnection, int resultSetType, int resultSetConcurrency) {
-        this(lbConnection, resultSetType, resultSetConcurrency, ResultSet.HOLD_CURSORS_OVER_COMMIT);
+            LoadBalanceConnection lbConnection, int resultSetType, int resultSetConcurrency)
+            throws SQLException {
+        this(
+                lbConnection,
+                resultSetType,
+                resultSetConcurrency,
+                lbConnection.statementHoldability());
     }
 
     public LBStatement(
             LoadBalanceConnection lbConnection,
             int resultSetType,
             int resultSetConcurrency,
-            int resultSetHoldability) {
+            int resultSetHoldability)
+            throws SQLException {
         super(lbConnection, resultSetType, resultSetConcurrency);
         this.lbConnection = lbConnection;
         this.resultSetType = resultSetType;
         this.resultSetConcurrency = resultSetConcurrency;
-        this.resultSetHoldability = resultSetHoldability;
+        this.resultSetHoldability = lbConnection.statementHoldability(resultSetHoldability);
         this.stmtProvider =
                 lbConnection.createStatementProvider(
-                        resultSetType, resultSetConcurrency, resultSetHoldability);
+                        resultSetType, resultSetConcurrency, this.resultSetHoldability);
     }
 
     void setStatementProvider(final PhysicalStmtProvider provider) {

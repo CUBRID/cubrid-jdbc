@@ -30,6 +30,7 @@
 package cubrid.jdbc.lb;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.fail;
 
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
@@ -111,8 +112,8 @@ public class LoadBalanceConnectionScrollablePsTest {
         List<String> prepares = new ArrayList<String>();
         LoadBalanceConnection conn = newConnection(prepares);
 
-        // The 3-arg form defaults the logical holdability to HOLD_CURSORS_OVER_COMMIT, which the
-        // base driver refuses together with SCROLL_SENSITIVE; the base 3-arg form does not.
+        // The 3-arg form takes the connection's HOLD_CURSORS_OVER_COMMIT, which the base driver's
+        // 4-arg form refuses together with SCROLL_SENSITIVE; its 3-arg form does not.
         PreparedStatement ps =
                 conn.prepareStatement(
                         SQL, ResultSet.TYPE_SCROLL_SENSITIVE, ResultSet.CONCUR_READ_ONLY);
@@ -126,13 +127,44 @@ public class LoadBalanceConnectionScrollablePsTest {
     }
 
     @Test
-    public void defaultPreparedStatementKeepsTheSingleArgPrepare() throws SQLException {
+    public void explicitHoldableSensitivePrepareIsRefusedAsInCore() throws SQLException {
+        List<String> prepares = new ArrayList<String>();
+        LoadBalanceConnection conn = newConnection(prepares);
+
+        try {
+            conn.prepareStatement(
+                    SQL,
+                    ResultSet.TYPE_SCROLL_SENSITIVE,
+                    ResultSet.CONCUR_READ_ONLY,
+                    ResultSet.HOLD_CURSORS_OVER_COMMIT);
+            fail("core refuses a holdable sensitive cursor");
+        } catch (SQLFeatureNotSupportedException expected) {
+            // core's CUBRIDException.notSupported()
+        }
+        assertEquals(Collections.<String>emptyList(), prepares);
+        conn.close();
+    }
+
+    @Test
+    public void defaultPreparedStatementTakesTheConnectionHoldability() throws SQLException {
         List<String> prepares = new ArrayList<String>();
         LoadBalanceConnection conn = newConnection(prepares);
 
         conn.prepareStatement(SQL).executeQuery();
+        conn.setHoldability(ResultSet.CLOSE_CURSORS_AT_COMMIT);
+        conn.prepareStatement(SQL).executeQuery();
 
-        assertEquals(Arrays.asList("prepare()"), prepares);
+        assertEquals(
+                Arrays.asList(
+                        prepareOf(
+                                ResultSet.TYPE_FORWARD_ONLY,
+                                ResultSet.CONCUR_READ_ONLY,
+                                ResultSet.HOLD_CURSORS_OVER_COMMIT),
+                        prepareOf(
+                                ResultSet.TYPE_FORWARD_ONLY,
+                                ResultSet.CONCUR_READ_ONLY,
+                                ResultSet.CLOSE_CURSORS_AT_COMMIT)),
+                prepares);
         conn.close();
     }
 
@@ -169,10 +201,11 @@ public class LoadBalanceConnectionScrollablePsTest {
 
     /**
      * A physical connection whose prepareStatement mirrors the base driver: only a non-FORWARD_ONLY
-     * type makes the statement scrollable, and the 4-arg form refuses HOLD_CURSORS_OVER_COMMIT with
-     * SCROLL_SENSITIVE.
+     * type makes the statement scrollable, the 4-arg form refuses HOLD_CURSORS_OVER_COMMIT with
+     * SCROLL_SENSITIVE, and the holdability starts at the URL default, HOLD_CURSORS_OVER_COMMIT.
      */
     private static Connection connectionProxy(final List<String> prepares) {
+        final int[] holdability = {ResultSet.HOLD_CURSORS_OVER_COMMIT};
         return (Connection)
                 Proxy.newProxyInstance(
                         Connection.class.getClassLoader(),
@@ -183,6 +216,13 @@ public class LoadBalanceConnectionScrollablePsTest {
                                     throws Throwable {
                                 if ("prepareStatement".equals(method.getName())) {
                                     return prepare(args, prepares);
+                                }
+                                if ("setHoldability".equals(method.getName())) {
+                                    holdability[0] = ((Integer) args[0]).intValue();
+                                    return null;
+                                }
+                                if ("getHoldability".equals(method.getName())) {
+                                    return Integer.valueOf(holdability[0]);
                                 }
                                 return defaultValue(method);
                             }

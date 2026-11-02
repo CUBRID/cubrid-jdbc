@@ -436,8 +436,8 @@ public final class LoadBalanceConnectionMetadataProxyTest {
         }
     }
 
-    // The 3-arg createStatement fallback must trigger only for a genuinely unsupported
-    // holdability combination, degrading to the 2-arg form.
+    // A statement that took the connection's HOLD is refused by the 3-arg form only because core's
+    // 2-arg form, which it then uses, takes it without the check.
     @Test
     public void assertCreateStatementFallsBackForUnsupportedHoldability() throws Exception {
         LoadBalanceConnection connection = createBoundConnection();

@@ -238,13 +238,13 @@ public class LoadBalanceUriIntegrationTest {
      * 01 §M-8: if a post-bind step in initSessionBindings fails after physical connections are
      * opened, openFromSettings must close the half-built connection so the opened brokers are not
      * leaked (the caller never receives the connection, so it can never close it). Here both RW and
-     * RO opens succeed (applier holdability calls #1,#2) and the post-bind applyHoldability (#3)
+     * RO opens succeed (applier autocommit calls #1,#2) and the post-bind applyPhyAutoCommit (#3)
      * fails.
      */
     @Test
     public void openFromSettingsClosesPhysicalConnectionsWhenPostBindApplyFails()
             throws SQLException {
-        final AtomicInteger holdabilityCalls = new AtomicInteger();
+        final AtomicInteger autoCommitCalls = new AtomicInteger();
         final AtomicInteger closes = new AtomicInteger();
         JdbcConnectionFactory failingFactory =
                 new JdbcConnectionFactory() {
@@ -260,12 +260,12 @@ public class LoadBalanceUriIntegrationTest {
                                                     final Object[] args)
                                                     throws Throwable {
                                                 String name = method.getName();
-                                                if ("setHoldability".equals(name)) {
+                                                if ("setAutoCommit".equals(name)) {
                                                     // #1,#2 = per-conn applier at open (succeed);
-                                                    // #3 = post-bind applyHoldability (fail).
-                                                    if (holdabilityCalls.incrementAndGet() > 2) {
+                                                    // #3 = post-bind applyPhyAutoCommit (fail).
+                                                    if (autoCommitCalls.incrementAndGet() > 2) {
                                                         throw new SQLException(
-                                                                "post-bind holdability apply failed");
+                                                                "post-bind autocommit apply failed");
                                                     }
                                                     return null;
                                                 }

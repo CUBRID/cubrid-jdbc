@@ -1252,6 +1252,43 @@ public abstract class UConnection {
         return -1;
     }
 
+    // UFunctionCode.STREAM_ABORT
+    public synchronized int streamAbort() {
+        errorHandler = new UError(this);
+        if (isClosed == true) {
+            errorHandler.setErrorCode(UErrorCode.ER_IS_CLOSED);
+            return -1;
+        }
+        try {
+            setBeginTime();
+            checkReconnect();
+            if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR) return -1;
+
+            /* No arguments; the reply is the result code alone. */
+            outBuffer.newRequest(output, UFunctionCode.STREAM_ABORT);
+
+            UInputBuffer inBuffer;
+            inBuffer = send_recv_msg();
+
+            int res_code;
+            res_code = inBuffer.getResCode();
+            if (res_code < 0) {
+                errorHandler.setErrorCode(UErrorCode.ER_UNKNOWN);
+            }
+            return res_code;
+        } catch (UJciException e) {
+            logException(e);
+            e.toUError(errorHandler);
+        } catch (IOException e) {
+            logException(e);
+            errorHandler.setErrorCode(UErrorCode.ER_COMMUNICATION);
+        } catch (Exception e) {
+            logException(e);
+            errorHandler.setErrorCode(UErrorCode.ER_UNKNOWN);
+        }
+        return -1;
+    }
+
     /* XA protocols */
     // UFunctionCode.XA_END_TRAN
     public synchronized void xa_endTransaction(Xid xid, boolean type) {

@@ -94,19 +94,32 @@ public class CUBRIDCopyLoader {
             throw con.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
         }
 
+        /* before open (): failing to allocate must not leave a stream open */
+        byte[] buffer = new byte[bufferSize];
+
         open(sql);
 
-        byte[] buffer = new byte[bufferSize];
         try {
             int len;
             while ((len = from.read(buffer)) > 0) {
                 con.streamData(buffer, 0, len);
             }
         } catch (IOException e) {
-            /* The source failed, not the server. End the stream so the
-             * connection is not left holding one, then report the read. */
-            endQuietly();
-            throw con.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
+            /* The source failed, not the server. Ending the stream would load
+             * the rows sent so far, so abort it instead, then report the read. */
+            CUBRIDException err =
+                    con.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
+            abort(err);
+            throw err;
+        } catch (SQLException e) {
+            /* from streamData (): the server refused the chunk or the
+             * connection failed, and either way the stream is already gone */
+            throw e;
+        } catch (Throwable e) {
+            /* Anything else the source throws, Errors included, aborts the
+             * stream the same way and reaches the caller as it is. */
+            abort(e);
+            throw e;
         }
 
         return con.streamEnd();
@@ -130,9 +143,11 @@ public class CUBRIDCopyLoader {
             throw con.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
         }
 
+        /* before open (): failing to allocate must not leave a stream open */
+        char[] buffer = new char[bufferSize];
+
         open(sql);
 
-        char[] buffer = new char[bufferSize];
         try {
             int len;
             while ((len = from.read(buffer)) > 0) {
@@ -140,11 +155,19 @@ public class CUBRIDCopyLoader {
                 con.streamData(encoded, 0, encoded.length);
             }
         } catch (UnsupportedEncodingException e) {
-            endQuietly();
-            throw con.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, e);
+            CUBRIDException err = con.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, e);
+            abort(err);
+            throw err;
         } catch (IOException e) {
-            endQuietly();
-            throw con.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
+            CUBRIDException err =
+                    con.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
+            abort(err);
+            throw err;
+        } catch (SQLException e) {
+            throw e;
+        } catch (Throwable e) {
+            abort(e);
+            throw e;
         }
 
         return con.streamEnd();
@@ -159,12 +182,14 @@ public class CUBRIDCopyLoader {
         }
     }
 
-    /* The caller is already reporting why it stopped; a failure to close a
-     * stream that is being abandoned would only hide it. */
-    private void endQuietly() {
+    /* Gives up the stream instead of ending it. If the abort fails too --
+     * the connection lost, most likely -- that failure is attached to the
+     * reason the caller is given rather than thrown in its place. */
+    private void abort(Throwable reason) {
         try {
-            con.streamEnd();
-        } catch (SQLException ignore) {
+            con.streamAbort();
+        } catch (SQLException e) {
+            reason.addSuppressed(e);
         }
     }
 }

@@ -107,6 +107,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Logger;
 
 /**
@@ -188,6 +189,11 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     // ours.
     private final Set<Connection> ownedLegs =
             Collections.newSetFromMap(new ConcurrentHashMap<Connection, Boolean>());
+    // Ends pass between legs both ways, each inside the ending leg's lock. A second thread passing
+    // one at the same time skips it rather than wait for a leg the first may hold.
+    private final ReentrantLock legEndLock = new ReentrantLock();
+    // A read leg's rollback, held until its statement settles (settleReadLegRollback).
+    private volatile CUBRIDConnection heldReadLegRollback = null;
     // SQL SETs re-run on every leg opened later (replay key -> statement), in the order they last
     // ran, so a newer SET of the same setting replaces the older one.
     private final Map<String, String> sessionSets = new LinkedHashMap<String, String>();
@@ -2810,20 +2816,56 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     /**
-     * Core completes all of its one connection's statements when a transaction ends there. When the
-     * write leg, which stands for that connection, ends one, the other legs run core's own commit
-     * or rollback to complete theirs. A read leg's ends are not passed on: some exist only in LB (a
-     * refused read, a leg closed by failover).
+     * Core completes all of its one connection's statements when a transaction ends there, so the
+     * other legs run core's own commit or rollback to complete theirs. A read leg's end is passed
+     * on only where core has it too: not when LB opens, closes or ends legs itself, all under the
+     * manager's lock, and a rollback only once its statement fails to the application.
      */
     @Override
     protected void legTransactionEnding(final CUBRIDConnection leg, final boolean commit) {
         if (!isWriteLeg(leg)) {
+            if (!commit) {
+                // A failure rolls back only in autocommit; any other rollback here is LB's own.
+                if (sessionState.isAutoCommit()) {
+                    heldReadLegRollback = leg;
+                }
+                return;
+            }
+            final EndpointConnManager mgr = connMgr;
+            if (mgr != null && Thread.holdsLock(mgr)) {
+                return;
+            }
+        }
+        endOtherLegs(leg, commit);
+    }
+
+    /**
+     * Settles a read leg's rollback held by {@link #legTransactionEnding}. Core rolls back before
+     * it reports a failure; a read LB ran again elsewhere, or failed over, did not fail there. A
+     * statement settles once before it runs too, so that it passes on only its own.
+     *
+     * @param failureReported whether the statement's failure reaches the application
+     */
+    public void settleReadLegRollback(final boolean failureReported) {
+        final CUBRIDConnection leg = heldReadLegRollback;
+        heldReadLegRollback = null;
+        if (leg != null && failureReported) {
+            endOtherLegs(leg, false);
+        }
+    }
+
+    private void endOtherLegs(final CUBRIDConnection leg, final boolean commit) {
+        if (!legEndLock.tryLock()) {
             return;
         }
-        for (Connection other : ownedLegs) {
-            if (other != leg) {
-                endLegLikeCore(other, commit);
+        try {
+            for (Connection other : ownedLegs) {
+                if (other != leg) {
+                    endLegLikeCore(other, commit);
+                }
             }
+        } finally {
+            legEndLock.unlock();
         }
     }
 

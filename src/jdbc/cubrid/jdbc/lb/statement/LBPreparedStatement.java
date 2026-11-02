@@ -197,6 +197,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
      * path; any other error still propagates as before.
      */
     private void prepareTolerantOfUnreachable(final boolean onReadLeg) throws SQLException {
+        ownerConn.settleReadLegRollback(false);
         try {
             if (onReadLeg) {
                 phyPsProvider.prepareOnBoundReadEndpoint(sql);
@@ -204,8 +205,11 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
                 phyPsProvider.prepareOnWriteEndpoint(sql);
             }
         } catch (SQLException ex) {
-            if (!ReconnectPolicy.isRetriableSqlException(ex)
-                    && !UnreachableEndpoints.shouldMarkUnreachable(ex)) {
+            final boolean reported =
+                    !ReconnectPolicy.isRetriableSqlException(ex)
+                            && !UnreachableEndpoints.shouldMarkUnreachable(ex);
+            ownerConn.settleReadLegRollback(reported);
+            if (reported) {
                 throw ex;
             }
             // Deferred: the bound endpoint is unreachable; execute-time failover will re-prepare.

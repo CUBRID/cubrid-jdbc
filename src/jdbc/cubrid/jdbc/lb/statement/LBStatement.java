@@ -635,10 +635,14 @@ public class LBStatement extends CUBRIDStatement {
         final ExecuteFailoverHandler handler = lbConnection.getExecuteFailoverHandler();
         T result;
         RouteTarget ranOn = target;
+        lbConnection.settleReadLegRollback(false);
         try {
             result = handler.executeWithFailover(lbConnection, target, sql, retrySafe, execution);
         } catch (SQLException failure) {
-            if (!retrySafe || !lbConnection.mayRetryRejectedReadOnRw(target, sql, failure)) {
+            final boolean runAgain =
+                    retrySafe && lbConnection.mayRetryRejectedReadOnRw(target, sql, failure);
+            lbConnection.settleReadLegRollback(!runAgain);
+            if (!runAgain) {
                 throw failure;
             }
             lbConnection.beginRejectedReadRetry(sql, failure);
@@ -653,6 +657,7 @@ public class LBStatement extends CUBRIDStatement {
                 lbConnection.endRejectedReadRetry();
             }
         }
+        lbConnection.settleReadLegRollback(false);
         lbConnection.afterStatementSucceeded(sql, ranOn);
         return result;
     }
@@ -774,7 +779,14 @@ public class LBStatement extends CUBRIDStatement {
 
         Statement statement = createPhyStmt(sql, routeFor(sql));
 
-        String result = requireCubrid(statement, "getQueryplan").getQueryplan(sql);
+        String result;
+        lbConnection.settleReadLegRollback(false);
+        try {
+            result = requireCubrid(statement, "getQueryplan").getQueryplan(sql);
+        } finally {
+            // Core rolls back after every plan request, failed or not.
+            lbConnection.settleReadLegRollback(true);
+        }
         lastExecStmt = statement;
         lastRs = null;
         lastUpdCnt = -1;
@@ -789,7 +801,12 @@ public class LBStatement extends CUBRIDStatement {
                     "getQueryplan() requires the statement to be executed first");
         }
 
-        return requireCubrid(lastExecStmt, "getQueryplan").getQueryplan();
+        lbConnection.settleReadLegRollback(false);
+        try {
+            return requireCubrid(lastExecStmt, "getQueryplan").getQueryplan();
+        } finally {
+            lbConnection.settleReadLegRollback(true);
+        }
     }
 
     public byte getStatementType() {

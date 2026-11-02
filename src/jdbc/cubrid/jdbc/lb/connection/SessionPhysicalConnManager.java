@@ -1059,14 +1059,23 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
      * physical PS (and open ResultSets) of other logical PS on the same connection. The
      * session-wide {@link #closePrepStmts()} stays reserved for Connection.close().
      */
-    public synchronized void closePrepForOwner(final String ownerId) throws SQLException {
+    public void closePrepForOwner(final String ownerId) throws SQLException {
         final String owner = owner(ownerId);
-        removePrepWhere(
-                new PrepKeyMatcher() {
-                    public boolean matches(final String key) {
-                        return owner.equals(ownerSegment(key));
-                    }
-                });
+        final List<PreparedStatement> owned;
+        synchronized (this) {
+            owned =
+                    takePrepWhere(
+                            new PrepKeyMatcher() {
+                                public boolean matches(final String key) {
+                                    return owner.equals(ownerSegment(key));
+                                }
+                            });
+        }
+        // Closed outside the lock: one whose result is still open commits, as in core, and a read
+        // leg's commit reaches the other legs only when LB is not holding this lock.
+        for (int i = 0; i < owned.size(); i++) {
+            closeQuietly(owned.get(i));
+        }
     }
 
     /** Predicate over prep cache keys for {@link #removePrepWhere}. */
@@ -1076,6 +1085,13 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
 
     /** Removes and quietly closes every prep cache entry whose key matches {@code matcher}. */
     private void removePrepWhere(final PrepKeyMatcher matcher) throws SQLException {
+        final List<PreparedStatement> removed = takePrepWhere(matcher);
+        for (int i = 0; i < removed.size(); i++) {
+            closeQuietly(removed.get(i));
+        }
+    }
+
+    private List<PreparedStatement> takePrepWhere(final PrepKeyMatcher matcher) {
         List<String> keysToRemove = new ArrayList<String>();
         for (String key : prepByKey.keySet()) {
             if (matcher.matches(key)) {
@@ -1083,9 +1099,11 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
             }
         }
 
+        List<PreparedStatement> removed = new ArrayList<PreparedStatement>();
         for (int i = 0; i < keysToRemove.size(); i++) {
-            closeQuietly(prepByKey.remove(keysToRemove.get(i)));
+            removed.add(prepByKey.remove(keysToRemove.get(i)));
         }
+        return removed;
     }
 
     /** The owner segment of a "{@code endpointId|ownerId|cacheKey}" prep cache key. */

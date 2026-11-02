@@ -1447,9 +1447,14 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         physicalResourceReleaser.releasePhysicalConnections();
     }
 
-    void trackStatement(Statement stmt) {
+    /** Also starts the statement at the URL's queryTimeout, as core's addStatement does. */
+    void trackStatement(Statement stmt) throws SQLException {
         synchronized (openStatements) {
             openStatements.add(stmt);
+        }
+        final UConnection socket = openLegSocket();
+        if (socket != null && socket.getQueryTimeout() > 0) {
+            stmt.setQueryTimeout(socket.getQueryTimeout());
         }
     }
 

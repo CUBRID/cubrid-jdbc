@@ -1138,10 +1138,10 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      * failed outright when the write broker was down, even though the session could have rebound to
      * a surviving one. Routing them here rebinds the leg on a broker failure.
      *
-     * <p>It does not re-run the command. The handler never retries {@code TO_READ_WRITE}, because
-     * the server may already have applied the work before the connection dropped, and a {@code
-     * CALL} is not idempotent. The leg is recovered and the original failure is reported, leaving
-     * the retry decision to the caller.
+     * <p>It does not re-run the command ({@code retrySafe} is false), because the server may
+     * already have applied the work before the connection dropped, and a {@code CALL} is not
+     * idempotent. The leg is recovered and the original failure is reported, leaving the retry
+     * decision to the caller.
      *
      * @param label the command name, for the routing log
      * @param command what to run against the write leg
@@ -2563,8 +2563,8 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      * them. The closure resolves the metadata handle <b>and</b> runs the query, because a rebind
      * must not leave the query on the handle of the failed endpoint.
      *
-     * <p>Not timed and not replayed: it is a command, not a statement, and the handler never
-     * replays a write target. The leg is rebound, so the caller's retry lands on the new one.
+     * <p>Not timed: it is a command, not a statement. Like a write it runs again only when
+     * connecting failed; otherwise the leg is rebound, so the caller's retry lands on the new one.
      *
      * @param <T> the query's result type
      * @param label the metadata call name, for logging

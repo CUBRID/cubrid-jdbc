@@ -318,9 +318,39 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
             return new int[0];
         }
 
-        // As in LBStatement.executeBatch, every batch runs on RW.
+        // As in LBStatement.executeBatch, every batch runs on RW, under failover.
         final RouteTarget target = RouteTarget.TO_READ_WRITE;
-        PreparedStatement physicalStatement = physicalPsForTarget(target);
+        boolean replayable = true;
+        for (int i = 0; i < batchedBinders.size(); i++) {
+            replayable &= !batchedBinders.get(i).hasNonReplayableParams();
+        }
+
+        final int[] result;
+        try {
+            result =
+                    ownerConn
+                            .getExecuteFailoverHandler()
+                            .executeWithFailover(
+                                    ownerConn,
+                                    target,
+                                    sql,
+                                    replayable,
+                                    new SqlExecution<int[]>() {
+                                        public int[] run() throws SQLException {
+                                            return runBatchOn(physicalPsForTarget(target));
+                                        }
+                                    });
+        } catch (BatchUpdateException answered) {
+            batchedBinders.clear();
+            throw answered;
+        }
+        batchedBinders.clear();
+        statementDelegate.afterBatchSucceeded(Collections.singletonList(sql), target);
+
+        return result;
+    }
+
+    private int[] runBatchOn(final PreparedStatement physicalStatement) throws SQLException {
         // The cached physical statement may still hold rows of an earlier attempt that failed.
         physicalStatement.clearBatch();
 
@@ -330,18 +360,9 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
             physicalStatement.addBatch();
         }
 
-        final int[] result;
-        try {
-            result = physicalStatement.executeBatch();
-        } catch (BatchUpdateException answered) {
-            batchedBinders.clear();
-            throw answered;
-        }
-        batchedBinders.clear();
-        statementDelegate.afterBatchSucceeded(Collections.singletonList(sql), target);
+        int[] counts = physicalStatement.executeBatch();
         statementDelegate.recordExec(physicalStatement, null, -1);
-
-        return result;
+        return counts;
     }
 
     /**
@@ -377,8 +398,8 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
      * #prepareTolerantOfUnreachable}), so this call is the one that prepares. Unprotected, it threw
      * at the application while a sibling endpoint was alive. Retry is unconditionally safe here -
      * describing a statement has no side effect and consumes no parameter stream - so {@code
-     * retrySafe} is {@code true}; a WRITE-target statement still only rebinds, because the handler
-     * never replays {@code TO_READ_WRITE}.
+     * retrySafe} is {@code true}; a WRITE-target statement runs again only when connecting failed,
+     * as the handler replays {@code TO_READ_WRITE} only then.
      */
     public ResultSetMetaData getMetaData() throws SQLException {
         statementDelegate.checkClosed();

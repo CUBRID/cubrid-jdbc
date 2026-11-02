@@ -245,10 +245,13 @@ public final class ExecuteFailoverHandler {
             // Rebind the endpoint (done above) but do NOT re-run when re-execution is unsafe:
             //  - writes (TO_READ_WRITE): the server may have already applied the statement before
             //    the connection dropped, so replaying risks a duplicate INSERT / double UPDATE.
+            //    Unless connecting failed (ER_CONNECTION): nothing was sent, and core, which
+            //    reconnects before it sends, runs the write on the next host.
             //  - retrySafe == false: a consumed stream/reader parameter cannot be replayed.
             // In both cases propagate the original exception so the caller decides.
             if (!connection.getLbConfig().isRuntimeFailoverRetryOnce()
-                    || routeTarget == RouteTarget.TO_READ_WRITE
+                    || (routeTarget == RouteTarget.TO_READ_WRITE
+                            && ex.getErrorCode() != UErrorCode.ER_CONNECTION)
                     || !retrySafe) {
                 // The leg IS rebound; only the replay is withheld. Naming which of the three
                 // reasons applies separates "failover worked, the caller redoes the statement" from

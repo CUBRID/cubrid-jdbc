@@ -158,8 +158,10 @@ public class LBStatementExecuteFailoverTest {
         conn.close();
     }
 
+    /** A batch that may have run is not run again, but its leg is rebound like any write's. */
     @Test
-    public void executeBatchDoesNotInvokeRuntimeFailover() throws SQLException {
+    public void executeBatchRebindsButDoesNotRunAgainAfterACommunicationFailure()
+            throws SQLException {
         final AtomicInteger executeCalls = new AtomicInteger();
         JdbcConnectionFactory factory =
                 new JdbcConnectionFactory() {
@@ -195,9 +197,13 @@ public class LBStatementExecuteFailoverTest {
             assertTrue(UErrorCode.ER_COMMUNICATION == e.getErrorCode());
         }
         assertEquals(1, executeCalls.get());
+        int failoverEvents = 0;
         for (String event : MetricsTestAccess.getEvents(LbTestAccess.getRuntimeMetrics(conn))) {
-            assertTrue(!event.contains("event=RUNTIME_FAILOVER"));
+            if (event.contains("event=RUNTIME_FAILOVER")) {
+                failoverEvents++;
+            }
         }
+        assertEquals(1, failoverEvents);
         stmt.close();
         conn.close();
     }

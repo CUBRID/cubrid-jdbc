@@ -189,15 +189,29 @@ public class LBStatement extends CUBRIDStatement {
         final RouteTarget target = RouteTarget.TO_READ_WRITE;
 
         try {
-            Statement statement = createPhyStmt(batchedSql.get(0), target);
-
-            for (int i = 0; i < batchedSql.size(); i++) {
-                statement.addBatch(batchedSql.get(i));
-            }
-
-            int[] result = statement.executeBatch();
+            // Under failover like any write: the leg is rebound, and the batch runs again only
+            // when connecting failed, as core sends it to the next host then.
+            int[] result =
+                    lbConnection
+                            .getExecuteFailoverHandler()
+                            .executeWithFailover(
+                                    lbConnection,
+                                    target,
+                                    batchedSql.get(0),
+                                    true,
+                                    new SqlExecution<int[]>() {
+                                        public int[] run() throws SQLException {
+                                            Statement statement =
+                                                    createPhyStmt(batchedSql.get(0), target);
+                                            for (int i = 0; i < batchedSql.size(); i++) {
+                                                statement.addBatch(batchedSql.get(i));
+                                            }
+                                            int[] counts = statement.executeBatch();
+                                            lastExecStmt = statement;
+                                            return counts;
+                                        }
+                                    });
             afterBatchSucceeded(batchedSql, target);
-            lastExecStmt = statement;
             lastRs = null;
             lastUpdCnt = -1;
 

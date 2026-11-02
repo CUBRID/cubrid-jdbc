@@ -3067,6 +3067,28 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     /**
+     * Core prepared every open statement on its one session before a session {@code SET}, and the
+     * server keeps what a statement was compiled under. One with no physical statement on RW yet is
+     * prepared there now, or its first run on RW would compile under the new setting.
+     *
+     * @param sql the statement about to run
+     */
+    public void beforeSessionSet(final String sql) {
+        if (SessionSetStatement.parse(sql).getAction() == SessionSetStatement.Action.NONE) {
+            return;
+        }
+        final List<Statement> open;
+        synchronized (openStatements) {
+            open = new ArrayList<Statement>(openStatements);
+        }
+        for (Statement each : open) {
+            if (each instanceof LBPreparedStatement) {
+                ((LBPreparedStatement) each).prepareOnWriteLeg();
+            }
+        }
+    }
+
+    /**
      * Records what a statement that just succeeded changed in its session. A SQL {@code SET} ran
      * only on the leg it was routed to (RW): a session-scoped one is replayed on the read leg now
      * and on every leg opened later; any other keeps this session's reads on RW. Variables an

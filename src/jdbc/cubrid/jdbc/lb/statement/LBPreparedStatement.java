@@ -682,6 +682,20 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         return oid;
     }
 
+    /**
+     * Prepares this statement on RW if it has no physical statement there yet; see {@link
+     * LoadBalanceConnection#beforeSessionSet}. One that cannot prepares at its first run on RW.
+     */
+    public void prepareOnWriteLeg() {
+        try {
+            if (!statementDelegate.isClosed()) {
+                phyPsProvider.prepareOnWriteEndpoint(sql);
+            }
+        } catch (SQLException notNow) {
+            // as before this existed
+        }
+    }
+
     @Override
     public void close() throws SQLException {
         if (statementDelegate.isClosed() || ownerConn.isStatementCached(sql)) {

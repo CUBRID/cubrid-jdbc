@@ -632,6 +632,7 @@ public class LBStatement extends CUBRIDStatement {
         final ExecuteFailoverHandler handler = lbConnection.getExecuteFailoverHandler();
         T result;
         RouteTarget ranOn = target;
+        lbConnection.beforeSessionSet(sql);
         lbConnection.settleReadLegRollback(false);
         try {
             result = handler.executeWithFailover(lbConnection, target, sql, retrySafe, execution);

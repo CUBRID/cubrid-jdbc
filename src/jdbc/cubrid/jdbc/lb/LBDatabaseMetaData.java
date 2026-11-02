@@ -33,7 +33,6 @@ package cubrid.jdbc.lb;
 import cubrid.jdbc.driver.CUBRIDDatabaseMetaData;
 import cubrid.jdbc.driver.CUBRIDDriver;
 import cubrid.jdbc.lb.failover.ExecuteFailoverHandler.SqlExecution;
-import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.RowIdLifetime;
@@ -63,35 +62,9 @@ class LBDatabaseMetaData extends CUBRIDDatabaseMetaData {
         this.owner = owner;
     }
 
-    /**
-     * JDBC requires {@code getConnection()} to return the connection that produced this metadata —
-     * the logical LB connection, not the physical write endpoint. Returning the physical one would
-     * let a caller {@code close()} or {@code setAutoCommit()} it directly and corrupt the LB
-     * session.
-     */
-    @Override
-    public Connection getConnection() throws SQLException {
-        return owner;
-    }
-
-    /**
-     * Answered here rather than forwarded. Forwarding would hand out the physical {@code
-     * CUBRIDDatabaseMetaData}, which defeats the {@link #getConnection()} contract above (the
-     * physical metadata reports the physical connection) and exposes the SHARD-only extensions that
-     * this class refuses.
-     */
-    @Override
-    public <T> T unwrap(final Class<T> iface) throws SQLException {
-        if (iface.isAssignableFrom(getClass())) {
-            return iface.cast(this);
-        }
-
-        throw LbExceptions.cannotUnwrap(iface);
-    }
-
-    @Override
-    public boolean isWrapperFor(final Class<?> iface) throws SQLException {
-        return iface != null && iface.isInstance(this);
+    /** Closed with the logical connection, as core closes a connection's metadata. */
+    void closeWithConnection() {
+        close();
     }
 
     /**
@@ -129,6 +102,7 @@ class LBDatabaseMetaData extends CUBRIDDatabaseMetaData {
      * @throws SQLException if the write endpoint cannot be bound
      */
     private DatabaseMetaData rwMeta(final String commandName) throws SQLException {
+        checkIsOpen();
         return owner.rwMetaDataRecordingCall(commandName);
     }
 
@@ -665,9 +639,11 @@ class LBDatabaseMetaData extends CUBRIDDatabaseMetaData {
         throw LbExceptions.featureNotSupported();
     }
 
+    /** The URL the application wrote, as core reports it, rather than the write leg's. */
     @Override
     public String getURL() throws SQLException {
-        return rwMeta("getURL").getURL();
+        checkIsOpen();
+        return owner.urlAsWritten();
     }
 
     @Override

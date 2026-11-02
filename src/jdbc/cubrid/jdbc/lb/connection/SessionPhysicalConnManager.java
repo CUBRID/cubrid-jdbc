@@ -969,20 +969,22 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         if (endpoint == null) {
             throw LbExceptions.internalState("missing endpoint for prepare");
         }
-        if (sql == null) {
-            throw LbExceptions.internalState("missing SQL for prepare");
-        }
-
-        String cacheKey = PreparedSql.normalizeForCacheKey(sql);
-
         // Key by owning logical PS, so two logical PreparedStatements with the same SQL do not
         // share one physical PS (which would cross-clobber parameters, ResultSets and batches).
         // Re-executing the same logical PS still hits the cache (same owner + SQL). The owner is
         // unique per logical PS, so it also tells a RETURN_GENERATED_KEYS prepare from a plain one,
-        // and a scrollable prepare from a forward-only one.
-        String key = endpoint.getId() + "|" + owner(ownerId) + "|" + cacheKey;
+        // and a scrollable prepare from a forward-only one. A null SQL is not cached: core refuses
+        // it below, as on a core connection.
+        final String key =
+                sql == null
+                        ? null
+                        : endpoint.getId()
+                                + "|"
+                                + owner(ownerId)
+                                + "|"
+                                + PreparedSql.normalizeForCacheKey(sql);
 
-        PreparedStatement cached = prepByKey.get(key);
+        PreparedStatement cached = key == null ? null : prepByKey.get(key);
         if (cached != null) {
             if (isCachedPrepUsable(cached)) {
                 return cached;

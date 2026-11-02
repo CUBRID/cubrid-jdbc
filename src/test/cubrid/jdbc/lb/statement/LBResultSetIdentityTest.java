@@ -30,6 +30,7 @@
 
 package cubrid.jdbc.lb.statement;
 
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 
 import cubrid.jdbc.driver.CUBRIDResultSet;
@@ -150,14 +151,15 @@ public final class LBResultSetIdentityTest {
         assertSame(statement, statement.getResultSet().getStatement());
     }
 
+    /** Core's key result set names no statement, so LB leaves the physical one as core made it. */
     @Test
-    public void statementGetGeneratedKeysNamesTheLogicalStatement() throws Exception {
+    public void statementGetGeneratedKeysNamesNoStatementAsInCore() throws Exception {
         LBStatement statement = new LBStatement(connection);
         statement.setStatementProvider(stmtProvider());
 
         statement.executeUpdate("INSERT INTO t(id) VALUES (1)");
 
-        assertSame(statement, statement.getGeneratedKeys().getStatement());
+        assertNull(statement.getGeneratedKeys().getStatement());
     }
 
     /**

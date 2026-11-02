@@ -84,8 +84,9 @@ public final class LoadBalanceConnectionMetadataProxyTest {
         assertSame(connection, actual.getConnection());
     }
 
+    /** The URL the application wrote, as core reports it, not a leg's URL. */
     @Test
-    public void assertMetaDataDefaultDelegatesToMasterPhysical() throws Exception {
+    public void assertGetUrlIsNotAskedOfALeg() throws Exception {
         LoadBalanceConnection connection = createBoundConnection();
         AtomicInteger masterMetaDataGetUrlCalls = new AtomicInteger();
         AtomicInteger readOnlyMetaDataGetUrlCalls = new AtomicInteger();
@@ -97,8 +98,8 @@ public final class LoadBalanceConnectionMetadataProxyTest {
 
         String actual = connection.getMetaData().getURL();
 
-        assertEquals("jdbc:cubrid:master", actual);
-        assertEquals(1, masterMetaDataGetUrlCalls.get());
+        assertEquals(connection.urlAsWritten(), actual);
+        assertEquals(0, masterMetaDataGetUrlCalls.get());
         assertEquals(0, readOnlyMetaDataGetUrlCalls.get());
     }
 

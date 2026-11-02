@@ -2774,7 +2774,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
 
     // 3.0
 
-    synchronized void close() {
+    protected synchronized void close() {
         is_closed = true;
         con = null;
         u_con = null;
@@ -2782,7 +2782,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
         shard_id = UShardInfo.SHARD_ID_INVALID;
     }
 
-    private void checkIsOpen() throws SQLException {
+    protected void checkIsOpen() throws SQLException {
         if (is_closed) {
             if (con != null) {
                 throw con.createCUBRIDException(CUBRIDJDBCErrorCode.dbmetadata_closed, null);

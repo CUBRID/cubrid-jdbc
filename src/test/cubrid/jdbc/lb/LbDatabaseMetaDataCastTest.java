@@ -37,6 +37,7 @@ import cubrid.jdbc.driver.CUBRIDDatabaseMetaData;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import org.junit.Test;
@@ -47,9 +48,18 @@ import org.junit.Test;
  * that a logical connection does not own — a missing forwarder is a NullPointerException from a
  * stack trace that never mentions LB, and it appears only when that one metadata call is made.
  * Reflection catches it at build time instead, including when a future core-driver change adds a
- * method.
+ * method. The exceptions read only the closed flag and the owning connection, and LB uses them as
+ * core's own.
  */
 public class LbDatabaseMetaDataCastTest {
+
+    private static final List<String> USED_AS_CORE =
+            Arrays.asList(
+                    "checkIsOpen()",
+                    "close()",
+                    "getConnection()",
+                    "isWrapperFor(Class)",
+                    "unwrap(Class)");
 
     @Test
     public void everyOverridableInheritedMethodIsOverridden() {
@@ -67,7 +77,9 @@ public class LbDatabaseMetaDataCastTest {
                 LBDatabaseMetaData.class.getDeclaredMethod(
                         inherited.getName(), inherited.getParameterTypes());
             } catch (NoSuchMethodException notOverridden) {
-                missing.add(signatureOf(inherited));
+                if (!USED_AS_CORE.contains(signatureOf(inherited))) {
+                    missing.add(signatureOf(inherited));
+                }
             }
         }
         Collections.sort(missing);
@@ -80,12 +92,10 @@ public class LbDatabaseMetaDataCastTest {
     }
 
     /**
-     * {@code close()} is package-private in {@code cubrid.jdbc.driver} and so cannot be overridden
-     * from here. Its only caller is {@code CUBRIDConnection.clear()}, over that connection's own
-     * {@code mdata} field — and {@code LoadBalanceConnection} refuses {@code clear()} and never
-     * assigns {@code mdata}, because it overrides {@code getMetaData()}. Pinning the set turns a
-     * future core-driver addition into a failing test that forces the reachability question to be
-     * answered again.
+     * A package-private member of {@code cubrid.jdbc.driver} cannot be overridden or called from
+     * here. There is none now: {@code close()} is protected, and LB closes its metadata with the
+     * connection. Pinning the set turns a future core-driver addition into a failing test that
+     * forces the reachability question to be answered again.
      */
     @Test
     public void packagePrivateMembersAreTheKnownUnreachableSet() {
@@ -107,7 +117,7 @@ public class LbDatabaseMetaDataCastTest {
         assertEquals(
                 "a new package-private member of CUBRIDDatabaseMetaData cannot be overridden here;"
                         + " confirm nothing hands an LB metadata object to a caller of it",
-                "[close()]",
+                "[]",
                 packagePrivate.toString());
     }
 

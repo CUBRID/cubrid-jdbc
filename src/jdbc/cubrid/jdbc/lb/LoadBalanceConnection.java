@@ -186,6 +186,10 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     private String charset = null;
 
     private DatabaseMetaData rwMetaForCmd = null;
+    // One per connection, as core keeps one; closed with the connection.
+    private LBDatabaseMetaData metaData = null;
+    // As the application wrote it, which is what core's DatabaseMetaData.getURL() reports.
+    private final String urlAsWritten;
     // One warning per session when reads distribute under an isolation level that a distributed
     // read cannot honour. Not a routing input: the level is the application's to choose, and LB
     // only says that it holds within one node.
@@ -262,6 +266,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             final String userUrl, final Properties info, final LoadBalanceSettings config) {
         // super() must come first, so the config null check moves into the argument helper.
         super(CUBRIDDriver.maskUriUrlPassword(userUrl, info), userOf(config));
+        this.urlAsWritten = userUrl;
         this.config = config;
         this.sqlClassifier = SqlClassifierRegistry.forConfig(config);
         this.sessionState = new SessionRoutingState();
@@ -1381,12 +1386,17 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             MetricsRegistry.unregister(routingMetrics.runtimeMetrics());
             metricsRegistered = false;
         }
-        closeOpenStatements();
         // Before the legs go: an OUT result set still holds a socket statement on one of them.
         closeOutResultSets();
-        releasePreparedStatements();
+        // The legs before this session's statements, so core's close() completes every statement
+        // on a leg, as on its one connection, before a statement's own completion can commit.
         releasePhysicalConnections();
+        closeOpenStatements();
+        releasePreparedStatements();
         ownedLegs.clear();
+        if (metaData != null) {
+            metaData.closeWithConnection();
+        }
         sessionState.reset();
         boundReadEndpoint.clear();
         // Endpoint/init fields are otherwise mutated under recoveryLock (recoverPhyBinding); guard
@@ -1702,6 +1712,10 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      */
     @Override
     public void setCharset(final String charsetName) throws UnsupportedEncodingException {
+        if (closed) {
+            super.setCharset(charsetName); // what core does on a closed connection
+            return;
+        }
         try {
             applyCharset(charsetName);
         } catch (SQLException wrapped) {
@@ -1738,96 +1752,23 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         recordRwCmd("setCharset");
     }
 
+    // Core's Login, Logout and SetSignedConnection are stubs on every connection, open or closed.
     public CUBRIDConnectionKey Login(final String signedData) throws SQLException {
-        checkClosed();
-        // Refuse rather than return null. The key is the whole point of the call, so a null answer
-        // surfaces later as a NullPointerException in the caller, where nothing says which call
-        // failed. Unlike setCharset this cannot be deferred: the key comes from the server.
-        if (!isSessionInitialized()) {
-            throw LbExceptions.physicalNotBound(
-                    "Login(String) requires a bound session; execute a statement first");
-        }
-
-        Connection rwPhysical = getPhysicalConnForCmd(SessionLeg.RW);
-
-        CUBRIDConnectionKey result = extConn(rwPhysical, "Login(String)").Login(signedData);
-
-        Connection roPhysical = getPhysicalConnForCmd(SessionLeg.RO);
-        if (rwPhysical != roPhysical) {
-            extConn(roPhysical, "Login(String)").Login(signedData);
-        }
-        recordRwCmd("Login(String)");
-        return result;
+        return super.Login(signedData);
     }
 
     public CUBRIDConnectionKey Login(final byte[] signedData) throws SQLException {
-        checkClosed();
-        // Refuse rather than return null. The key is the whole point of the call, so a null answer
-        // surfaces later as a NullPointerException in the caller, where nothing says which call
-        // failed. Unlike setCharset this cannot be deferred: the key comes from the server.
-        if (!isSessionInitialized()) {
-            throw LbExceptions.physicalNotBound(
-                    "Login(byte[]) requires a bound session; execute a statement first");
-        }
-
-        Connection rwPhysical = getPhysicalConnForCmd(SessionLeg.RW);
-
-        CUBRIDConnectionKey result = extConn(rwPhysical, "Login(byte[])").Login(signedData);
-
-        Connection roPhysical = getPhysicalConnForCmd(SessionLeg.RO);
-        if (rwPhysical != roPhysical) {
-            extConn(roPhysical, "Login(byte[])").Login(signedData);
-        }
-        recordRwCmd("Login(byte[])");
-        return result;
+        return super.Login(signedData);
     }
 
     @Override
     public void Logout() {
-        try {
-            logoutOnLegs();
-        } catch (SQLException wrapped) {
-            throw unchecked(wrapped);
-        }
-    }
-
-    private void logoutOnLegs() throws SQLException {
-        checkClosed();
-        if (!isSessionInitialized()) {
-            return;
-        }
-        forEachSessPhyConn(
-                        new PhyConnAction() {
-                            public void apply(Connection physical) throws SQLException {
-                                extConn(physical, "Logout").Logout();
-                            }
-                        })
-                .rethrow();
-        recordRwCmd("Logout");
+        super.Logout();
     }
 
     @Override
     public void SetSignedConnection() {
-        try {
-            setSignedConnectionOnLegs();
-        } catch (SQLException wrapped) {
-            throw unchecked(wrapped);
-        }
-    }
-
-    private void setSignedConnectionOnLegs() throws SQLException {
-        checkClosed();
-        if (!isSessionInitialized()) {
-            return;
-        }
-        forEachSessPhyConn(
-                        new PhyConnAction() {
-                            public void apply(Connection physical) throws SQLException {
-                                extConn(physical, "SetSignedConnection").SetSignedConnection();
-                            }
-                        })
-                .rethrow();
-        recordRwCmd("SetSignedConnection");
+        super.SetSignedConnection();
     }
 
     public void setReadOnly(final boolean readOnly) throws SQLException {
@@ -2011,8 +1952,15 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      */
     public DatabaseMetaData getMetaData() throws SQLException {
         checkClosed();
+        if (metaData == null) {
+            metaData = new LBDatabaseMetaData(this);
+        }
 
-        return new LBDatabaseMetaData(this);
+        return metaData;
+    }
+
+    String urlAsWritten() {
+        return urlAsWritten;
     }
 
     public String nativeSQL(String sql) throws SQLException {
@@ -2263,7 +2211,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
 
     public boolean isValid(int timeout) throws SQLException {
         if (timeout < 0) {
-            throw LbExceptions.invalidValue("isValid timeout must not be negative");
+            return super.isValid(timeout); // core's own argument check
         }
         if (closed) {
             return false;
@@ -2316,6 +2264,10 @@ public class LoadBalanceConnection extends CUBRIDConnection {
 
     @Override
     public void setAutoGeneratedKeys(final boolean isGeneratedKeys) {
+        if (closed) {
+            super.setAutoGeneratedKeys(isGeneratedKeys); // core only sets a field, closed or not
+            return;
+        }
         try {
             applyAutoGeneratedKeys(isGeneratedKeys);
         } catch (SQLException wrapped) {
@@ -2530,11 +2482,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
 
     public boolean isWrapperFor(Class<?> iface) throws SQLException {
         checkClosed();
-        if (iface == null) {
-            return false;
-        }
-
-        return iface.isAssignableFrom(getClass());
+        return super.isWrapperFor(iface);
     }
 
     /* ===== Internal =====*/

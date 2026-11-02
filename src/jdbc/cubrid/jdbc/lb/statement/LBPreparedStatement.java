@@ -69,7 +69,6 @@ import java.sql.SQLException;
 import java.sql.SQLType;
 import java.sql.SQLWarning;
 import java.sql.SQLXML;
-import java.sql.Statement;
 import java.sql.Time;
 import java.sql.Timestamp;
 import java.util.ArrayList;
@@ -97,6 +96,8 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
 
     private final String sql;
     private final LoadBalanceConnection ownerConn;
+    // What core's prepare reports in hasResultSet(); core keeps it after close, so this does too.
+    private boolean firstResultType;
     private final SessionRoutingState sessState;
     private final ParameterBinder parameterBinder;
     private final List<ParameterBinder> batchedBinders = new ArrayList<ParameterBinder>();
@@ -204,6 +205,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
             } else {
                 phyPsProvider.prepareOnWriteEndpoint(sql);
             }
+            rememberPrepared(phyPsProvider.preparedForBindCheck());
         } catch (SQLException ex) {
             final boolean reported =
                     !ReconnectPolicy.isRetriableSqlException(ex)
@@ -218,7 +220,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
 
     /* ===== execute =====*/
     public ResultSet executeQuery() throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
 
         final RouteTarget target = resolveRouteTarget();
         // Stamped with this prepared statement, not with statementDelegate: the delegate is an
@@ -240,7 +242,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     }
 
     public int executeUpdate() throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
 
         final RouteTarget target = resolveRouteTarget();
         return statementDelegate
@@ -260,7 +262,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     }
 
     public boolean execute() throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
 
         final RouteTarget target = resolveRouteTarget();
         return statementDelegate
@@ -282,7 +284,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     }
 
     public void addBatch() throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
         validateParamCountCompat();
         checkAllBound();
         batchedBinders.add(parameterBinder.snapshot());
@@ -313,7 +315,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
      * executeBatch()} sends it again. The rows are kept here on the same terms.
      */
     public int[] executeBatch() throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
         if (batchedBinders.isEmpty()) {
             return new int[0];
         }
@@ -372,22 +374,11 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
      */
     @Override
     public boolean hasResultSet() {
-        try {
-            statementDelegate.checkClosed();
-        } catch (SQLException failure) {
-            throw unchecked(failure);
-        }
-
-        Statement last = statementDelegate.getLastExecStmt();
-        if (last instanceof CUBRIDPreparedStatement) {
-            return ((CUBRIDPreparedStatement) last).hasResultSet();
-        }
-
-        return false;
+        return firstResultType;
     }
 
     public void clearBatch() throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
         batchedBinders.clear();
     }
 
@@ -402,7 +393,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
      * as the handler replays {@code TO_READ_WRITE} only then.
      */
     public ResultSetMetaData getMetaData() throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
 
         final RouteTarget target = resolveRouteTarget();
 
@@ -424,97 +415,97 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
 
     /* ===== parameter setters (stored for delegation at execute time) =====*/
     public void setNull(int parameterIndex, int sqlType) throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
         parameterBinder.recordSetNull(parameterIndex, sqlType);
     }
 
     public void setNull(int parameterIndex, int sqlType, String typeName) throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
         parameterBinder.recordSetNull(parameterIndex, sqlType, typeName);
     }
 
     public void setBoolean(int parameterIndex, boolean x) throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
         parameterBinder.recordSetBoolean(parameterIndex, x);
     }
 
     public void setByte(int parameterIndex, byte x) throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
         parameterBinder.recordSetByte(parameterIndex, x);
     }
 
     public void setShort(int parameterIndex, short x) throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
         parameterBinder.recordSetShort(parameterIndex, x);
     }
 
     public void setInt(int parameterIndex, int x) throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
         parameterBinder.recordSetInt(parameterIndex, x);
     }
 
     public void setLong(int parameterIndex, long x) throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
         parameterBinder.recordSetLong(parameterIndex, x);
     }
 
     public void setFloat(int parameterIndex, float x) throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
         parameterBinder.recordSetFloat(parameterIndex, x);
     }
 
     public void setDouble(int parameterIndex, double x) throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
         parameterBinder.recordSetDouble(parameterIndex, x);
     }
 
     public void setBigDecimal(int parameterIndex, BigDecimal x) throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
         parameterBinder.recordSetBigDecimal(parameterIndex, x);
     }
 
     public void setString(int parameterIndex, String x) throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
         parameterBinder.recordSetString(parameterIndex, x);
     }
 
     public void setBytes(int parameterIndex, byte[] x) throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
         parameterBinder.recordSetBytes(parameterIndex, x);
     }
 
     public void setDate(int parameterIndex, Date x) throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
         parameterBinder.recordSetDate(parameterIndex, x);
     }
 
     public void setDate(int parameterIndex, Date x, Calendar cal) throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
         parameterBinder.recordSetDate(parameterIndex, x, cal);
     }
 
     public void setTime(int parameterIndex, Time x) throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
         parameterBinder.recordSetTime(parameterIndex, x);
     }
 
     public void setTime(int parameterIndex, Time x, Calendar cal) throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
         parameterBinder.recordSetTime(parameterIndex, x, cal);
     }
 
     public void setTimestamp(int parameterIndex, Timestamp x) throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
         parameterBinder.recordSetTimestamp(parameterIndex, x);
     }
 
     public void setTimestamp(int parameterIndex, Timestamp x, Calendar cal) throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
         parameterBinder.recordSetTimestamp(parameterIndex, x, cal);
     }
 
     public void setAsciiStream(int parameterIndex, InputStream x, int length) throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
         parameterBinder.recordSetAsciiStream(parameterIndex, x, length);
     }
 
@@ -532,7 +523,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     }
 
     public void setBinaryStream(int parameterIndex, InputStream x, int length) throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
         parameterBinder.recordSetBinaryStream(parameterIndex, x, length);
     }
 
@@ -546,24 +537,24 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     }
 
     public void setObject(int parameterIndex, Object x, int targetSqlType) throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
         parameterBinder.recordSetObject(parameterIndex, x, targetSqlType);
     }
 
     public void setObject(int parameterIndex, Object x) throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
         parameterBinder.recordSetObject(parameterIndex, x);
     }
 
     public void setObject(int parameterIndex, Object x, int targetSqlType, int scaleOrLength)
             throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
         parameterBinder.recordSetObject(parameterIndex, x, targetSqlType, scaleOrLength);
     }
 
     public void setCharacterStream(int parameterIndex, Reader reader, int length)
             throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
         parameterBinder.recordSetCharacterStream(parameterIndex, reader, length);
     }
 
@@ -581,33 +572,33 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     }
 
     public void setBlob(int parameterIndex, Blob x) throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
         parameterBinder.recordSetBlob(parameterIndex, x);
     }
 
     public void setBlob(int parameterIndex, InputStream inputStream, long length)
             throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
         parameterBinder.recordSetBlob(parameterIndex, inputStream, length);
     }
 
     public void setBlob(int parameterIndex, InputStream inputStream) throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
         parameterBinder.recordSetBlob(parameterIndex, inputStream);
     }
 
     public void setClob(int parameterIndex, Clob x) throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
         parameterBinder.recordSetClob(parameterIndex, x);
     }
 
     public void setClob(int parameterIndex, Reader reader, long length) throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
         parameterBinder.recordSetClob(parameterIndex, reader, length);
     }
 
     public void setClob(int parameterIndex, Reader reader) throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
         parameterBinder.recordSetClob(parameterIndex, reader);
     }
 
@@ -653,35 +644,35 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     }
 
     public void setOID(final int parameterIndex, final CUBRIDOID value) throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
         parameterBinder.recordSetOID(parameterIndex, value);
     }
 
     public void setCollection(final int parameterIndex, final Object[] value) throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
         parameterBinder.recordSetCollection(parameterIndex, value);
     }
 
     public void setTimestamptz(final int parameterIndex, final CUBRIDTimestamptz value)
             throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
         parameterBinder.recordSetTimestamptz(parameterIndex, value);
     }
 
     public void setTimestamptz(
             final int parameterIndex, final CUBRIDTimestamptz value, final Calendar cal)
             throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
         parameterBinder.recordSetTimestamptz(parameterIndex, value, cal);
     }
 
     public void clearParameters() throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
         parameterBinder.clear();
     }
 
     public CUBRIDOID executeInsert() throws SQLException {
-        statementDelegate.checkClosed();
+        checkIsOpen();
 
         final RouteTarget target = resolveRouteTarget();
         PreparedStatement physicalStatement = physicalPsWithParams(target);
@@ -710,6 +701,9 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
                 // not the delegate - so untrack here too, or a closed PS stays in the connection's
                 // open-statement set until the connection closes.
                 ownerConn.untrackStatement(this);
+                // Core's PreparedStatement checks read this flag. Core's close() itself would call
+                // the refused setShardId.
+                is_closed = true;
             }
         }
     }
@@ -826,7 +820,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
 
     @Override
     public ResultSet getGeneratedKeys() throws SQLException {
-        return statementDelegate.generatedKeysFor(this);
+        return statementDelegate.getGeneratedKeys();
     }
 
     @Override
@@ -946,8 +940,20 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
      * failure is reported unchecked. Same constraint and same shape as {@link
      * LBStatement#setQueryInfo}.
      */
+    /** Before any execution, the type core's prepare found, as core answers from its prepare. */
     @Override
     public byte getStatementType() {
+        if (statementDelegate.getLastExecStmt() == null) {
+            try {
+                final PreparedStatement prepared = phyPsProvider.preparedForBindCheck();
+                if (prepared instanceof CUBRIDPreparedStatement) {
+                    return ((CUBRIDPreparedStatement) prepared).getStatementType();
+                }
+            } catch (SQLException unreadable) {
+                // no prepared statement to ask; core reports UNKNOWN without one
+            }
+        }
+
         return statementDelegate.getStatementType();
     }
 
@@ -1019,7 +1025,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
 
     @Override
     public boolean isWrapperFor(final Class<?> iface) throws SQLException {
-        return iface.isAssignableFrom(getClass());
+        return super.isWrapperFor(iface);
     }
 
     /* ===== inherited socket-level surface that must not run =====*/
@@ -1055,12 +1061,6 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     @Override
     protected int[] checkBatchResult(final UBatchResult batchResults) throws SQLException {
         throw LbExceptions.notSupportedApi("checkBatchResult(UBatchResult)");
-    }
-
-    /** Closed-state check for inherited code paths; the logical state lives in the delegate. */
-    @Override
-    protected void checkIsOpen() throws SQLException {
-        statementDelegate.checkClosed();
     }
 
     /**
@@ -1151,6 +1151,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         // the wrong endpoint role on failure. A refused read running again on RW is the exception.
         PreparedStatement ps =
                 phyPsProvider.getPreparedStatement(statementDelegate.effectiveTarget(target), sql);
+        rememberPrepared(ps);
         // The physical PS comes from the session cache, so statement attributes (queryTimeout,
         // maxRows, fetchSize, maxFieldSize, escapeProcessing) are re-applied on every execution:
         // another logical PS sharing the endpoint may have changed them.
@@ -1161,6 +1162,12 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         statementDelegate.publishExecStmt(ps);
 
         return ps;
+    }
+
+    private void rememberPrepared(final PreparedStatement physical) {
+        if (physical instanceof CUBRIDPreparedStatement) {
+            firstResultType = ((CUBRIDPreparedStatement) physical).hasResultSet();
+        }
     }
 
     private PreparedStatement physicalPsForMetadata(final RouteTarget target) throws SQLException {

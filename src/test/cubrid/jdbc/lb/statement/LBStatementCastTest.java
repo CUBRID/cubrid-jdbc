@@ -45,6 +45,7 @@ import java.lang.reflect.Modifier;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import org.junit.Before;
@@ -203,6 +204,11 @@ public class LBStatementCastTest {
         }
     }
 
+    // Inherited on purpose: it reads only is_closed and con, which close() keeps, and gives core's
+    // own closed-PreparedStatement error.
+    private static final List<String> USED_AS_CORE =
+            Arrays.asList("CUBRIDPreparedStatement.checkIsOpen()");
+
     private static void assertNothingInherited(final Class<?> logical, final Class<?> vendor) {
         List<String> missing = new ArrayList<String>();
 
@@ -216,7 +222,10 @@ public class LBStatementCastTest {
                 try {
                     logical.getDeclaredMethod(inherited.getName(), inherited.getParameterTypes());
                 } catch (NoSuchMethodException notOverridden) {
-                    missing.add(each.getSimpleName() + "." + signatureOf(inherited));
+                    final String name = each.getSimpleName() + "." + signatureOf(inherited);
+                    if (!USED_AS_CORE.contains(name)) {
+                        missing.add(name);
+                    }
                 }
             }
         }

@@ -227,10 +227,7 @@ public class LBStatement extends CUBRIDStatement {
 
     public void addBatch(String sql) throws SQLException {
         checkClosed();
-        if (sql == null) {
-            throw LbExceptions.invalidValue("addBatch(String) requires a non-null SQL string");
-        }
-        batchedSql.add(sql);
+        batchedSql.add(sql); // core takes a null too and fails it at executeBatch
     }
 
     public void clearBatch() throws SQLException {
@@ -409,21 +406,17 @@ public class LBStatement extends CUBRIDStatement {
         throw LbExceptions.featureNotSupported();
     }
 
-    public ResultSet getGeneratedKeys() throws SQLException {
-        return generatedKeysFor(this);
-    }
-
     /**
      * Before any execution, core's own answer (an empty result set); after one, the physical
-     * statement's keys, reported as {@code logical}'s.
+     * statement's keys as core makes them, with no producing statement.
      */
-    ResultSet generatedKeysFor(final Statement logical) throws SQLException {
+    public ResultSet getGeneratedKeys() throws SQLException {
         checkClosed();
         if (lastExecStmt == null) {
             return super.getGeneratedKeys();
         }
 
-        return stampProducer(lastExecStmt.getGeneratedKeys(), logical);
+        return lastExecStmt.getGeneratedKeys();
     }
 
     /* ===== property accessors =====*/
@@ -525,9 +518,9 @@ public class LBStatement extends CUBRIDStatement {
             lastRs = null;
             lastUpdCnt = -1;
             closed = true;
-            // The inherited core methods (the property setters and getters) check this flag.
-            is_closed = true;
             lbConnection.untrackStatement(this);
+            // Core's own close, so the inherited core methods find a closed statement as on core.
+            super.close();
         }
     }
 
@@ -581,7 +574,7 @@ public class LBStatement extends CUBRIDStatement {
     }
 
     public boolean isWrapperFor(Class<?> iface) throws SQLException {
-        return iface.isAssignableFrom(getClass());
+        return super.isWrapperFor(iface);
     }
 
     /* ===== Internal =====*/
@@ -770,7 +763,9 @@ public class LBStatement extends CUBRIDStatement {
     }
 
     public CUBRIDOID executeInsert(final String sql) throws SQLException {
-        checkClosed();
+        if (closed) {
+            return super.executeInsert(sql); // what core does on a closed statement
+        }
 
         final RouteTarget target = routeFor(sql);
         Statement statement = createPhyStmt(sql, target);
@@ -812,8 +807,7 @@ public class LBStatement extends CUBRIDStatement {
     public String getQueryplan() throws SQLException {
         checkClosed();
         if (lastExecStmt == null) {
-            throw LbExceptions.noExecutionHistory(
-                    "getQueryplan() requires the statement to be executed first");
+            return super.getQueryplan(); // core's answer before any execution
         }
 
         lbConnection.settleReadLegRollback(false);
@@ -848,7 +842,6 @@ public class LBStatement extends CUBRIDStatement {
     }
 
     void setQueryInfoChecked(final boolean value) throws SQLException {
-        checkClosed();
         queryInfo = value;
         if (lastExecStmt instanceof CUBRIDStatement) {
             ((CUBRIDStatement) lastExecStmt).setQueryInfo(value);
@@ -865,7 +858,6 @@ public class LBStatement extends CUBRIDStatement {
     }
 
     void setOnlyQueryPlanChecked(final boolean value) throws SQLException {
-        checkClosed();
         onlyQueryPlan = value;
         if (lastExecStmt instanceof CUBRIDStatement) {
             ((CUBRIDStatement) lastExecStmt).setOnlyQueryPlan(value);
@@ -882,7 +874,6 @@ public class LBStatement extends CUBRIDStatement {
     }
 
     void setCurrentTransactionChecked(final boolean isFromCurrentTransaction) throws SQLException {
-        checkClosed();
         this.fromCurTxn = isFromCurrentTransaction;
 
         for (int i = 0; i < phyStmts.size(); i++) {
@@ -903,7 +894,6 @@ public class LBStatement extends CUBRIDStatement {
     }
 
     boolean isFromCurrentTransactionChecked() throws SQLException {
-        checkClosed();
         if (lastExecStmt instanceof CUBRIDStatement) {
             return ((CUBRIDStatement) lastExecStmt).isFromCurrentTransaction();
         }

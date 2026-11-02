@@ -33,6 +33,7 @@ package cubrid.jdbc.lb;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -144,33 +145,13 @@ public final class LoadBalanceConnectionCastTest {
         assertEquals(1, legs.roCharsets.get());
     }
 
-    /**
-     * {@code Login} used to answer null when the session had bound no physical connection yet. The
-     * key is the whole point of the call, so a null answer is not an answer — it surfaces later as
-     * a NullPointerException in the caller, at a place that no longer says which call produced it.
-     *
-     * <p>Unlike {@code setCharset}, this cannot be deferred and replayed: the key comes from the
-     * server, so there is nothing to remember.
-     */
+    /** Core's {@code Login} is a stub that answers null, bound or not; LB answers as core does. */
     @Test
-    public void loginRefusesOnAnUnboundSessionInsteadOfAnsweringNull() throws Exception {
+    public void loginAnswersAsCoreDoes() throws Exception {
         LoadBalanceConnection unbound = new LoadBalanceConnection(LbTestSettings.defaults());
 
-        try {
-            ((CUBRIDConnection) unbound).Login("signed-data");
-            fail("Login(String) must refuse on an unbound session");
-        } catch (SQLException refused) {
-            assertTrue(
-                    "the message must say what is missing: " + refused.getMessage(),
-                    refused.getMessage().indexOf("bound session") >= 0);
-        }
-
-        try {
-            ((CUBRIDConnection) unbound).Login(new byte[] {1, 2, 3});
-            fail("Login(byte[]) must refuse on an unbound session");
-        } catch (SQLException refused) {
-            assertTrue(refused.getMessage().indexOf("bound session") >= 0);
-        }
+        assertNull(((CUBRIDConnection) unbound).Login("signed-data"));
+        assertNull(((CUBRIDConnection) unbound).Login(new byte[] {1, 2, 3}));
     }
 
     /**

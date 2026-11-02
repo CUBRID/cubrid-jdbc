@@ -44,8 +44,9 @@ import org.junit.Test;
 
 public final class SessionConnChecklistTest {
 
+    /** The legs go first, so core's close() completes their statements as on one connection. */
     @Test
-    public void assertSC05CloseOrderStatementThenRelease() throws Exception {
+    public void assertSC05CloseOrderLegsThenStatements() throws Exception {
         final List<String> events = new ArrayList<String>();
         LoadBalanceConnection connection = createSessionConnection("round_robin", null);
         connection.trackStatement(createTrackingStatement(events));
@@ -62,9 +63,9 @@ public final class SessionConnChecklistTest {
 
         connection.close();
 
-        assertEquals("statementClosed", events.get(0));
-        assertEquals("releasePrepared", events.get(1));
-        assertEquals("releasePhysical", events.get(2));
+        assertEquals("releasePhysical", events.get(0));
+        assertEquals("statementClosed", events.get(1));
+        assertEquals("releasePrepared", events.get(2));
     }
 
     private static LoadBalanceConnection createSessionConnection(

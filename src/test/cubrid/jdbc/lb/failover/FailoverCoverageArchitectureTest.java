@@ -162,10 +162,6 @@ public final class FailoverCoverageArchitectureTest {
             "LoadBalanceConnection#setCASChangeMode", "2",
             "EXEMPT", "same family as forEachSessPhyConn"
         },
-        {
-            "LoadBalanceConnection#Login", "4",
-            "EXEMPT", "vendor login key applied to both legs; same family as forEachSessPhyConn"
-        },
 
         // --- EXEMPT: recovery would be meaningless or self-defeating ---
         {

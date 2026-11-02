@@ -57,6 +57,7 @@ import java.sql.Types;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.List;
+import java.util.TimeZone;
 import org.junit.Test;
 
 public class ParameterBinderTest {
@@ -251,11 +252,11 @@ public class ParameterBinderTest {
      * The goal is to match core, not to capture everything at set time.
      *
      * <p>LB keeps each setter as an operation and replays it at execute time; core binds inside the
-     * setter. That is observable only where core copies the value, and it copies exactly two kinds:
-     * {@code byte[]} ({@code UStatement.bind} clones it) and a collection array ({@code
-     * CUBRIDArray} shallow-clones it). Temporal values and arbitrary objects core keeps by
-     * reference and serializes at execute time, so copying those in LB would create a divergence,
-     * not remove one.
+     * setter. That is observable only where core copies or converts the value at set time: a {@code
+     * byte[]} ({@code UStatement.bind} clones it), a collection array ({@code CUBRIDArray}
+     * shallow-clones it) and the calendar forms of the temporal setters. A plain temporal value and
+     * an arbitrary object core keeps by reference and serializes at execute time, so copying those
+     * in LB would create a divergence, not remove one.
      *
      * <p>Against a classic connection to a live broker, a {@code Timestamp} mutated between {@code
      * setTimestamp} and {@code executeUpdate} lands in the row with its new value, a mutated {@code
@@ -314,22 +315,28 @@ public class ParameterBinderTest {
     }
 
     /**
-     * The Calendar overloads are not snapshotted either, and it does not matter: core ignores the
-     * Calendar and delegates to the two-argument form, so its value never reaches the server on
-     * either driver. Pinned so a reader does not add a copy here looking for parity that no
-     * observation can distinguish.
+     * Core converts a calendar form's value in the calendar's zone when it is set, so a later
+     * change to either does not reach the server. A {@code CUBRIDTimestamptz} it binds as it is.
      */
     @Test
-    public void assertCalendarIsPassedThroughUncopied() throws Exception {
-        Calendar cal = Calendar.getInstance();
-        cal.setTimeInMillis(5000L);
+    public void assertCalendarFormRecordsCopiesAsCoreConvertsAtSetTime() throws Exception {
+        Calendar cal = Calendar.getInstance(TimeZone.getTimeZone("UTC"));
+        Timestamp value = new Timestamp(1000L);
+        CUBRIDTimestamptz tz =
+                CUBRIDTimestamptz.valueOf("2026-08-21 10:00:00.000", true, "Asia/Seoul");
         ParameterBinder binder = new ParameterBinder();
-        binder.recordSetTimestamp(1, new Timestamp(1000L), cal);
+        binder.recordSetTimestamp(1, value, cal);
+        binder.recordSetTimestamp(2, tz, cal);
+        value.setTime(2000L);
+        cal.setTimeZone(TimeZone.getTimeZone("Asia/Seoul"));
 
         ValueCapturingHandler handler = new ValueCapturingHandler();
         binder.replay(handler.createProxy());
 
-        assertSame(cal, handler.lastArgument("setTimestamp"));
+        List<Object[]> calls = handler.calls("setTimestamp");
+        assertEquals(1000L, ((Timestamp) calls.get(0)[1]).getTime());
+        assertEquals("UTC", ((Calendar) calls.get(0)[2]).getTimeZone().getID());
+        assertSame(tz, calls.get(1)[1]);
     }
 
     /**
@@ -358,6 +365,8 @@ public class ParameterBinderTest {
 
         private final java.util.Map<String, Object> lastValues =
                 new java.util.HashMap<String, Object>();
+        private final java.util.Map<String, List<Object[]>> allCalls =
+                new java.util.HashMap<String, List<Object[]>>();
 
         private PreparedStatement createProxy() {
             return new FakePhysicalPreparedStatement() {
@@ -367,6 +376,7 @@ public class ParameterBinderTest {
                         // The value is the second argument; for the Calendar overloads the third is
                         // the one worth keeping, so it wins.
                         lastValues.put(name, args[args.length - 1]);
+                        calls(name).add(args.clone());
                     }
 
                     return null;
@@ -376,6 +386,15 @@ public class ParameterBinderTest {
 
         private Object lastArgument(final String setter) {
             return lastValues.get(setter);
+        }
+
+        private List<Object[]> calls(final String setter) {
+            List<Object[]> list = allCalls.get(setter);
+            if (list == null) {
+                list = new ArrayList<Object[]>();
+                allCalls.put(setter, list);
+            }
+            return list;
         }
     }
 

@@ -130,9 +130,17 @@ final class ParameterBinder {
         add(new SetDateOp(parameterIndex, value));
     }
 
+    /**
+     * Core converts the value in the calendar's zone when it is set (a plain setter keeps the
+     * reference), so the calendar forms record copies of both.
+     */
     void recordSetDate(final int parameterIndex, final Date value, final Calendar cal)
             throws SQLException {
-        add(new SetDateCalOp(parameterIndex, value, cal));
+        add(
+                value == null || cal == null
+                        ? new SetDateCalOp(parameterIndex, value, cal)
+                        : new SetDateCalOp(
+                                parameterIndex, (Date) value.clone(), (Calendar) cal.clone()));
     }
 
     void recordSetTime(final int parameterIndex, final Time value) throws SQLException {
@@ -141,16 +149,25 @@ final class ParameterBinder {
 
     void recordSetTime(final int parameterIndex, final Time value, final Calendar cal)
             throws SQLException {
-        add(new SetTimeCalOp(parameterIndex, value, cal));
+        add(
+                value == null || cal == null
+                        ? new SetTimeCalOp(parameterIndex, value, cal)
+                        : new SetTimeCalOp(
+                                parameterIndex, (Time) value.clone(), (Calendar) cal.clone()));
     }
 
     void recordSetTimestamp(final int parameterIndex, final Timestamp value) throws SQLException {
         add(new SetTimestampOp(parameterIndex, value));
     }
 
+    /** Core binds a {@code CUBRIDTimestamptz} as it is, ignoring the calendar. */
     void recordSetTimestamp(final int parameterIndex, final Timestamp value, final Calendar cal)
             throws SQLException {
-        add(new SetTimestampCalOp(parameterIndex, value, cal));
+        add(
+                value == null || cal == null || value instanceof cubrid.sql.CUBRIDTimestamptz
+                        ? new SetTimestampCalOp(parameterIndex, value, cal)
+                        : new SetTimestampCalOp(
+                                parameterIndex, (Timestamp) value.clone(), (Calendar) cal.clone()));
     }
 
     void recordSetBigDecimal(final int parameterIndex, final BigDecimal value) throws SQLException {
@@ -285,16 +302,18 @@ final class ParameterBinder {
      *
      * <p>LB keeps each {@code setXxx} as an operation and replays it at execute time, which is what
      * lets a failed execution retry on another leg. Core binds into the socket statement inside
-     * {@code setXxx}. The difference is observable only where core copies the value, and it copies
-     * exactly two kinds:
+     * {@code setXxx}. The difference is observable only where core copies or converts the value at
+     * set time:
      *
      * <ul>
      *   <li>{@code byte[]} - {@code UStatement.bind(int, byte[])} does {@code value.clone()}.
      *   <li>a collection array - {@code CUBRIDArray} shallow-clones the {@code Object[]} it is
      *       given.
+     *   <li>the calendar forms of {@code setDate}/{@code setTime}/{@code setTimestamp} - converted
+     *       in the calendar's zone.
      * </ul>
      *
-     * <p>Everything else ({@code Date}, {@code Time}, {@code Timestamp}, arbitrary objects) core
+     * <p>Everything else (a plain {@code Date}, {@code Time}, {@code Timestamp}, any object) core
      * stores by reference and serializes at execute time, so mutating one after the setter changes
      * what core sends too. Snapshotting those in LB would create a divergence rather than fix one.
      *

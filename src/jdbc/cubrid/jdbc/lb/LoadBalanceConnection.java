@@ -97,6 +97,8 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -141,6 +143,11 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      * session owns the value objects its legs produce; see {@code claimValueObjectOwnership}.
      */
     private final List<CUBRIDOutResultSet> openOutResultSets = new ArrayList<CUBRIDOutResultSet>();
+
+    // CallableStatements handed out unwrapped, with the leg each was prepared on. An RW failback
+    // closes that leg and them with it, so it waits until they are closed (hasOpenCallOn).
+    private final Map<CallableStatement, Connection> openCalls =
+            new IdentityHashMap<CallableStatement, Connection>();
 
     private final long connectionId = CONNECTION_SEQUENCE.getAndIncrement();
     private final RoutingMetricsRecorder routingMetrics;
@@ -2035,9 +2042,46 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                         true,
                         new SqlExecution<CallableStatement>() {
                             public CallableStatement run() throws SQLException {
-                                return getPhysicalConnForCmd(SessionLeg.RW).prepareCall(sql);
+                                final Connection rw = getPhysicalConnForCmd(SessionLeg.RW);
+                                return trackCall(rw.prepareCall(sql), rw);
                             }
                         }));
+    }
+
+    /** Remembers the leg a CallableStatement handed out lives on, forgetting closed ones. */
+    private CallableStatement trackCall(final CallableStatement call, final Connection leg) {
+        synchronized (openCalls) {
+            forgetClosedCalls();
+            openCalls.put(call, leg);
+        }
+
+        return call;
+    }
+
+    /** Whether a CallableStatement the application has not closed lives on {@code physical}. */
+    private boolean hasOpenCallOn(final Connection physical) {
+        synchronized (openCalls) {
+            forgetClosedCalls();
+            for (Connection leg : openCalls.values()) {
+                if (leg == physical) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private void forgetClosedCalls() {
+        for (Iterator<CallableStatement> it = openCalls.keySet().iterator(); it.hasNext(); ) {
+            try {
+                if (it.next().isClosed()) {
+                    it.remove();
+                }
+            } catch (SQLException unreadable) {
+                it.remove();
+            }
+        }
     }
 
     /**
@@ -2067,8 +2111,10 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                         true,
                         new SqlExecution<CallableStatement>() {
                             public CallableStatement run() throws SQLException {
-                                return getPhysicalConnForCmd(SessionLeg.RW)
-                                        .prepareCall(sql, resultSetType, resultSetConcurrency);
+                                final Connection rw = getPhysicalConnForCmd(SessionLeg.RW);
+                                return trackCall(
+                                        rw.prepareCall(sql, resultSetType, resultSetConcurrency),
+                                        rw);
                             }
                         }));
     }
@@ -2087,12 +2133,14 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                         true,
                         new SqlExecution<CallableStatement>() {
                             public CallableStatement run() throws SQLException {
-                                return getPhysicalConnForCmd(SessionLeg.RW)
-                                        .prepareCall(
+                                final Connection rw = getPhysicalConnForCmd(SessionLeg.RW);
+                                return trackCall(
+                                        rw.prepareCall(
                                                 sql,
                                                 resultSetType,
                                                 resultSetConcurrency,
-                                                resultSetHoldability);
+                                                resultSetHoldability),
+                                        rw);
                             }
                         }));
     }
@@ -3393,8 +3441,9 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         if (now - lastRwFailbackAttemptMs < config.getWriteFailbackProbeIntervalMs()) {
             return;
         }
-        if (hasOpenCursorOn(connMgr.boundConnection(SessionLeg.RW))) {
-            return; // retried at a later trigger, once the cursor is closed
+        final Connection rw = connMgr.boundConnection(SessionLeg.RW);
+        if (hasOpenCursorOn(rw) || hasOpenCallOn(rw)) {
+            return; // retried at a later trigger, once the cursor or the call is closed
         }
         lastRwFailbackAttemptMs = now;
 

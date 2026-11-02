@@ -684,7 +684,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
 
     @Override
     public void close() throws SQLException {
-        if (statementDelegate.isClosed()) {
+        if (statementDelegate.isClosed() || ownerConn.isStatementCached(sql)) {
             return;
         }
         try {

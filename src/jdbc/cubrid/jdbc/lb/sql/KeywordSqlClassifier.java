@@ -402,18 +402,26 @@ final class KeywordSqlClassifier implements SqlClassifier {
         boolean sawUnsafe = false;
 
         while (i < len) {
-            // Dot-qualified quoted identifier: seq."NEXTVAL" / seq.[NEXTVAL] / seq.`NEXTVAL`. These
-            // reference the serial pseudo-column just like the unquoted seq.NEXTVAL, so extract the
-            // inner name and apply the same write/session check. Must run BEFORE the lexer skip,
-            // which would otherwise swallow the quoted region and miss the serial increment.
-            if (prevWasDot && isQuotedIdentifierStart(sql.charAt(i))) {
+            // A quoted name is the name the engine looks up: seq."NEXTVAL" is the serial
+            // pseudo-column, and "INCR"(c) or [my_fn](x) is the same call as the unquoted one. A
+            // quoted name is never a keyword, so only a read-only built-in name stays a read. Must
+            // run BEFORE the lexer skip, which would otherwise step over the name.
+            if (isQuotedIdentifierStart(sql.charAt(i))) {
                 final int qend = SqlLexer.skipCommentOrQuoted(sql, i);
-                final int effect =
-                        serialPseudoColumnEffect(extractQuotedIdentifierUpper(sql, i, qend));
+                final String name = extractQuotedIdentifierUpper(sql, i, qend);
+                final int effect = prevWasDot ? serialPseudoColumnEffect(name) : SERIAL_NONE;
                 if (effect == SERIAL_WRITE) {
                     sawWrite = true;
                 } else if (effect == SERIAL_UNSAFE) {
                     sawUnsafe = true;
+                } else if (isFunctionCallAt(sql, qend)
+                        && !BuiltinFunctionCatalog.isReadOnlyBuiltin(name)
+                        && !isColumnListAt(name, prevWord, wordBefore, prevWasValue)) {
+                    if (BuiltinFunctionCatalog.isWriteEffectBuiltin(name)) {
+                        sawWrite = true;
+                    } else {
+                        sawUnsafe = true;
+                    }
                 }
                 prevWasFor = false;
                 prevWasDot = false;
@@ -426,12 +434,12 @@ final class KeywordSqlClassifier implements SqlClassifier {
 
             final int after = SqlLexer.skipCommentOrQuoted(sql, i);
             if (after != i) {
-                // A string literal or quoted name is a token; a comment is not.
-                final char first = sql.charAt(i);
-                if (first == '\'' || isQuotedIdentifierStart(first)) {
+                // A string literal is a token; a comment is not.
+                if (sql.charAt(i) == '\'') {
+                    prevWasDot = false;
                     wordBefore = prevWord;
                     prevWord = null;
-                    prevWasValue = first == '\'';
+                    prevWasValue = true;
                 }
                 i = after;
                 continue;
@@ -508,7 +516,9 @@ final class KeywordSqlClassifier implements SqlClassifier {
                 continue;
             }
 
-            if (c == '.') {
+            // seq->NEXTVAL is the same path as seq.NEXTVAL.
+            final boolean pathArrow = isPathArrowAt(sql, i);
+            if (c == '.' || pathArrow) {
                 prevWasDot = true;
                 clickCounterStep = 0;
             } else if (!Character.isWhitespace(c)) {
@@ -524,7 +534,7 @@ final class KeywordSqlClassifier implements SqlClassifier {
                 prevWord = null;
                 prevWasValue = c == '?';
             }
-            i++;
+            i += pathArrow ? 2 : 1;
         }
 
         if (sawWrite) {
@@ -543,6 +553,11 @@ final class KeywordSqlClassifier implements SqlClassifier {
         return sql.charAt(pos) == ':'
                 && pos + 1 < sql.length()
                 && isIdentifierStart(sql.charAt(pos + 1));
+    }
+
+    /** The engine's path operator {@code ->} of {@code seq->NEXTVAL}; not JSON's {@code ->>}. */
+    private static boolean isPathArrowAt(final String sql, final int pos) {
+        return sql.startsWith("->", pos) && !sql.startsWith("->>", pos);
     }
 
     /** Next step through {@code WITH {INCREMENT|DECREMENT} FOR}: 1 after WITH, 2 after its verb. */
@@ -684,13 +699,12 @@ final class KeywordSqlClassifier implements SqlClassifier {
     }
 
     /**
-     * CUBRID identifiers are not ASCII-only, and an identifier this scanner cannot see is one whose
-     * {@code (} never registers as a call: a SELECT over a user routine with a non-ASCII name read
-     * as a plain READ and routed to RO, while the same routine named in ASCII is UNKNOWN -> RW.
-     * {@link HintParser} already scans words this way.
+     * The engine lexer's identifier characters: ASCII letters, {@code _}, {@code #} and every
+     * non-ASCII character. A name cut short here is one whose {@code (} never registers as a call,
+     * so a user routine named {@code pt#} or {@code 적립★} would read as a plain READ.
      */
     static boolean isIdentifierStart(final char ch) {
-        return Character.isLetter(ch) || ch == '_';
+        return isAsciiLetter(ch) || ch == '_' || ch == '#' || ch >= 0x80;
     }
 
     /** Opening delimiter of a quoted identifier: ANSI {@code "}, CUBRID {@code [}, backtick. */
@@ -729,7 +743,11 @@ final class KeywordSqlClassifier implements SqlClassifier {
     }
 
     private static boolean isIdentifierPart(final char ch) {
-        return Character.isLetterOrDigit(ch) || ch == '_';
+        return isIdentifierStart(ch) || ('0' <= ch && ch <= '9');
+    }
+
+    private static boolean isAsciiLetter(final char ch) {
+        return ('a' <= ch && ch <= 'z') || ('A' <= ch && ch <= 'Z');
     }
 
     private static String normalizeLeading(final String sql) {

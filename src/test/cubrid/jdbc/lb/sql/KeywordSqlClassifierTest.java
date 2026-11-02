@@ -803,6 +803,72 @@ public class KeywordSqlClassifierTest {
     }
 
     /**
+     * The engine resolves a quoted name before {@code (} by its unquoted name, so a quoted call is
+     * the same call: a user routine, a write built-in, or a session function.
+     */
+    @Test
+    public void assertQuotedNameCallIsClassifiedLikeTheUnquotedCall() {
+        assertEquals(
+                SqlClassification.UNKNOWN,
+                classifier.classify("SELECT \"upd_point\"(?) FROM db_root"));
+        assertEquals(
+                SqlClassification.UNKNOWN,
+                classifier.classify("SELECT [upd_point](?) FROM db_root"));
+        assertEquals(
+                SqlClassification.UNKNOWN,
+                classifier.classify("SELECT `upd_point`(?) FROM db_root"));
+        assertEquals(
+                SqlClassification.UNKNOWN,
+                classifier.classify("SELECT \"dba\".\"upd_point\"(?) FROM db_root"));
+        assertEquals(
+                SqlClassification.WRITE,
+                classifier.classify("SELECT \"INCR\"(hit) FROM board WHERE id = ?"));
+        assertEquals(
+                SqlClassification.WRITE,
+                classifier.classify("SELECT [serial_next_value](ord_seq, 1) FROM db_root"));
+        assertEquals(SqlClassification.UNKNOWN, classifier.classify("SELECT \"LAST_INSERT_ID\"()"));
+        // A quoted name is never a keyword, so a quoted WHERE before "(" calls a routine.
+        assertEquals(SqlClassification.UNKNOWN, classifier.classify("SELECT \"where\"(a) FROM t"));
+
+        assertEquals(SqlClassification.READ, classifier.classify("SELECT \"UPPER\"(name) FROM t"));
+        assertEquals(SqlClassification.READ, classifier.classify("SELECT \"upd_point\" FROM t"));
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify("SELECT * FROM (SELECT 1) AS \"x\"(\"a\")"));
+    }
+
+    /** The engine's identifiers also take {@code #} and every non-ASCII character. */
+    @Test
+    public void assertCallWhoseNameHasHashOrSymbolIsNotReadOnly() {
+        assertEquals(
+                SqlClassification.UNKNOWN,
+                classifier.classify("SELECT upd_point#(?) FROM db_root"));
+        assertEquals(
+                SqlClassification.UNKNOWN, classifier.classify("SELECT 포인트적립①(?) FROM db_root"));
+        assertEquals(SqlClassification.UNKNOWN, classifier.classify("SELECT 적립★(?) FROM db_root"));
+
+        assertEquals(SqlClassification.READ, classifier.classify("SELECT a#b, 적립★ FROM t"));
+    }
+
+    /** {@code seq->NEXTVAL} is the serial pseudo-column just like {@code seq.NEXTVAL}. */
+    @Test
+    public void assertArrowQualifiedSerialPseudoColumnIsNotReadOnly() {
+        assertEquals(
+                SqlClassification.WRITE,
+                classifier.classify("SELECT ord_seq->nextval FROM db_root"));
+        assertEquals(
+                SqlClassification.WRITE,
+                classifier.classify("SELECT ord_seq -> NEXT_VALUE FROM db_root"));
+        assertEquals(
+                SqlClassification.UNKNOWN,
+                classifier.classify("SELECT ord_seq->currval FROM db_root"));
+
+        // JSON paths after -> and ->> are strings.
+        assertEquals(SqlClassification.READ, classifier.classify("SELECT doc->'$.a' FROM t"));
+        assertEquals(SqlClassification.READ, classifier.classify("SELECT doc->>'$.a' FROM t"));
+    }
+
+    /**
      * 05 §M2: an unsafe keyword used as a bracket/backtick-quoted identifier is a plain column
      * reference, not the keyword — must stay READ (mirrors the double-quoted-identifier case).
      */

@@ -139,19 +139,37 @@ public class CUBRIDCopyLoader {
         if (sql == null || from == null) {
             throw con.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
         }
-        if (bufferSize <= 0) {
+        /* the buffer below holds one char more */
+        if (bufferSize <= 0 || bufferSize == Integer.MAX_VALUE) {
             throw con.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
         }
 
-        /* before open (): failing to allocate must not leave a stream open */
-        char[] buffer = new char[bufferSize];
+        /* One char more than a read asks for: a high surrogate that ends a
+         * read is held there for its low half, because encoding the two
+         * halves apart turns each into '?'. Allocated before open (), so a
+         * failure to allocate leaves no stream open. */
+        char[] buffer = new char[bufferSize + 1];
+        int held = 0;
 
         open(sql);
 
         try {
             int len;
-            while ((len = from.read(buffer)) > 0) {
-                byte[] encoded = new String(buffer, 0, len).getBytes("UTF-8");
+            while ((len = from.read(buffer, held, bufferSize)) > 0) {
+                int end = held + len;
+                held = Character.isHighSurrogate(buffer[end - 1]) ? 1 : 0;
+                byte[] encoded = new String(buffer, 0, end - held).getBytes("UTF-8");
+                if (encoded.length > 0) {
+                    con.streamData(encoded, 0, encoded.length);
+                }
+                if (held > 0) {
+                    buffer[0] = buffer[end - 1];
+                }
+            }
+            /* No low half follows the end of the input; encode the high
+             * surrogate alone, as encoding the whole text would. */
+            if (held > 0) {
+                byte[] encoded = new String(buffer, 0, held).getBytes("UTF-8");
                 con.streamData(encoded, 0, encoded.length);
             }
         } catch (UnsupportedEncodingException e) {

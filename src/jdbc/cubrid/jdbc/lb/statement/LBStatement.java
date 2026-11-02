@@ -184,7 +184,9 @@ public class LBStatement extends CUBRIDStatement {
             return new int[0];
         }
 
-        RouteTarget target = routeForBatch();
+        // Core runs a batch in its one session, where a routine behind a view can write; the read
+        // leg would refuse it and a batch is not run again, so every batch runs on RW.
+        final RouteTarget target = RouteTarget.TO_READ_WRITE;
 
         try {
             Statement statement = createPhyStmt(batchedSql.get(0), target);
@@ -967,18 +969,6 @@ public class LBStatement extends CUBRIDStatement {
                                     }
                                 })
                         .getTarget());
-    }
-
-    private RouteTarget routeForBatch() {
-        // A batch routes to RW if any statement is a write; otherwise it routes to the read target
-        // (TO_READ_ONLY) rather than promoting to RW.
-        for (int i = 0; i < batchedSql.size(); i++) {
-            if (routeFor(batchedSql.get(i)) == RouteTarget.TO_READ_WRITE) {
-                return RouteTarget.TO_READ_WRITE;
-            }
-        }
-
-        return RouteTarget.TO_READ_ONLY;
     }
 
     private void closePhyStmts() throws SQLException {

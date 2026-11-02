@@ -179,18 +179,22 @@ public final class LBStatementExecutePathTest {
         assertEquals("SELECT 2", context.batchedSql.get(1));
     }
 
+    /**
+     * Core sends a batch to its one session, so a routine behind a view writes there. The read leg
+     * would refuse it, and a batch is not run again on RW, so a batch runs on RW whatever it holds.
+     */
     @Test
-    public void assertExecuteBatchUsesReadOnlyWhenAllReadSql() throws Exception {
+    public void assertExecuteBatchRunsOnMasterEvenWhenAllReadSql() throws Exception {
         LBStatement statement = new LBStatement(connection);
         DelegationContext context = new DelegationContext();
         statement.setStatementProvider(context);
         statement.addBatch("SELECT 1");
-        statement.addBatch("SELECT 2");
+        statement.addBatch("SELECT /*+ TO_RO */ 2 FROM t");
 
         int[] result = statement.executeBatch();
 
-        assertEquals(1, context.readOnlyCreateCount);
-        assertEquals(0, context.masterCreateCount);
+        assertEquals(0, context.readOnlyCreateCount);
+        assertEquals(1, context.masterCreateCount);
         assertEquals(2, result.length);
     }
 
@@ -224,38 +228,6 @@ public final class LBStatementExecutePathTest {
 
         assertEquals(0, context.readOnlyCreateCount);
         assertEquals(1, context.masterCreateCount);
-    }
-
-    /**
-     * A TO_RO-hinted read and a plain read both classify as READ targets, so a batch of them must
-     * not be promoted to Master — the batch routes to RO because no element is a write.
-     */
-    @Test
-    public void assertExecuteBatchKeepsReadOnlyWhenMixedReadTargets() throws Exception {
-        LBStatement statement = new LBStatement(connection);
-        DelegationContext context = new DelegationContext();
-        statement.setStatementProvider(context);
-        statement.addBatch("SELECT /*+ TO_RO */ 1 FROM t");
-        statement.addBatch("SELECT 2 FROM t");
-
-        statement.executeBatch();
-
-        assertEquals(1, context.readOnlyCreateCount);
-        assertEquals(0, context.masterCreateCount);
-    }
-
-    @Test
-    public void assertExecuteBatchKeepsReadOnlyWhenAllReadElements() throws Exception {
-        LBStatement statement = new LBStatement(connection);
-        DelegationContext context = new DelegationContext();
-        statement.setStatementProvider(context);
-        statement.addBatch("SELECT 1 FROM t");
-        statement.addBatch("SELECT 2 FROM t");
-
-        statement.executeBatch();
-
-        assertEquals(1, context.readOnlyCreateCount);
-        assertEquals(0, context.masterCreateCount);
     }
 
     @Test

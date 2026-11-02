@@ -82,8 +82,9 @@ public final class CommandCoverageFollowupTest {
         assertSame(generatedKeys, statement.getGeneratedKeys());
     }
 
+    /** A batch runs on RW whatever it holds, as core runs it in its one session. */
     @Test
-    public void assertExecuteBatchStatementFollowsBatchClassificationRule() throws Exception {
+    public void assertExecuteBatchStatementRunsOnRwWhateverItHolds() throws Exception {
         LoadBalanceConnection connection = createSessionConnection();
         LBStatement statement = (LBStatement) connection.createStatement();
         final List<RouteTarget> targets = new ArrayList<RouteTarget>();
@@ -105,7 +106,7 @@ public final class CommandCoverageFollowupTest {
         statement.addBatch("INSERT INTO t(id) VALUES (1)");
         statement.executeBatch();
 
-        assertEquals(RouteTarget.TO_READ_ONLY, targets.get(0));
+        assertEquals(RouteTarget.TO_READ_WRITE, targets.get(0));
         assertEquals(RouteTarget.TO_READ_WRITE, targets.get(1));
     }
 

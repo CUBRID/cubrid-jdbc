@@ -314,7 +314,8 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
             return new int[0];
         }
 
-        final RouteTarget target = resolveRouteTarget();
+        // As in LBStatement.executeBatch, every batch runs on RW.
+        final RouteTarget target = RouteTarget.TO_READ_WRITE;
         PreparedStatement physicalStatement = physicalPsForTarget(target);
         // The cached physical statement may still hold rows of an earlier attempt that failed.
         physicalStatement.clearBatch();

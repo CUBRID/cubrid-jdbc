@@ -179,6 +179,7 @@ public class LBPreparedStatementExecutionTest {
         assertTrue(context.calls.contains("setString:2:b"));
     }
 
+    /** A batch runs on RW even for a read, as core runs it in its one session. */
     @Test
     public void assertPreparedExecuteBatchDelegatesToBoundPhysicalStatement() throws Exception {
         LBPreparedStatement statement =
@@ -191,7 +192,7 @@ public class LBPreparedStatementExecutionTest {
         int[] result = statement.executeBatch();
 
         assertEquals(1, result.length);
-        assertEquals(RouteTarget.TO_READ_ONLY, context.lastTarget);
+        assertEquals(RouteTarget.TO_READ_WRITE, context.lastTarget);
         assertTrue(context.calls.contains("executeBatch"));
     }
 

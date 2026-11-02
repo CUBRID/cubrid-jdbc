@@ -32,6 +32,7 @@ package cubrid.jdbc.lb.statement;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import cubrid.jdbc.lb.LbTestAccess;
 import cubrid.jdbc.lb.LbTestSettings;
@@ -92,10 +93,11 @@ public final class LBStatementAffinityCommandTest {
         statement.setStatementProvider(context);
 
         String bySql = statement.getQueryplan("SELECT 1");
+        statement.executeQuery("SELECT 1");
         String byLast = statement.getQueryplan();
 
         assertEquals("qp:stmt#1:sql", bySql);
-        assertEquals("qp:stmt#1:last", byLast);
+        assertEquals("qp:stmt#2:last", byLast);
     }
 
     @Test
@@ -126,6 +128,51 @@ public final class LBStatementAffinityCommandTest {
         assertEquals(2, context.closedStatements);
     }
 
+    /** A run on another statement closes the previous result set, as core's re-execute does. */
+    @Test
+    public void assertExecutionOnAnotherStatementClosesThePreviousResultSet() throws Exception {
+        LBStatement statement = new LBStatement(connection);
+        AffinityContext context = new AffinityContext();
+        statement.setStatementProvider(context);
+
+        statement.executeQuery("SELECT * FROM t");
+        statement.executeQuery("SELECT * FROM t");
+
+        assertTrue(context.calls.contains("rs#1:close"));
+    }
+
+    /** Core changes the update count only when an execution succeeds. */
+    @Test
+    public void assertFailedExecutionKeepsTheUpdateCountOfTheLastSuccess() throws Exception {
+        LBStatement statement = new LBStatement(connection);
+        AffinityContext context = new AffinityContext();
+        statement.setStatementProvider(context);
+
+        statement.executeUpdate("UPDATE t SET v = 1");
+        context.failNextExecute = true;
+        try {
+            statement.executeUpdate("UPDATE nope SET v = 1");
+            fail("expected the execution to fail");
+        } catch (SQLException expected) {
+        }
+
+        assertEquals(1, statement.getUpdateCount());
+    }
+
+    /** Core remakes the generated keys only in executeUpdate/execute, not in executeQuery. */
+    @Test
+    public void assertQueryKeepsTheGeneratedKeysOfTheLastUpdate() throws Exception {
+        LBStatement statement = new LBStatement(connection);
+        AffinityContext context = new AffinityContext();
+        statement.setStatementProvider(context);
+
+        statement.executeUpdate("INSERT INTO t(id) VALUES (1)", Statement.RETURN_GENERATED_KEYS);
+        statement.executeQuery("SELECT * FROM t");
+        statement.getGeneratedKeys();
+
+        assertTrue(context.calls.contains("stmt#1:getGeneratedKeys"));
+    }
+
     private static final class AffinityContext implements LBStatement.PhysicalStmtProvider {
 
         private final List<String> calls = new ArrayList<String>();
@@ -137,6 +184,8 @@ public final class LBStatementAffinityCommandTest {
         private boolean nextExecuteResult;
 
         private boolean nextMoreResultsResult;
+
+        private boolean failNextExecute;
 
         public Statement getStatement(final RouteTarget target, final String rawSql)
                 throws SQLException {
@@ -154,7 +203,14 @@ public final class LBStatementAffinityCommandTest {
                     }
                     if ("executeUpdate".equals(name)) {
                         calls.add("stmt#" + statementId + ":executeUpdate");
+                        if (failNextExecute) {
+                            failNextExecute = false;
+                            throw new SQLException("nope is not defined", null, -494);
+                        }
                         return Integer.valueOf(1);
+                    }
+                    if ("getUpdateCount".equals(name)) {
+                        return Integer.valueOf(statementId);
                     }
                     if ("execute".equals(name)) {
                         calls.add("stmt#" + statementId + ":execute");

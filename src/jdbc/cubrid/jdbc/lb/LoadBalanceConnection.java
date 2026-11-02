@@ -816,11 +816,30 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             final int resultSetConcurrency,
             final int resultSetHoldability) {
         return new LBStatement.PhysicalStmtProvider() {
+            // One per leg connection, as core runs every execution of a statement on one object.
+            private final Map<Connection, Statement> byLeg =
+                    new IdentityHashMap<Connection, Statement>();
+
             public Statement getStatement(final RouteTarget target, final String rawSql)
                     throws SQLException {
                 Endpoint endpoint = routeStatement(target, rawSql);
                 Connection physical = requireConnMgr().getPhyConn(endpoint);
 
+                Statement reused = byLeg.get(physical);
+                if (reused != null && !reused.isClosed()) {
+                    return reused;
+                }
+                for (Iterator<Statement> it = byLeg.values().iterator(); it.hasNext(); ) {
+                    if (it.next().isClosed()) {
+                        it.remove(); // its leg was replaced
+                    }
+                }
+                Statement created = create(physical);
+                byLeg.put(physical, created);
+                return created;
+            }
+
+            private Statement create(final Connection physical) throws SQLException {
                 try {
                     return physical.createStatement(
                             resultSetType, resultSetConcurrency, resultSetHoldability);

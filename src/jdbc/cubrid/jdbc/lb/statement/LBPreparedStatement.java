@@ -236,7 +236,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
                             public ResultSet run() throws SQLException {
                                 PreparedStatement physicalStatement = physicalPsWithParams(target);
                                 ResultSet result = physicalStatement.executeQuery();
-                                statementDelegate.recordExec(physicalStatement, result, -1);
+                                statementDelegate.recordExec(physicalStatement, result, false);
                                 return result;
                             }
                         }),
@@ -256,7 +256,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
                             public Integer run() throws SQLException {
                                 PreparedStatement physicalStatement = physicalPsWithParams(target);
                                 int n = physicalStatement.executeUpdate();
-                                statementDelegate.recordExec(physicalStatement, null, n);
+                                statementDelegate.recordExec(physicalStatement, null, true);
                                 return Integer.valueOf(n);
                             }
                         })
@@ -277,8 +277,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
                                 PreparedStatement physicalStatement = physicalPsWithParams(target);
                                 boolean hasResult = physicalStatement.execute();
                                 ResultSet rs = hasResult ? physicalStatement.getResultSet() : null;
-                                int uc = hasResult ? -1 : physicalStatement.getUpdateCount();
-                                statementDelegate.recordExec(physicalStatement, rs, uc);
+                                statementDelegate.recordExec(physicalStatement, rs, true);
                                 return Boolean.valueOf(hasResult);
                             }
                         })
@@ -364,9 +363,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
             physicalStatement.addBatch();
         }
 
-        int[] counts = physicalStatement.executeBatch();
-        statementDelegate.recordExec(physicalStatement, null, -1);
-        return counts;
+        return physicalStatement.executeBatch();
     }
 
     /**
@@ -681,7 +678,6 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
 
         CUBRIDOID oid = invokeExecInsert(physicalStatement);
         ownerConn.afterStatementSucceeded(sql, target);
-        statementDelegate.recordExec(physicalStatement, null, -1);
 
         return oid;
     }
@@ -1154,15 +1150,12 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         PreparedStatement ps =
                 phyPsProvider.getPreparedStatement(statementDelegate.effectiveTarget(target), sql);
         rememberPrepared(ps);
-        statementDelegate.closeResultOfAnotherStatement(ps);
         // The physical PS comes from the session cache, so statement attributes (queryTimeout,
         // maxRows, fetchSize, maxFieldSize, escapeProcessing) are re-applied on every execution:
         // another logical PS sharing the endpoint may have changed them.
         // applyStmtProps also invokes applyVendorFlags.
         statementDelegate.applyStmtProps(ps);
-        // Publish before executeQuery/executeUpdate/execute/executeBatch runs so cancel() can reach
-        // the in-flight physical statement rather than the previous one.
-        statementDelegate.publishExecStmt(ps);
+        statementDelegate.beginExecution(ps);
 
         return ps;
     }

@@ -458,6 +458,27 @@ public final class LoadBalanceConnectionMetadataProxyTest {
         assertEquals("unsupported holdability -> fell back to 2-arg", 1, twoArgCalls.get());
     }
 
+    /** Core runs every execution of a statement on one object, so the provider keeps its leg's. */
+    @Test
+    public void assertCreateStatementReusesTheLegStatement() throws Exception {
+        LoadBalanceConnection connection = createBoundConnection();
+        AtomicInteger threeArgCalls = new AtomicInteger();
+        AtomicInteger twoArgCalls = new AtomicInteger();
+        bindRwPhysical(
+                connection, physicalConnFailingThreeArgCreate(threeArgCalls, twoArgCalls, true));
+
+        LBStatement.PhysicalStmtProvider provider =
+                connection.createStatementProvider(
+                        ResultSet.TYPE_FORWARD_ONLY,
+                        ResultSet.CONCUR_UPDATABLE,
+                        ResultSet.HOLD_CURSORS_OVER_COMMIT);
+        Statement first = provider.getStatement(RouteTarget.TO_READ_WRITE, "UPDATE t SET v=1");
+        Statement second = provider.getStatement(RouteTarget.TO_READ_WRITE, "UPDATE t SET v=2");
+
+        assertSame(first, second);
+        assertEquals(1, twoArgCalls.get());
+    }
+
     // A non-holdability error (e.g. broker down) must propagate unchanged, not be masked
     // by a second createStatement call surfacing a different, misleading error.
     @Test
@@ -547,7 +568,9 @@ public final class LoadBalanceConnectionMetadataProxyTest {
                                                                 final Object p,
                                                                 final Method m,
                                                                 final Object[] a) {
-                                                            return null;
+                                                            return "isClosed".equals(m.getName())
+                                                                    ? Boolean.FALSE
+                                                                    : null;
                                                         }
                                                     });
                                 }

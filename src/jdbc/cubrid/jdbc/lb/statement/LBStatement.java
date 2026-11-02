@@ -74,7 +74,11 @@ public class LBStatement extends CUBRIDStatement {
     // call returns) so a concurrent cancel() targets the in-flight physical statement.
     private volatile Statement currentExecStmt;
     private ResultSet lastRs;
-    private int lastUpdCnt = -1;
+    // The leg statements whose update count and generated keys are this statement's: core changes
+    // them only when an execution succeeds, so a later failure, or a run on another leg, keeps
+    // them.
+    private Statement countStmt;
+    private Statement keysStmt;
     private PhysicalStmtProvider stmtProvider = new UnsupportedStmtProvider();
     // True while a READ the read-only broker refused runs again on RW (see executeWithFailover).
     private boolean rejectedReadRetry = false;
@@ -129,9 +133,7 @@ public class LBStatement extends CUBRIDStatement {
                             public ResultSet run() throws SQLException {
                                 Statement statement = createPhyStmt(executedSql, target);
                                 ResultSet result = statement.executeQuery(executedSql);
-                                lastExecStmt = statement;
-                                lastRs = result;
-                                lastUpdCnt = -1;
+                                recordExec(statement, result, false);
                                 return result;
                             }
                         }),
@@ -150,9 +152,7 @@ public class LBStatement extends CUBRIDStatement {
                             public Integer run() throws SQLException {
                                 Statement statement = createPhyStmt(executedSql, target);
                                 int result = statement.executeUpdate(executedSql);
-                                lastExecStmt = statement;
-                                lastRs = null;
-                                lastUpdCnt = result;
+                                recordExec(statement, null, true);
                                 return Integer.valueOf(result);
                             }
                         })
@@ -171,9 +171,8 @@ public class LBStatement extends CUBRIDStatement {
                             public Boolean run() throws SQLException {
                                 Statement statement = createPhyStmt(executedSql, target);
                                 boolean result = statement.execute(executedSql);
-                                lastExecStmt = statement;
-                                lastRs = result ? statement.getResultSet() : null;
-                                lastUpdCnt = result ? -1 : statement.getUpdateCount();
+                                recordExec(
+                                        statement, result ? statement.getResultSet() : null, true);
                                 return Boolean.valueOf(result);
                             }
                         })
@@ -205,17 +204,16 @@ public class LBStatement extends CUBRIDStatement {
                                         public int[] run() throws SQLException {
                                             Statement statement =
                                                     createPhyStmt(batchedSql.get(0), target);
+                                            // The leg's statement keeps a batch core kept after
+                                            // a failed request; this run sends this batch only.
+                                            statement.clearBatch();
                                             for (int i = 0; i < batchedSql.size(); i++) {
                                                 statement.addBatch(batchedSql.get(i));
                                             }
-                                            int[] counts = statement.executeBatch();
-                                            lastExecStmt = statement;
-                                            return counts;
+                                            return statement.executeBatch();
                                         }
                                     });
             afterBatchSucceeded(batchedSql, target);
-            lastRs = null;
-            lastUpdCnt = -1;
 
             return result;
         } finally {
@@ -250,9 +248,8 @@ public class LBStatement extends CUBRIDStatement {
                             public Boolean run() throws SQLException {
                                 Statement statement = createPhyStmt(executedSql, target);
                                 boolean result = statement.execute(executedSql, keys);
-                                lastExecStmt = statement;
-                                lastRs = result ? statement.getResultSet() : null;
-                                lastUpdCnt = result ? -1 : statement.getUpdateCount();
+                                recordExec(
+                                        statement, result ? statement.getResultSet() : null, true);
                                 return Boolean.valueOf(result);
                             }
                         })
@@ -272,9 +269,8 @@ public class LBStatement extends CUBRIDStatement {
                             public Boolean run() throws SQLException {
                                 Statement statement = createPhyStmt(executedSql, target);
                                 boolean result = statement.execute(executedSql, indexes);
-                                lastExecStmt = statement;
-                                lastRs = result ? statement.getResultSet() : null;
-                                lastUpdCnt = result ? -1 : statement.getUpdateCount();
+                                recordExec(
+                                        statement, result ? statement.getResultSet() : null, true);
                                 return Boolean.valueOf(result);
                             }
                         })
@@ -294,9 +290,8 @@ public class LBStatement extends CUBRIDStatement {
                             public Boolean run() throws SQLException {
                                 Statement statement = createPhyStmt(executedSql, target);
                                 boolean result = statement.execute(executedSql, names);
-                                lastExecStmt = statement;
-                                lastRs = result ? statement.getResultSet() : null;
-                                lastUpdCnt = result ? -1 : statement.getUpdateCount();
+                                recordExec(
+                                        statement, result ? statement.getResultSet() : null, true);
                                 return Boolean.valueOf(result);
                             }
                         })
@@ -316,9 +311,7 @@ public class LBStatement extends CUBRIDStatement {
                             public Integer run() throws SQLException {
                                 Statement statement = createPhyStmt(executedSql, target);
                                 int result = statement.executeUpdate(executedSql, keys);
-                                lastExecStmt = statement;
-                                lastRs = null;
-                                lastUpdCnt = result;
+                                recordExec(statement, null, true);
                                 return Integer.valueOf(result);
                             }
                         })
@@ -338,9 +331,7 @@ public class LBStatement extends CUBRIDStatement {
                             public Integer run() throws SQLException {
                                 Statement statement = createPhyStmt(executedSql, target);
                                 int result = statement.executeUpdate(executedSql, indexes);
-                                lastExecStmt = statement;
-                                lastRs = null;
-                                lastUpdCnt = result;
+                                recordExec(statement, null, true);
                                 return Integer.valueOf(result);
                             }
                         })
@@ -360,9 +351,7 @@ public class LBStatement extends CUBRIDStatement {
                             public Integer run() throws SQLException {
                                 Statement statement = createPhyStmt(executedSql, target);
                                 int result = statement.executeUpdate(executedSql, names);
-                                lastExecStmt = statement;
-                                lastRs = null;
-                                lastUpdCnt = result;
+                                recordExec(statement, null, true);
                                 return Integer.valueOf(result);
                             }
                         })
@@ -370,12 +359,9 @@ public class LBStatement extends CUBRIDStatement {
     }
 
     /* ===== result metadata =====*/
+    /** The leg statement's own answer: core drops a result set that was closed or completed. */
     public ResultSet getResultSet() throws SQLException {
         checkClosed();
-        if (lastRs != null) {
-            return stampProducer(lastRs, this);
-        }
-
         if (lastExecStmt == null) {
             return null;
         }
@@ -385,11 +371,11 @@ public class LBStatement extends CUBRIDStatement {
 
     public int getUpdateCount() throws SQLException {
         checkClosed();
-        if (lastExecStmt == null) {
-            return lastUpdCnt;
+        if (countStmt == null) {
+            return -1; // core's before any execution
         }
 
-        return lastExecStmt.getUpdateCount();
+        return countStmt.getUpdateCount();
     }
 
     public boolean getMoreResults() throws SQLException {
@@ -400,6 +386,7 @@ public class LBStatement extends CUBRIDStatement {
 
         boolean result = lastExecStmt.getMoreResults();
         lastRs = result ? lastExecStmt.getResultSet() : null;
+        countStmt = lastExecStmt;
 
         return result;
     }
@@ -409,16 +396,16 @@ public class LBStatement extends CUBRIDStatement {
     }
 
     /**
-     * Before any execution, core's own answer (an empty result set); after one, the physical
-     * statement's keys as core makes them, with no producing statement.
+     * Before any update, core's own answer (an empty result set); after one, the leg statement's
+     * keys as core makes them, with no producing statement.
      */
     public ResultSet getGeneratedKeys() throws SQLException {
         checkClosed();
-        if (lastExecStmt == null) {
+        if (keysStmt == null) {
             return super.getGeneratedKeys();
         }
 
-        return lastExecStmt.getGeneratedKeys();
+        return keysStmt.getGeneratedKeys();
     }
 
     /* ===== property accessors =====*/
@@ -518,7 +505,8 @@ public class LBStatement extends CUBRIDStatement {
             lastExecStmt = null;
             currentExecStmt = null;
             lastRs = null;
-            lastUpdCnt = -1;
+            countStmt = null;
+            keysStmt = null;
             closed = true;
             lbConnection.untrackStatement(this);
             // Core's own close, so the inherited core methods find a closed statement as on core.
@@ -709,39 +697,30 @@ public class LBStatement extends CUBRIDStatement {
                 .executeCommandWithFailover(lbConnection, target, label, true, true, call);
     }
 
+    /** The leg statement an execution of {@code sql} runs on, with this statement's settings. */
     private Statement createPhyStmt(final String sql, final RouteTarget target)
             throws SQLException {
-        // JDBC: a new execution implicitly closes the previous ResultSet. Also release the previous
-        // physical statement (and any dead statement left by a failed failover attempt) so repeated
-        // execute() on one logical Statement does not accumulate server handles / open ResultSets
-        // until close().
-        closePhyStmtsQuietly();
-        lastRs = null;
-        lastExecStmt = null;
-        currentExecStmt = null;
-        lastUpdCnt = -1;
-
-        Statement result = stmtProvider.getStatement(effectiveTarget(target), sql);
+        Statement result = legStmt(sql, target);
         applyStmtProps(result);
-        phyStmts.add(result);
-        // Publish before executeQuery/executeUpdate/execute runs so cancel() can reach it.
-        publishExecStmt(result);
+        beginExecution(result);
 
         return result;
     }
 
-    /** Quietly close and forget all currently tracked physical statements. */
-    private void closePhyStmtsQuietly() {
-        for (int i = phyStmts.size() - 1; i >= 0; i--) {
-            try {
-                Statement each = phyStmts.get(i);
-                if (each != null && !each.isClosed()) {
-                    each.close();
-                }
-            } catch (SQLException ignored) {
+    /**
+     * This statement's physical statement on the leg {@code sql} routes to. The provider hands back
+     * the one it already made there, as core runs every execution on its one statement.
+     */
+    private Statement legStmt(final String sql, final RouteTarget target) throws SQLException {
+        Statement result = stmtProvider.getStatement(effectiveTarget(target), sql);
+        for (Statement each : phyStmts) {
+            if (each == result) {
+                return result;
             }
         }
-        phyStmts.clear();
+        phyStmts.add(result);
+
+        return result;
     }
 
     protected void applyStmtProps(final Statement target) throws SQLException {
@@ -774,9 +753,6 @@ public class LBStatement extends CUBRIDStatement {
 
         CUBRIDOID result = invokeExecInsert(statement, sql);
         lbConnection.afterStatementSucceeded(sql, target);
-        lastExecStmt = statement;
-        lastRs = null;
-        lastUpdCnt = -1;
 
         return result;
     }
@@ -786,10 +762,11 @@ public class LBStatement extends CUBRIDStatement {
         return requireCubrid(statement, "executeInsert").executeInsert(sql);
     }
 
+    /** Not an execution: as in core, this statement's results and counts stay as they were. */
     public String getQueryplan(final String sql) throws SQLException {
         checkClosed();
 
-        Statement statement = createPhyStmt(sql, routeFor(sql));
+        Statement statement = legStmt(sql, routeFor(sql));
 
         String result;
         lbConnection.settleReadLegRollback(false);
@@ -799,9 +776,6 @@ public class LBStatement extends CUBRIDStatement {
             // Core rolls back after every plan request, failed or not.
             lbConnection.settleReadLegRollback(true);
         }
-        lastExecStmt = statement;
-        lastRs = null;
-        lastUpdCnt = -1;
 
         return result;
     }
@@ -903,10 +877,28 @@ public class LBStatement extends CUBRIDStatement {
         return fromCurTxn;
     }
 
-    protected void recordExec(final Statement stmt, final ResultSet rs, final int updateCount) {
-        lastExecStmt = stmt;
+    /**
+     * An execution on {@code stmt} succeeded: it now answers for the update count, and for the
+     * generated keys when it was an update, as core's executeUpdate/execute remake them.
+     */
+    protected void recordExec(final Statement stmt, final ResultSet rs, final boolean update) {
         lastRs = rs;
-        lastUpdCnt = updateCount;
+        countStmt = stmt;
+        if (update) {
+            keysStmt = stmt;
+        }
+    }
+
+    /**
+     * An execution starts on {@code next}. Core completes the previous one first, closing its
+     * result set even when this one then fails.
+     */
+    protected void beginExecution(final Statement next) {
+        closeResultOfAnotherStatement(next);
+        lastRs = null;
+        lastExecStmt = next;
+        // Published before the physical call runs so cancel() can reach it.
+        currentExecStmt = next;
     }
 
     protected Statement getLastExecStmt() {
@@ -914,10 +906,10 @@ public class LBStatement extends CUBRIDStatement {
     }
 
     /**
-     * An execution closes the previous result set, as core's does. Core's own close on re-execute
-     * reaches it only when {@code next} is the statement that produced it, on the same leg.
+     * Core's own close on re-execute reaches the previous result set only when {@code next} is the
+     * statement that produced it, on the same leg.
      */
-    protected void closeResultOfAnotherStatement(final Statement next) {
+    private void closeResultOfAnotherStatement(final Statement next) {
         if (lastRs == null || lastExecStmt == next) {
             return;
         }
@@ -947,15 +939,6 @@ public class LBStatement extends CUBRIDStatement {
         } catch (SQLException unreadable) {
             return null; // a result set that cannot answer cannot be read either
         }
-    }
-
-    /**
-     * Publishes the physical statement about to execute, so a concurrent cancel() can reach it.
-     *
-     * @param stmt the physical statement about to execute
-     */
-    protected void publishExecStmt(final Statement stmt) {
-        this.currentExecStmt = stmt;
     }
 
     protected void applyVendorFlags(final Statement target) throws SQLException {

@@ -104,7 +104,7 @@ public final class LBStatementExecutePathTest {
     // statements/ResultSets;
     // each new execute closes the previous physical statement, and close() releases the last.
     @Test
-    public void assertRepeatedExecuteClosesPriorPhysicalStatement() throws Exception {
+    public void assertCloseReleasesEveryPhysicalStatement() throws Exception {
         LBStatement statement = new LBStatement(connection);
         DelegationContext context = new DelegationContext();
         statement.setStatementProvider(context);
@@ -113,11 +113,12 @@ public final class LBStatementExecutePathTest {
         statement.executeQuery("SELECT * FROM t");
         statement.executeQuery("SELECT * FROM t");
 
-        assertEquals("each execute creates one physical statement", 3, context.readOnlyCreateCount);
-        assertEquals("each new execute closes the prior physical statement", 2, context.closeCount);
+        assertEquals(
+                "this fake hands out a new statement each time", 3, context.readOnlyCreateCount);
+        assertEquals("a re-execute keeps its statement, as core's does", 0, context.closeCount);
 
         statement.close();
-        assertEquals("close() releases the last physical statement", 3, context.closeCount);
+        assertEquals("close() releases every physical statement", 3, context.closeCount);
     }
 
     // 02 §M4: cancel() must reach the physical statement that is currently executing. The physical
@@ -391,6 +392,9 @@ public final class LBStatementExecutePathTest {
         statement.setQueryInfo(true);
         statement.setOnlyQueryPlan(true);
         String queryPlanBySql = statement.getQueryplan("SELECT 1");
+        // Not an execution, so core still has no statement to ask.
+        assertEquals("", statement.getQueryplan());
+        statement.executeQuery("SELECT 1");
         String queryPlan = statement.getQueryplan();
 
         assertEquals("queryplan:SELECT 1", queryPlanBySql);

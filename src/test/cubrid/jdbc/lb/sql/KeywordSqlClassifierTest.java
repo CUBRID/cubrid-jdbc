@@ -294,17 +294,20 @@ public class KeywordSqlClassifierTest {
 
     /**
      * With no_backslash_escapes=no the server reads '\'' as one quote, so the literal ends later
-     * than this scanner thinks and NEXTVAL is live. The setting is not known here: a literal whose
-     * end depends on it must not leave the statement READ.
+     * than this scanner thinks and NEXTVAL is live. The setting is not known here, so a statement
+     * stays READ only if it is READ either way.
      */
     @Test
     public void assertLiteralEndingDependentOnBackslashEscapesIsNotReadOnly() {
         assertEquals(
-                SqlClassification.UNKNOWN,
+                SqlClassification.WRITE,
                 classifier.classify("SELECT '\\'' , s.NEXTVAL FROM db_root"));
         assertEquals(
-                SqlClassification.UNKNOWN,
+                SqlClassification.WRITE,
                 classifier.classify("SELECT 'a\\'b' , s.NEXTVAL FROM db_root"));
+        assertEquals(
+                SqlClassification.UNKNOWN,
+                classifier.classify("SELECT 'a\\'b' , my_fn(1) FROM db_root"));
 
         // Same end either way: still a plain read.
         assertEquals(
@@ -312,6 +315,69 @@ public class KeywordSqlClassifierTest {
                 classifier.classify("SELECT a FROM t WHERE b LIKE '100\\%'"));
         assertEquals(SqlClassification.READ, classifier.classify("SELECT 'it''s' FROM t"));
         assertEquals(SqlClassification.WRITE, classifier.classify("INSERT INTO t VALUES ('\\'')"));
+    }
+
+    /**
+     * Spring Data JPA writes {@code like ? escape '\'}. With backslash escapes that literal never
+     * closes, which is a syntax error on such a server, so the default reading decides.
+     */
+    @Test
+    public void assertLikeEscapeBackslashFollowedByMoreClausesStaysRead() {
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify(
+                        "select u.id from users u where u.name like ? escape '\\'"
+                                + " order by u.id asc"));
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify(
+                        "select u.id from users u where u.name like ? escape '\\'"
+                                + " and u.city like ? escape '\\'"));
+        assertEquals(SqlClassification.READ, classifier.classify("SELECT 'a\\'b' , c FROM t"));
+    }
+
+    /** Reserved words before "(" in an expression are not routine names. */
+    @Test
+    public void assertExpressionKeywordBeforeParenthesisIsNotARoutineCall() {
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify(
+                        "SELECT CASE WHEN qty > 0 THEN (price * qty) ELSE (0) END FROM item"));
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify(
+                        "SELECT a FROM t WHERE b = (CASE WHEN ? = 1 THEN (SELECT 1) ELSE 2 END)"));
+        assertEquals(
+                SqlClassification.READ, classifier.classify("SELECT price DIV (qty + 1) FROM t"));
+        assertEquals(SqlClassification.READ, classifier.classify("SELECT a XOR (b) FROM t"));
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify("SELECT d + INTERVAL (n) DAY FROM t WHERE a IS (NULL)"));
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify("SELECT a FROM t WHERE b LIKE ? ESCAPE ('!')"));
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify("SELECT CONVERT(name USING utf8) FROM t"));
+        assertEquals(
+                SqlClassification.READ, classifier.classify("SELECT CASE (a) WHEN 1 THEN 2 END"));
+    }
+
+    /** A query may open with "(": the first keyword inside decides, as it would without it. */
+    @Test
+    public void assertParenthesizedLeadingSelectIsClassifiedAsSelect() {
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify("(SELECT a FROM t1) UNION (SELECT a FROM t2)"));
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify(
+                        "( /* c */ (SELECT a FROM t1)) UNION ALL (SELECT 1) ORDER BY 1"));
+        assertEquals(
+                SqlClassification.WRITE, classifier.classify("(SELECT s.NEXTVAL FROM db_root)"));
+        assertEquals(SqlClassification.UNKNOWN, classifier.classify("(SELECT my_fn(1))"));
+        assertEquals(SqlClassification.UNKNOWN, classifier.classify("("));
+        assertEquals(SqlClassification.UNKNOWN, classifier.classify("(VALUES (1))"));
     }
 
     @Test

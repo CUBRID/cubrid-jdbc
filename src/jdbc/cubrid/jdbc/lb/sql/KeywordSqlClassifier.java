@@ -161,11 +161,13 @@ final class KeywordSqlClassifier implements SqlClassifier {
     @Override
     public SqlClassification classify(final String sql) {
         final SqlClassification result = classifyStatements(sql);
-        if (result == SqlClassification.READ && SqlLexer.dependsOnBackslashEscapes(sql)) {
-            return SqlClassification.UNKNOWN; // what follows a literal may not be what was scanned
+        if (result != SqlClassification.READ || sql.indexOf('\\') < 0) {
+            return result;
         }
 
-        return result;
+        // Whether a backslash escapes depends on a server setting: READ only if READ either way.
+        final String escaped = SqlLexer.withBackslashEscapes(sql);
+        return escaped == null ? result : classifyStatements(escaped);
     }
 
     private SqlClassification classifyStatements(final String sql) {
@@ -372,14 +374,22 @@ final class KeywordSqlClassifier implements SqlClassifier {
         return -1;
     }
 
+    /**
+     * The statement's first word. A query may open with "(", as in {@code (SELECT ...) UNION
+     * (SELECT ...)}; past it only SELECT counts, since the other verbs are read from position 0.
+     */
     private static String scanLeadingKeyword(final String normalized) {
-        if (normalized.length() == 0 || !isIdentifierStart(normalized.charAt(0))) {
+        int pos = 0;
+        while (pos < normalized.length() && normalized.charAt(pos) == '(') {
+            pos = SqlLexer.skipWhitespaceAndComments(normalized, pos + 1);
+        }
+        if (pos >= normalized.length() || !isIdentifierStart(normalized.charAt(pos))) {
             return "";
         }
 
-        final int end = scanIdentifierEnd(normalized, 0);
+        final String word = extractUpperAscii(normalized, pos, scanIdentifierEnd(normalized, pos));
 
-        return extractUpperAscii(normalized, 0, end);
+        return pos == 0 || "SELECT".equals(word) ? word : "";
     }
 
     private static SqlClassification classifySelect(final String sql) {

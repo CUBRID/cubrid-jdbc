@@ -73,58 +73,44 @@ final class SqlLexer {
     }
 
     /**
-     * Whether a quoted region would end elsewhere if a backslash escaped the next character, as it
-     * does on a server with {@code no_backslash_escapes=no}. This scanner cannot know the setting,
-     * so it cannot know where such a statement's literals end.
+     * {@code sql} as a server with {@code no_backslash_escapes=no} reads it, rewritten so the
+     * default scan reads it the same way: each backslash escape inside a quoted string becomes two
+     * plain characters. This scanner cannot know that setting, so a caller classifies both.
      *
      * @param sql the statement text
-     * @return whether the statement's tokens depend on that server setting
+     * @return the rewritten text, or {@code null} if a string does not close in that reading, which
+     *     such a server rejects as a syntax error
      */
-    static boolean dependsOnBackslashEscapes(final String sql) {
-        if (sql == null || sql.indexOf('\\') < 0) {
-            return false;
-        }
-
-        final int len = sql.length();
+    static String withBackslashEscapes(final String sql) {
+        final char[] text = sql.toCharArray();
+        final int len = text.length;
         int i = 0;
         while (i < len) {
-            final int after = skipCommentOrQuoted(sql, i);
-            if (after == i) {
-                i++;
+            final char quote = text[i];
+            if (quote != '\'' && quote != '"') {
+                final int after = skipCommentOrQuoted(sql, i);
+                i = after == i ? i + 1 : after;
                 continue;
             }
-            final char c = sql.charAt(i);
-            if ((c == '\'' || c == '"') && endWithBackslashEscapes(sql, i) != after) {
-                return true;
-            }
-            i = after;
-        }
-
-        return false;
-    }
-
-    /** The quoted-string end {@link #skipQuoted} finds, if a backslash also escaped. */
-    private static int endWithBackslashEscapes(final String sql, final int pos) {
-        final int len = sql.length();
-        final char quote = sql.charAt(pos);
-        int p = pos + 1;
-        while (p < len) {
-            final char ch = sql.charAt(p);
-            if (ch == '\\') {
-                p += 2;
-                continue;
-            }
-            if (ch == quote) {
-                if (p + 1 < len && sql.charAt(p + 1) == quote) {
-                    p += 2;
-                    continue;
+            int p = i + 1;
+            while (true) {
+                if (p >= len) {
+                    return null;
                 }
-                return p + 1;
+                if (text[p] == '\\' && p + 1 < len) {
+                    text[p] = '_';
+                    text[p + 1] = '_';
+                    p += 2;
+                } else if (text[p] == quote && p + 1 < len && text[p + 1] == quote) {
+                    p += 2;
+                } else if (text[p++] == quote) {
+                    break;
+                }
             }
-            p++;
+            i = p;
         }
 
-        return len;
+        return new String(text);
     }
 
     /**

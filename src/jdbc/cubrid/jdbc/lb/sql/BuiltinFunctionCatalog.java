@@ -460,7 +460,19 @@ final class BuiltinFunctionCatalog {
         "SET",
         "MULTISET",
         "SEQUENCE",
-        "LIST"
+        "LIST",
+        // Reserved words an expression puts before "(": "CASE (a) WHEN", "THEN (a)", "ELSE (a)",
+        // "a DIV (b)", "a XOR (b)", "a IS (NULL)", "INTERVAL (n) DAY", "ESCAPE ('!')", and
+        // CONVERT(s USING cs).
+        "CASE",
+        "THEN",
+        "ELSE",
+        "DIV",
+        "XOR",
+        "IS",
+        "INTERVAL",
+        "ESCAPE",
+        "CONVERT"
     };
 
     static {

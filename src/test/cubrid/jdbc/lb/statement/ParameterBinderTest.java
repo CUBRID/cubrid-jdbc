@@ -150,6 +150,24 @@ public class ParameterBinderTest {
     }
 
     /**
+     * A zero length is read as core reads it: the caller's stream answers 0, or -1 once spent, and
+     * core's setter gets that same answer to bind, or fail on, as it would have.
+     */
+    @Test
+    public void assertZeroLengthStreamReplaysTheReadCoreGot() throws Exception {
+        ParameterBinder binder = new ParameterBinder();
+        binder.recordSetAsciiStream(1, new ByteArrayInputStream(new byte[] {65}), 0);
+        binder.recordSetBinaryStream(2, new ByteArrayInputStream(new byte[0]), 0);
+
+        StreamCapturingHandler captured = new StreamCapturingHandler();
+        binder.replay(captured.createProxy());
+
+        byte[][] out = new byte[1][];
+        assertEquals(0, captured.read("setAsciiStream", out));
+        assertEquals("a spent stream answers -1", -1, captured.read("setBinaryStream", out));
+    }
+
+    /**
      * The gate that keeps failover from retrying a binding it cannot reproduce. A materialized
      * parameter is reproducible, so it must no longer close the gate; a LOB stream, which core
      * copies straight to the server instead of into memory, still does.
@@ -437,15 +455,15 @@ public class ParameterBinderTest {
     /** Keeps the source each length-taking stream setter was replayed with, so it can be read. */
     private static final class StreamCapturingHandler {
 
-        private final java.util.Map<String, Object> sources =
-                new java.util.HashMap<String, Object>();
+        private final java.util.Map<String, Object[]> calls =
+                new java.util.HashMap<String, Object[]>();
 
         private PreparedStatement createProxy() {
             return new FakePhysicalPreparedStatement() {
                 @Override
                 protected Object dispatch(final String name, final Object[] args) {
                     if (name.startsWith("set") && args.length == 3) {
-                        sources.put(name, args[1]);
+                        calls.put(name, args);
                     }
 
                     return null;
@@ -453,26 +471,28 @@ public class ParameterBinderTest {
             };
         }
 
-        private byte[] bytes(final String setter) throws java.io.IOException {
-            java.io.InputStream source = (java.io.InputStream) sources.get(setter);
-            assertNotNull(setter + " was not replayed", source);
-            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
-            for (int b = source.read(); b >= 0; b = source.read()) {
-                out.write(b);
-            }
+        /** What core's setter reads: one read into a buffer of the declared length. */
+        private int read(final String setter, final byte[][] out) throws java.io.IOException {
+            Object[] args = calls.get(setter);
+            assertNotNull(setter + " was not replayed", args);
+            byte[] buffer = new byte[((Integer) args[2]).intValue()];
+            int n = ((java.io.InputStream) args[1]).read(buffer);
+            out[0] = n < 0 ? null : java.util.Arrays.copyOf(buffer, n);
+            return n;
+        }
 
-            return out.toByteArray();
+        private byte[] bytes(final String setter) throws java.io.IOException {
+            byte[][] out = new byte[1][];
+            read(setter, out);
+            return out[0];
         }
 
         private String chars(final String setter) throws java.io.IOException {
-            java.io.Reader source = (java.io.Reader) sources.get(setter);
-            assertNotNull(setter + " was not replayed", source);
-            StringBuilder text = new StringBuilder();
-            for (int c = source.read(); c >= 0; c = source.read()) {
-                text.append((char) c);
-            }
-
-            return text.toString();
+            Object[] args = calls.get(setter);
+            assertNotNull(setter + " was not replayed", args);
+            char[] buffer = new char[((Integer) args[2]).intValue()];
+            int n = ((java.io.Reader) args[1]).read(buffer);
+            return new String(buffer, 0, n);
         }
     }
 

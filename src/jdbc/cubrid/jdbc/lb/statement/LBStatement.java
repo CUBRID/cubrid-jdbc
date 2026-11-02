@@ -682,7 +682,8 @@ public class LBStatement extends CUBRIDStatement {
 
     /**
      * Failover for a physical call on this statement's leg that is not an execution - the metadata
-     * calls. Not timed: see {@link ExecuteFailoverHandler#executeCommandWithFailover}.
+     * calls, which may prepare the statement. Not timed: see {@link
+     * ExecuteFailoverHandler#executeCommandWithFailover}.
      *
      * @param <T> the call's result type
      * @param label the call name, for logging
@@ -696,7 +697,7 @@ public class LBStatement extends CUBRIDStatement {
             throws SQLException {
         return lbConnection
                 .getExecuteFailoverHandler()
-                .executeCommandWithFailover(lbConnection, target, label, true, call);
+                .executeCommandWithFailover(lbConnection, target, label, true, true, call);
     }
 
     private Statement createPhyStmt(final String sql, final RouteTarget target)

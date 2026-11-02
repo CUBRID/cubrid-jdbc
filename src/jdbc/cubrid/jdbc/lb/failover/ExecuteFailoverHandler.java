@@ -31,6 +31,7 @@
 package cubrid.jdbc.lb.failover;
 
 import cubrid.jdbc.jci.ReconnectPolicy;
+import cubrid.jdbc.jci.UErrorCode;
 import cubrid.jdbc.lb.LoadBalanceConnection;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.log.LbLog;
@@ -75,6 +76,18 @@ public final class ExecuteFailoverHandler {
                 || UnreachableEndpoints.shouldMarkUnreachable(ex);
     }
 
+    /**
+     * {@link #isBrokerFailure} for a call that neither prepares nor executes. Core reconnects after
+     * a malformed reply (ER_ILLEGAL_DATA_SIZE) only on those two; elsewhere it reports the reply
+     * and keeps the connection, and the session with it.
+     *
+     * @param ex the failure to classify
+     * @return whether the failure is the broker's rather than the command's
+     */
+    public static boolean isBrokerFailureOfCommand(final SQLException ex) {
+        return isBrokerFailure(ex) && ex.getErrorCode() != UErrorCode.ER_ILLEGAL_DATA_SIZE;
+    }
+
     <T> T executeWithFailover(
             final LoadBalanceConnection connection,
             final RouteTarget routeTarget,
@@ -107,7 +120,7 @@ public final class ExecuteFailoverHandler {
             final boolean retrySafe,
             final SqlExecution<T> execution)
             throws SQLException {
-        return run(connection, routeTarget, sql, retrySafe, true, execution);
+        return run(connection, routeTarget, sql, retrySafe, true, true, execution);
     }
 
     /**
@@ -115,10 +128,11 @@ public final class ExecuteFailoverHandler {
      * statement execution: a connection command ({@code prepareCall}, the LOB trio, {@code
      * createClob}), a session-property read, or statement/connection metadata.
      *
-     * <p>The only difference is that the call is not timed. Execution latency is defined as
-     * statement latency (LB-Metrics-Architecture.md), and a pool that reads {@code isReadOnly()} on
-     * every checkout would otherwise flood the read/write histograms with calls that never touched
-     * a SQL statement.
+     * <p>The call is not timed. Execution latency is defined as statement latency
+     * (LB-Metrics-Architecture.md), and a pool that reads {@code isReadOnly()} on every checkout
+     * would otherwise flood the read/write histograms with calls that never touched a SQL
+     * statement. And unless it prepares, a malformed reply does not rebind the leg ({@link
+     * #isBrokerFailureOfCommand}).
      *
      * @param <T> the command's result type
      * @param connection the logical LB connection issuing the command
@@ -136,7 +150,33 @@ public final class ExecuteFailoverHandler {
             final boolean retrySafe,
             final SqlExecution<T> execution)
             throws SQLException {
-        return run(connection, routeTarget, label, retrySafe, false, execution);
+        return executeCommandWithFailover(
+                connection, routeTarget, label, retrySafe, false, execution);
+    }
+
+    /**
+     * {@link #executeCommandWithFailover} for a command that may prepare a statement, which core
+     * reconnects after as it does after an execute.
+     *
+     * @param <T> the command's result type
+     * @param connection the logical LB connection issuing the command
+     * @param routeTarget the leg the command runs on
+     * @param label the command name, for logging
+     * @param retrySafe whether re-running the command after a rebind is safe
+     * @param prepares whether the command prepares a statement
+     * @param execution the physical command to run
+     * @return the command's result
+     * @throws SQLException if the command fails and cannot be recovered/retried
+     */
+    public <T> T executeCommandWithFailover(
+            final LoadBalanceConnection connection,
+            final RouteTarget routeTarget,
+            final String label,
+            final boolean retrySafe,
+            final boolean prepares,
+            final SqlExecution<T> execution)
+            throws SQLException {
+        return run(connection, routeTarget, label, retrySafe, false, prepares, execution);
     }
 
     private <T> T run(
@@ -145,6 +185,7 @@ public final class ExecuteFailoverHandler {
             final String sql,
             final boolean retrySafe,
             final boolean timed,
+            final boolean preparesOrExecutes,
             final SqlExecution<T> execution)
             throws SQLException {
         if (connection == null) {
@@ -162,7 +203,7 @@ public final class ExecuteFailoverHandler {
         try {
             return timedRun(connection, routeTarget, timed, execution);
         } catch (SQLException ex) {
-            if (!isBrokerFailure(ex)) {
+            if (preparesOrExecutes ? !isBrokerFailure(ex) : !isBrokerFailureOfCommand(ex)) {
                 // Not a broker failure: the statement itself failed and no leg is rebound.
                 // Recorded, so a log showing no failover after an error is explained rather than
                 // silent.

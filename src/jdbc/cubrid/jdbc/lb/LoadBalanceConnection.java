@@ -1144,10 +1144,16 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      */
     private <T> T runRwCommand(final String label, final SqlExecution<T> command)
             throws SQLException {
+        return runRwCommand(label, false, command);
+    }
+
+    private <T> T runRwCommand(
+            final String label, final boolean prepares, final SqlExecution<T> command)
+            throws SQLException {
         T result =
                 getExecuteFailoverHandler()
                         .executeCommandWithFailover(
-                                this, RouteTarget.TO_READ_WRITE, label, false, command);
+                                this, RouteTarget.TO_READ_WRITE, label, false, prepares, command);
         recordRwCmd(label);
 
         return result;
@@ -2026,6 +2032,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         return reportSelfAsOwner(
                 runRwCommand(
                         "prepareCall",
+                        true,
                         new SqlExecution<CallableStatement>() {
                             public CallableStatement run() throws SQLException {
                                 return getPhysicalConnForCmd(SessionLeg.RW).prepareCall(sql);
@@ -2057,6 +2064,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         return reportSelfAsOwner(
                 runRwCommand(
                         "prepareCall(resultSetType,resultSetConcurrency)",
+                        true,
                         new SqlExecution<CallableStatement>() {
                             public CallableStatement run() throws SQLException {
                                 return getPhysicalConnForCmd(SessionLeg.RW)
@@ -2076,6 +2084,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         return reportSelfAsOwner(
                 runRwCommand(
                         "prepareCall(resultSetType,resultSetConcurrency,resultSetHoldability)",
+                        true,
                         new SqlExecution<CallableStatement>() {
                             public CallableStatement run() throws SQLException {
                                 return getPhysicalConnForCmd(SessionLeg.RW)
@@ -2657,7 +2666,8 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                                 }
                             });
         } catch (SQLException failure) {
-            if (hasUncommittedRwWork() || !ExecuteFailoverHandler.isBrokerFailure(failure)) {
+            if (hasUncommittedRwWork()
+                    || !ExecuteFailoverHandler.isBrokerFailureOfCommand(failure)) {
                 throw failure; // not a broker failure, or failover was forbidden: nothing rebound
             }
 

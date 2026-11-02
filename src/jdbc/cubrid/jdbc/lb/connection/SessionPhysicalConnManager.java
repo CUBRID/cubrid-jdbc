@@ -1246,14 +1246,13 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
      * Applies one operation to BOTH session legs, the read leg even when the write leg failed, so
      * neither leg is skipped as collateral damage of the other's failure. The write-leg failure is
      * what the caller sees; a read-leg failure masked by it is attached to it as suppressed, and
-     * logged.
+     * logged. A read-leg failure alone drops that leg instead: the write leg's outcome is the
+     * session's, as core's one connection's is.
      *
-     * @param logTag the {@code "LB ..."} prefix identifying the operation in the masked-failure
-     *     warning
-     * @param opDesc how the operation reads in that warning, e.g. {@code "autoCommit=false"}
+     * @param logTag the {@code "LB ..."} prefix identifying the operation in the warnings
+     * @param opDesc how the operation reads in the warnings, e.g. {@code "commit"}
      * @param op the operation to run on each leg
-     * @throws SQLException the write-leg failure, or the read-leg failure when the write leg was
-     *     fine
+     * @throws SQLException the write-leg failure
      */
     private void applyToBothLegs(final String logTag, final String opDesc, final LegOperation op)
             throws SQLException {
@@ -1278,7 +1277,23 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
                 op.apply(roPhysical);
             } catch (SQLException roFailure) {
                 if (rwFailure == null) {
-                    throw roFailure;
+                    connsByEpId.remove(sessRoEp.getId());
+                    dropPrepForEp(sessRoEp.getId());
+                    if (!connInUseElsewhere(roPhysical)) {
+                        closeQuietly(roPhysical);
+                    }
+                    LbLog.warn(
+                            LOGGER,
+                            logContext,
+                            logTag
+                                    + " [RO]: "
+                                    + opDesc
+                                    + " failed on the read leg after the write leg succeeded;"
+                                    + " dropped, reopens on the next read | readLeg="
+                                    + sessRoEp.getId()
+                                    + " | cause: "
+                                    + LbLog.cause(roFailure));
+                    return;
                 }
                 if (roFailure != rwFailure) {
                     rwFailure.addSuppressed(roFailure);
@@ -1316,7 +1331,8 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
      * <p>The RW leg used to run first and unguarded, so anything it threw skipped the RO leg. A
      * skipped rollback is the dangerous one: the read leg keeps an open transaction on the slave,
      * pinning old versions there for as long as the session lives. The RW failure is still what the
-     * caller sees, with an RO failure it masked attached ({@link #applyToBothLegs}).
+     * caller sees, with an RO failure it masked attached; an RO failure alone drops the read leg
+     * ({@link #applyToBothLegs}).
      *
      * <p>Reaching the RO leg with an open transaction takes an autocommit-mode prepare on the read
      * endpoint, because manual-commit pins routing to RW ({@code

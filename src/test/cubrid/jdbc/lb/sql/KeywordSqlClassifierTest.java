@@ -1170,4 +1170,16 @@ public class KeywordSqlClassifierTest {
         assertEquals(
                 SqlClassification.READ, classifier.classify("SELECT CURRENT_USER FROM db_root"));
     }
+
+    /** No released server has these built-ins, so the name can only be a user routine. */
+    @Test
+    public void namesNoReleasedServerHasAreUserRoutines() {
+        assertEquals(SqlClassification.UNKNOWN, classifier.classify("SELECT UUID() FROM db_root"));
+        assertEquals(
+                SqlClassification.UNKNOWN,
+                classifier.classify("SELECT UUID_FORMAT('a') FROM db_root"));
+        assertEquals(
+                SqlClassification.UNKNOWN,
+                classifier.classify("SELECT COLLECTION_TO_STRING({1, 2}) FROM db_root"));
+    }
 }

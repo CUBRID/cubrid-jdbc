@@ -131,7 +131,6 @@ final class BuiltinFunctionCatalog {
         "INSTR",
         "INSTRB",
         "INDEX_PREFIX",
-        "COLLECTION_TO_STRING",
         "LCASE",
         "LOWER",
         "LEFT",
@@ -288,9 +287,9 @@ final class BuiltinFunctionCatalog {
         "NVL", "NVL2", "DECODE", "IF", "IFNULL", "ISNULL", "NULLIF", "COALESCE", "GREATEST", "LEAST"
     };
 
-    private static final String[] HASH_AND_ID = {
-        "MD5", "SHA1", "SHA2", "SYS_GUID", "UUID", "UUID_FORMAT"
-    };
+    // UUID, UUID_FORMAT and COLLECTION_TO_STRING are left out: no released server (10.2 ~ 11.4) has
+    // them, so there the name is a user routine, which may write.
+    private static final String[] HASH_AND_ID = {"MD5", "SHA1", "SHA2", "SYS_GUID"};
 
     private static final String[] JSON = {
         "JSON_ARRAY",

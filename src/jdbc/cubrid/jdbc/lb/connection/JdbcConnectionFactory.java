@@ -41,4 +41,13 @@ import java.util.Properties;
 public interface JdbcConnectionFactory {
 
     Connection getConnection(String url, Properties info) throws SQLException;
+
+    /**
+     * Opens {@code url} reporting {@code userUrl} in errors and to the CAS, as core does behind a
+     * URI URL. A test double has no URL to report, so by default the two-argument form opens it.
+     */
+    default Connection getConnection(String url, Properties info, String userUrl)
+            throws SQLException {
+        return getConnection(url, info);
+    }
 }

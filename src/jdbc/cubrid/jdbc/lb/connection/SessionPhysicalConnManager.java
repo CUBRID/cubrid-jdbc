@@ -117,6 +117,13 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
                         throws SQLException {
                     return DriverManager.getConnection(url, info);
                 }
+
+                public Connection getConnection(
+                        final String url, final Properties info, final String userUrl)
+                        throws SQLException {
+                    return ((CUBRIDDriver) DriverManager.getDriver(url))
+                            .connect(url, info, userUrl);
+                }
             };
 
     private final String logicalJdbcUrl;
@@ -2213,19 +2220,18 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
     private Connection openConnection(final Endpoint endpoint) throws SQLException {
         JdbcPhyConnSpec spec = config.buildPhysicalJdbcSpec(clientInfo, endpoint);
 
-        // The physical connect uses the per-broker classic URL (spec.getJdbcUrl()); carry the
-        // original URI (loadbalance://) URL the user wrote, password-masked, as the user URL so
-        // JDBC errors and the CAS DB_INFO handshake show it instead of the rewritten classic URL.
-        // Only for URI (://) logical URLs — a classic alt-host logical URL is already handled (and
-        // password-masked) by the driver's own resolvedUrl path.
+        // The physical connect uses the per-broker classic URL (spec.getJdbcUrl()); core reports
+        // the URI (loadbalance://) URL the user wrote, password-masked, in JDBC errors and the CAS
+        // DB_INFO handshake instead. Only for URI (://) logical URLs - a classic alt-host logical
+        // URL is already reported (and password-masked) by the driver's own resolvedUrl path.
         Properties physicalProps = spec.getConnectionProperties();
+        String userUrl = null;
         if (logicalJdbcUrl != null && logicalJdbcUrl.indexOf("://") >= 0) {
-            physicalProps.setProperty(
-                    CUBRIDDriver.USER_URL_PROPERTY,
-                    CUBRIDDriver.maskUriUrlPassword(logicalJdbcUrl, physicalProps));
+            userUrl = CUBRIDDriver.maskUriUrlPassword(logicalJdbcUrl, physicalProps);
         }
 
-        Connection conn = connectionFactory.getConnection(spec.getJdbcUrl(), physicalProps);
+        Connection conn =
+                connectionFactory.getConnection(spec.getJdbcUrl(), physicalProps, userUrl);
 
         // Single chokepoint for every fresh physical connection (initial bind, recoverRw/recoverRo,
         // failoverRoToRw, restoreRoIfRecovered/restoreRwIfRecovered, ensureConn reopen). Re-apply

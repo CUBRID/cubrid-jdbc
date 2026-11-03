@@ -114,18 +114,6 @@ public class CUBRIDDriver implements Driver {
             Pattern.compile(
                     "^jdbc:cubrid(-oracle|-mysql)?(:loadbalance)?://", Pattern.CASE_INSENSITIVE);
 
-    /**
-     * Internal connect-time property carrying the URL as the user wrote it, independent of the URL
-     * actually used to open the physical socket. A URI URL ({@code loadbalance://} or single-node
-     * {@code ://}) is rewritten to a classic colon-delimited URL per broker before the physical
-     * connect, which otherwise made the URL reported back (JDBC error messages and the CAS DB_INFO
-     * handshake) differ from what the user wrote. The LB layer / {@link #connectUri} place the
-     * original (password-masked) user URL under this key so {@link
-     * cubrid.jdbc.jci.UClientSideConnection} reports it instead. Not a real connection property —
-     * {@link ConnectionProperties} ignores unknown keys, so it is inert on the physical connect.
-     */
-    public static final String USER_URL_PROPERTY = "cubrid.internal.user-url";
-
     private int conn_count = 0;
 
     /**
@@ -176,6 +164,30 @@ public class CUBRIDDriver implements Driver {
      */
 
     public Connection connect(String url, Properties info) throws SQLException {
+        if (!acceptsURL(url)) {
+            return null;
+        }
+
+        final UrlMode urlMode = detectUrlMode(url);
+        if (urlMode != UrlMode.CLASSIC) {
+            return connectUri(url, info, urlMode);
+        }
+
+        return connect(url, info, null);
+    }
+
+    /**
+     * Opens a classic URL that a URI URL ({@code loadbalance://} or single-node {@code ://}) was
+     * rewritten to, reporting {@code userUrl} (password-masked) instead in JDBC errors and the CAS
+     * DB_INFO handshake, so they show what the user wrote.
+     *
+     * @param url the classic URL to open
+     * @param info the connection properties
+     * @param userUrl the URL to report, or null to report {@code url}
+     * @return the connection
+     * @throws SQLException if the connect fails
+     */
+    public Connection connect(String url, Properties info, String userUrl) throws SQLException {
         Connection conn = null;
         String holdability = null;
         String dummy = null;
@@ -187,20 +199,8 @@ public class CUBRIDDriver implements Driver {
         String prop = null;
         int port = default_port;
 
-        if (!acceptsURL(url)) {
-            return null;
-        }
-
-        final UrlMode urlMode = detectUrlMode(url);
-        if (urlMode != UrlMode.CLASSIC) {
-            return connectUri(url, info, urlMode);
-        }
-
-        // The original user URL (password-masked) to show in logs/errors when this connect is a
-        // physical leg of a URI connection; supplied by the LB layer / connectUri via
-        // USER_URL_PROPERTY. Null for a direct classic connect. Resolved before URL parsing so the
-        // invalid_url errors below report the user-written URL, not the internally-rewritten one.
-        String userUrl = (info == null) ? null : info.getProperty(USER_URL_PROPERTY);
+        // Resolved before URL parsing so the invalid_url errors below report the user-written URL,
+        // not the internally-rewritten one.
         if (userUrl != null && userUrl.length() == 0) {
             userUrl = null;
         }
@@ -319,11 +319,8 @@ public class CUBRIDDriver implements Driver {
             resolvedUrl += prop;
         }
 
-        // The URL to report back (JDBC errors + CAS DB_INFO). Normally the reconstructed per-broker
-        // resolvedUrl, but when this connect is a physical leg of a URI (loadbalance:// or
-        // single-node ://) connection the LB layer / connectUri supply the original user URL
-        // (password-masked) via USER_URL_PROPERTY, so the reported URL matches what the user wrote
-        // instead of the internally-rewritten classic URL.
+        // The URL to report back (JDBC errors + CAS DB_INFO): the user's URL behind a URI connect,
+        // otherwise the reconstructed per-broker resolvedUrl.
         String reportedUrl = (userUrl != null) ? userUrl : resolvedUrl;
 
         connProperties = new ConnectionProperties();
@@ -421,16 +418,8 @@ public class CUBRIDDriver implements Driver {
         }
 
         // Single-node URI URL: connect through the classic path with the rewritten colon-delimited
-        // URL, but carry the URI URL along so JDBC errors / CAS show the form the user wrote rather
-        // than the rewritten classic form.
-        Properties infoWithUserUrl = new Properties();
-        if (info != null) {
-            for (String name : info.stringPropertyNames()) {
-                infoWithUserUrl.setProperty(name, info.getProperty(name));
-            }
-        }
-        infoWithUserUrl.setProperty(USER_URL_PROPERTY, uriSingleLogUrl(url, info));
-        return connect(uriSingleToClassicUrl(url), infoWithUserUrl);
+        // URL, reporting the URI URL so JDBC errors / CAS show the form the user wrote.
+        return connect(uriSingleToClassicUrl(url), info, uriSingleLogUrl(url, info));
     }
 
     /**

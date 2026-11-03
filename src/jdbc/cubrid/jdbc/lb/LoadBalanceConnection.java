@@ -77,6 +77,7 @@ import cubrid.jdbc.lb.state.SharedSelectorStateRegistry;
 import cubrid.jdbc.lb.statement.LBPreparedStatement;
 import cubrid.jdbc.lb.statement.LBStatement;
 import java.io.UnsupportedEncodingException;
+import java.lang.ref.WeakReference;
 import java.sql.Array;
 import java.sql.Blob;
 import java.sql.CallableStatement;
@@ -315,21 +316,34 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         MetricsRegistry.register(
                 routingMetrics.runtimeMetrics(),
                 buildEndpointRoleMap(config),
-                new BindingView() {
-                    // Read lazily at export time: the endpoint is not yet bound at construction and
-                    // can move on failover/failback.
-                    public String boundReadEndpointId() {
-                        Endpoint ep = currentRoEndpoint;
-                        return ep == null ? null : ep.getId();
-                    }
-
-                    public boolean readsOnRwConnection() {
-                        EndpointConnManager mgr = connMgr;
-                        return mgr != null && mgr.isReadOnRwConnection();
-                    }
-                });
+                new WeakBindingView(this));
         MetricsExporters.configure(config.getMetricsConfig());
         metricsRegistered = true;
+    }
+
+    /**
+     * The registry's view of a connection's binding, read lazily at export time: the endpoint is
+     * not yet bound at construction and can move on failover/failback. Weak, so the registry does
+     * not keep an abandoned connection from being collected and closed by finalize(), as core's is.
+     */
+    private static final class WeakBindingView implements BindingView {
+        private final WeakReference<LoadBalanceConnection> connection;
+
+        WeakBindingView(final LoadBalanceConnection connection) {
+            this.connection = new WeakReference<LoadBalanceConnection>(connection);
+        }
+
+        public String boundReadEndpointId() {
+            LoadBalanceConnection c = connection.get();
+            Endpoint ep = c == null ? null : c.currentRoEndpoint;
+            return ep == null ? null : ep.getId();
+        }
+
+        public boolean readsOnRwConnection() {
+            LoadBalanceConnection c = connection.get();
+            EndpointConnManager mgr = c == null ? null : c.connMgr;
+            return mgr != null && mgr.isReadOnRwConnection();
+        }
     }
 
     /**

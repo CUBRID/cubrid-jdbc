@@ -1152,8 +1152,22 @@ public class KeywordSqlClassifierTest {
                 classifier.classify("SELECT a FROM t WHERE INST_NUM() < 3"));
         assertEquals(SqlClassification.READ, classifier.classify("SELECT DATE(d), SYS_GUID()"));
         assertEquals(
-                SqlClassification.READ,
-                classifier.classify("SELECT CURRENT_USER(), BENCHMARK(10, SUM(a)) FROM t"));
+                SqlClassification.READ, classifier.classify("SELECT BENCHMARK(10, SUM(a)) FROM t"));
         assertEquals(SqlClassification.UNKNOWN, classifier.classify("SELECT my_routine(a) FROM t"));
+    }
+
+    /** The call forms answer user@host of the node that runs them; the bare forms do not. */
+    @Test
+    public void userFunctionsNamingTheNodeRunOnRw() {
+        assertEquals(SqlClassification.UNKNOWN, classifier.classify("SELECT USER() FROM db_root"));
+        assertEquals(
+                SqlClassification.UNKNOWN,
+                classifier.classify("SELECT SYSTEM_USER() FROM db_root"));
+        assertEquals(
+                SqlClassification.UNKNOWN,
+                classifier.classify("SELECT CURRENT_USER() FROM db_root"));
+        assertEquals(SqlClassification.READ, classifier.classify("SELECT USER FROM db_root"));
+        assertEquals(
+                SqlClassification.READ, classifier.classify("SELECT CURRENT_USER FROM db_root"));
     }
 }

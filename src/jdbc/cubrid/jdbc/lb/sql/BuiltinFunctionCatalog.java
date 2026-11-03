@@ -260,9 +260,6 @@ final class BuiltinFunctionCatalog {
         "INET_ATON",
         "INET_NTOA",
         "LIST_DBS",
-        "USER",
-        "CURRENT_USER",
-        "SYSTEM_USER",
         "TYPEOF",
         "VERSION"
     };
@@ -373,6 +370,13 @@ final class BuiltinFunctionCatalog {
     private static final String[] SESSION_RW = {
         "SERIAL_CURRENT_VALUE", "LAST_INSERT_ID", "ROW_COUNT"
     };
+
+    /**
+     * Functions whose value names the node that runs them: {@code USER()} answers {@code user@host}
+     * of that broker. On RW they answer what a classic connection does. The bare forms ({@code
+     * USER}, {@code CURRENT_USER}) carry no host and are not calls.
+     */
+    private static final String[] NODE_RW = {"USER", "SYSTEM_USER", "CURRENT_USER"};
 
     /**
      * LOB functions: CUBRID LOB values are not replicated to RO/SO brokers, so reads must use RW.
@@ -497,6 +501,7 @@ final class BuiltinFunctionCatalog {
         final HashSet<String> rw = new HashSet<String>(32);
         addAll(rw, WRITE_EFFECT_RW);
         addAll(rw, SESSION_RW);
+        addAll(rw, NODE_RW);
         addAll(rw, LOB_RW);
         RW_BUILTINS = Collections.unmodifiableSet(rw);
 

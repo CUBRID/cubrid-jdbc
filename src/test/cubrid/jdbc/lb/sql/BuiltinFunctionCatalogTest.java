@@ -74,7 +74,6 @@ public class BuiltinFunctionCatalogTest {
             "INDEX_PREFIX",
             "SLEEP",
             "BENCHMARK",
-            "CURRENT_USER",
             "JSON_EXTRACT",
             "JSON_TABLE",
             "JSON_SET",

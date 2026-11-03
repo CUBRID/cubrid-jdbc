@@ -36,6 +36,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
+import java.io.PushbackReader;
 import java.io.Reader;
 import java.io.Writer;
 import java.nio.charset.Charset;
@@ -64,7 +65,7 @@ public class CUBRIDClob implements Clob {
     private long charsWritten = 0;
 
     /* where getSubString () can go on without starting over: its open reader, and the end of its last window */
-    private Reader seqReader = null;
+    private PushbackReader seqReader = null;
     private long seqPos = 0;
     private long lastEnd = 0;
     private long knownChars = -1;
@@ -198,7 +199,7 @@ public class CUBRIDClob implements Clob {
         if (knownChars >= 0 && pos > knownChars) {
             return "";
         }
-        if (seqReader != null && pos == seqPos) {
+        if (seqReader != null && pos == seqPos && conn.isSeqReader(seqReader)) {
             try {
                 return readOn(length);
             } catch (SQLException e) {
@@ -223,8 +224,10 @@ public class CUBRIDClob implements Clob {
                 closeQuietly(in);
             }
         }
-        seqReader = in;
+        seqReader = new PushbackReader(in, 1);
         seqPos = pos;
+        /* the connection keeps one such reader: another Clob's next window closes this one */
+        conn.keepSeqReader(seqReader);
         return readOn(length);
     }
 
@@ -238,11 +241,25 @@ public class CUBRIDClob implements Clob {
         }
         seqPos += s.length();
         lastEnd = seqPos;
-        if (s.length() < length) {
+        if (s.length() < length || atEnd()) {
             knownChars = seqPos - 1;
             closeSeqReader();
         }
         return s;
+    }
+
+    /* a window that ends where the value does lets the reader go now */
+    private boolean atEnd() {
+        try {
+            int ch = seqReader.read();
+            if (ch < 0) {
+                return true;
+            }
+            seqReader.unread(ch);
+        } catch (IOException e) {
+            /* left to the next window, which starts over if the reader is gone */
+        }
+        return false;
     }
 
     private String readChars(Reader in, int length) throws SQLException {
@@ -267,6 +284,7 @@ public class CUBRIDClob implements Clob {
 
     private void closeSeqReader() {
         if (seqReader != null) {
+            conn.dropSeqReader(seqReader);
             closeQuietly(seqReader);
             seqReader = null;
         }

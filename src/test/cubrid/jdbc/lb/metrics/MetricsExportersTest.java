@@ -239,12 +239,13 @@ public class MetricsExportersTest {
         assertTrue(row, row.contains("," + SLAVE + ",slave,1,0,"));
     }
 
-    private static MetricsConfig prometheus(final int port, final int intervalSec) {
+    private static MetricsConfig prometheus(final int port, final int intervalSec)
+            throws java.sql.SQLException {
         return prometheus(port, intervalSec, null);
     }
 
     private static MetricsConfig prometheus(
-            final int port, final int intervalSec, final String bind) {
+            final int port, final int intervalSec, final String bind) throws java.sql.SQLException {
         Map<String, String> options = new HashMap<String, String>();
         if (bind != null) {
             options.put(ConfigTestAccess.OPT_PROMETHEUS_BIND, bind);

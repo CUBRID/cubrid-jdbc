@@ -30,6 +30,8 @@
 
 package cubrid.jdbc.lb.config;
 
+import cubrid.jdbc.lb.LbExceptions;
+import java.sql.SQLException;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.Map;
@@ -109,7 +111,7 @@ public final class MetricsConfig {
      * @param options the URL's raw option map; may be {@code null}
      * @return the parsed config, or {@link #DISABLED}
      */
-    static MetricsConfig parse(final Map<String, String> options) {
+    static MetricsConfig parse(final Map<String, String> options) throws SQLException {
         if (options == null) {
             return DISABLED;
         }
@@ -139,11 +141,7 @@ public final class MetricsConfig {
                             + " recording is on but nothing is exported");
         }
 
-        int port =
-                parsePositiveInt(
-                        find(options, OPT_PROMETHEUS_PORT),
-                        DEFAULT_PROMETHEUS_PORT,
-                        OPT_PROMETHEUS_PORT);
+        int port = parsePort(find(options, OPT_PROMETHEUS_PORT));
         String bind = find(options, OPT_PROMETHEUS_BIND);
         if (bind != null && bind.trim().length() == 0) {
             bind = null;
@@ -198,6 +196,23 @@ public final class MetricsConfig {
             return defaultValue;
         }
         return "true".equalsIgnoreCase(value.trim());
+    }
+
+    /** As the URL parser takes a broker port: 1-65535, or the URL is refused. */
+    private static int parsePort(final String value) throws SQLException {
+        if (value == null || value.trim().length() == 0) {
+            return DEFAULT_PROMETHEUS_PORT;
+        }
+        try {
+            int port = Integer.parseInt(value.trim());
+            if (port >= 1 && port <= 65535) {
+                return port;
+            }
+        } catch (NumberFormatException notANumber) {
+            // refused below
+        }
+        throw LbExceptions.optionInvalid(
+                "option '" + OPT_PROMETHEUS_PORT + "' must be a port (1-65535): '" + value + "'");
     }
 
     private static int parsePositiveInt(

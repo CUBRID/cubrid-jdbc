@@ -71,6 +71,10 @@ public final class MetricsExporters {
     private static int prometheusPort;
     private static HttpServer prometheusServer;
     private static Thread prometheusWatch;
+    // A port that could not be bound is warned about once per JVM and not tried again for a while.
+    private static final long BIND_RETRY_MS = 60000L;
+    private static long prometheusFailedAtMs;
+    private static boolean prometheusFailureWarned;
     private static boolean csvStarted;
     private static Thread csvThread;
 
@@ -150,6 +154,9 @@ public final class MetricsExporters {
             }
             return;
         }
+        if (System.currentTimeMillis() - prometheusFailedAtMs < BIND_RETRY_MS) {
+            return;
+        }
         try {
             InetAddress address =
                     bind == null ? InetAddress.getLoopbackAddress() : InetAddress.getByName(bind);
@@ -176,7 +183,16 @@ public final class MetricsExporters {
                             + ":"
                             + port);
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "failed to start Prometheus exporter on port " + port, e);
+            prometheusFailedAtMs = System.currentTimeMillis();
+            if (!prometheusFailureWarned) {
+                prometheusFailureWarned = true;
+                LOGGER.warning(
+                        "failed to start Prometheus exporter on port "
+                                + port
+                                + ": "
+                                + e
+                                + "; retried at most once a minute, without another warning");
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             LOGGER.log(Level.WARNING, "interrupted starting the Prometheus exporter", e);

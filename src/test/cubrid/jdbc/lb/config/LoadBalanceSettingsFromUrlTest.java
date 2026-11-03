@@ -89,6 +89,26 @@ public class LoadBalanceSettingsFromUrlTest {
         assertEquals(1, c.getReadWeight().weightOf(NodeRole.SLAVE));
     }
 
+    /**
+     * Like a broker port in the URL, the exporter port must be 1-65535: refused as SQLException.
+     */
+    @Test
+    public void prometheusPortOutsideThePortRangeIsRefused() {
+        for (String port : new String[] {"0", "70000", "x"}) {
+            try {
+                configOf(
+                        "jdbc:cubrid:loadbalance://node1,node2/testdb?metricsEnabled=true"
+                                + "&metricsExport=prometheus&metricsPrometheusPort="
+                                + port);
+                fail("port " + port + " must be refused");
+            } catch (SQLException expected) {
+                assertTrue(
+                        expected.getMessage(),
+                        expected.getMessage().contains("metricsPrometheusPort"));
+            }
+        }
+    }
+
     @Test
     public void appliesDefaultReadWeightWhenAbsent() throws SQLException {
         LoadBalanceSettings c =

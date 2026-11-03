@@ -65,7 +65,8 @@ public final class ConfigTestAccess {
         return settings.getUrlPassword();
     }
 
-    public static MetricsConfig parseMetricsConfig(final Map<String, String> options) {
+    public static MetricsConfig parseMetricsConfig(final Map<String, String> options)
+            throws java.sql.SQLException {
         return MetricsConfig.parse(options);
     }
 

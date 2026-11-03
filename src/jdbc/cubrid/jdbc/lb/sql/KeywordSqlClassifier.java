@@ -767,7 +767,7 @@ final class KeywordSqlClassifier implements SqlClassifier {
         return sb.toString();
     }
 
-    private static boolean isIdentifierPart(final char ch) {
+    static boolean isIdentifierPart(final char ch) {
         return isIdentifierStart(ch) || ('0' <= ch && ch <= '9');
     }
 

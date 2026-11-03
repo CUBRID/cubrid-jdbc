@@ -40,14 +40,17 @@ package cubrid.jdbc.lb.sql;
  * what must not be kept in a log.
  *
  * <p>Quoted regions are found with {@link SqlLexer}, the scanner the classifier and the hint parser
- * also use, so the three cannot disagree about what counts as a literal. Comments are kept, because
- * a hint lives in one and a routing record must show it.
+ * also use, and identifiers are read as the classifier reads them, so they cannot disagree about
+ * what counts as a literal. A hint is kept, because a routing record must show it; any other
+ * comment is masked, as it can carry a value. A string holding a backslash masks the statement:
+ * where it ends depends on the server's {@code no_backslash_escapes}.
  *
  * <p>Side effect: two executions of the same statement with different values collapse to the same
  * string, so a log can be grouped by statement shape.
  */
 public final class SqlLiteralMasker {
     private static final char MASK = '?';
+    private static final String MASKED_STATEMENT = "<masked>";
 
     private SqlLiteralMasker() {}
 
@@ -97,10 +100,15 @@ public final class SqlLiteralMasker {
 
             final int afterQuoted = SqlLexer.skipCommentOrQuoted(sql, i);
             if (afterQuoted != i) {
-                // A comment or a quoted region. Comments and quoted *identifiers* are structure and
-                // are kept; a single-quoted string is a value and is masked.
+                // A hint and a quoted identifier are structure and are kept; a single-quoted string
+                // is a value, and any other comment can carry one.
                 if (maskValues && sql.charAt(i) == '\'') {
+                    if (sql.substring(i, afterQuoted).indexOf('\\') >= 0) {
+                        return MASKED_STATEMENT;
+                    }
                     out.append(MASK);
+                } else if (maskValues && isComment(sql, i) && !sql.startsWith("/*+", i)) {
+                    out.append(sql.startsWith("/*", i) ? "/*?*/" : sql.substring(i, i + 2) + MASK);
                 } else {
                     appendCollapsed(out, sql, i, afterQuoted);
                 }
@@ -171,24 +179,40 @@ public final class SqlLiteralMasker {
         }
     }
 
+    private static boolean isComment(final String sql, final int pos) {
+        return sql.startsWith("/*", pos) || sql.startsWith("--", pos) || sql.startsWith("//", pos);
+    }
+
     /**
-     * Whether a numeric literal starts at {@code pos}. A digit that continues an identifier ({@code
-     * col2}, {@code t1.c}) is not a literal, so the preceding character decides.
+     * Whether a numeric literal starts at {@code pos}: a digit, or a '.' before one ({@code .75}).
+     * A digit that continues an identifier ({@code col2}, {@code t1.c}) is not a literal, so the
+     * preceding character decides.
      */
     private static boolean isNumberStart(final String sql, final int pos) {
-        if (!isDigit(sql.charAt(pos))) {
+        final char c = sql.charAt(pos);
+        final boolean leadingDot =
+                c == '.' && pos + 1 < sql.length() && isDigit(sql.charAt(pos + 1));
+        if (!isDigit(c) && !leadingDot) {
             return false;
         }
         if (pos == 0) {
             return true;
         }
         final char prev = sql.charAt(pos - 1);
-        return !isIdentifierPart(prev) && prev != '.';
+        return !KeywordSqlClassifier.isIdentifierPart(prev) && prev != '.';
     }
 
     private static int scanNumberEnd(final String sql, final int pos) {
         final int len = sql.length();
         int p = pos;
+        // 0x / 0b literal: its digits are letters too
+        if (sql.charAt(p) == '0' && p + 1 < len && "xXbB".indexOf(sql.charAt(p + 1)) >= 0) {
+            p += 2;
+            while (p < len && KeywordSqlClassifier.isIdentifierPart(sql.charAt(p))) {
+                p++;
+            }
+            return p;
+        }
         while (p < len && (isDigit(sql.charAt(p)) || sql.charAt(p) == '.')) {
             p++;
         }
@@ -210,12 +234,5 @@ public final class SqlLiteralMasker {
 
     private static boolean isDigit(final char c) {
         return '0' <= c && c <= '9';
-    }
-
-    private static boolean isIdentifierPart(final char c) {
-        return ('a' <= c && c <= 'z')
-                || ('A' <= c && c <= 'Z')
-                || ('0' <= c && c <= '9')
-                || c == '_';
     }
 }

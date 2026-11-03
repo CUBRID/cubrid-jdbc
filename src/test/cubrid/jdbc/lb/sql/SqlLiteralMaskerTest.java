@@ -72,6 +72,33 @@ public class SqlLiteralMaskerTest {
                 mask("SELECT /*+ TO_RO */ count(*) FROM log WHERE id > 100"));
     }
 
+    /**
+     * Hex, binary and leading-dot numbers are values too; a comment other than a hint can carry
+     * one; an identifier is read as the classifier reads it, so its digits are not values.
+     */
+    @Test
+    public void everyValueFormIsMaskedAndIdentifiersAreKept() {
+        assertEquals(
+                "SELECT * FROM t WHERE k = ?", mask("SELECT * FROM t WHERE k = 0xDEADBEEFCAFE"));
+        assertEquals("SELECT * FROM t WHERE k = ?", mask("SELECT * FROM t WHERE k = 0b101010"));
+        assertEquals("SELECT * FROM t WHERE amt = ?", mask("SELECT * FROM t WHERE amt = .75"));
+        assertEquals(
+                "SELECT * FROM t WHERE c = ? --?",
+                mask("SELECT * FROM t WHERE c = 1 -- pw='hunter2'"));
+        assertEquals(
+                "SELECT /*?*/ /*+ TO_RO */ c FROM t",
+                mask("SELECT /* card 4111111111111111 */ /*+ TO_RO */ c FROM t"));
+        assertEquals("SELECT 이름1, #t2 FROM t", mask("SELECT 이름1, #t2 FROM t"));
+    }
+
+    /** Where a string ends depends on the server's no_backslash_escapes, so nothing is kept. */
+    @Test
+    public void aStringWithABackslashMasksTheWholeStatement() {
+        assertEquals(
+                "<masked>",
+                mask("SELECT * FROM t WHERE a = 'O\\'Brien' AND b = 'Seoul-ssn-860101-1234567'"));
+    }
+
     @Test
     public void quotedIdentifiersAreStructureAndStay() {
         // "name" and [order] name columns, not values.

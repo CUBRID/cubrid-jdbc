@@ -54,7 +54,10 @@ import java.sql.SQLException;
 import java.sql.Time;
 import java.sql.Timestamp;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 
 public class UStatement {
     public static final int CURSOR_SET = 0, CURSOR_CUR = 1, CURSOR_END = 2;
@@ -505,9 +508,21 @@ public class UStatement {
         bindValue(index, UUType.U_TYPE_OBJECT, oid);
     }
 
-    public void bindInternalLobUpload(int index, boolean blob, long token, long dataLength) {
+    /* oneShot: an upload made for this binding alone, released if discarded before an execute */
+    public void bindInternalLobUpload(
+            int index, boolean blob, long token, long dataLength, boolean oneShot) {
         InternalLobUpload v = internalLobUpload(blob, token, dataLength);
         bindValue(index, v.type, v.marker);
+        if (!oneShot) {
+            return;
+        }
+        if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR) {
+            relatedConnection.streamUploadRelease(Collections.singletonList(token));
+            return;
+        }
+        synchronized (bindParameter) {
+            bindParameter.unsentUploads[index] = token;
+        }
     }
 
     /* the marker naming an internal LOB already streamed to the server */
@@ -598,6 +613,7 @@ public class UStatement {
         errorHandler = new UError(relatedConnection);
         if (batchParameter == null) return;
         synchronized (batchParameter) {
+            releaseUnsentUploads(batchParameter);
             batchParameter.clear();
         }
     }
@@ -605,8 +621,35 @@ public class UStatement {
     public synchronized void clearBind() {
         errorHandler = new UError(relatedConnection);
         if (bindParameter == null) return;
+        releaseUnsentUploads(Collections.singletonList(bindParameter));
         synchronized (bindParameter) {
             bindParameter.clear();
+        }
+    }
+
+    /* The application closes the statement: no execute will send its unsent uploads. */
+    public synchronized void releaseUnsentUploads() {
+        ArrayList<UBindParameter> bindings = new ArrayList<UBindParameter>();
+        if (bindParameter != null) bindings.add(bindParameter);
+        if (batchParameter != null) bindings.addAll(batchParameter);
+        releaseUnsentUploads(bindings);
+    }
+
+    /* A one-shot upload has no reference but its binding, so one no execute sent can go. */
+    private void releaseUnsentUploads(List<UBindParameter> bindings) {
+        ArrayList<Long> tokens = new ArrayList<Long>();
+        for (UBindParameter b : bindings) {
+            synchronized (b) {
+                for (int i = 0; i < b.unsentUploads.length; i++) {
+                    if (b.unsentUploads[i] > 0) {
+                        tokens.add(b.unsentUploads[i]);
+                        b.unsentUploads[i] = 0;
+                    }
+                }
+            }
+        }
+        if (!tokens.isEmpty()) {
+            relatedConnection.streamUploadRelease(tokens);
         }
     }
 
@@ -840,6 +883,10 @@ public class UStatement {
             executeResult = Math.min(maxFetchSize, executeResult);
         }
         totalTupleNumber = executeResult;
+        if (batchParameter != null) {
+            /* the batch is dropped without being executed */
+            releaseUnsentUploads(batchParameter);
+        }
         batchParameter = null;
 
         // jdbc cache feature
@@ -882,6 +929,12 @@ public class UStatement {
         synchronized (relatedConnection) {
             writeExecuteRequest(maxField, isScrollable, queryTimeout, cacheData);
             inBuffer = relatedConnection.send_recv_msg();
+        }
+        if (bindParameter != null) {
+            /* the CAS holds the uploads it bound now, and releases them with the statement */
+            synchronized (bindParameter) {
+                Arrays.fill(bindParameter.unsentUploads, 0);
+            }
         }
 
         // cache reusable
@@ -2023,8 +2076,14 @@ public class UStatement {
         }
 
         try {
+            long discarded;
             synchronized (bindParameter) {
                 bindParameter.setParameter(index, type, data);
+                discarded = bindParameter.unsentUploads[index];
+                bindParameter.unsentUploads[index] = 0;
+            }
+            if (discarded > 0) {
+                relatedConnection.streamUploadRelease(Collections.singletonList(discarded));
             }
         } catch (UJciException e) {
             e.toUError(localError);

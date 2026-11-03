@@ -53,6 +53,7 @@ import java.net.Socket;
 import java.sql.SQLException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.List;
 import java.util.Vector;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -1417,6 +1418,41 @@ public abstract class UConnection {
             if (resCode < 0) {
                 errorHandler.setErrorCode(UErrorCode.ER_UNKNOWN);
             }
+            return resCode;
+        } catch (UJciException e) {
+            logException(e);
+            e.toUError(errorHandler);
+        } catch (IOException e) {
+            logException(e);
+            errorHandler.setErrorCode(UErrorCode.ER_COMMUNICATION);
+        } catch (Exception e) {
+            logException(e);
+            errorHandler.setErrorCode(UErrorCode.ER_UNKNOWN);
+        }
+        return -1;
+    }
+
+    /* Drops uploads a statement discarded before any execute sent them; the CAS keeps one an open
+     * statement binds. */
+    // UFunctionCode.STREAM_UPLOAD_RELEASE
+    public synchronized int streamUploadRelease(List<Long> tokens) {
+        errorHandler = new UError(this);
+        if (isClosed == true) {
+            errorHandler.setErrorCode(UErrorCode.ER_IS_CLOSED);
+            return -1;
+        }
+        try {
+            setBeginTime();
+            checkReconnect();
+            if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR) return -1;
+
+            outBuffer.newRequest(output, UFunctionCode.STREAM_UPLOAD_RELEASE);
+            for (long token : tokens) {
+                outBuffer.addLong(token);
+            }
+            UInputBuffer inBuffer = send_recv_msg();
+            int resCode = inBuffer.getResCode();
+            if (resCode < 0) errorHandler.setErrorCode(UErrorCode.ER_UNKNOWN);
             return resCode;
         } catch (UJciException e) {
             logException(e);

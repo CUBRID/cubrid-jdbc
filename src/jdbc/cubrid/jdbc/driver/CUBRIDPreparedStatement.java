@@ -620,7 +620,7 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
         long token = upload.finish();
         synchronized (u_stmt) {
             u_stmt.bindInternalLobUpload(
-                    parameterIndex - 1, upload.isBlob(), token, upload.length());
+                    parameterIndex - 1, upload.isBlob(), token, upload.length(), !upload.isHeld());
             error = u_stmt.getRecentError();
         }
         checkBindError();
@@ -750,6 +750,7 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
                     is_closed = true;
 
                     if (u_stmt != null) {
+                        u_stmt.releaseUnsentUploads();
                         u_stmt.close();
                         u_stmt = null;
                     }

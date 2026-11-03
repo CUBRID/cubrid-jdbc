@@ -115,6 +115,10 @@ class CUBRIDInternalLobUpload {
         return blob;
     }
 
+    boolean isHeld() {
+        return held;
+    }
+
     /* The upload a BLOB/CLOB parameter binds: a value made by createBlob ()/createClob () sends what
      * it holds, any other value is streamed now. */
     static CUBRIDInternalLobUpload of(CUBRIDConnection conn, Object value) throws SQLException {

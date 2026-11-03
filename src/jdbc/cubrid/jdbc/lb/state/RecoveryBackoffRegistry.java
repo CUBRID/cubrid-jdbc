@@ -34,8 +34,8 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * JVM-wide registry of pool-scoped {@link RecoveryBackoff} instances, keyed like {@link
- * SharedSelectorStateRegistry} (logical URL with query stripped) so all sessions of the same pool
- * share one backoff schedule — the basis of single-prober election across sessions.
+ * SharedSelectorStateRegistry} (the resolved cluster and its read weights) so all sessions of a
+ * pool share one backoff schedule — the basis of single-prober election across sessions.
  *
  * <p>The interval is fixed at first creation of a key; later callers with a different interval get
  * the existing instance (same-pool connections share one config in practice).

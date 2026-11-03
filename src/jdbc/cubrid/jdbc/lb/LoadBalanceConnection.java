@@ -422,15 +422,14 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         // Writes nothing after the first connection of a given URL.
         LbTopologyLog.declare(url, info, config);
         LbDistLog.configure(config);
-        // Pool-scoped selector state keyed by the logical URL (query stripped), so distinct pools
-        // stay isolated and connections to the same URL share one ratio state.
-        connection.setSharedSelectorState(
-                SharedSelectorStateRegistry.getOrCreate(sharedStateKeyForUrl(url)));
-        // Pool-shared recovery-probe backoff, same key scope: single-prober election and
-        // markReachable propagation only work if all sessions of the pool share one schedule.
+        // Selector state is shared by the pools on one cluster with one readWeight, the ratio it
+        // balances to, whatever else their URLs differ in. Recovery-probe backoff has the same
+        // scope: single-prober election and markReachable propagation only work if the sessions
+        // share one schedule.
+        final String cluster = LbTopologyLog.resolved(config);
+        connection.setSharedSelectorState(SharedSelectorStateRegistry.getOrCreate(cluster));
         RecoveryBackoff backoff =
-                RecoveryBackoffRegistry.getOrCreate(
-                        sharedStateKeyForUrl(url), config.getRecoveryProbeIntervalMs());
+                RecoveryBackoffRegistry.getOrCreate(cluster, config.getRecoveryProbeIntervalMs());
         connection.setConnectionManager(
                 new SessionPhysicalConnManager(
                         url, LbProps.copy(info), config, connectionFactory, backoff));
@@ -451,11 +450,6 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         }
 
         return connection;
-    }
-
-    private static String sharedStateKeyForUrl(final String url) {
-        int q = url.indexOf('?');
-        return q >= 0 ? url.substring(0, q) : url;
     }
 
     public LoadBalanceSettings getLbConfig() {

@@ -126,9 +126,13 @@ public final class LbTopologyLog {
     /**
      * Endpoints with their roles, plus the read-weight target. A slave is rendered with both legs
      * ({@code rw} and {@code ro}), because it serves writes through one port and reads through
-     * another, and a bind record naming only one would be ambiguous.
+     * another, and a bind record naming only one would be ambiguous. Also the identity pools share
+     * balancing state by, whatever else their URLs differ in.
+     *
+     * @param config the settings to render
+     * @return the database, every role's endpoints and the read weights
      */
-    private static String resolved(final LoadBalanceSettings config) {
+    public static String resolved(final LoadBalanceSettings config) {
         StringBuilder b = new StringBuilder(200);
         b.append("db=").append(config.getDatabaseName());
 

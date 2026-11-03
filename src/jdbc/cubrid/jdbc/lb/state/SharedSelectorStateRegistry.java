@@ -36,10 +36,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * JVM-wide registry of {@link SharedSelectorState} for round-robin / live-population continuity
  * across logical connections from the same pool or JDBC URL group.
  *
- * <p>The caller supplies the registry key; production uses the logical JDBC URL with its query
- * stripped (see {@code LoadBalanceConnection.sharedStateKeyForUrl}). Entries are never reclaimed,
- * which is bounded by the number of distinct logical URLs. A deployment that mints URLs dynamically
- * (per-tenant db names, say) would grow the map without bound.
+ * <p>The caller supplies the registry key; production uses the resolved cluster and its read
+ * weights ({@code LbTopologyLog.resolved}). Entries are never reclaimed, which is bounded by the
+ * number of distinct clusters. A deployment that mints them dynamically (per-tenant db names, say)
+ * would grow the map without bound.
  */
 public final class SharedSelectorStateRegistry {
     private static final String DEFAULT_KEY = "default";

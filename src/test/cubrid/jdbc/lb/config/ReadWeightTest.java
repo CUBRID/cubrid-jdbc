@@ -135,6 +135,25 @@ public class ReadWeightTest {
         assertParseFails("slave:-1");
     }
 
+    /** A weight above 10,000 is out of range, so no sum of weights can overflow. */
+    @Test
+    public void rejectsWeightAboveTheCap() throws SQLException {
+        assertParseFails("master:10001");
+        assertParseFails("master:2147483647,slave:1");
+        assertEquals(10000, ReadWeight.parse("master:10000").weightOf(NodeRole.MASTER));
+    }
+
+    /** Only roles the topology has can take reads; weights on the others alone are no target. */
+    @Test
+    public void weightsOnlyOnAbsentRolesAreNoReadTarget() throws SQLException {
+        ParsedRoleTopology topo = topologyOf("jdbc:cubrid:loadbalance://n1,n2/db");
+        try {
+            ReadWeight.resolve("master:0,replica:5", topo);
+            fail("a weight on an absent role leaves no read target");
+        } catch (SQLException expected) {
+        }
+    }
+
     @Test
     public void rejectsNonNumericWeight() {
         assertParseFails("slave:x");

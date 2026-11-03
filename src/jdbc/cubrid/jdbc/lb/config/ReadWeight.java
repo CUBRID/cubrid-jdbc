@@ -63,6 +63,9 @@ import java.util.logging.Logger;
 public final class ReadWeight {
     private static final Logger LOGGER = Logger.getLogger(ReadWeight.class.getName());
 
+    // Per role, so no sum of weights can overflow an int.
+    private static final int MAX_WEIGHT = 10000;
+
     private final Map<NodeRole, Integer> weights;
 
     private ReadWeight(final Map<NodeRole, Integer> source) {
@@ -103,9 +106,21 @@ public final class ReadWeight {
     private static void validateAgainstTopology(
             final ReadWeight w, final ParsedRoleTopology topology, final String spec)
             throws SQLException {
-        if (!w.hasReadTarget()) {
+        // Only roles the topology has can take a read.
+        final int effective =
+                w.weightOf(NodeRole.MASTER)
+                        + (topology == null || topology.hasSlaves()
+                                ? w.weightOf(NodeRole.SLAVE)
+                                : 0)
+                        + (topology == null || topology.hasReplicas()
+                                ? w.weightOf(NodeRole.REPLICA)
+                                : 0);
+        if (effective == 0) {
             throw LbExceptions.optionInvalid(
-                    "readWeight has no read target (all weights are 0): '" + spec + "'");
+                    "readWeight has no read target (all weights are 0 for the roles this topology"
+                            + " has): '"
+                            + spec
+                            + "'");
         }
         if (topology == null) {
             return;
@@ -197,7 +212,7 @@ public final class ReadWeight {
     private static int parseWeight(final String text, final String token) throws SQLException {
         try {
             final int weight = Integer.parseInt(text.trim());
-            if (weight < 0) {
+            if (weight < 0 || weight > MAX_WEIGHT) {
                 throw LbExceptions.optionValueIncompatible("readWeight", token);
             }
             return weight;

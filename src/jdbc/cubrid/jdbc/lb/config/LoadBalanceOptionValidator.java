@@ -79,6 +79,12 @@ final class LoadBalanceOptionValidator {
 
     private LoadBalanceOptionValidator() {}
 
+    /** Whether {@code key} configures LB or is classic-only: either way it never reaches a leg. */
+    static boolean staysOffTheLegs(final String key) {
+        return OptionKeys.containsIgnoreCase(LOADBALANCE_ONLY, key)
+                || OptionKeys.containsIgnoreCase(CLASSIC_ONLY, key);
+    }
+
     /**
      * Classify a loadbalance URL's options, retaining applicable ones and ignoring (with a WARN)
      * the classic-only ones.

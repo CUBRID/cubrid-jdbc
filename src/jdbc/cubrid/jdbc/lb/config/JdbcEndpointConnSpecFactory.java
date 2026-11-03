@@ -194,7 +194,9 @@ final class JdbcEndpointConnSpecFactory {
         Properties p = new Properties();
         if (clientInfo != null) {
             for (String name : clientInfo.stringPropertyNames()) {
-                p.setProperty(name, clientInfo.getProperty(name));
+                if (!LoadBalanceOptionValidator.staysOffTheLegs(name)) {
+                    p.setProperty(name, clientInfo.getProperty(name));
+                }
             }
         }
 

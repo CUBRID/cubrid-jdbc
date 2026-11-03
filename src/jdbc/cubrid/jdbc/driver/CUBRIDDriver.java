@@ -414,7 +414,7 @@ public class CUBRIDDriver implements Driver {
     private Connection connectUri(String url, Properties info, UrlMode mode) throws SQLException {
         if (mode == UrlMode.URI_LOADBALANCE) {
             LoadBalanceSettings config =
-                    LoadBalanceSettings.fromUrl(LoadBalanceUrlParser.parse(url));
+                    LoadBalanceSettings.fromUrl(LoadBalanceUrlParser.parse(url), info);
             return LoadBalanceConnection.openFromSettings(url, info, config);
         }
 

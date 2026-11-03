@@ -121,6 +121,26 @@ public class JdbcEndpointConnectionFactoryTest {
                 .getProperty("password");
     }
 
+    /**
+     * A classic-only key in Properties would make a leg pick its own broker, and an LB-only key
+     * configures LB: neither reaches a leg, as neither does from the URL.
+     */
+    @Test
+    public void classicOnlyAndLbOnlyPropertiesStayOffTheLegs() throws SQLException {
+        Properties info = new Properties();
+        info.setProperty("user", "dba");
+        info.setProperty("altHosts", "h2:33000");
+        info.setProperty("loadBalance", "rr");
+        info.setProperty("readWeight", "master:1");
+        info.setProperty("charset", "utf-8");
+        Properties p = spec(LB_BASE, info, new Endpoint("h", 1)).getConnectionProperties();
+        assertFalse(p.containsKey("altHosts"));
+        assertFalse(p.containsKey("loadBalance"));
+        assertFalse(p.containsKey("readWeight"));
+        assertEquals("utf-8", p.getProperty("charset"));
+        assertEquals("dba", p.getProperty("user"));
+    }
+
     private static JdbcPhyConnSpec spec(
             final String loadBalanceUrl, final Properties info, final Endpoint endpoint)
             throws SQLException {

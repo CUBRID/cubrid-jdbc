@@ -135,22 +135,45 @@ public class LoadBalanceSettings {
      * @throws SQLException if the URL is null or its topology/weights are invalid
      */
     public static LoadBalanceSettings fromUrl(final ParsedUrl parsed) throws SQLException {
+        return fromUrl(parsed, null);
+    }
+
+    /**
+     * {@link #fromUrl(ParsedUrl)} with the connection properties. An LB or classic-only option in
+     * {@code info} counts as one in the URL, and wins, as a property does over a URL option in
+     * core.
+     *
+     * @param parsed the structurally parsed URI URL
+     * @param info the connection properties; may be {@code null}
+     * @return the settings for the parsed URL
+     * @throws SQLException if the URL is null or its topology/weights are invalid
+     */
+    public static LoadBalanceSettings fromUrl(final ParsedUrl parsed, final Properties info)
+            throws SQLException {
         if (parsed == null) {
             throw LbExceptions.invalidUrl("parsed URL is null", null);
         }
 
+        final Map<String, String> options = new LinkedHashMap<String, String>(parsed.getOptions());
+        if (info != null) {
+            for (String name : info.stringPropertyNames()) {
+                if (LoadBalanceOptionValidator.staysOffTheLegs(name)) {
+                    options.remove(OptionKeys.findKeyIgnoreCase(options, name));
+                    options.put(name, info.getProperty(name));
+                }
+            }
+        }
+
         final ParsedRoleTopology roleTopology = ParsedRoleTopology.fromUrl(parsed);
-        final ResolvedRoleTopology resolved =
-                ResolvedRoleTopology.resolve(roleTopology, parsed.getOptions());
+        final ResolvedRoleTopology resolved = ResolvedRoleTopology.resolve(roleTopology, options);
         final ReadWeight weights =
                 ReadWeight.resolve(
-                        OptionKeys.findValueIgnoreCase(parsed.getOptions(), "readWeight"),
-                        roleTopology);
+                        OptionKeys.findValueIgnoreCase(options, "readWeight"), roleTopology);
         final Map<String, String> propagated =
-                LoadBalanceOptionValidator.validate(parsed.getOptions()).getRetainedOptions();
+                LoadBalanceOptionValidator.validate(options).getRetainedOptions();
         JdbcEndpointConnSpecFactory.checkPropagatable(propagated);
-        final MetricsConfig metrics = MetricsConfig.parse(parsed.getOptions());
-        final LbLogConfig lbLog = LbLogConfig.parse(parsed.getOptions());
+        final MetricsConfig metrics = MetricsConfig.parse(options);
+        final LbLogConfig lbLog = LbLogConfig.parse(options);
 
         return new LoadBalanceSettings(
                 resolved,

@@ -74,6 +74,21 @@ public class LoadBalanceSettingsFromUrlTest {
         assertEquals("", c.getUrlVariant());
     }
 
+    /** An LB option in Properties configures LB as one in the URL does, and wins, as in core. */
+    @Test
+    public void lbOptionsInPropertiesWinOverTheUrl() throws SQLException {
+        java.util.Properties info = new java.util.Properties();
+        info.setProperty("readWeight", "master:3,slave:1");
+        LoadBalanceSettings c =
+                LoadBalanceSettings.fromUrl(
+                        LoadBalanceUrlParser.parse(
+                                "jdbc:cubrid:loadbalance://node1,node2/testdb?readWeight=slave:1"),
+                        info);
+
+        assertEquals(3, c.getReadWeight().weightOf(NodeRole.MASTER));
+        assertEquals(1, c.getReadWeight().weightOf(NodeRole.SLAVE));
+    }
+
     @Test
     public void appliesDefaultReadWeightWhenAbsent() throws SQLException {
         LoadBalanceSettings c =

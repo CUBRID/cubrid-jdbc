@@ -192,6 +192,42 @@ public class MetricsExportersTest {
         }
     }
 
+    /**
+     * A client that connects and never finishes its request holds one scrape thread, not the
+     * endpoint; only a GET or HEAD of exactly /metrics is answered with the body.
+     */
+    @Test
+    public void aStalledClientDoesNotBlockAScrapeAndOnlyGetMetricsIsServed() throws Exception {
+        int port = freePort();
+        MetricsExporters.configure(prometheus(port, 60));
+        Socket stalled = new Socket(InetAddress.getLoopbackAddress(), port);
+        try {
+            stalled.getOutputStream().write("GET /metr".getBytes("US-ASCII"));
+            assertEquals(200, status(port, "GET", "/metrics"));
+            assertEquals(200, status(port, "HEAD", "/metrics"));
+            assertEquals(405, status(port, "POST", "/metrics"));
+            assertEquals(404, status(port, "GET", "/metricsX"));
+        } finally {
+            stalled.close();
+            MetricsExporters.stop();
+        }
+    }
+
+    private static int status(final int port, final String method, final String path)
+            throws IOException {
+        java.net.HttpURLConnection c =
+                (java.net.HttpURLConnection)
+                        new java.net.URL("http://127.0.0.1:" + port + path).openConnection();
+        c.setRequestMethod(method);
+        c.setConnectTimeout(3000);
+        c.setReadTimeout(3000);
+        try {
+            return c.getResponseCode();
+        } finally {
+            c.disconnect();
+        }
+    }
+
     @Test
     public void csvRowsGoToTheCsvLoggerOneFieldPerHeaderColumn() throws Exception {
         RuntimeMetrics metrics = new RuntimeMetrics();

@@ -45,6 +45,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -71,6 +74,16 @@ public final class MetricsExporters {
     private static int prometheusPort;
     private static HttpServer prometheusServer;
     private static Thread prometheusWatch;
+    private static final int SCRAPE_THREADS = 4;
+    private static final ThreadFactory SCRAPE_THREAD_FACTORY =
+            new ThreadFactory() {
+                public Thread newThread(final Runnable scrape) {
+                    Thread t = new Thread(scrape, "lb-metrics-prometheus-scrape");
+                    t.setDaemon(true);
+                    t.setContextClassLoader(null); // as core's own threads
+                    return t;
+                }
+            };
     // A port that could not be bound is warned about once per JVM and not tried again for a while.
     private static final long BIND_RETRY_MS = 60000L;
     private static long prometheusFailedAtMs;
@@ -114,6 +127,7 @@ public final class MetricsExporters {
         synchronized (LOCK) {
             if (prometheusServer != null) {
                 prometheusServer.stop(0);
+                ((ExecutorService) prometheusServer.getExecutor()).shutdown();
                 prometheusServer = null;
             }
             if (prometheusWatch != null) {
@@ -171,7 +185,9 @@ public final class MetricsExporters {
                 caller.setContextClassLoader(context);
             }
             server.createContext("/metrics", new MetricsHandler());
-            server.setExecutor(null); // default single-threaded executor: scrapes are infrequent
+            // A small pool, so a client that never finishes its request holds one thread and not
+            // the endpoint, as the default executor (the dispatcher thread) would.
+            server.setExecutor(Executors.newFixedThreadPool(SCRAPE_THREADS, SCRAPE_THREAD_FACTORY));
             startAsDaemon(server);
             prometheusServer = server;
             prometheusStarted = true;
@@ -262,6 +278,7 @@ public final class MetricsExporters {
                 return; // stopped or replaced meanwhile
             }
             server.stop(0);
+            ((ExecutorService) server.getExecutor()).shutdown();
             prometheusServer = null;
             prometheusWatch = null;
             prometheusStarted = false;
@@ -519,17 +536,32 @@ public final class MetricsExporters {
         return label.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n");
     }
 
+    /** Answers a GET or HEAD of exactly {@code /metrics}; the context also matches longer paths. */
     private static final class MetricsHandler implements HttpHandler {
         public void handle(final HttpExchange exchange) throws IOException {
-            byte[] body = renderPrometheus().getBytes("UTF-8");
-            exchange.getResponseHeaders()
-                    .set("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
-            exchange.sendResponseHeaders(200, body.length);
-            OutputStream os = exchange.getResponseBody();
             try {
+                if (!"/metrics".equals(exchange.getRequestURI().getPath())) {
+                    exchange.sendResponseHeaders(404, -1);
+                    return;
+                }
+                final boolean head = "HEAD".equals(exchange.getRequestMethod());
+                if (!head && !"GET".equals(exchange.getRequestMethod())) {
+                    exchange.getResponseHeaders().set("Allow", "GET, HEAD");
+                    exchange.sendResponseHeaders(405, -1);
+                    return;
+                }
+                exchange.getResponseHeaders()
+                        .set("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
+                if (head) {
+                    exchange.sendResponseHeaders(200, -1);
+                    return;
+                }
+                byte[] body = renderPrometheus().getBytes("UTF-8");
+                exchange.sendResponseHeaders(200, body.length);
+                OutputStream os = exchange.getResponseBody();
                 os.write(body);
             } finally {
-                os.close();
+                exchange.close();
             }
         }
     }

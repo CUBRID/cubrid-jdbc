@@ -90,7 +90,9 @@ public final class LbDistLog {
     private static volatile boolean armed;
     private static volatile long intervalMs;
     private static volatile LoadBalanceSettings target;
-    private static volatile boolean hookInstalled;
+    // Removed by the drain on the last LB connection close, so it does not keep this driver's
+    // class loader after an undeploy; the next connection installs it again.
+    private static Thread hook;
 
     // Guarded by the class monitor: only the CAS winner reaches emit(), but drainFinal() can run
     // concurrently on the shutdown thread.
@@ -107,7 +109,11 @@ public final class LbDistLog {
      * @param config the settings whose {@code lbLogDistIntervalSec} may arm this; ignored when null
      */
     public static synchronized void configure(final LoadBalanceSettings config) {
-        if (config == null || armed) {
+        if (config == null) {
+            return;
+        }
+        if (armed) {
+            installShutdownHook();
             return;
         }
         int sec = config.getLbLogConfig().getDistIntervalSec();
@@ -166,6 +172,7 @@ public final class LbDistLog {
         // Restart the window: if connections are opened again, the next one starts from here.
         long now = System.currentTimeMillis();
         emit((now - lastEmitMs.getAndSet(now)) / 1000L, true);
+        removeShutdownHook();
     }
 
     private static synchronized void emit(final long windowSec, final boolean isFinal) {
@@ -465,23 +472,39 @@ public final class LbDistLog {
         return (scaled / 10L) + "." + Math.abs(scaled % 10L);
     }
 
-    private static void installShutdownHook() {
-        if (hookInstalled) {
+    private static synchronized void installShutdownHook() {
+        if (hook != null) {
             return;
         }
+        Thread t =
+                new Thread("lb-dist-flush") {
+                    @Override
+                    public void run() {
+                        drainFinal();
+                    }
+                };
+        t.setContextClassLoader(null); // as core's own threads: no application loader held
         try {
-            Runtime.getRuntime()
-                    .addShutdownHook(
-                            new Thread("lb-dist-flush") {
-                                @Override
-                                public void run() {
-                                    drainFinal();
-                                }
-                            });
-            hookInstalled = true;
+            Runtime.getRuntime().addShutdownHook(t);
+            hook = t;
         } catch (Exception e) {
             // A container may forbid shutdown hooks; only the last window is then lost.
             LOGGER.warning("LB DIST: cannot register the shutdown flush hook: " + e);
+        }
+    }
+
+    private static void removeShutdownHook() {
+        Thread installed;
+        synchronized (LbDistLog.class) {
+            installed = hook;
+            hook = null;
+        }
+        if (installed != null) {
+            try {
+                Runtime.getRuntime().removeShutdownHook(installed);
+            } catch (Exception shuttingDown) {
+                // this drain is the hook itself
+            }
         }
     }
 

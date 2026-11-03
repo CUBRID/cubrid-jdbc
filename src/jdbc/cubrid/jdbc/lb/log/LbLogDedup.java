@@ -75,8 +75,9 @@ public final class LbLogDedup {
 
     private static final Map<String, Pending> STATE = new LinkedHashMap<String, Pending>();
 
-    // Guarded by the class monitor, like STATE.
-    private static boolean hookInstalled;
+    // Guarded by the class monitor, like STATE. Removed when the last LB connection closes, so it
+    // does not keep this driver's class loader after an undeploy.
+    private static Thread hook;
 
     private LbLogDedup() {}
 
@@ -212,19 +213,19 @@ public final class LbLogDedup {
      * the last connection close is the one that can be relied on.
      */
     private static void installShutdownHook() {
-        if (hookInstalled) {
+        if (hook != null) {
             return;
         }
-        hookInstalled = true;
+        hook =
+                new Thread("lb-log-flush") {
+                    @Override
+                    public void run() {
+                        drain();
+                    }
+                };
+        hook.setContextClassLoader(null); // as core's own threads: no application loader held
         try {
-            Runtime.getRuntime()
-                    .addShutdownHook(
-                            new Thread("lb-log-flush") {
-                                @Override
-                                public void run() {
-                                    drain();
-                                }
-                            });
+            Runtime.getRuntime().addShutdownHook(hook);
         } catch (Exception e) {
             // A container may forbid shutdown hooks, or the JVM is already exiting; the last-close
             // drain still runs.
@@ -238,8 +239,11 @@ public final class LbLogDedup {
     public static void drain() {
         List<Pending> flush = new ArrayList<Pending>();
         List<String> keys = new ArrayList<String>();
+        Thread installed;
 
         synchronized (LbLogDedup.class) {
+            installed = hook;
+            hook = null;
             for (Map.Entry<String, Pending> e : STATE.entrySet()) {
                 Pending p = e.getValue();
                 if (p.suppressed > 0L && p.logger != null) {
@@ -262,6 +266,13 @@ public final class LbLogDedup {
                             + keys.get(i)
                             + "] were collapsed and not written individually | last: "
                             + p.message);
+        }
+        if (installed != null) {
+            try {
+                Runtime.getRuntime().removeShutdownHook(installed);
+            } catch (Exception shuttingDown) {
+                // this drain is the hook itself, or hooks are forbidden
+            }
         }
     }
 

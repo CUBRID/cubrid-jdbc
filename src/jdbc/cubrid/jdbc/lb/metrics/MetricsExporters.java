@@ -153,7 +153,16 @@ public final class MetricsExporters {
         try {
             InetAddress address =
                     bind == null ? InetAddress.getLoopbackAddress() : InetAddress.getByName(bind);
-            final HttpServer server = HttpServer.create(new InetSocketAddress(address, port), 0);
+            // The server starts its timer thread here, which keeps this thread's context loader.
+            final Thread caller = Thread.currentThread();
+            final ClassLoader context = caller.getContextClassLoader();
+            final HttpServer server;
+            caller.setContextClassLoader(null);
+            try {
+                server = HttpServer.create(new InetSocketAddress(address, port), 0);
+            } finally {
+                caller.setContextClassLoader(context);
+            }
             server.createContext("/metrics", new MetricsHandler());
             server.setExecutor(null); // default single-threaded executor: scrapes are infrequent
             startAsDaemon(server);
@@ -195,6 +204,8 @@ public final class MetricsExporters {
                         },
                         "lb-metrics-prometheus-start");
         starter.setDaemon(true);
+        // As core's own threads; the dispatcher inherits it from here.
+        starter.setContextClassLoader(null);
         starter.start();
         starter.join();
     }
@@ -224,6 +235,7 @@ public final class MetricsExporters {
                         },
                         "lb-metrics-prometheus-idle");
         watch.setDaemon(true);
+        watch.setContextClassLoader(null);
         watch.start();
         prometheusWatch = watch;
     }
@@ -249,6 +261,7 @@ public final class MetricsExporters {
         }
         Thread t = new Thread(new CsvWriter(intervalSec), "lb-metrics-csv");
         t.setDaemon(true);
+        t.setContextClassLoader(null);
         t.start();
         csvThread = t;
         csvStarted = true;

@@ -1481,7 +1481,9 @@ public class CUBRIDResultSet implements ResultSet {
     /**
      * Name {@code reported} as this result set's producer instead of the statement that physically
      * created it. Used by the load-balance driver, which hands out physical result sets: see {@link
-     * #reportedStmt} for why this is a separate notion from the internal producer.
+     * #reportedStmt} for why this is a separate notion from the internal producer. Public only
+     * because that driver is in another package: an application that calls it changes what {@link
+     * #getStatement()} returns.
      *
      * @param reported the statement to report, or null to report the physical producer again
      */

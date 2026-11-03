@@ -529,7 +529,8 @@ public class CUBRIDStatement implements Statement {
     /**
      * Name {@code reported} as this statement's owner instead of the connection that physically
      * created it. Used by the load-balance driver for the statement kinds it hands out unwrapped;
-     * see {@link #reportedCon}.
+     * see {@link #reportedCon}. Public only because that driver is in another package: an
+     * application that calls it changes what {@link #getConnection()} returns.
      *
      * @param reported the connection to report, or null to report the physical owner again
      */

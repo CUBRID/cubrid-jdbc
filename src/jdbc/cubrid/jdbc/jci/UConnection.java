@@ -114,8 +114,14 @@ public abstract class UConnection {
     /* internal LOB read streaming: the column carries a locator, not the content */
     public static final int PROTOCOL_V14 = 14;
 
-    /* Largest payload one LOB_STREAM_READ may ask for; CAS refuses more. */
-    public static final int INTERNAL_LOB_STREAM_MAX_CHUNK = 1024 * 1024;
+    /* The core bounds one download read by this, whatever was asked. */
+    public static final int STREAM_READ_MAX_CHUNK = 1024 * 1024;
+
+    /* The flags byte of the bundled download requests, and the flags their replies carry. */
+    public static final byte STREAM_FLAG_RELEASE_AT_EOF = 0x01;
+    public static final byte STREAM_FLAG_AUTO_COMMIT = 0x02;
+    public static final int STREAM_FLAG_EOF = 0x01;
+    public static final int STREAM_FLAG_RELEASED = 0x02;
 
     /* Leading byte of every BLOB/CLOB column sent to a PROTOCOL_V14 driver: it says whether the payload is a
      * reference to stored content or the content itself.  The column type alone cannot distinguish them,
@@ -1262,64 +1268,26 @@ public abstract class UConnection {
     }
 
     /*
-     * Internal LOB read streaming.  A BLOB/CLOB column of an internal LOB is fetched as a locator, not as content,
-     * so the payload is pulled afterwards in bounded chunks.  These three requests are a thin pass-through to the
-     * same server read cursor csql uses; neither CAS nor the driver holds the whole value.
+     * Download: a handle the driver reads until eof and then releases.  The open may bring the first piece, and
+     * with STREAM_FLAG_RELEASE_AT_EOF the server releases the handle itself at eof.  In auto-commit the requests
+     * carry STREAM_FLAG_AUTO_COMMIT, so the release that unties the transaction commits it.
      */
 
-    // UFunctionCode.LOB_STREAM_OPEN
-    public synchronized long lobStreamOpen(byte[] locator, long startOffset) {
-        errorHandler = new UError(this);
-        if (isClosed == true) {
-            errorHandler.setErrorCode(UErrorCode.ER_IS_CLOSED);
-            return -1;
-        }
-        if (locator == null || locator.length == 0 || startOffset < 0) {
-            errorHandler.setErrorCode(UErrorCode.ER_INVALID_ARGUMENT);
-            return -1;
-        }
-        try {
-            setBeginTime();
-            checkReconnect();
-            if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR) return -1;
-
-            outBuffer.newRequest(output, UFunctionCode.LOB_STREAM_OPEN);
-            outBuffer.addBytes(locator);
-            outBuffer.addLong(startOffset);
-
-            UInputBuffer inBuffer = send_recv_msg();
-            int resCode = inBuffer.getResCode();
-            if (resCode < 0) {
-                errorHandler.setErrorCode(UErrorCode.ER_UNKNOWN);
-                return -1;
-            }
-            return inBuffer.readLong();
-        } catch (UJciException e) {
-            logException(e);
-            e.toUError(errorHandler);
-        } catch (IOException e) {
-            logException(e);
-            errorHandler.setErrorCode(UErrorCode.ER_COMMUNICATION);
-        } catch (Exception e) {
-            logException(e);
-            errorHandler.setErrorCode(UErrorCode.ER_UNKNOWN);
-        }
-        return -1;
+    private byte streamReadFlags(byte flags) {
+        flags &= STREAM_FLAG_RELEASE_AT_EOF;
+        return getAutoCommit() ? (byte) (flags | STREAM_FLAG_AUTO_COMMIT) : flags;
     }
 
-    // UFunctionCode.LOB_STREAM_READ
-    public synchronized int lobStreamRead(long token, byte[] buf, int offset, int size) {
+    /* reply[0] gets the bytes read into buf, reply[1] the reply flags; returns the handle (0 once released) or -1 */
+    // UFunctionCode.STREAM_READ_OPEN
+    public synchronized long streamReadOpen(
+            int streamKind, byte[] config, int firstMax, byte flags, byte[] buf, int[] reply) {
         errorHandler = new UError(this);
         if (isClosed == true) {
             errorHandler.setErrorCode(UErrorCode.ER_IS_CLOSED);
             return -1;
         }
-        if (token <= 0
-                || buf == null
-                || size <= 0
-                || size > INTERNAL_LOB_STREAM_MAX_CHUNK
-                || offset < 0
-                || offset + size > buf.length) {
+        if (config == null || firstMax < 0 || firstMax > buf.length || reply.length < 2) {
             errorHandler.setErrorCode(UErrorCode.ER_INVALID_ARGUMENT);
             return -1;
         }
@@ -1328,9 +1296,11 @@ public abstract class UConnection {
             checkReconnect();
             if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR) return -1;
 
-            outBuffer.newRequest(output, UFunctionCode.LOB_STREAM_READ);
-            outBuffer.addLong(token);
-            outBuffer.addInt(size);
+            outBuffer.newRequest(output, UFunctionCode.STREAM_READ_OPEN);
+            outBuffer.addInt(streamKind);
+            outBuffer.addBytes(config);
+            outBuffer.addInt(firstMax);
+            outBuffer.addByte(streamReadFlags(flags));
 
             UInputBuffer inBuffer = send_recv_msg();
             int resCode = inBuffer.getResCode();
@@ -1338,16 +1308,19 @@ public abstract class UConnection {
                 errorHandler.setErrorCode(UErrorCode.ER_UNKNOWN);
                 return -1;
             }
-
-            int received = inBuffer.readInt();
-            if (received < 0 || received > size) {
+            long handle = inBuffer.readLong();
+            int nread = inBuffer.readInt();
+            int replyFlags = inBuffer.readInt();
+            if (nread < 0 || nread > firstMax) {
                 errorHandler.setErrorCode(UErrorCode.ER_COMMUNICATION);
                 return -1;
             }
-            if (received > 0) {
-                inBuffer.readBytes(buf, offset, received);
+            if (nread > 0) {
+                inBuffer.readBytes(buf, 0, nread);
             }
-            return received;
+            reply[0] = nread;
+            reply[1] = replyFlags;
+            return handle;
         } catch (UJciException e) {
             logException(e);
             e.toUError(errorHandler);
@@ -1361,8 +1334,69 @@ public abstract class UConnection {
         return -1;
     }
 
-    // UFunctionCode.LOB_STREAM_CLOSE
-    public synchronized int lobStreamClose(long token) {
+    /* replyFlags[0] gets the reply flags; returns the bytes read into buf at offset, or -1 */
+    // UFunctionCode.STREAM_READ
+    public synchronized int streamRead(
+            long handle, byte[] buf, int offset, int max, byte flags, int[] replyFlags) {
+        errorHandler = new UError(this);
+        if (isClosed == true) {
+            errorHandler.setErrorCode(UErrorCode.ER_IS_CLOSED);
+            return -1;
+        }
+        if (handle <= 0
+                || buf == null
+                || max <= 0
+                || max > STREAM_READ_MAX_CHUNK
+                || offset < 0
+                || offset + max > buf.length
+                || replyFlags.length < 1) {
+            errorHandler.setErrorCode(UErrorCode.ER_INVALID_ARGUMENT);
+            return -1;
+        }
+        try {
+            setBeginTime();
+            checkReconnect();
+            if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR) return -1;
+
+            outBuffer.newRequest(output, UFunctionCode.STREAM_READ);
+            outBuffer.addLong(handle);
+            outBuffer.addInt(max);
+            outBuffer.addByte(streamReadFlags(flags));
+
+            UInputBuffer inBuffer = send_recv_msg();
+            int resCode = inBuffer.getResCode();
+            if (resCode < 0) {
+                errorHandler.setErrorCode(UErrorCode.ER_UNKNOWN);
+                return -1;
+            }
+
+            int nread = inBuffer.readInt();
+            int reply = inBuffer.readInt();
+            if (nread < 0 || nread > max) {
+                errorHandler.setErrorCode(UErrorCode.ER_COMMUNICATION);
+                return -1;
+            }
+            if (nread > 0) {
+                inBuffer.readBytes(buf, offset, nread);
+            }
+            replyFlags[0] = reply;
+            return nread;
+        } catch (UJciException e) {
+            logException(e);
+            e.toUError(errorHandler);
+        } catch (IOException e) {
+            logException(e);
+            errorHandler.setErrorCode(UErrorCode.ER_COMMUNICATION);
+        } catch (Exception e) {
+            logException(e);
+            errorHandler.setErrorCode(UErrorCode.ER_UNKNOWN);
+        }
+        return -1;
+    }
+
+    /* A handle the server no longer has -- released at eof, on a failed read or with its transaction -- is not an error. */
+    // UFunctionCode.STREAM_RELEASE
+    public synchronized int streamRelease(long handle) {
         errorHandler = new UError(this);
         if (isClosed == true) {
             errorHandler.setErrorCode(UErrorCode.ER_IS_CLOSED);
@@ -1373,9 +1407,9 @@ public abstract class UConnection {
             checkReconnect();
             if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR) return -1;
 
-            outBuffer.newRequest(output, UFunctionCode.LOB_STREAM_CLOSE);
-            outBuffer.addLong(token);
-            // in auto-commit, closing the last stream ends the transaction its open began
+            outBuffer.newRequest(output, UFunctionCode.STREAM_RELEASE);
+            outBuffer.addLong(handle);
+            // in auto-commit, the release that unties the transaction commits it
             outBuffer.addByte(getAutoCommit() ? (byte) 1 : (byte) 0);
 
             UInputBuffer inBuffer = send_recv_msg();

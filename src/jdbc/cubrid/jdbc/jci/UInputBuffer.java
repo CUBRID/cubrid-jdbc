@@ -509,7 +509,7 @@ class UInputBuffer {
 
     /*
      * An internal LOB column carries a reference, not content: the value's byte length followed by the locator
-     * that names it.  The bytes are pulled afterwards over LOB_STREAM_*, so nothing of the value is buffered here.
+     * that names it.  The bytes are pulled afterwards over STREAM_READ_*, so nothing of the value is buffered here.
      */
     CUBRIDBlob readInternalBlob(int dataSize, CUBRIDConnection conn) throws UJciException {
         try {

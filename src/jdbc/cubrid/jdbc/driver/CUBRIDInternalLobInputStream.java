@@ -34,18 +34,22 @@ package cubrid.jdbc.driver;
 import cubrid.jdbc.jci.UConnection;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.ByteBuffer;
 import java.sql.SQLException;
 
 /**
  * A forward-only stream over an internal LOB value.
  *
  * <p>An internal LOB column arrives as a locator, not as content, so the payload is pulled from the
- * server in bounded chunks. The server read cursor is forward-only; a caller that needs to start at
- * an offset opens a stream and skips to it, which is what {@link CUBRIDBlob#getBytes} does. The
- * token is released on {@link #close()}, and also when the value has been read to its end.
+ * server in bounded chunks over a download (STREAM_READ_*). The open brings the first chunk and the
+ * server skips to the start offset. The server releases the handle when the value is read to its
+ * end; {@link #close()} releases one that is still open.
  */
 public class CUBRIDInternalLobInputStream extends InputStream {
     private static final int CHUNK_SIZE = 128 * 1024;
+    /* STREAM_KIND_INTERNAL_LOB_READ; config: version (int), 0 (int), start offset (long), locator */
+    private static final int STREAM_KIND_INTERNAL_LOB_READ = 4;
+    private static final int READ_CONFIG_VERSION = 1;
 
     private final UConnection uconn;
     private final byte[] locator;
@@ -55,7 +59,9 @@ public class CUBRIDInternalLobInputStream extends InputStream {
      * getBinaryStream(pos, length) hand back a stream exactly `length` units long, per JDBC 4.0. */
     private final long endLimit;
 
-    private long token = 0;
+    private long handle = 0;
+    private boolean opened = false;
+    private boolean eof = false;
     private long delivered = 0;
     private byte[] chunk = null;
     private int chunkPos = 0;
@@ -94,16 +100,10 @@ public class CUBRIDInternalLobInputStream extends InputStream {
         }
     }
 
-    private void open() throws IOException {
-        if (token > 0) {
-            return;
-        }
-        long opened = uconn.lobStreamOpen(locator, startOffset);
-        if (opened <= 0) {
-            throw serverFailure("cannot open the internal LOB stream");
-        }
-        token = opened;
-        chunk = new byte[CHUNK_SIZE];
+    private byte[] readConfig() {
+        ByteBuffer config = ByteBuffer.allocate(4 + 4 + 8 + locator.length);
+        config.putInt(READ_CONFIG_VERSION).putInt(0).putLong(startOffset).put(locator);
+        return config.array();
     }
 
     /* The server's error (code and message) rides along as the cause, so the Clob/Blob can rethrow it as is. */
@@ -112,11 +112,11 @@ public class CUBRIDInternalLobInputStream extends InputStream {
         return new IOException(what + ": " + cause.getMessage(), cause);
     }
 
-    /* Releases the server-side read cursor.  Safe to call more than once. */
-    private void releaseToken() {
-        if (token > 0) {
-            uconn.lobStreamClose(token);
-            token = 0;
+    /* Releases a handle the server has not released.  Safe to call more than once. */
+    private void releaseHandle() {
+        if (handle > 0) {
+            uconn.streamRelease(handle);
+            handle = 0;
         }
     }
 
@@ -125,25 +125,55 @@ public class CUBRIDInternalLobInputStream extends InputStream {
         if (chunkPos < chunkLen) {
             return true;
         }
-        if (delivered >= endLimit) {
-            /* the value (or the requested window) is spent: let the cursor go now rather than wait for a
+        if (delivered >= endLimit || eof) {
+            /* the value (or the requested window) is spent: let the handle go now rather than wait for a
              * close() that a caller reading to the end has no reason to make */
-            releaseToken();
+            releaseHandle();
             return false;
         }
 
-        open();
-
         long remaining = endLimit - delivered;
         int want = remaining < CHUNK_SIZE ? (int) remaining : CHUNK_SIZE;
-        int got = uconn.lobStreamRead(token, chunk, 0, want);
-        if (got < 0) {
-            throw serverFailure("cannot read the internal LOB stream");
+        int[] reply = new int[2];
+        int got;
+        int flags;
+        if (!opened) {
+            chunk = new byte[CHUNK_SIZE];
+            long opening =
+                    uconn.streamReadOpen(
+                            STREAM_KIND_INTERNAL_LOB_READ,
+                            readConfig(),
+                            want,
+                            UConnection.STREAM_FLAG_RELEASE_AT_EOF,
+                            chunk,
+                            reply);
+            if (opening < 0) {
+                throw serverFailure("cannot open the internal LOB stream");
+            }
+            opened = true;
+            handle = opening;
+            got = reply[0];
+            flags = reply[1];
+        } else {
+            /* a failed read leaves the handle to close(): released already, unless the request never ran */
+            got =
+                    uconn.streamRead(
+                            handle, chunk, 0, want, UConnection.STREAM_FLAG_RELEASE_AT_EOF, reply);
+            if (got < 0) {
+                throw serverFailure("cannot read the internal LOB stream");
+            }
+            flags = reply[0];
+        }
+        if ((flags & UConnection.STREAM_FLAG_RELEASED) != 0) {
+            handle = 0;
+        }
+        if ((flags & UConnection.STREAM_FLAG_EOF) != 0) {
+            eof = true;
         }
         if (got == 0) {
-            /* the server ran out earlier than the locator promised */
+            /* eof, or the server ran out earlier than the locator promised */
             delivered = totalLength;
-            releaseToken();
+            releaseHandle();
             return false;
         }
 
@@ -221,7 +251,7 @@ public class CUBRIDInternalLobInputStream extends InputStream {
             return;
         }
         closed = true;
-        releaseToken();
+        releaseHandle();
         chunk = null;
         chunkPos = chunkLen = 0;
     }

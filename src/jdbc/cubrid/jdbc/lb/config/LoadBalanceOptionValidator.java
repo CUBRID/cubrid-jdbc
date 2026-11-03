@@ -33,8 +33,10 @@ package cubrid.jdbc.lb.config;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.logging.Logger;
 
 /**
@@ -77,7 +79,22 @@ final class LoadBalanceOptionValidator {
     };
     private static final String[] CLASSIC_ONLY = {"altHosts", "loadBalance", "useLazyConnection"};
 
+    private static final int MAX_WARNED = 64;
+
+    // Configuration warnings already given: a pool parses its URL for every connection.
+    private static final Set<String> WARNED = new LinkedHashSet<String>();
+
     private LoadBalanceOptionValidator() {}
+
+    /** Logs a configuration warning the first time only, as the topology banner is logged. */
+    static synchronized void warnOnce(final Logger logger, final String message) {
+        if (WARNED.size() >= MAX_WARNED) {
+            WARNED.clear();
+        }
+        if (WARNED.add(message)) {
+            logger.warning(message);
+        }
+    }
 
     /** Whether {@code key} configures LB or is classic-only: either way it never reaches a leg. */
     static boolean staysOffTheLegs(final String key) {
@@ -114,7 +131,7 @@ final class LoadBalanceOptionValidator {
     private static void ignore(
             final String key, final List<String> ignoredKeys, final String reason) {
         ignoredKeys.add(key);
-        LOGGER.warning("option '" + key + "' " + reason + "; ignored");
+        warnOnce(LOGGER, "option '" + key + "' " + reason + "; ignored");
     }
 
     /** Outcome of {@link #validate}: options to keep, and the keys that were ignored. */

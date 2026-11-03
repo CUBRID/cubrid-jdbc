@@ -111,14 +111,16 @@ public final class ReadWeight {
             return;
         }
         if (w.weightOf(NodeRole.SLAVE) > 0 && !topology.hasSlaves()) {
-            LOGGER.warning(
+            LoadBalanceOptionValidator.warnOnce(
+                    LOGGER,
                     "readWeight assigns weight to 'slave' but the topology has no slave node; "
                             + "that weight is ignored at runtime: '"
                             + spec
                             + "'");
         }
         if (w.weightOf(NodeRole.REPLICA) > 0 && !topology.hasReplicas()) {
-            LOGGER.warning(
+            LoadBalanceOptionValidator.warnOnce(
+                    LOGGER,
                     "readWeight assigns weight to 'replica' but the topology has no replica node; "
                             + "that weight is ignored at runtime: '"
                             + spec

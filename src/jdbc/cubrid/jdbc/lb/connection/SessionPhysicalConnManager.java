@@ -418,10 +418,11 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
      * <p>Only <em>abnormal</em> placements used to be recorded. A session that bound exactly as
      * configured said nothing, which left no baseline: the distribution a pool ends up with cannot
      * be checked against what was asked for if the individual placements were never written down.
-     * INFO rather than WARNING, because normal placement is not something to act on.
+     * FINE, because a core connection logs nothing when it opens, and normal placement is not
+     * something to act on; the DIST log and metrics report the distribution.
      */
     private void logSessionBinding() {
-        LbLog.info(
+        LbLog.fine(
                 LOGGER,
                 logContext,
                 "LB BIND: rw="

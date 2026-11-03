@@ -188,7 +188,13 @@ final class RoutingMetricsRecorder {
         }
 
         SqlClassification classification = sqlClassifier.classify(sql);
-        metrics.recordExec(endpoint.getId(), classification, fallback);
+        // Counted by the leg it ran on, so a statement the classifier could not place counts too.
+        metrics.recordExec(
+                endpoint.getId(),
+                routeTarget == RouteTarget.TO_READ_ONLY
+                        ? SqlClassification.READ
+                        : SqlClassification.WRITE,
+                fallback);
 
         String event =
                 new MetricEvent()

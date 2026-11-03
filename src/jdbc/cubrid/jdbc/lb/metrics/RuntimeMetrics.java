@@ -142,7 +142,7 @@ public final class RuntimeMetrics {
      * route that did not land on its intended target.
      *
      * @param endpointId the endpoint the statement ran on
-     * @param classification the statement's READ/WRITE classification
+     * @param classification READ for the read leg, WRITE for RW
      * @param fallback whether the route did not land on its intended target
      */
     public synchronized void recordExec(

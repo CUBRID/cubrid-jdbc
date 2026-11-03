@@ -62,4 +62,14 @@ public final class MetricsTestAccess {
     public static boolean isEventsEnabled(final RuntimeMetrics metrics) {
         return metrics.isEventsEnabled();
     }
+
+    /** {@code {read, write}} as {@code lb_endpoint_exec_total} reports them for one endpoint. */
+    public static long[] getReadWriteCounts(final RuntimeMetrics metrics, final String endpointId) {
+        for (RuntimeMetrics.EndpointStatsSnapshot s : metrics.snapshotEndpoints()) {
+            if (s.getEndpointId().equals(endpointId)) {
+                return new long[] {s.getReadCount(), s.getWriteCount()};
+            }
+        }
+        return new long[] {0L, 0L};
+    }
 }

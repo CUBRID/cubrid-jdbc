@@ -79,6 +79,16 @@ public class SessionSetStatementTest {
                         .containsKey(SessionSetStatement.TIMEZONE_KEY));
     }
 
+    /** {@code login()} changes the session's user, which the read leg cannot take over. */
+    @Test
+    public void callingLoginPins() {
+        assertEquals(Action.PIN_TO_RW, action("CALL login('u', 'pw') ON CLASS db_user"));
+        assertEquals(Action.PIN_TO_RW, action("  call /* c */ LOGIN ('u', 'pw') on class db_user"));
+        assertEquals(Action.PIN_TO_RW, action("CALL login('u', 'pw') ON CLASS db_user; SELECT 1"));
+        assertEquals(Action.NONE, action("CALL login_audit('u')"));
+        assertEquals(Action.NONE, action("CALL p()"));
+    }
+
     @Test
     public void parameterOutsideTheSessionListPins() {
         assertEquals(Action.PIN_TO_RW, action("set system parameters 'compat_mode=mysql'"));

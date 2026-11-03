@@ -45,7 +45,8 @@ import java.util.Set;
  * sessions. Session-scoped settings ({@code SET NAMES}, {@code SET TIMEZONE}, session system
  * parameters) are {@link Action#REPLAY replayed} on the read leg so reads see what the application
  * set. A parameter outside that list may be server- or CAS-wide, so it is not copied to another
- * node; the session's reads {@link Action#PIN_TO_RW stay on RW} instead.
+ * node; the session's reads {@link Action#PIN_TO_RW stay on RW} instead, as they do after {@code
+ * CALL login(...)}, which changes the session's user.
  */
 public final class SessionSetStatement {
 
@@ -191,7 +192,9 @@ public final class SessionSetStatement {
 
         final int first = SqlLexer.skipWhitespaceAndComments(sql, 0);
         if (sql.indexOf(';') < 0) {
-            return startsWithSet(sql, first) ? parseSingle(sql.substring(first)) : NONE_RESULT;
+            return startsWithSet(sql, first)
+                    ? parseSingle(sql.substring(first))
+                    : callsLogin(sql, first) ? PIN_RESULT : NONE_RESULT;
         }
 
         SessionSetStatement only = null;
@@ -216,7 +219,9 @@ public final class SessionSetStatement {
             if (body < part.length()) {
                 statements++;
                 final SessionSetStatement parsed =
-                        startsWithSet(part, body) ? parseSingle(part.substring(body)) : NONE_RESULT;
+                        startsWithSet(part, body)
+                                ? parseSingle(part.substring(body))
+                                : callsLogin(part, body) ? PIN_RESULT : NONE_RESULT;
                 if (only == null || parsed.action != Action.NONE) {
                     only = parsed;
                 }
@@ -233,6 +238,18 @@ public final class SessionSetStatement {
 
     private static boolean startsWithSet(final String sql, final int pos) {
         return "SET".equals(wordAt(sql, pos));
+    }
+
+    private static boolean callsLogin(final String sql, final int pos) {
+        if (!"CALL".equals(wordAt(sql, pos))) {
+            return false;
+        }
+        final int name = skipWord(sql, pos);
+        if (!"LOGIN".equals(wordAt(sql, name))) {
+            return false;
+        }
+        final int after = SqlLexer.skipWhitespaceAndComments(sql, skipWord(sql, name));
+        return after < sql.length() && sql.charAt(after) == '(';
     }
 
     /** {@code stmt} starts with SET and holds a single statement (no top-level ';'). */

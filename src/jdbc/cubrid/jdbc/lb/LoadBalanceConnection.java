@@ -3144,7 +3144,8 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         LbLog.warn(
                 LOGGER,
                 LbLog.conn(connectionId),
-                "LB SESSION PIN: a SET the read leg cannot replay ran on RW; this session's reads"
+                "LB SESSION PIN: a session change the read leg cannot replay ran on RW; this"
+                        + " session's reads"
                         + " stay on RW until it closes"
                         + sqlForLog(sql));
     }

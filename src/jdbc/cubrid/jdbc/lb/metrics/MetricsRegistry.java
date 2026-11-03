@@ -119,17 +119,17 @@ public final class MetricsRegistry {
             return;
         }
         PROBES.remove(metrics);
-        if (LIVE.remove(metrics)) {
-            List<EndpointStatsSnapshot> snap = metrics.snapshotEndpoints();
-            // Under CUMULATIVE's monitor, the one every reader takes. Pools close connections from
-            // several threads at once (shutdown, maxLifetime eviction) and the accumulator arrays
-            // are shared per endpoint, so an unguarded fold drops counts, and a reader iterating
-            // the map while it is mutated can get a ConcurrentModificationException mid-scrape.
-            // (foldLatencyInto takes CUMULATIVE_LAT's monitor itself.)
-            synchronized (CUMULATIVE) {
+        // Leaving LIVE and folding happen under CUMULATIVE's monitor, which every reader holds
+        // while it copies the tally and walks LIVE, so a reader finds a closing connection's
+        // counts in exactly one of the two. Pools close connections from several threads at once
+        // (shutdown, maxLifetime eviction) and the accumulator arrays are shared per endpoint, so
+        // an unguarded fold drops counts too. (foldLatencyInto takes CUMULATIVE_LAT's monitor.)
+        synchronized (CUMULATIVE) {
+            if (LIVE.remove(metrics)) {
+                List<EndpointStatsSnapshot> snap = metrics.snapshotEndpoints();
                 foldInto(CUMULATIVE, snap);
+                foldLatencyInto(snap);
             }
-            foldLatencyInto(snap);
         }
     }
 
@@ -296,9 +296,9 @@ public final class MetricsRegistry {
                 long[] v = e.getValue();
                 out.put(e.getKey(), new long[] {v[0], v[1], v[2]});
             }
-        }
-        for (RuntimeMetrics metrics : LIVE) {
-            foldInto(out, metrics.snapshotEndpoints());
+            for (RuntimeMetrics metrics : LIVE) {
+                foldInto(out, metrics.snapshotEndpoints());
+            }
         }
         return out;
     }
@@ -330,21 +330,23 @@ public final class MetricsRegistry {
      */
     static Map<String, EndpointLatency> aggregateLatencyByEndpoint() {
         Map<String, EndpointLatency> out = new LinkedHashMap<String, EndpointLatency>();
-        synchronized (CUMULATIVE_LAT) {
-            for (Map.Entry<String, EndpointLatency> e : CUMULATIVE_LAT.entrySet()) {
-                EndpointLatency copy = new EndpointLatency();
-                copy.addFrom(e.getValue());
-                out.put(e.getKey(), copy);
-            }
-        }
-        for (RuntimeMetrics metrics : LIVE) {
-            for (EndpointStatsSnapshot s : metrics.snapshotEndpoints()) {
-                EndpointLatency acc = out.get(s.getEndpointId());
-                if (acc == null) {
-                    acc = new EndpointLatency();
-                    out.put(s.getEndpointId(), acc);
+        synchronized (CUMULATIVE) { // see unregister
+            synchronized (CUMULATIVE_LAT) {
+                for (Map.Entry<String, EndpointLatency> e : CUMULATIVE_LAT.entrySet()) {
+                    EndpointLatency copy = new EndpointLatency();
+                    copy.addFrom(e.getValue());
+                    out.put(e.getKey(), copy);
                 }
-                acc.add(s.getReadLatency(), s.getWriteLatency());
+            }
+            for (RuntimeMetrics metrics : LIVE) {
+                for (EndpointStatsSnapshot s : metrics.snapshotEndpoints()) {
+                    EndpointLatency acc = out.get(s.getEndpointId());
+                    if (acc == null) {
+                        acc = new EndpointLatency();
+                        out.put(s.getEndpointId(), acc);
+                    }
+                    acc.add(s.getReadLatency(), s.getWriteLatency());
+                }
             }
         }
         return out;

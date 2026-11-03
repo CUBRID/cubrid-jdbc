@@ -45,6 +45,25 @@ import org.junit.Test;
 public class LoadBalanceUrlParserTest {
 
     /** A parse error quotes the URL - never with its password, which then reaches every log. */
+    /** A password may hold a '?' in the full {@code db:user:pw:} form, as in a classic URL. */
+    @Test
+    public void questionMarkInTheFullCredentialFormIsPartOfThePassword() throws SQLException {
+        ParsedUrl p = LoadBalanceUrlParser.parse("jdbc:cubrid:loadbalance://h1/tdb:u:Pa?zz=Q9x:");
+        assertEquals("u", p.getUser());
+        assertEquals("Pa?zz=Q9x", p.getPassword());
+        assertTrue(p.getOptions().isEmpty());
+
+        p =
+                LoadBalanceUrlParser.parse(
+                        "jdbc:cubrid:loadbalance://h1/tdb:u:Pa?z:?readWeight=slave:1");
+        assertEquals("Pa?z", p.getPassword());
+        assertEquals("slave:1", p.getOptions().get("readWeight"));
+
+        p = LoadBalanceUrlParser.parse("jdbc:cubrid:loadbalance://h1/tdb:u:pw?readWeight=slave:1");
+        assertEquals("pw", p.getPassword());
+        assertEquals("slave:1", p.getOptions().get("readWeight"));
+    }
+
     @Test
     public void parseErrorDoesNotQuoteThePassword() {
         String[] malformed = {

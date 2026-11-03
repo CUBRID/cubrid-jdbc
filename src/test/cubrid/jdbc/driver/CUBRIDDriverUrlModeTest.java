@@ -296,6 +296,33 @@ public class CUBRIDDriverUrlModeTest {
     }
 
     /**
+     * As in a classic URL, a user or password may hold a '?' when the whole {@code db:user:pw:} is
+     * written: the options start after its third ':'. Otherwise they start at the first '?'.
+     */
+    @Test
+    public void questionMarkInTheFullCredentialFormIsPartOfThePassword() throws SQLException {
+        assertEquals(
+                "jdbc:cubrid:h:1:db:u:Pa?zz=Q9x:",
+                CUBRIDDriver.uriSingleToClassicUrl("jdbc:cubrid://h:1/db:u:Pa?zz=Q9x:"));
+        assertEquals(
+                "jdbc:cubrid:h:1:db:u:Pa?z:?charSet=utf-8",
+                CUBRIDDriver.uriSingleToClassicUrl("jdbc:cubrid://h:1/db:u:Pa?z:?charSet=utf-8"));
+        assertEquals(
+                "jdbc:cubrid:h:1:db:u:p:?a=1",
+                CUBRIDDriver.uriSingleToClassicUrl("jdbc:cubrid://h:1/db:u:p?a=1"));
+        assertEquals(
+                "jdbc:cubrid://h:1/db:u:********:",
+                CUBRIDDriver.maskUriUrlPassword("jdbc:cubrid://h:1/db:u:Pa?zz=Q9x:", null));
+        assertEquals(
+                "jdbc:cubrid:loadbalance://h/db:u:********:?a=1",
+                CUBRIDDriver.maskUriUrlPassword(
+                        "jdbc:cubrid:loadbalance://h/db:u:Pa?z:?a=1", null));
+        assertEquals(
+                "jdbc:cubrid://h:1/db:u:********:?a=x:y:z",
+                CUBRIDDriver.maskUriUrlPassword("jdbc:cubrid://h:1/db:u:p?a=x:y:z", null));
+    }
+
+    /**
      * The URL logged for a single-node URI connect resolves the host/port the same way the classic
      * path's {@code resolvedUrl} does: an absent host/port is shown as the driver default (the
      * values the connect actually uses), not left empty, and the credentials are rendered {@code

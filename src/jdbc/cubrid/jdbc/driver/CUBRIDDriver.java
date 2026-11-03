@@ -95,10 +95,11 @@ public class CUBRIDDriver implements Driver {
      * the classic URL is by {@link #URL_PATTERN}: 1=scheme prefix as written, 2=variant, 3=host,
      * 4=port, 5=db, 6=user, 7=password, 8=options. Host and port may be empty (the classic path
      * fills the defaults, as for a classic {@code jdbc:cubrid:::db:::}); the option group is the
-     * same expression the classic pattern uses, so it must start with {@code '?'}.
+     * same expression the classic pattern uses, so it must start with {@code '?'}. A user or
+     * password ended by ':' may hold a '?', as {@link #uriOptionsStart} reads it.
      */
     private static final String URL_PATTERN_SINGLE =
-            "(jdbc:cubrid(-oracle|-mysql)?)://([a-zA-Z_0-9\\.-]*)(?::([0-9]*))?/([^:?]+)(?::([^:?]*))?(?::([^:?]*))?(?::)?(\\?[a-zA-Z_0-9]+=[^&=?]+(&[a-zA-Z_0-9]+=[^&=?]+)*)?";
+            "(jdbc:cubrid(-oracle|-mysql)?)://([a-zA-Z_0-9\\.-]*)(?::([0-9]*))?/([^:?]+)(?::([^:]*(?=:)|[^:?]*))?(?::([^:]*(?=:)|[^:?]*))?(?::)?(\\?[a-zA-Z_0-9]+=[^&=?]+(&[a-zA-Z_0-9]+=[^&=?]+)*)?";
 
     private static final String CUBRID_JDBC_URL_HEADER = "jdbc:cubrid";
     private static final String ENV_JDBC_PROP_NAME = "CUBRID_JDBC_PROP";
@@ -451,7 +452,7 @@ public class CUBRIDDriver implements Driver {
         }
 
         int authStart = sep + URL_SCHEME_SEPARATOR.length();
-        int qIdx = url.indexOf('?', authStart);
+        int qIdx = uriOptionsStart(url);
         int credEnd = qIdx >= 0 ? qIdx : url.length();
         // Only a '/' before the options starts the credential section; one in an option value
         // does not.
@@ -513,6 +514,34 @@ public class CUBRIDDriver implements Driver {
                 + nullToEmpty(matcher.group(7)) // password
                 + ":"
                 + nullToEmpty(matcher.group(8)); // options, including the leading '?'
+    }
+
+    /**
+     * Where the options of a URI URL start, by the classic rule: a user or password may hold a '?'
+     * when the whole {@code db:user:password:} is written, so the options then start after its
+     * third ':'. Otherwise they start at the first '?'.
+     *
+     * @param url a URI URL
+     * @return the index of the '?' that starts the options, or -1 when there are none
+     */
+    public static int uriOptionsStart(String url) {
+        int sep = url.indexOf(URL_SCHEME_SEPARATOR);
+        int authStart = sep < 0 ? 0 : sep + URL_SCHEME_SEPARATOR.length();
+        int first = url.indexOf('?', authStart);
+        int colon = url.indexOf('/', authStart);
+        if (colon < 0 || (first >= 0 && first < colon)) {
+            return first;
+        }
+        for (int i = 0; i < 3; i++) {
+            colon = url.indexOf(':', colon + 1);
+            if (colon < 0 || (i == 0 && first >= 0 && first < colon)) {
+                return first; // no full form, or a '?' in the database name
+            }
+        }
+        if (colon == url.length() - 1) {
+            return -1;
+        }
+        return url.charAt(colon + 1) == '?' ? colon + 1 : first;
     }
 
     /**

@@ -97,7 +97,8 @@ public final class LoadBalanceUrlParser {
 
         final String beforeOptions;
         final String optionsStr;
-        final int qIdx = rest.indexOf('?');
+        final int optionsAt = CUBRIDDriver.uriOptionsStart(trimmed);
+        final int qIdx = optionsAt < 0 ? -1 : optionsAt - (sep + SCHEME_SEPARATOR.length());
         if (qIdx >= 0) {
             beforeOptions = rest.substring(0, qIdx);
             optionsStr = rest.substring(qIdx + 1);

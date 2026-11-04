@@ -65,18 +65,11 @@ class UUpdateParameter extends UParameter {
         byte[] pTypes = new byte[number];
         indexes = new int[number];
 
-        Object[] pValues = columnValues.clone();
         for (int i = 0; i < types.length; i++) {
             pTypes[i] = info[columnIndexes[i]].getColumnType();
-            /* an internal LOB goes as the marker of its upload, not as the column type */
-            if (pValues[i] instanceof UStatement.InternalLobUpload) {
-                UStatement.InternalLobUpload v = (UStatement.InternalLobUpload) pValues[i];
-                pTypes[i] = v.type;
-                pValues[i] = v.marker;
-            }
         }
 
-        setParameters(pTypes, pValues);
+        setParameters(pTypes, columnValues);
 
         for (int i = 0; i < number; i++) {
             indexes[i] = columnIndexes[i] + 1;

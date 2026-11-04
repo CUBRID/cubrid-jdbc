@@ -320,11 +320,7 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
         checkIsOpen();
 
         if (x == null) {
-            synchronized (u_stmt) {
-                u_stmt.bind(parameterIndex - 1, x);
-                error = u_stmt.getRecentError();
-            }
-            checkBindError();
+            setNull(parameterIndex, java.sql.Types.LONGVARCHAR);
             return;
         }
 
@@ -360,11 +356,7 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
         checkIsOpen();
 
         if (x == null) {
-            synchronized (u_stmt) {
-                u_stmt.bind(parameterIndex - 1, x);
-                error = u_stmt.getRecentError();
-            }
-            checkBindError();
+            setNull(parameterIndex, java.sql.Types.LONGVARBINARY);
             return;
         }
 
@@ -618,11 +610,7 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
         checkIsOpen();
 
         if (reader == null) {
-            synchronized (u_stmt) {
-                u_stmt.bind(parameterIndex - 1, reader);
-                error = u_stmt.getRecentError();
-            }
-            checkBindError();
+            setNull(parameterIndex, java.sql.Types.LONGVARCHAR);
             return;
         }
 

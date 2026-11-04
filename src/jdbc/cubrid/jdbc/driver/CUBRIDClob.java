@@ -49,7 +49,8 @@ import java.sql.SQLException;
  * <p>Read from a column it is a reference (the byte length and the locator naming it) whose
  * characters are decoded from the server stream on demand; a scalar function result carries its
  * content inline. Made by {@link CUBRIDConnection#createClob()} it is written front to back and the
- * encoded text is held (past one chunk in a temporary file) until it is bound.
+ * encoded text is held (past one chunk in a temporary file) until it is freed; each binding uploads
+ * it anew.
  */
 public class CUBRIDClob implements Clob {
     private static final int CLOB_MAX_IO_CHARS = 128 * 1024;

@@ -45,7 +45,7 @@ import java.sql.SQLException;
  * <p>Read from a column it is a reference (the byte length and the locator naming it) whose bytes
  * are pulled from the server on demand; a scalar function result carries its content inline. Made
  * by {@link CUBRIDConnection#createBlob()} it is written front to back and held (past one chunk in
- * a temporary file) until it is bound.
+ * a temporary file) until it is freed; each binding uploads it anew.
  */
 public class CUBRIDBlob implements Blob {
     private CUBRIDConnection conn;

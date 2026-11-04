@@ -508,14 +508,10 @@ public class UStatement {
         bindValue(index, UUType.U_TYPE_OBJECT, oid);
     }
 
-    /* oneShot: an upload made for this binding alone, released if discarded before an execute */
-    public void bindInternalLobUpload(
-            int index, boolean blob, long token, long dataLength, boolean oneShot) {
+    /* Each upload is made for one binding, so it is released if discarded before an execute. */
+    public void bindInternalLobUpload(int index, boolean blob, long token, long dataLength) {
         InternalLobUpload v = internalLobUpload(blob, token, dataLength);
         bindValue(index, v.type, v.marker);
-        if (!oneShot) {
-            return;
-        }
         if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR) {
             relatedConnection.streamUploadRelease(Collections.singletonList(token));
             return;
@@ -635,7 +631,7 @@ public class UStatement {
         releaseUnsentUploads(bindings);
     }
 
-    /* A one-shot upload has no reference but its binding, so one no execute sent can go. */
+    /* An upload has no reference but its binding, so one no execute sent can go. */
     private void releaseUnsentUploads(List<UBindParameter> bindings) {
         ArrayList<Long> tokens = new ArrayList<Long>();
         for (UBindParameter b : bindings) {

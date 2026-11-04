@@ -620,7 +620,7 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
         long token = upload.finish();
         synchronized (u_stmt) {
             u_stmt.bindInternalLobUpload(
-                    parameterIndex - 1, upload.isBlob(), token, upload.length(), !upload.isHeld());
+                    parameterIndex - 1, upload.isBlob(), token, upload.length());
             error = u_stmt.getRecentError();
         }
         checkBindError();

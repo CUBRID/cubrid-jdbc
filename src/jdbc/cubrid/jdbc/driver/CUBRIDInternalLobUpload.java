@@ -59,10 +59,10 @@ import java.util.Set;
  * the stream and hands back the upload token a statement binds.
  *
  * <p>A value read from an InputStream or Reader is sent as it is read. A Blob or Clob made by
- * {@link CUBRIDConnection#createBlob()} or {@link CUBRIDConnection#createClob()} is held until it
- * is bound (up to one chunk in memory, the rest in a temporary file): the application fills it with
- * other statements in between, and the server admits only the stream's own requests while it is
- * open.
+ * {@link CUBRIDConnection#createBlob()} or {@link CUBRIDConnection#createClob()} is held (up to one
+ * chunk in memory, the rest in a temporary file) and sent as a new upload each time it is bound
+ * ({@link #send()}): the application fills it with other statements in between, the server admits
+ * only the stream's own requests while it is open, and every token then belongs to one binding.
  */
 class CUBRIDInternalLobUpload {
     static final long MAX_LENGTH = 0x100000000L;
@@ -83,7 +83,7 @@ class CUBRIDInternalLobUpload {
     private File spill = null;
     private Spill spillRef = null;
 
-    /* the spill of a held value dropped without being bound or freed, deleted after it is collected */
+    /* the spill of a held value dropped without being freed, deleted after it is collected */
     private static final ReferenceQueue<CUBRIDInternalLobUpload> DROPPED = new ReferenceQueue<>();
     private static final Set<Spill> SPILLS = Collections.synchronizedSet(new HashSet<Spill>());
 
@@ -115,12 +115,8 @@ class CUBRIDInternalLobUpload {
         return blob;
     }
 
-    boolean isHeld() {
-        return held;
-    }
-
-    /* The upload a BLOB/CLOB parameter binds: a value made by createBlob ()/createClob () sends what
-     * it holds, any other value is streamed now. */
+    /* The upload a BLOB/CLOB parameter binds: a value made by createBlob ()/createClob () sends a
+     * copy of what it holds, any other value is streamed now. */
     static CUBRIDInternalLobUpload of(CUBRIDConnection conn, Object value) throws SQLException {
         CUBRIDInternalLobUpload made = null;
         if (value instanceof CUBRIDBlob) {
@@ -136,8 +132,7 @@ class CUBRIDInternalLobUpload {
             if (value instanceof CUBRIDClob) {
                 ((CUBRIDClob) value).finishUpload();
             }
-            made.finish();
-            return made;
+            return made.send();
         }
         if (value instanceof CUBRIDClob) {
             /* the stored bytes as they are, not decoded and encoded again */
@@ -272,7 +267,8 @@ class CUBRIDInternalLobUpload {
         }
     }
 
-    /* Ends the stream session and returns the upload token; later calls return the same token. */
+    /* Ends the stream session and returns the upload token; later calls return the same token.
+     * A held value is only sealed here: send () uploads it for each binding. */
     synchronized long finish() throws SQLException {
         if (aborted) {
             /* a failed or freed value has no upload to bind */
@@ -281,14 +277,13 @@ class CUBRIDInternalLobUpload {
         if (finished) {
             return token;
         }
-        /* allocated before the stream opens, so nothing but a send can fail with it open */
-        byte[] buf = spill != null ? new byte[CHUNK_SIZE] : null;
+        if (held) {
+            finished = true;
+            return token;
+        }
         start();
         boolean done = false;
         try {
-            if (spill != null) {
-                sendSpill(buf);
-            }
             if (filled > 0) {
                 sendChunk();
             }
@@ -307,8 +302,9 @@ class CUBRIDInternalLobUpload {
         return token;
     }
 
+    /* A held value keeps its bytes until it is freed, sealed or not. */
     synchronized void abort() {
-        if (finished) {
+        if (finished && !held) {
             return;
         }
         synchronized (conn) {
@@ -414,20 +410,34 @@ class CUBRIDInternalLobUpload {
         filled = 0;
     }
 
-    /* sends what a held value spilled, ahead of the bytes still in the chunk */
-    private void sendSpill(byte[] buf) throws SQLException {
-        try (InputStream in = new FileInputStream(spill)) {
-            int n;
-            while ((n = in.read(buf)) > 0) {
-                synchronized (conn) {
-                    checkSession();
-                    conn.streamData(buf, 0, n);
+    /* A held value, sealed and sent as a new upload: the spill first, then the chunk. */
+    synchronized CUBRIDInternalLobUpload send() throws SQLException {
+        finish();
+        CUBRIDInternalLobUpload copy = new CUBRIDInternalLobUpload(conn, blob);
+        boolean done = false;
+        try {
+            if (spill != null) {
+                byte[] buf = new byte[CHUNK_SIZE];
+                try (InputStream in = new FileInputStream(spill)) {
+                    int n;
+                    while ((n = in.read(buf)) > 0) {
+                        copy.write(buf, 0, n);
+                    }
                 }
             }
+            if (filled > 0) {
+                copy.write(chunk, 0, filled);
+            }
+            copy.finish();
+            done = true;
         } catch (IOException e) {
             throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
+        } finally {
+            if (!done) {
+                copy.abort();
+            }
         }
-        dropSpill();
+        return copy;
     }
 
     private void dropSpill() {

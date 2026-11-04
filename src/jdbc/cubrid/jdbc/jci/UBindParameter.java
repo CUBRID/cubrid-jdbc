@@ -57,7 +57,7 @@ public class UBindParameter extends UParameter {
     private boolean isBinded[];
     private byte dbmsType;
 
-    /* per index, the token of a one-shot upload bound there that no execute has sent; 0 if none */
+    /* per index, the token of an upload bound there that no execute has sent; 0 if none */
     long[] unsentUploads;
 
     UBindParameter(int parameterNumber, byte dbmsType) {

@@ -118,6 +118,9 @@ public abstract class UConnection {
     /* The core bounds one download read by this, whatever was asked. */
     public static final int STREAM_READ_MAX_CHUNK = 1024 * 1024;
 
+    /* The CAS takes at most this many tokens in one STREAM_UPLOAD_RELEASE. */
+    private static final int STREAM_UPLOAD_RELEASE_MAX = 1024;
+
     /* The flags byte of the bundled download requests, and the flags their replies carry. */
     public static final byte STREAM_FLAG_RELEASE_AT_EOF = 0x01;
     public static final byte STREAM_FLAG_AUTO_COMMIT = 0x02;
@@ -1446,12 +1449,18 @@ public abstract class UConnection {
             checkReconnect();
             if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR) return -1;
 
-            outBuffer.newRequest(output, UFunctionCode.STREAM_UPLOAD_RELEASE);
-            for (long token : tokens) {
-                outBuffer.addLong(token);
+            int resCode = 0;
+            for (int from = 0;
+                    from < tokens.size() && resCode >= 0;
+                    from += STREAM_UPLOAD_RELEASE_MAX) {
+                int to = Math.min(tokens.size(), from + STREAM_UPLOAD_RELEASE_MAX);
+                outBuffer.newRequest(output, UFunctionCode.STREAM_UPLOAD_RELEASE);
+                for (long token : tokens.subList(from, to)) {
+                    outBuffer.addLong(token);
+                }
+                UInputBuffer inBuffer = send_recv_msg();
+                resCode = inBuffer.getResCode();
             }
-            UInputBuffer inBuffer = send_recv_msg();
-            int resCode = inBuffer.getResCode();
             if (resCode < 0) errorHandler.setErrorCode(UErrorCode.ER_UNKNOWN);
             return resCode;
         } catch (UJciException e) {

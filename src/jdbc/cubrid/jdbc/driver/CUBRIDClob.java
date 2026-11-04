@@ -199,7 +199,7 @@ public class CUBRIDClob implements Clob {
         if (knownChars >= 0 && pos > knownChars) {
             return "";
         }
-        if (seqReader != null && pos == seqPos && conn.isSeqReader(seqReader)) {
+        if (seqReader != null && pos == seqPos && conn.touchSeqReader(seqReader)) {
             try {
                 return readOn(length);
             } catch (SQLException e) {
@@ -226,7 +226,7 @@ public class CUBRIDClob implements Clob {
         }
         seqReader = new PushbackReader(in, 1);
         seqPos = pos;
-        /* the connection keeps one such reader: another Clob's next window closes this one */
+        /* the connection keeps a few such readers and closes the least recently used */
         conn.keepSeqReader(seqReader);
         return readOn(length);
     }

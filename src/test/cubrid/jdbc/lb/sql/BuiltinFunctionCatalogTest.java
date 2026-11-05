@@ -64,7 +64,6 @@ public class BuiltinFunctionCatalogTest {
             "SHA2",
             "SYS_GUID",
             "DATE",
-            "UTC_TIMESTAMP",
             "PERCENTILE_CONT",
             "PERCENTILE_DISC",
             "INST_NUM",
@@ -118,6 +117,26 @@ public class BuiltinFunctionCatalogTest {
 
         assertFalse(BuiltinFunctionCatalog.isWriteBuiltin("ABS"));
         assertFalse(BuiltinFunctionCatalog.isWriteBuiltin("MY_PROC"));
+    }
+
+    /** Each node answers these from its own clock or configuration, so they run on RW. */
+    @Test
+    public void nodeClockAndConfigurationBuiltinsAreRw() {
+        String[] names = {
+            "NOW",
+            "SYSDATE",
+            "CURRENT_TIMESTAMP",
+            "UNIX_TIMESTAMP",
+            "UTC_TIMESTAMP",
+            "LIST_DBS",
+            "DBTIMEZONE",
+            "VERSION"
+        };
+        for (String name : names) {
+            assertFalse(name, BuiltinFunctionCatalog.isReadOnlyBuiltin(name));
+            assertTrue(name, BuiltinFunctionCatalog.isWriteBuiltin(name));
+            assertFalse(name, BuiltinFunctionCatalog.isWriteEffectBuiltin(name));
+        }
     }
 
     @Test

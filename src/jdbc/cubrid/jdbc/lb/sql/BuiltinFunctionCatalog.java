@@ -72,6 +72,7 @@ final class BuiltinFunctionCatalog {
     private static final Set<String> ALL_BUILTINS;
     private static final Set<String> SERIAL_PSEUDO_COLUMNS;
     private static final Set<String> WRITE_EFFECT_PSEUDO_COLUMNS;
+    private static final Set<String> NODE_KEYWORDS;
 
     private static final String[] NUMERIC = {
         "ABS",
@@ -164,17 +165,8 @@ final class BuiltinFunctionCatalog {
         "DATE_ADD",
         "ADDTIME",
         "ADD_MONTHS",
-        "CURDATE",
-        "CURRENT_DATE",
-        "CURRENT_DATETIME",
-        "NOW",
-        "CURTIME",
-        "CURRENT_TIME",
-        "CURRENT_TIMESTAMP",
         "CONV_TZ",
         "DATE",
-        "LOCALTIME",
-        "LOCALTIMESTAMP",
         "DATEDIFF",
         "DATE_SUB",
         "SUBDATE",
@@ -197,24 +189,12 @@ final class BuiltinFunctionCatalog {
         "QUARTER",
         "SEC_TO_TIME",
         "SECOND",
-        "SYS_DATE",
-        "SYSDATE",
-        "SYS_DATETIME",
-        "SYSDATETIME",
-        "SYS_TIME",
-        "SYSTIME",
-        "SYS_TIMESTAMP",
-        "SYSTIMESTAMP",
         "TIME",
         "TIME_TO_SEC",
         "TIMEDIFF",
         "TIMESTAMP",
         "TO_DAYS",
         "TZ_OFFSET",
-        "UNIX_TIMESTAMP",
-        "UTC_DATE",
-        "UTC_TIME",
-        "UTC_TIMESTAMP",
         "WEEK",
         "WEEKDAY",
         "YEAR"
@@ -251,16 +231,13 @@ final class BuiltinFunctionCatalog {
         "COLLATION",
         "DATABASE",
         "SCHEMA",
-        "DBTIMEZONE",
         "SESSIONTIMEZONE",
         "DEFAULT",
         "DISK_SIZE",
         "INDEX_CARDINALITY",
         "INET_ATON",
         "INET_NTOA",
-        "LIST_DBS",
-        "TYPEOF",
-        "VERSION"
+        "TYPEOF"
     };
 
     private static final String[] TYPECAST = {
@@ -371,11 +348,62 @@ final class BuiltinFunctionCatalog {
     };
 
     /**
-     * Functions whose value names the node that runs them: {@code USER()} answers {@code user@host}
-     * of that broker. On RW they answer what a classic connection does. The bare forms ({@code
-     * USER}, {@code CURRENT_USER}) carry no host and are not calls.
+     * Functions whose value comes from the node that runs them: {@code USER()} answers {@code
+     * user@host} of that broker, and the rest read the node's clock or configuration. On RW they
+     * answer what a classic connection does. The bare {@code USER} and {@code CURRENT_USER} carry
+     * no host.
      */
-    private static final String[] NODE_RW = {"USER", "SYSTEM_USER", "CURRENT_USER"};
+    private static final String[] NODE_RW = {
+        "USER",
+        "SYSTEM_USER",
+        "CURRENT_USER",
+        "CURDATE",
+        "CURRENT_DATE",
+        "CURRENT_DATETIME",
+        "NOW",
+        "CURTIME",
+        "CURRENT_TIME",
+        "CURRENT_TIMESTAMP",
+        "LOCALTIME",
+        "LOCALTIMESTAMP",
+        "SYS_DATE",
+        "SYSDATE",
+        "SYS_DATETIME",
+        "SYSDATETIME",
+        "SYS_TIME",
+        "SYSTIME",
+        "SYS_TIMESTAMP",
+        "SYSTIMESTAMP",
+        "UNIX_TIMESTAMP",
+        "UTC_DATE",
+        "UTC_TIME",
+        "UTC_TIMESTAMP",
+        "LIST_DBS",
+        "DBTIMEZONE",
+        "VERSION"
+    };
+
+    /**
+     * {@link #NODE_RW} names the engine also reads without parentheses ({@code SELECT SYSDATE}).
+     * All are reserved words except {@code DBTIMEZONE}, so a column of that name runs on RW too.
+     */
+    private static final String[] NODE_RW_KEYWORDS = {
+        "CURRENT_DATE",
+        "CURRENT_DATETIME",
+        "CURRENT_TIME",
+        "CURRENT_TIMESTAMP",
+        "LOCALTIME",
+        "LOCALTIMESTAMP",
+        "SYS_DATE",
+        "SYSDATE",
+        "SYS_DATETIME",
+        "SYSDATETIME",
+        "SYS_TIME",
+        "SYSTIME",
+        "SYS_TIMESTAMP",
+        "SYSTIMESTAMP",
+        "DBTIMEZONE"
+    };
 
     /**
      * LOB functions: CUBRID LOB values are not replicated to RO/SO brokers, so reads must use RW.
@@ -504,6 +532,10 @@ final class BuiltinFunctionCatalog {
         addAll(rw, LOB_RW);
         RW_BUILTINS = Collections.unmodifiableSet(rw);
 
+        final HashSet<String> nodeKeywords = new HashSet<String>(32);
+        addAll(nodeKeywords, NODE_RW_KEYWORDS);
+        NODE_KEYWORDS = Collections.unmodifiableSet(nodeKeywords);
+
         final HashSet<String> writeEffect = new HashSet<String>(8);
         addAll(writeEffect, WRITE_EFFECT_RW);
         WRITE_EFFECT_BUILTINS = Collections.unmodifiableSet(writeEffect);
@@ -590,6 +622,17 @@ final class BuiltinFunctionCatalog {
      */
     static boolean isSqlSyntax(final String upperAsciiName) {
         return contains(SQL_SYNTAX, upperAsciiName);
+    }
+
+    /**
+     * Keyword that reads the node's clock or configuration without parentheses, as {@code SYSDATE}
+     * does; it must route to RW like the call form.
+     *
+     * @param upperAsciiName identifier, upper-cased ASCII
+     * @return {@code true} if the bare name answers from the node that runs it
+     */
+    static boolean isNodeKeyword(final String upperAsciiName) {
+        return contains(NODE_KEYWORDS, upperAsciiName);
     }
 
     /**

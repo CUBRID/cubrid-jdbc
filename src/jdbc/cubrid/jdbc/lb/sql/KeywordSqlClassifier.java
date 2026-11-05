@@ -63,6 +63,8 @@ import java.util.Set;
  *       conservatively.
  *   <li>{@code db_ha_apply_info} - each HA node writes its own rows, so a read node would answer
  *       about itself.
+ *   <li>the node's clock and configuration, called ({@code NOW()}, {@code VERSION()}) or bare
+ *       ({@code SYSDATE}) - a read node would answer from its own.
  * </ul>
  *
  * <p>An explicit {@code TO_RO} hint still wins, because the {@code Router} resolves hints before it
@@ -537,7 +539,8 @@ final class KeywordSqlClassifier implements SqlClassifier {
                             } else {
                                 sawUnsafe = true;
                             }
-                        } else if (NODE_LOCAL_TABLES.contains(name)) {
+                        } else if (NODE_LOCAL_TABLES.contains(name)
+                                || BuiltinFunctionCatalog.isNodeKeyword(name)) {
                             sawUnsafe = true;
                         }
                         prevWasFor = false;

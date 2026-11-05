@@ -1193,6 +1193,40 @@ public class KeywordSqlClassifierTest {
         assertEquals(SqlClassification.READ, classifier.classify("SELECT * FROM db_class"));
     }
 
+    /** Each node answers these from its own clock or configuration. */
+    @Test
+    public void nodeClockAndConfigurationRunOnRw() {
+        String[] rw = {
+            "SELECT NOW() FROM db_root",
+            "SELECT SYSDATE FROM db_root",
+            "select sys_datetime from db_root",
+            "SELECT CURRENT_TIMESTAMP FROM db_root",
+            "SELECT CURRENT_DATE() FROM db_root",
+            "SELECT LOCALTIMESTAMP FROM db_root",
+            "SELECT UNIX_TIMESTAMP() FROM db_root",
+            "SELECT UTC_TIMESTAMP() FROM db_root",
+            "SELECT * FROM t WHERE reg_date > SYSDATE - 7",
+            "SELECT LIST_DBS() FROM db_root",
+            "SELECT DBTIMEZONE() FROM db_root",
+            "SELECT DBTIMEZONE FROM db_root",
+            "SELECT VERSION() FROM db_root"
+        };
+        for (String sql : rw) {
+            assertEquals(sql, SqlClassification.UNKNOWN, classifier.classify(sql));
+        }
+        // NOW is only a call, and quoted names and literals are not the keyword.
+        String[] read = {
+            "SELECT now FROM t",
+            "SELECT \"sysdate\" FROM t",
+            "SELECT [current_timestamp] FROM t",
+            "SELECT 'SYSDATE' FROM t",
+            "SELECT CURRENT_USER FROM db_root"
+        };
+        for (String sql : read) {
+            assertEquals(sql, SqlClassification.READ, classifier.classify(sql));
+        }
+    }
+
     /** No released server has these built-ins, so the name can only be a user routine. */
     @Test
     public void namesNoReleasedServerHasAreUserRoutines() {

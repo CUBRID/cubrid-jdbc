@@ -33,6 +33,7 @@ package cubrid.jdbc.lb.sql;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Keyword-based conservative SQL classifier.
@@ -60,6 +61,8 @@ import java.util.Map;
  *   <li>{@code ident(...)} calls whose name is not a CUBRID 11.4 read-only built-in ({@link
  *       BuiltinFunctionCatalog}) — stored procedures, Java SP and user-defined routines route to RW
  *       conservatively.
+ *   <li>{@code db_ha_apply_info} - each HA node writes its own rows, so a read node would answer
+ *       about itself.
  * </ul>
  *
  * <p>An explicit {@code TO_RO} hint still wins, because the {@code Router} resolves hints before it
@@ -95,6 +98,9 @@ final class KeywordSqlClassifier implements SqlClassifier {
      * holds.
      */
     private static final char SESSION_VARIABLE_SIGIL = '@';
+
+    /** System tables whose rows differ per HA node; a target hint still picks the leg. */
+    private static final Set<String> NODE_LOCAL_TABLES = Collections.singleton("DB_HA_APPLY_INFO");
 
     static {
         final Map<String, Integer> kw = new HashMap<String, Integer>(64);
@@ -441,6 +447,8 @@ final class KeywordSqlClassifier implements SqlClassifier {
                     } else {
                         sawUnsafe = true;
                     }
+                } else if (NODE_LOCAL_TABLES.contains(name)) {
+                    sawUnsafe = true;
                 }
                 prevWasFor = false;
                 prevWasDot = false;
@@ -529,6 +537,8 @@ final class KeywordSqlClassifier implements SqlClassifier {
                             } else {
                                 sawUnsafe = true;
                             }
+                        } else if (NODE_LOCAL_TABLES.contains(name)) {
+                            sawUnsafe = true;
                         }
                         prevWasFor = false;
                         break;

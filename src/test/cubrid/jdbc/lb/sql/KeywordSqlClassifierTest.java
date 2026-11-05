@@ -1171,6 +1171,28 @@ public class KeywordSqlClassifierTest {
                 SqlClassification.READ, classifier.classify("SELECT CURRENT_USER FROM db_root"));
     }
 
+    /** Each HA node writes its own db_ha_apply_info rows, so a slave would answer with its own. */
+    @Test
+    public void nodeLocalSystemTableRunsOnRw() {
+        assertEquals(
+                SqlClassification.UNKNOWN, classifier.classify("SELECT * FROM db_ha_apply_info"));
+        assertEquals(
+                SqlClassification.UNKNOWN,
+                classifier.classify("select status from DB_HA_APPLY_INFO where db_name = 'x'"));
+        assertEquals(
+                SqlClassification.UNKNOWN, classifier.classify("SELECT * FROM [db_ha_apply_info]"));
+        assertEquals(
+                SqlClassification.UNKNOWN,
+                classifier.classify("SELECT * FROM \"db_ha_apply_info\" a"));
+        assertEquals(
+                SqlClassification.UNKNOWN,
+                classifier.classify(
+                        "SELECT 1 FROM t WHERE EXISTS (SELECT 1 FROM db_ha_apply_info)"));
+        assertEquals(
+                SqlClassification.READ, classifier.classify("SELECT 'db_ha_apply_info' FROM t"));
+        assertEquals(SqlClassification.READ, classifier.classify("SELECT * FROM db_class"));
+    }
+
     /** No released server has these built-ins, so the name can only be a user routine. */
     @Test
     public void namesNoReleasedServerHasAreUserRoutines() {

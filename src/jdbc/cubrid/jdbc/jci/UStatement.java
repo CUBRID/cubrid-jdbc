@@ -40,8 +40,6 @@
  */
 package cubrid.jdbc.jci;
 
-import cubrid.jdbc.driver.CUBRIDBlob;
-import cubrid.jdbc.driver.CUBRIDClob;
 import cubrid.jdbc.driver.CUBRIDOutResultSet;
 import cubrid.sql.CUBRIDOID;
 import cubrid.sql.CUBRIDTimestamptz;
@@ -56,7 +54,10 @@ import java.sql.SQLException;
 import java.sql.Time;
 import java.sql.Timestamp;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 
 public class UStatement {
     public static final int CURSOR_SET = 0, CURSOR_CUR = 1, CURSOR_END = 2;
@@ -507,11 +508,49 @@ public class UStatement {
         bindValue(index, UUType.U_TYPE_OBJECT, oid);
     }
 
-    public void bindBlob(int index, Blob blob) {
-        bindValue(index, UUType.U_TYPE_BLOB, blob);
+    /* Each upload is made for one binding, so it is released if discarded before an execute. */
+    public void bindInternalLobUpload(int index, boolean blob, long token, long dataLength) {
+        InternalLobUpload v = internalLobUpload(blob, token, dataLength);
+        bindValue(index, v.type, v.marker);
+        if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR) {
+            relatedConnection.streamUploadRelease(Collections.singletonList(token));
+            return;
+        }
+        synchronized (bindParameter) {
+            bindParameter.unsentUploads[index] = token;
+        }
     }
 
-    public void bindClob(int index, Clob clob) {
+    /* the marker naming an internal LOB already streamed to the server */
+    public static final class InternalLobUpload {
+        final byte type;
+        final byte[] marker;
+
+        InternalLobUpload(byte type, byte[] marker) {
+            this.type = type;
+            this.marker = marker;
+        }
+    }
+
+    public static InternalLobUpload internalLobUpload(boolean blob, long token, long dataLength) {
+        String marker =
+                "@internal_lob_upload:"
+                        + (blob ? "B:" : "C:")
+                        + token
+                        + ":"
+                        + dataLength
+                        + ":"
+                        + (blob ? dataLength * 8 : dataLength);
+        return new InternalLobUpload(
+                blob ? UUType.U_TYPE_INTERNAL_BLOB_UPLOAD : UUType.U_TYPE_INTERNAL_CLOB_UPLOAD,
+                marker.getBytes(java.nio.charset.Charset.forName("US-ASCII")));
+    }
+
+    public void bindBfile(int index, Blob bfile) {
+        bindValue(index, UUType.U_TYPE_BFILE, bfile);
+    }
+
+    public void bindCfile(int index, Clob clob) {
         try {
             if (relatedConnection.getOracleStyleEmpltyString()
                     && clob != null
@@ -521,7 +560,7 @@ public class UStatement {
         } catch (SQLException e) {
             relatedConnection.logException(e);
         }
-        bindValue(index, UUType.U_TYPE_CLOB, clob);
+        bindValue(index, UUType.U_TYPE_CFILE, clob);
     }
 
     public void addBatch() {
@@ -570,6 +609,7 @@ public class UStatement {
         errorHandler = new UError(relatedConnection);
         if (batchParameter == null) return;
         synchronized (batchParameter) {
+            releaseUnsentUploads(batchParameter);
             batchParameter.clear();
         }
     }
@@ -577,8 +617,35 @@ public class UStatement {
     public synchronized void clearBind() {
         errorHandler = new UError(relatedConnection);
         if (bindParameter == null) return;
+        releaseUnsentUploads(Collections.singletonList(bindParameter));
         synchronized (bindParameter) {
             bindParameter.clear();
+        }
+    }
+
+    /* The application closes the statement: no execute will send its unsent uploads. */
+    public synchronized void releaseUnsentUploads() {
+        ArrayList<UBindParameter> bindings = new ArrayList<UBindParameter>();
+        if (bindParameter != null) bindings.add(bindParameter);
+        if (batchParameter != null) bindings.addAll(batchParameter);
+        releaseUnsentUploads(bindings);
+    }
+
+    /* An upload has no reference but its binding, so one no execute sent can go. */
+    private void releaseUnsentUploads(List<UBindParameter> bindings) {
+        ArrayList<Long> tokens = new ArrayList<Long>();
+        for (UBindParameter b : bindings) {
+            synchronized (b) {
+                for (int i = 0; i < b.unsentUploads.length; i++) {
+                    if (b.unsentUploads[i] > 0) {
+                        tokens.add(b.unsentUploads[i]);
+                        b.unsentUploads[i] = 0;
+                    }
+                }
+            }
+        }
+        if (!tokens.isEmpty()) {
+            relatedConnection.streamUploadRelease(tokens);
         }
     }
 
@@ -812,6 +879,10 @@ public class UStatement {
             executeResult = Math.min(maxFetchSize, executeResult);
         }
         totalTupleNumber = executeResult;
+        if (batchParameter != null) {
+            /* the batch is dropped without being executed */
+            releaseUnsentUploads(batchParameter);
+        }
         batchParameter = null;
 
         // jdbc cache feature
@@ -854,6 +925,12 @@ public class UStatement {
         synchronized (relatedConnection) {
             writeExecuteRequest(maxField, isScrollable, queryTimeout, cacheData);
             inBuffer = relatedConnection.send_recv_msg();
+        }
+        if (bindParameter != null) {
+            /* the CAS holds the uploads it bound now, and releases them with the statement */
+            synchronized (bindParameter) {
+                Arrays.fill(bindParameter.unsentUploads, 0);
+            }
         }
 
         // cache reusable
@@ -1321,7 +1398,7 @@ public class UStatement {
         return (tuples[cursorPosition - currentFirstCursor].getOid());
     }
 
-    public synchronized CUBRIDBlob getBlob(int index) {
+    public synchronized java.sql.Blob getBlob(int index) {
         errorHandler = new UError(relatedConnection);
 
         Object obj = beforeGetXXX(index);
@@ -1335,7 +1412,7 @@ public class UStatement {
         return null;
     }
 
-    public synchronized CUBRIDClob getClob(int index) {
+    public synchronized java.sql.Clob getClob(int index) {
         errorHandler = new UError(relatedConnection);
 
         Object obj = beforeGetXXX(index);
@@ -1995,8 +2072,14 @@ public class UStatement {
         }
 
         try {
+            long discarded;
             synchronized (bindParameter) {
                 bindParameter.setParameter(index, type, data);
+                discarded = bindParameter.unsentUploads[index];
+                bindParameter.unsentUploads[index] = 0;
+            }
+            if (discarded > 0) {
+                relatedConnection.streamUploadRelease(Collections.singletonList(discarded));
             }
         } catch (UJciException e) {
             e.toUError(localError);
@@ -2273,10 +2356,21 @@ public class UStatement {
                 } else {
                     return new CUBRIDOutResultSet(relatedConnection, inBuffer.readLong());
                 }
+            case UUType.U_TYPE_BFILE:
+                return inBuffer.readBfile(dataSize, relatedConnection.cubridcon);
+            case UUType.U_TYPE_CFILE:
+                return inBuffer.readCfile(dataSize, relatedConnection.cubridcon);
             case UUType.U_TYPE_BLOB:
-                return inBuffer.readBlob(dataSize, relatedConnection.cubridcon);
+                /* an internal LOB arrives as a locator; the pre-V13 wire carried an external LOB handle */
+                if (relatedConnection.brokerProtocolVersion() >= UConnection.PROTOCOL_V13) {
+                    return inBuffer.readInternalBlob(dataSize, relatedConnection.cubridcon);
+                }
+                return inBuffer.readBfile(dataSize, relatedConnection.cubridcon);
             case UUType.U_TYPE_CLOB:
-                return inBuffer.readClob(dataSize, relatedConnection.cubridcon);
+                if (relatedConnection.brokerProtocolVersion() >= UConnection.PROTOCOL_V13) {
+                    return inBuffer.readInternalClob(dataSize, relatedConnection.cubridcon);
+                }
+                return inBuffer.readCfile(dataSize, relatedConnection.cubridcon);
             case UUType.U_TYPE_NULL:
                 return null;
             default:

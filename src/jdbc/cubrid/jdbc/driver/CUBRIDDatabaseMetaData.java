@@ -1209,6 +1209,12 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
             } else if (type == UUType.U_TYPE_SEQUENCE) {
                 value[4] = new Short((short) java.sql.Types.OTHER);
                 value[5] = "SEQUENCE";
+            } else if (type == UUType.U_TYPE_BFILE) {
+                value[4] = new Short((short) java.sql.Types.BLOB);
+                value[5] = "BFILE";
+            } else if (type == UUType.U_TYPE_CFILE) {
+                value[4] = new Short((short) java.sql.Types.CLOB);
+                value[5] = "CFILE";
             } else if (type == UUType.U_TYPE_BLOB) {
                 value[4] = new Short((short) java.sql.Types.BLOB);
                 value[5] = "BLOB";
@@ -1565,6 +1571,16 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
                 case UUType.U_TYPE_NULL:
                     value[2] = new Integer(java.sql.Types.NULL);
                     value[3] = "";
+                    value[4] = new Integer(0);
+                    break;
+                case UUType.U_TYPE_BFILE:
+                    value[2] = new Integer(java.sql.Types.BLOB);
+                    value[3] = "BFILE";
+                    value[4] = new Integer(0);
+                    break;
+                case UUType.U_TYPE_CFILE:
+                    value[2] = new Integer(java.sql.Types.CLOB);
+                    value[3] = "CFILE";
                     value[4] = new Integer(0);
                     break;
                 case UUType.U_TYPE_BLOB:

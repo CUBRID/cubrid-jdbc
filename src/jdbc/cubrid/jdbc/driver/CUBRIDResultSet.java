@@ -35,6 +35,7 @@ import cubrid.jdbc.jci.UColumnInfo;
 import cubrid.jdbc.jci.UError;
 import cubrid.jdbc.jci.UErrorCode;
 import cubrid.jdbc.jci.UStatement;
+import cubrid.jdbc.jci.UUType;
 import cubrid.sql.CUBRIDOID;
 import java.io.Closeable;
 import java.io.IOException;
@@ -1714,6 +1715,12 @@ public class CUBRIDResultSet implements ResultSet {
         checkRowIsValidForUpdate();
         checkColumnIsValid(columnIndex);
         checkColumnIsUpdatable(columnIndex);
+        byte type = column_info[columnIndex - 1].getColumnType();
+        if ((type == UUType.U_TYPE_BLOB || type == UUType.U_TYPE_CLOB)
+                && (value instanceof Blob || value instanceof Clob)) {
+            /* as on develop: a row update goes through the object, which takes no internal LOB */
+            throw CUBRIDException.notSupported();
+        }
 
         updates[columnIndex - 1] = value;
         if (updated[columnIndex - 1] == false) {

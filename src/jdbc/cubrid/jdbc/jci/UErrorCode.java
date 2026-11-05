@@ -177,7 +177,7 @@ public abstract class UErrorCode {
         messageString.put(
                 new Integer(ER_NOT_SUPPORTED_PROTOCOL),
                 "The connected server uses an unsupported protocol version. "
-                        + "This driver only supports server version 10.2 (PROTOCOL_V8) or later.");
+                        + "This driver only supports servers using PROTOCOL_V13 or later.");
     }
 
     private static void setCASMessageHash() {

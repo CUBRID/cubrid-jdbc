@@ -94,7 +94,18 @@ public enum UFunctionCode {
     CURSOR_CLOSE(42),
     GET_SHARD_INFO(43),
     SET_CAS_CHANGE_MODE(44),
-    LAST_FUNCTION_CODE(GET_SHARD_INFO);
+
+    /* shared byte-stream transport, both directions */
+    STREAM_SEND_DATA(45),
+    STREAM_END(46),
+    STREAM_INIT(47),
+    STREAM_ABORT(48),
+    STREAM_READ_OPEN(49),
+    STREAM_READ(50),
+    STREAM_RELEASE(51),
+    STREAM_UPLOAD_RELEASE(52),
+
+    LAST_FUNCTION_CODE(STREAM_UPLOAD_RELEASE);
 
     private byte code;
 

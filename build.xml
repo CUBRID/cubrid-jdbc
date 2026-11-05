@@ -87,6 +87,7 @@
     <property name="test.src" value="${basedir}/src/test"/>
     <property name="bin-test" location="${output}/ant-bin-test"/>
     <property name="test.lib" value="${basedir}/lib/test"/>
+    <property name="test.lib.url" value="https://raw.githubusercontent.com/CUBRID/3rdparty/develop/junit"/>
 
     <path id="test.classpath">
         <pathelement location="${bin-cubrid}"/>
@@ -96,7 +97,26 @@
         </fileset>
     </path>
 
-    <target name="compile-test" depends="compile-cubrid">
+    <!-- Jars already in lib/test are kept, so an offline build works once they are placed there. -->
+    <target name="fetch-test-libs">
+        <mkdir dir="${test.lib}"/>
+        <get src="${test.lib.url}/junit-4.13.2.jar" dest="${test.lib}" skipexisting="true"/>
+        <get src="${test.lib.url}/hamcrest-core-1.3.jar" dest="${test.lib}" skipexisting="true"/>
+        <fail message="Checksum mismatch in ${test.lib}: delete the jars there and run again.">
+            <condition>
+                <not>
+                    <and>
+                        <checksum file="${test.lib}/junit-4.13.2.jar" algorithm="SHA-256"
+                                  property="8e495b634469d64fb8acfa3495a065cbacc8a0fff55ce1e31007be4c16dc57d3"/>
+                        <checksum file="${test.lib}/hamcrest-core-1.3.jar" algorithm="SHA-256"
+                                  property="66fdef91e9739348df7a096aa384a5685f4e875584cce89386a7a47251c4d8e9"/>
+                    </and>
+                </not>
+            </condition>
+        </fail>
+    </target>
+
+    <target name="compile-test" depends="compile-cubrid, fetch-test-libs">
         <mkdir dir="${bin-test}"/>
         <javac destdir="${bin-test}" source="1.8" target="1.8" encoding="UTF-8" debug="true" deprecation="off" includeantruntime="no">
             <src path="${test.src}"/>

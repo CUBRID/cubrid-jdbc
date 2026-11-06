@@ -35,6 +35,7 @@ import cubrid.jdbc.net.BrokerHandler;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.Socket;
+import java.security.KeyStore;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -44,7 +45,20 @@ public class UUnreachableHostList {
 
     private static UUnreachableHostList instance = null;
     private List<String> unreachableHosts;
-    private boolean useSSL = false;
+    /* One reference, replaced whole: connections set it from their own threads while the health
+     * check thread reads it, and two separate fields could pair one connection's verifying mode
+     * with another's null trust store. */
+    private volatile SslConfig sslConfig = new SslConfig(SslMode.DISABLED, null);
+
+    private static final class SslConfig {
+        final SslMode sslMode;
+        final KeyStore trustStore;
+
+        SslConfig(SslMode sslMode, KeyStore trustStore) {
+            this.sslMode = sslMode;
+            this.trustStore = trustStore;
+        }
+    }
 
     private UUnreachableHostList() {
         unreachableHosts = new CopyOnWriteArrayList<String>();
@@ -106,9 +120,12 @@ public class UUnreachableHostList {
         DataOutputStream os = null;
 
         long startTime = System.currentTimeMillis();
+        SslConfig config = sslConfig;
 
         try {
-            toBroker = BrokerHandler.connectBroker(ip, port, useSSL, timeout);
+            toBroker =
+                    BrokerHandler.connectBroker(
+                            ip, port, config.sslMode, config.trustStore, timeout);
             if (timeout > 0) {
                 timeout -= (System.currentTimeMillis() - startTime);
                 if (timeout <= 0) {
@@ -140,6 +157,19 @@ public class UUnreachableHostList {
     }
 
     public void setUseSSL(boolean useSSL) {
-        this.useSSL = useSSL;
+        setSslConfig(SslMode.fromUseSSL(useSSL), null);
+    }
+
+    /**
+     * How the health probe connects: with the mode and anchors of the connection that called this
+     * last. The list is JVM-wide, so that is not always the session that reported the host; the
+     * probe only marks a host reachable, and the session verifies the broker itself when it
+     * reconnects.
+     *
+     * @param sslMode the TLS mode to probe with
+     * @param trustStore anchors for the chain check; null only below {@code verify-ca}
+     */
+    public void setSslConfig(SslMode sslMode, KeyStore trustStore) {
+        sslConfig = new SslConfig((sslMode == null) ? SslMode.DISABLED : sslMode, trustStore);
     }
 }

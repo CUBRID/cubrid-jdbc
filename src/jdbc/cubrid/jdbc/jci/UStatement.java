@@ -60,6 +60,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.TimeZone;
 
 public class UStatement {
     public static final int CURSOR_SET = 0, CURSOR_CUR = 1, CURSOR_END = 2;
@@ -459,15 +460,32 @@ public class UStatement {
     }
 
     public void bind(int index, Timestamp value) {
-        byte type = UUType.getObjectDBtype(value);
+        byte type = value == null ? UUType.U_TYPE_DATETIME : UUType.getObjectDBtype(value);
 
         bindValue(index, type, value);
     }
 
     public void bind(int index, CUBRIDTimestamptz value) {
-        byte type = UUType.getObjectDBtype(value);
+        byte type = value == null ? UUType.U_TYPE_DATETIMETZ : UUType.getObjectDBtype(value);
 
         bindValue(index, type, value);
+    }
+
+    public void bind(int index, Date value, TimeZone zone) {
+        bindValue(index, UUType.U_TYPE_DATE, UDateTimeFields.of(value, UUType.U_TYPE_DATE, zone));
+    }
+
+    public void bind(int index, Time value, TimeZone zone) {
+        bindValue(index, UUType.U_TYPE_TIME, UDateTimeFields.of(value, UUType.U_TYPE_TIME, zone));
+    }
+
+    public void bind(int index, Timestamp value, TimeZone zone) {
+        if (value instanceof CUBRIDTimestamptz) {
+            bind(index, value);
+            return;
+        }
+        byte type = UUType.getObjectDBtype(value);
+        bindValue(index, type, UDateTimeFields.of(value, type, zone));
     }
 
     public void bind(int index, Object value) {
@@ -559,6 +577,14 @@ public class UStatement {
 
     public void bindNull(int index) {
         bindValue(index, UUType.U_TYPE_NULL, null);
+    }
+
+    public void bindNull(int index, int sqlType) {
+        bindValue(index, UUType.getNullTypeOfSqlType(sqlType), null);
+    }
+
+    private boolean sendsTypedNull() {
+        return relatedConnection.brokerProtocolVersion() >= UConnection.PROTOCOL_V13;
     }
 
     public UError cancel() {
@@ -801,7 +827,7 @@ public class UStatement {
         outBuffer.addInt((int) remainingTime);
 
         if (bindParameter != null) {
-            bindParameter.writeParameter(outBuffer);
+            bindParameter.writeParameter(outBuffer, sendsTypedNull());
         }
     }
 
@@ -1064,7 +1090,7 @@ public class UStatement {
             synchronized (batchParameter) {
                 for (int i = 0; i < batchParameter.size(); i++) {
                     UBindParameter b = (UBindParameter) batchParameter.get(i);
-                    b.writeParameter(outBuffer);
+                    b.writeParameter(outBuffer, sendsTypedNull());
                 }
             }
         }
@@ -1681,6 +1707,48 @@ public class UStatement {
         return null;
     }
 
+    public synchronized Date getDate(int index, TimeZone zone) {
+        errorHandler = new UError(relatedConnection);
+
+        Object obj = beforeGetRaw(index);
+        if (obj == null) return null;
+
+        try {
+            return (UGetTypeConvertedValue.getDate(obj, zone));
+        } catch (UJciException e) {
+            e.toUError(errorHandler);
+        }
+        return null;
+    }
+
+    public synchronized Time getTime(int index, TimeZone zone) {
+        errorHandler = new UError(relatedConnection);
+
+        Object obj = beforeGetRaw(index);
+        if (obj == null) return null;
+
+        try {
+            return (UGetTypeConvertedValue.getTime(obj, zone));
+        } catch (UJciException e) {
+            e.toUError(errorHandler);
+        }
+        return null;
+    }
+
+    public synchronized Timestamp getTimestamp(int index, TimeZone zone) {
+        errorHandler = new UError(relatedConnection);
+
+        Object obj = beforeGetRaw(index);
+        if (obj == null) return null;
+
+        try {
+            return (UGetTypeConvertedValue.getTimestamp(obj, zone));
+        } catch (UJciException e) {
+            e.toUError(errorHandler);
+        }
+        return null;
+    }
+
     public boolean isClosed() {
         return isClosed;
     }
@@ -2090,6 +2158,11 @@ public class UStatement {
     }
 
     private Object beforeGetXXX(int index) {
+        Object obj = beforeGetRaw(index);
+        return obj == null ? null : UDateTimeFields.sqlValueOf(obj);
+    }
+
+    private Object beforeGetRaw(int index) {
         if (isClosed == true) {
             errorHandler.setErrorCode(UErrorCode.ER_IS_CLOSED);
             return null;
@@ -2120,7 +2193,7 @@ public class UStatement {
             return null;
         }
 
-        return UDateTimeFields.sqlValueOf(obj);
+        return obj;
     }
 
     private boolean checkReFetch() {

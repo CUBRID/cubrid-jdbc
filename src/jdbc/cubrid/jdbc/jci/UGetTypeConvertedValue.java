@@ -58,7 +58,10 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Calendar;
+import java.util.GregorianCalendar;
 import java.util.Locale;
+import java.util.TimeZone;
 
 public abstract class UGetTypeConvertedValue {
     private static final DateTimeFormatter DATE_FORMAT =
@@ -310,6 +313,88 @@ public abstract class UGetTypeConvertedValue {
         } else if (data instanceof Date) return new Timestamp(((Date) data).getTime());
         else if (data instanceof Time) return new Timestamp(((Time) data).getTime());
         throw new UJciException(UErrorCode.ER_TYPE_CONVERSION);
+    }
+
+    public static Date getDate(Object data, TimeZone zone) throws UJciException {
+        if (data instanceof String) {
+            return dateIn((String) data, zone);
+        }
+        return getDate(inZone(data, zone));
+    }
+
+    public static Time getTime(Object data, TimeZone zone) throws UJciException {
+        if (data instanceof String) {
+            return timeIn((String) data, zone);
+        }
+        return getTime(inZone(data, zone));
+    }
+
+    public static Timestamp getTimestamp(Object data, TimeZone zone) throws UJciException {
+        if (data instanceof String) {
+            return timestampIn((String) data, zone);
+        }
+        return getTimestamp(inZone(data, zone));
+    }
+
+    private static Object inZone(Object data, TimeZone zone) {
+        return data instanceof UDateTimeFields ? ((UDateTimeFields) data).toSqlValue(zone) : data;
+    }
+
+    /*
+     * valueOf only checks the format: its value is made in the JVM default time zone, which shifts
+     * a local time that does not exist there, so the fields are taken from the string.
+     */
+    private static Date dateIn(String s, TimeZone zone) throws UJciException {
+        try {
+            Date.valueOf(s);
+        } catch (IllegalArgumentException e) {
+            throw new UJciException(UErrorCode.ER_TYPE_CONVERSION);
+        }
+        String[] d = s.split("-");
+        Calendar c = new GregorianCalendar(zone);
+        c.set(Integer.parseInt(d[0]), Integer.parseInt(d[1]) - 1, Integer.parseInt(d[2]), 0, 0, 0);
+        c.set(Calendar.MILLISECOND, 0);
+        return new Date(c.getTimeInMillis());
+    }
+
+    private static Time timeIn(String s, TimeZone zone) throws UJciException {
+        try {
+            Time.valueOf(s);
+        } catch (IllegalArgumentException e) {
+            throw new UJciException(UErrorCode.ER_TYPE_CONVERSION);
+        }
+        String[] t = s.split(":");
+        Calendar c = new GregorianCalendar(zone);
+        c.set(1970, 0, 1, Integer.parseInt(t[0]), Integer.parseInt(t[1]), Integer.parseInt(t[2]));
+        c.set(Calendar.MILLISECOND, 0);
+        return new Time(c.getTimeInMillis());
+    }
+
+    private static Timestamp timestampIn(String s, TimeZone zone) throws UJciException {
+        Timestamp parsed;
+        try {
+            parsed = Timestamp.valueOf(s);
+        } catch (IllegalArgumentException e) {
+            throw new UJciException(UErrorCode.ER_TYPE_CONVERSION);
+        }
+        String text = s.trim();
+        int space = text.indexOf(' ');
+        String[] d = text.substring(0, space).split("-");
+        String[] t = text.substring(space + 1).split(":");
+        int dot = t[2].indexOf('.');
+        String second = dot < 0 ? t[2] : t[2].substring(0, dot);
+        Calendar c = new GregorianCalendar(zone);
+        c.set(
+                Integer.parseInt(d[0]),
+                Integer.parseInt(d[1]) - 1,
+                Integer.parseInt(d[2]),
+                Integer.parseInt(t[0]),
+                Integer.parseInt(t[1]),
+                Integer.parseInt(second));
+        c.set(Calendar.MILLISECOND, 0);
+        Timestamp result = new Timestamp(c.getTimeInMillis());
+        result.setNanos(parsed.getNanos());
+        return result;
     }
 
     public static CUBRIDTimestamptz getTimestamptz(Object data) throws UJciException {

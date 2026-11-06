@@ -338,15 +338,51 @@ public class CUBRIDCallableStatement extends CUBRIDPreparedStatement implements 
     }
 
     public Date getDate(int index, Calendar cal) throws SQLException {
-        return (getDate(index));
+        if (cal == null) {
+            return getDate(index);
+        }
+        checkIsOpen();
+        beforeGetValue(index);
+
+        Date value;
+        synchronized (u_stmt) {
+            value = u_stmt.getDate(index, cal.getTimeZone());
+            error = u_stmt.getRecentError();
+        }
+        checkGetXXXError();
+        return value;
     }
 
     public Time getTime(int index, Calendar cal) throws SQLException {
-        return (getTime(index));
+        if (cal == null) {
+            return getTime(index);
+        }
+        checkIsOpen();
+        beforeGetValue(index);
+
+        Time value;
+        synchronized (u_stmt) {
+            value = u_stmt.getTime(index, cal.getTimeZone());
+            error = u_stmt.getRecentError();
+        }
+        checkGetXXXError();
+        return value;
     }
 
     public Timestamp getTimestamp(int index, Calendar cal) throws SQLException {
-        return (getTimestamp(index));
+        if (cal == null) {
+            return getTimestamp(index);
+        }
+        checkIsOpen();
+        beforeGetValue(index);
+
+        Timestamp value;
+        synchronized (u_stmt) {
+            value = u_stmt.getTimestamp(index, cal.getTimeZone());
+            error = u_stmt.getRecentError();
+        }
+        checkGetXXXError();
+        return value;
     }
 
     public URL getURL(int index) throws SQLException {

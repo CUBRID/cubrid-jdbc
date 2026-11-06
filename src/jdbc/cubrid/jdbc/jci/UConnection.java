@@ -141,7 +141,7 @@ public abstract class UConnection {
             INSERT_ELEMENT_INTO_SEQUENCE = 6,
             PUT_ELEMENT_ON_SEQUENCE = 7;
     @SuppressWarnings("unused")
-    protected static final int DB_PARAM_ISOLATION_LEVEL = 1,
+    private static final int DB_PARAM_ISOLATION_LEVEL = 1,
             DB_PARAM_LOCK_TIMEOUT = 2,
             DB_PARAM_AUTO_COMMIT = 4;
 
@@ -149,8 +149,8 @@ public abstract class UConnection {
     protected static final byte END_TRAN_COMMIT = 1;
     protected static final byte END_TRAN_ROLLBACK = 2;
 
-    public static final int LOCK_TIMEOUT_NOT_USED = -2;
-    public static final int LOCK_TIMEOUT_INFINITE = -1;
+    protected static final int LOCK_TIMEOUT_NOT_USED = -2;
+    protected static final int LOCK_TIMEOUT_INFINITE = -1;
 
     protected static final int SOCKET_TIMEOUT = 5000;
 
@@ -942,7 +942,11 @@ public abstract class UConnection {
             checkReconnect();
             if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR) return;
 
-            sendSetDbParameter(DB_PARAM_ISOLATION_LEVEL, level);
+            outBuffer.newRequest(output, UFunctionCode.SET_DB_PARAMETER);
+            outBuffer.addInt(DB_PARAM_ISOLATION_LEVEL);
+            outBuffer.addInt(level);
+
+            send_recv_msg();
 
             lastIsolationLevel = level;
         } catch (UJciException e) {
@@ -956,11 +960,6 @@ public abstract class UConnection {
 
     public synchronized void setLockTimeout(int timeout) {
         errorHandler = new UError(this);
-
-        if (timeout < LOCK_TIMEOUT_NOT_USED) {
-            errorHandler.setErrorCode(UErrorCode.ER_INVALID_ARGUMENT);
-            return;
-        }
 
         if (lastLockTimeout != LOCK_TIMEOUT_NOT_USED && lastLockTimeout == timeout) {
             return;
@@ -976,9 +975,14 @@ public abstract class UConnection {
             checkReconnect();
             if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR) return;
 
-            sendSetDbParameter(DB_PARAM_LOCK_TIMEOUT, timeout);
+            outBuffer.newRequest(output, UFunctionCode.SET_DB_PARAMETER);
+            outBuffer.addInt(DB_PARAM_LOCK_TIMEOUT);
+            outBuffer.addInt(timeout);
 
-            lastLockTimeout = timeout;
+            send_recv_msg();
+
+            if (timeout < 0) lastLockTimeout = LOCK_TIMEOUT_INFINITE;
+            else lastLockTimeout = timeout;
         } catch (UJciException e) {
             logException(e);
             e.toUError(errorHandler);
@@ -986,34 +990,6 @@ public abstract class UConnection {
             logException(e);
             errorHandler.setErrorCode(UErrorCode.ER_COMMUNICATION);
         }
-    }
-
-    public synchronized void restorePropertyLockTimeout() {
-        int property = connectionProperties.getLockTimeout();
-        if (property == LOCK_TIMEOUT_NOT_USED || lastLockTimeout == property) {
-            return;
-        }
-
-        if (needReconnection) {
-            lastLockTimeout = property;
-            return;
-        }
-
-        try {
-            sendSetDbParameter(DB_PARAM_LOCK_TIMEOUT, property);
-        } catch (UJciException | IOException e) {
-            logException(e);
-            resetConnection();
-        }
-        lastLockTimeout = property;
-    }
-
-    protected void sendSetDbParameter(int paramName, int value) throws UJciException, IOException {
-        outBuffer.newRequest(output, UFunctionCode.SET_DB_PARAMETER);
-        outBuffer.addInt(paramName);
-        outBuffer.addInt(value);
-
-        send_recv_msg();
     }
 
     // UFunctionCode.SET_CAS_CHANGE_MODE
@@ -1538,8 +1514,13 @@ public abstract class UConnection {
     }
 
     void cancel() throws UJciException, IOException {
-        byte[] session = new byte[4];
-        for (int i = 0; i < 4; i++) session[i] = sessionId[i + 8];
+        byte[] session = null;
+
+        /* Only a PROTOCOL_V13 or later broker reads the session id appended to the cancel request. */
+        if (brokerProtocolVersion() >= PROTOCOL_V13) {
+            session = new byte[4];
+            for (int i = 0; i < 4; i++) session[i] = sessionId[i + 8];
+        }
 
         BrokerHandler.cancelBroker(casIp, casPort, casProcessId, session, READ_TIMEOUT);
     }
@@ -1855,6 +1836,28 @@ public abstract class UConnection {
         return false;
     }
 
+    public synchronized boolean supportSchema() {
+        errorHandler = new UError(this);
+
+        /* XA, DataSource and useLazyConnection ask for metadata before the handshake. */
+        if (protocolVersion == 0 && isClosed == false) {
+            try {
+                setBeginTime();
+                checkReconnect();
+                endTransaction(true);
+                errorHandler.clear();
+            } catch (IOException e) {
+                logException(e);
+                errorHandler.setErrorCode(UErrorCode.ER_COMMUNICATION);
+            } catch (UJciException e) {
+                logException(e);
+                e.toUError(errorHandler);
+            }
+        }
+
+        return isConnectedToCubrid() && protocolVersion >= PROTOCOL_V11;
+    }
+
     public boolean isOracleCompatNumberBehavior() {
         if (protocolVersion >= PROTOCOL_V12) {
             if (brokerInfo == null) return false;
@@ -1868,6 +1871,7 @@ public abstract class UConnection {
     public void setCUBRIDConnection(CUBRIDConnection con) {
         cubridcon = con;
         lastIsolationLevel = CUBRIDIsolationLevel.TRAN_UNKNOWN_ISOLATION;
+        lastLockTimeout = LOCK_TIMEOUT_NOT_USED;
     }
 
     public CUBRIDConnection getCUBRIDConnection() {
@@ -2085,7 +2089,6 @@ public abstract class UConnection {
 
     public void setConnectionProperties(ConnectionProperties connProperties) {
         this.connectionProperties = connProperties;
-        this.lastLockTimeout = connProperties.getLockTimeout();
     }
 
     public UJciException createJciException(int err) {

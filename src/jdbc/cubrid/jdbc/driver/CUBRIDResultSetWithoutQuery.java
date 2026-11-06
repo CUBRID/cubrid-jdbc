@@ -842,34 +842,64 @@ class CUBRIDResultSetWithoutQuery implements ResultSet {
     }
 
     public synchronized Date getDate(int columnIndex, Calendar cal) throws SQLException {
+        if (cal == null) {
+            return getDate(columnIndex);
+        }
         checkIsOpen();
-        return getDate(columnIndex);
+        beforeGetValue(columnIndex);
+
+        try {
+            return UGetTypeConvertedValue.getDate(
+                    ((Object[]) rows.get(current_row))[columnIndex - 1], cal.getTimeZone());
+        } catch (Exception e) {
+            throw new CUBRIDException(CUBRIDJDBCErrorCode.conversion_error);
+        }
     }
 
     public synchronized Date getDate(String columnName, Calendar cal) throws SQLException {
         checkIsOpen();
-        return getDate(columnName);
+        return getDate(findColumn(columnName), cal);
     }
 
     public synchronized Time getTime(int columnIndex, Calendar cal) throws SQLException {
+        if (cal == null) {
+            return getTime(columnIndex);
+        }
         checkIsOpen();
-        return getTime(columnIndex);
+        beforeGetValue(columnIndex);
+
+        try {
+            return UGetTypeConvertedValue.getTime(
+                    ((Object[]) rows.get(current_row))[columnIndex - 1], cal.getTimeZone());
+        } catch (Exception e) {
+            throw new CUBRIDException(CUBRIDJDBCErrorCode.conversion_error);
+        }
     }
 
     public synchronized Time getTime(String columnName, Calendar cal) throws SQLException {
         checkIsOpen();
-        return getTime(columnName);
+        return getTime(findColumn(columnName), cal);
     }
 
     public synchronized Timestamp getTimestamp(int columnIndex, Calendar cal) throws SQLException {
+        if (cal == null) {
+            return getTimestamp(columnIndex);
+        }
         checkIsOpen();
-        return getTimestamp(columnIndex);
+        beforeGetValue(columnIndex);
+
+        try {
+            return UGetTypeConvertedValue.getTimestamp(
+                    ((Object[]) rows.get(current_row))[columnIndex - 1], cal.getTimeZone());
+        } catch (Exception e) {
+            throw new CUBRIDException(CUBRIDJDBCErrorCode.conversion_error);
+        }
     }
 
     public synchronized Timestamp getTimestamp(String columnName, Calendar cal)
             throws SQLException {
         checkIsOpen();
-        return getTimestamp(columnName);
+        return getTimestamp(findColumn(columnName), cal);
     }
 
     // 3.0

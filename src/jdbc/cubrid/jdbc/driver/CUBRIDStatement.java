@@ -752,7 +752,8 @@ public class CUBRIDStatement implements Statement {
 
     /* JDK 1.6 */
     public boolean isClosed() throws SQLException {
-        return is_closed;
+        CUBRIDConnection c = con;
+        return is_closed || (c != null && c.isClosedWithoutLock());
     }
 
     /* JDK 1.6 */

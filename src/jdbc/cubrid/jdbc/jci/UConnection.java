@@ -50,6 +50,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.sql.SQLException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -254,10 +255,11 @@ public abstract class UConnection {
     protected boolean lastAutoCommit = true;
     private boolean isAutoCommitBySelf = false;
 
-    protected boolean isClosed = false;
+    protected volatile boolean isClosed = false;
 
     private int lastIsolationLevel;
     private int lastLockTimeout = LOCK_TIMEOUT_NOT_USED;
+    private volatile int networkTimeout;
 
     protected byte[] dbInfo;
     protected String dbname = "";
@@ -1602,6 +1604,29 @@ public abstract class UConnection {
         return lastLockTimeout;
     }
 
+    public void setNetworkTimeout(int milliseconds) {
+        networkTimeout = milliseconds;
+        Socket socket = client;
+        if (socket == null) {
+            return;
+        }
+
+        try {
+            socket.setSoTimeout(socketTimeout(milliseconds));
+        } catch (IOException e) {
+            logException(e);
+        }
+    }
+
+    public int getNetworkTimeout() {
+        return networkTimeout;
+    }
+
+    /* No CAS status check before the deadline: it fails first when the network is down. */
+    static int socketTimeout(int networkTimeout) {
+        return networkTimeout > 0 ? networkTimeout : SOCKET_TIMEOUT;
+    }
+
     // UFunctionCode.SAVEPOINT
     public synchronized void savepoint(byte mode, String name) {
         errorHandler = new UError(this);
@@ -1859,9 +1884,9 @@ public abstract class UConnection {
         outBuffer.sendData();
         /* set cas info to UConnection member variable and return InputBuffer */
         if (timeout > 0) {
-            inputBuffer = new UInputBuffer(input, this, timeout * 1000 + READ_TIMEOUT);
+            inputBuffer = receive(timeout * 1000 + READ_TIMEOUT);
         } else {
-            inputBuffer = new UInputBuffer(input, this, 0);
+            inputBuffer = receive(0);
         }
 
         if (UJCIUtil.isConsoleDebug()) {
@@ -1881,7 +1906,7 @@ public abstract class UConnection {
         byte prev_casinfo[] = casInfo;
         outBuffer.sendData();
         /* set cas info to UConnection member variable and return InputBuffer */
-        UInputBuffer inputBuffer = new UInputBuffer(input, this, 0);
+        UInputBuffer inputBuffer = receive(0);
 
         if (UJCIUtil.isConsoleDebug()) {
             printCasInfo(prev_casinfo, casInfo);
@@ -1894,6 +1919,21 @@ public abstract class UConnection {
             createJciException(UErrorCode.ER_COMMUNICATION);
         }
         return send_recv_msg(true);
+    }
+
+    private UInputBuffer receive(int headerTimeout) throws UJciException, IOException {
+        int networkTimeout = this.networkTimeout;
+        if (networkTimeout <= 0) {
+            return new UInputBuffer(input, this, headerTimeout, input.getTimeout());
+        }
+
+        try {
+            return new UInputBuffer(input, this, networkTimeout, networkTimeout);
+        } catch (SocketTimeoutException e) {
+            clientSocketClose();
+            isClosed = true;
+            throw createJciException(UErrorCode.ER_NETWORK_TIMEOUT);
+        }
     }
 
     UUrlCache getUrlCache() {

@@ -276,6 +276,7 @@ public class CUBRIDResultSet implements ResultSet {
             switch (errorCode) {
                 case UErrorCode.ER_DBMS:
                 case UErrorCode.ER_COMMUNICATION:
+                case UErrorCode.ER_NETWORK_TIMEOUT:
                 case UErrorCode.ER_ILLEGAL_DATA_SIZE:
                 case UErrorCode.CAS_ER_DBMS:
                 case UErrorCode.CAS_ER_COMMUNICATION:

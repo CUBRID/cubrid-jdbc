@@ -96,6 +96,22 @@ class CUBRIDInternalLobUpload {
         }
     }
 
+    static {
+        /* a spill still on disk at exit belongs to a value nobody freed */
+        Runtime.getRuntime()
+                .addShutdownHook(
+                        new Thread() {
+                            @Override
+                            public void run() {
+                                synchronized (SPILLS) {
+                                    for (Spill s : SPILLS) {
+                                        s.file.delete();
+                                    }
+                                }
+                            }
+                        });
+    }
+
     CUBRIDInternalLobUpload(CUBRIDConnection conn, boolean blob) {
         this(conn, blob, false);
     }

@@ -109,9 +109,11 @@ public abstract class UConnection {
 
     public static final int PROTOCOL_V11 = 11;
     public static final int PROTOCOL_V12 = 12;
-    /* byte-stream transport (STREAM_*) with CAS_INFO_FLAG_MASK_STREAM_OPEN, and a BLOB/CLOB
-     * column led by INTERNAL_LOB_WIRE_REF / _INLINE */
+    /* byte-stream transport (STREAM_*) with CAS_INFO_FLAG_MASK_STREAM_OPEN */
     public static final int PROTOCOL_V13 = 13;
+    /* internal LOB: BFILE/CFILE take type numbers 23/24, the numbers after them move by two, and a
+     * BLOB/CLOB column is led by INTERNAL_LOB_WIRE_REF / _INLINE */
+    public static final int PROTOCOL_V14 = 14;
 
     /* The core bounds one download read by this, whatever was asked. */
     public static final int STREAM_READ_MAX_CHUNK = 1024 * 1024;
@@ -125,14 +127,14 @@ public abstract class UConnection {
     public static final int STREAM_FLAG_EOF = 0x01;
     public static final int STREAM_FLAG_RELEASED = 0x02;
 
-    /* Leading byte of every BLOB/CLOB column sent to a PROTOCOL_V13 driver: it says whether the payload is a
+    /* Leading byte of every BLOB/CLOB column sent to a PROTOCOL_V14 driver: it says whether the payload is a
      * reference to stored content or the content itself.  The column type alone cannot distinguish them,
      * because a scalar function result (CHAR_TO_CLOB('x')) is a LOB value with no storage behind it. */
     public static final byte INTERNAL_LOB_WIRE_INLINE = 0;
     public static final byte INTERNAL_LOB_WIRE_REF = 1;
 
     /* Current protocol version */
-    protected static final byte CAS_PROTOCOL_VERSION = PROTOCOL_V13;
+    protected static final byte CAS_PROTOCOL_VERSION = PROTOCOL_V14;
     protected static final byte CAS_PROTO_INDICATOR = 0x40;
     protected static final byte CAS_PROTO_VER_MASK = 0x3F;
     protected static final byte CAS_RENEWED_ERROR_CODE = (byte) 0x80;

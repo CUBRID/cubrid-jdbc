@@ -424,10 +424,10 @@ public class UClientSideConnection extends UConnection {
         byte version = brokerInfo[BROKER_INFO_PROTO_VERSION];
         protocolVersion = (int) version & CAS_PROTO_VER_MASK;
 
-        /* This driver's type numbers, BLOB/CLOB column format and stream requests came with
-         * PROTOCOL_V13: an older server reads them wrongly, so refuse it rather than
+        /* This driver's type numbers and BLOB/CLOB column format came with PROTOCOL_V14: an
+         * older server, develop's V13 included, reads them wrongly, so refuse it rather than
          * return wrong values. */
-        if (protocolVersion < PROTOCOL_V13) {
+        if (protocolVersion < PROTOCOL_V14) {
             throw new UJciException(UErrorCode.ER_NOT_SUPPORTED_PROTOCOL);
         }
 

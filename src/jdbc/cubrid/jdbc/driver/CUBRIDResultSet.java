@@ -350,6 +350,7 @@ public class CUBRIDResultSet implements ResultSet {
             error = u_stmt.getRecentError();
         }
         if (obj != null && obj instanceof Clob) {
+            checkGetXXXError();
             Clob clob = (Clob) obj;
             int length;
             if (clob.length() > (long) Integer.MAX_VALUE) {
@@ -483,6 +484,7 @@ public class CUBRIDResultSet implements ResultSet {
             error = u_stmt.getRecentError();
         }
         if (obj != null && obj instanceof Blob) {
+            checkGetXXXError();
             Blob blob = (Blob) obj;
             int length;
             if (blob.length() > (long) Integer.MAX_VALUE) {
@@ -555,6 +557,7 @@ public class CUBRIDResultSet implements ResultSet {
             error = u_stmt.getRecentError();
         }
         if (obj != null && obj instanceof Clob) {
+            checkGetXXXError();
             Clob clob = (Clob) obj;
             InputStream stream = clob.getAsciiStream();
             addStream(stream);
@@ -592,6 +595,7 @@ public class CUBRIDResultSet implements ResultSet {
             error = u_stmt.getRecentError();
         }
         if (obj != null && obj instanceof Blob) {
+            checkGetXXXError();
             Blob blob = (Blob) obj;
             InputStream stream = blob.getBinaryStream();
             addStream(stream);
@@ -744,6 +748,7 @@ public class CUBRIDResultSet implements ResultSet {
             error = u_stmt.getRecentError();
         }
         if (obj != null && obj instanceof Clob) {
+            checkGetXXXError();
             Clob clob = (Clob) obj;
             Reader stream = clob.getCharacterStream();
             addStream(stream);

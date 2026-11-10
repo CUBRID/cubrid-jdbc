@@ -114,6 +114,15 @@ public class HintChecklistTest {
         assertEquals(RouteTarget.TO_READ_ONLY, next.getTarget());
     }
 
+    // M15: a query opening with "(" is classified READ, so the hint after its first SELECT must
+    // decide the route, not fall through to the default read route.
+    @Test
+    public void assertToRwAfterLeadingParenthesisRoutesToRw() {
+        final String sql = "(SELECT /*+ TO_RW */ a FROM t) UNION (SELECT a FROM t2)";
+        Router.RouteDecision d = Router.decide(sql, session, failingDefaultAdvisor());
+        assertEquals(RouteTarget.TO_READ_WRITE, d.getTarget());
+    }
+
     private static Router.DefaultRouteAdvisor failingDefaultAdvisor() {
         return new Router.DefaultRouteAdvisor() {
             @Override

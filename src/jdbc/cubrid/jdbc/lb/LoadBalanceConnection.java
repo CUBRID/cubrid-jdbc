@@ -3153,6 +3153,17 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         }
     }
 
+    /**
+     * Records the leg a batch the server answered with a {@link java.sql.BatchUpdateException} ran
+     * on, so a following {@code ROW_COUNT()} goes there as on core. Only the leg: which of its
+     * statements took effect is not known here.
+     *
+     * @param ranOn the leg the batch ran on
+     */
+    public void afterBatchAnswered(final RouteTarget ranOn) {
+        sessionState.setLastStatementOnReadLeg(ranOn == RouteTarget.TO_READ_ONLY);
+    }
+
     private void replaySessionSet(final String sql, final Map<String, String> replay) {
         synchronized (sessionSets) {
             for (Map.Entry<String, String> each : replay.entrySet()) {

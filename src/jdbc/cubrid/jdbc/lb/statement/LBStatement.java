@@ -43,6 +43,7 @@ import cubrid.jdbc.lb.route.Router;
 import cubrid.jdbc.lb.route.Router.RouteTarget;
 import cubrid.jdbc.lb.sql.SqlClassification;
 import cubrid.sql.CUBRIDOID;
+import java.sql.BatchUpdateException;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -216,6 +217,9 @@ public class LBStatement extends CUBRIDStatement {
             afterBatchSucceeded(batchedSql, target);
 
             return result;
+        } catch (BatchUpdateException answered) {
+            lbConnection.afterBatchAnswered(target);
+            throw answered;
         } finally {
             // JDBC convention (matching CUBRIDStatement.executeBatch): the batch is consumed by an
             // executeBatch() attempt regardless of outcome, so clear it even when the physical

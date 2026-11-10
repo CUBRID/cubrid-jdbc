@@ -339,6 +339,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
                                     });
         } catch (BatchUpdateException answered) {
             batchedBinders.clear();
+            ownerConn.afterBatchAnswered(target);
             throw answered;
         }
         batchedBinders.clear();

@@ -923,9 +923,10 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         statementDelegate.setEscapeProcessing(enable);
     }
 
+    // A PreparedStatement refuses this vendor form that takes SQL too; core's refusal answers.
     @Override
     public CUBRIDOID executeInsert(final String sql) throws SQLException {
-        return statementDelegate.executeInsert(sql);
+        return super.executeInsert(sql);
     }
 
     @Override

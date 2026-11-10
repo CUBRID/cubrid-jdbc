@@ -2361,13 +2361,13 @@ public class UStatement {
             case UUType.U_TYPE_CFILE:
                 return inBuffer.readCfile(dataSize, relatedConnection.cubridcon);
             case UUType.U_TYPE_BLOB:
-                /* an internal LOB arrives as a locator; the pre-V14 wire carried an external LOB handle */
-                if (relatedConnection.brokerProtocolVersion() >= UConnection.PROTOCOL_V14) {
+                /* an internal LOB arrives as a locator; the pre-V13 wire carried an external LOB handle */
+                if (relatedConnection.brokerProtocolVersion() >= UConnection.PROTOCOL_V13) {
                     return inBuffer.readInternalBlob(dataSize, relatedConnection.cubridcon);
                 }
                 return inBuffer.readBfile(dataSize, relatedConnection.cubridcon);
             case UUType.U_TYPE_CLOB:
-                if (relatedConnection.brokerProtocolVersion() >= UConnection.PROTOCOL_V14) {
+                if (relatedConnection.brokerProtocolVersion() >= UConnection.PROTOCOL_V13) {
                     return inBuffer.readInternalClob(dataSize, relatedConnection.cubridcon);
                 }
                 return inBuffer.readCfile(dataSize, relatedConnection.cubridcon);

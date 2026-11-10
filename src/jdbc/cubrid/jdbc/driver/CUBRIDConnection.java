@@ -1125,6 +1125,10 @@ public class CUBRIDConnection implements Connection {
 
             if (ownTransaction && u_con.getAutoCommit()) {
                 u_con.endTransaction(true);
+                error = u_con.getRecentError();
+                if (error.getErrorCode() != UErrorCode.ER_NO_ERROR) {
+                    throw createCUBRIDException(error);
+                }
             }
         }
         return schema;

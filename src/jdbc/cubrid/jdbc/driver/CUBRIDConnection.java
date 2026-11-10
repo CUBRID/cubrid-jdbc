@@ -1103,6 +1103,8 @@ public class CUBRIDConnection implements Connection {
 
         String schema = null;
         synchronized (u_con) {
+            /* a result set still being read keeps the transaction it opened */
+            boolean ownTransaction = !u_con.isActive();
             try (UStatement us =
                     u_con.getSchemaInfo(USchType.SCH_CURRENT_SCHEMA, null, null, (byte) 0, 0)) {
                 error = u_con.getRecentError();
@@ -1121,7 +1123,7 @@ public class CUBRIDConnection implements Connection {
                 }
             }
 
-            if (u_con.getAutoCommit()) {
+            if (ownTransaction && u_con.getAutoCommit()) {
                 u_con.endTransaction(true);
             }
         }

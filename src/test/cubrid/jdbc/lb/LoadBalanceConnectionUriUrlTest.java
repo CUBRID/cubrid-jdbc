@@ -85,7 +85,7 @@ public class LoadBalanceConnectionUriUrlTest {
     public void writeFixedToMasterAndReadBoundToSlave() throws SQLException {
         LoadBalanceConnection conn =
                 openLb(
-                        "jdbc:cubrid:loadbalance://node1,node2/db"
+                        "jdbc:cubrid:loadbalance://node1,node2/db:::"
                                 + "?rwPort=33000&roPort=33002&readWeight=slave:1,master:0");
 
         assertEquals("node1:33000", conn.getCurrentRwEndpoint().getId());
@@ -102,7 +102,7 @@ public class LoadBalanceConnectionUriUrlTest {
     public void masterReadReusesRwAsSinglePhysicalConnection() throws SQLException {
         LoadBalanceConnection conn =
                 openLb(
-                        "jdbc:cubrid:loadbalance://node1,node2/db"
+                        "jdbc:cubrid:loadbalance://node1,node2/db:::"
                                 + "?rwPort=33000&roPort=33002&readWeight=master:1,slave:0");
 
         assertEquals("node1:33000", conn.getCurrentRwEndpoint().getId());
@@ -117,7 +117,7 @@ public class LoadBalanceConnectionUriUrlTest {
     @Test
     public void singleHostBindsRwOnly() throws SQLException {
         LoadBalanceConnection conn =
-                openLb("jdbc:cubrid:loadbalance://node1/db?rwPort=33000&roPort=33002");
+                openLb("jdbc:cubrid:loadbalance://node1/db:::?rwPort=33000&roPort=33002");
 
         assertEquals("node1:33000", conn.getCurrentRwEndpoint().getId());
         assertEquals("node1:33000", conn.getCurrentRoEndpoint().getId());

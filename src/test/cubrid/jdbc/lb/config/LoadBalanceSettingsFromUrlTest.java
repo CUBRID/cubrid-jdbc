@@ -82,7 +82,7 @@ public class LoadBalanceSettingsFromUrlTest {
         LoadBalanceSettings c =
                 LoadBalanceSettings.fromUrl(
                         LoadBalanceUrlParser.parse(
-                                "jdbc:cubrid:loadbalance://node1,node2/testdb?readWeight=slave:1"),
+                                "jdbc:cubrid:loadbalance://node1,node2/testdb:::?readWeight=slave:1"),
                         info);
 
         assertEquals(3, c.getReadWeight().weightOf(NodeRole.MASTER));
@@ -97,7 +97,7 @@ public class LoadBalanceSettingsFromUrlTest {
         for (String port : new String[] {"0", "70000", "x"}) {
             try {
                 configOf(
-                        "jdbc:cubrid:loadbalance://node1,node2/testdb?metricsEnabled=true"
+                        "jdbc:cubrid:loadbalance://node1,node2/testdb:::?metricsEnabled=true"
                                 + "&metricsExport=prometheus&metricsPrometheusPort="
                                 + port);
                 fail("port " + port + " must be refused");
@@ -113,7 +113,7 @@ public class LoadBalanceSettingsFromUrlTest {
     public void appliesDefaultReadWeightWhenAbsent() throws SQLException {
         LoadBalanceSettings c =
                 configOf(
-                        "jdbc:cubrid:loadbalance://node1,node2;replica=rep1/testdb?rwPort=33000&roPort=33002&soPort=33004");
+                        "jdbc:cubrid:loadbalance://node1,node2;replica=rep1/testdb:::?rwPort=33000&roPort=33002&soPort=33004");
 
         ReadWeight w = c.getReadWeight();
         assertEquals(1, w.weightOf(NodeRole.MASTER));
@@ -124,7 +124,8 @@ public class LoadBalanceSettingsFromUrlTest {
     @Test
     public void pinsSection52FixedDefaults() throws SQLException {
         LoadBalanceSettings c =
-                configOf("jdbc:cubrid:loadbalance://node1,node2/testdb?rwPort=33000&roPort=33002");
+                configOf(
+                        "jdbc:cubrid:loadbalance://node1,node2/testdb:::?rwPort=33000&roPort=33002");
 
         assertTrue(c.isRoPhysicalFailoverToRw());
         assertTrue(c.isRuntimeFailoverEnabled());
@@ -137,7 +138,7 @@ public class LoadBalanceSettingsFromUrlTest {
     public void retainsCommonOptionsAndDropsModeMismatchedOnes() throws SQLException {
         LoadBalanceSettings c =
                 configOf(
-                        "jdbc:cubrid:loadbalance://node1,node2/testdb"
+                        "jdbc:cubrid:loadbalance://node1,node2/testdb:::"
                                 + "?rwPort=33000&roPort=33002&charSet=utf-8&altHosts=h9:1");
 
         assertTrue(c.getPropagatedOptions().containsKey("charSet"));
@@ -148,7 +149,8 @@ public class LoadBalanceSettingsFromUrlTest {
     @Test
     public void variantIsCarriedThrough() throws SQLException {
         LoadBalanceSettings c =
-                configOf("jdbc:cubrid-mysql:loadbalance://node1/testdb?rwPort=33000&roPort=33002");
+                configOf(
+                        "jdbc:cubrid-mysql:loadbalance://node1/testdb:::?rwPort=33000&roPort=33002");
 
         assertEquals("-mysql", c.getUrlVariant());
     }
@@ -158,7 +160,7 @@ public class LoadBalanceSettingsFromUrlTest {
         // an invalid global port value fails resolution -> the error surfaces through
         // LoadBalanceSettings (omitted ports now default, so a bad value is the resolution error).
         try {
-            configOf("jdbc:cubrid:loadbalance://node1,node2/testdb?rwPort=notaport");
+            configOf("jdbc:cubrid:loadbalance://node1,node2/testdb:::?rwPort=notaport");
             fail("expected SQLException for invalid rwPort value");
         } catch (SQLException expected) {
         }
@@ -172,7 +174,7 @@ public class LoadBalanceSettingsFromUrlTest {
     public void rejectsAnOptionTheBrokerUrlCannotCarry() throws SQLException {
         for (String option : new String[] {"charset=", "charSet=a?b", "log-file=x"}) {
             try {
-                configOf("jdbc:cubrid:loadbalance://node1,node2/testdb?" + option);
+                configOf("jdbc:cubrid:loadbalance://node1,node2/testdb:::?" + option);
                 fail(option + " must be refused while parsing");
             } catch (SQLException expected) {
                 String key = option.substring(0, option.indexOf('='));
@@ -180,6 +182,6 @@ public class LoadBalanceSettingsFromUrlTest {
             }
         }
 
-        configOf("jdbc:cubrid:loadbalance://node1,node2/testdb?charset=utf-8&queryTimeout=10");
+        configOf("jdbc:cubrid:loadbalance://node1,node2/testdb:::?charset=utf-8&queryTimeout=10");
     }
 }

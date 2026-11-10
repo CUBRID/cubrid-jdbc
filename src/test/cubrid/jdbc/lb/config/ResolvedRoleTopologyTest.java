@@ -50,7 +50,7 @@ public class ResolvedRoleTopologyTest {
     public void resolvesGlobalPortsForAllNodes() throws SQLException {
         ResolvedRoleTopology t =
                 resolveOf(
-                        "jdbc:cubrid:loadbalance://node1,node2,node3;replica=rep1/testdb"
+                        "jdbc:cubrid:loadbalance://node1,node2,node3;replica=rep1/testdb:::"
                                 + "?rwPort=33000&roPort=33002&soPort=33004");
 
         assertEquals("node1:33000", t.getMaster().getRw().getId());
@@ -71,7 +71,7 @@ public class ResolvedRoleTopologyTest {
         ResolvedRoleTopology t =
                 resolveOf(
                         "jdbc:cubrid:loadbalance://node1:33000:33002,node2:34000:34002,node3:35000:35002"
-                                + ";replica=rep1:33004/testdb");
+                                + ";replica=rep1:33004/testdb:::");
 
         assertEquals("node1:33000", t.getMaster().getRw().getId());
         assertEquals("node1:33002", t.getMaster().getRo().getId());
@@ -86,7 +86,7 @@ public class ResolvedRoleTopologyTest {
     public void inlinePortTakesPrecedenceOverGlobal() throws SQLException {
         ResolvedRoleTopology t =
                 resolveOf(
-                        "jdbc:cubrid:loadbalance://node1:33000:33002,node2/testdb"
+                        "jdbc:cubrid:loadbalance://node1:33000:33002,node2/testdb:::"
                                 + "?rwPort=9000&roPort=9002");
 
         ResolvedNode master = t.getMaster();
@@ -103,7 +103,7 @@ public class ResolvedRoleTopologyTest {
         ResolvedRoleTopology t =
                 resolveOf(
                         "jdbc:cubrid:loadbalance://node1:33000:33002,node2:34000:34002,node3"
-                                + ";replica=rep1:33004/testdb"
+                                + ";replica=rep1:33004/testdb:::"
                                 + "?roPort=33002&soPort=33004&readWeight=slave:50,master:0,replica:50");
 
         // node3: no inline ports, no global rwPort → RW defaults to 30000; RO from global roPort.
@@ -114,7 +114,7 @@ public class ResolvedRoleTopologyTest {
     @Test
     public void missingRoPortForMasterUsesDefault() throws SQLException {
         ResolvedRoleTopology t =
-                resolveOf("jdbc:cubrid:loadbalance://node1,node2/testdb?rwPort=33000");
+                resolveOf("jdbc:cubrid:loadbalance://node1,node2/testdb:::?rwPort=33000");
 
         // no inline RO, no global roPort → RO defaults to 33000.
         assertEquals("node1:33000", t.getMaster().getRw().getId());
@@ -125,7 +125,7 @@ public class ResolvedRoleTopologyTest {
     public void missingSoPortForReplicaUsesDefault() throws SQLException {
         ResolvedRoleTopology t =
                 resolveOf(
-                        "jdbc:cubrid:loadbalance://node1;replica=rep1/testdb?rwPort=33000&roPort=33002");
+                        "jdbc:cubrid:loadbalance://node1;replica=rep1/testdb:::?rwPort=33000&roPort=33002");
 
         // rep1: no inline SO port, no global soPort → SO defaults to 36000.
         assertEquals("rep1:36000", t.getReplicas().get(0).getSo().getId());
@@ -133,14 +133,15 @@ public class ResolvedRoleTopologyTest {
 
     @Test
     public void invalidGlobalPortIsError() {
-        assertResolveFails("jdbc:cubrid:loadbalance://node1/testdb?rwPort=notaport&roPort=33002");
-        assertResolveFails("jdbc:cubrid:loadbalance://node1/testdb?rwPort=70000&roPort=33002");
+        assertResolveFails(
+                "jdbc:cubrid:loadbalance://node1/testdb:::?rwPort=notaport&roPort=33002");
+        assertResolveFails("jdbc:cubrid:loadbalance://node1/testdb:::?rwPort=70000&roPort=33002");
     }
 
     @Test
     public void resolvesSingleHostWithGlobalRoPort() throws SQLException {
         ResolvedRoleTopology t =
-                resolveOf("jdbc:cubrid:loadbalance://localhost:33000/demodb?roPort=33002");
+                resolveOf("jdbc:cubrid:loadbalance://localhost:33000/demodb:::?roPort=33002");
 
         assertEquals("localhost:33000", t.getMaster().getRw().getId());
         assertEquals("localhost:33002", t.getMaster().getRo().getId());

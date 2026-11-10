@@ -44,7 +44,7 @@ import org.junit.Test;
 public class LoadBalanceSettingsFixedDefaultsTest {
 
     private static final String URL =
-            "jdbc:cubrid:loadbalance://node1:30000:33000,node2:30000:33000/testdb";
+            "jdbc:cubrid:loadbalance://node1:30000:33000,node2:30000:33000/testdb:::";
 
     @Test
     public void everyBehaviorIsPinnedToTheSpecValue() throws SQLException {

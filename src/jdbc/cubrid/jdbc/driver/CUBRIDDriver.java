@@ -88,19 +88,6 @@ public class CUBRIDDriver implements Driver {
 
     private static final String URL_PATTERN =
             "jdbc:cubrid(-oracle|-mysql)?:([a-zA-Z_0-9\\.-]*):([0-9]*):([^:]+):([^:]*):([^:]*):(\\?[a-zA-Z_0-9]+=[^&=?]+(&[a-zA-Z_0-9]+=[^&=?]+)*)?";
-    /**
-     * Format of a single-node URI URL ({@code jdbc:cubrid[-variant]://host[:port]/db[:user[:pw[:]]]
-     * [?options]}), the counterpart of {@link #URL_PATTERN} for the {@code ://} form. Its field
-     * count is fixed, so the whole URL is validated (and decomposed) by this single pattern the way
-     * the classic URL is by {@link #URL_PATTERN}: 1=scheme prefix as written, 2=variant, 3=host,
-     * 4=port, 5=db, 6=user, 7=password, 8=options. Host and port may be empty (the classic path
-     * fills the defaults, as for a classic {@code jdbc:cubrid:::db:::}); the option group is the
-     * same expression the classic pattern uses, so it must start with {@code '?'}. A user or
-     * password ended by ':' may hold a '?', as {@link #uriOptionsStart} reads it.
-     */
-    private static final String URL_PATTERN_SINGLE =
-            "(jdbc:cubrid(-oracle|-mysql)?)://([a-zA-Z_0-9\\.-]*)(?::([0-9]*))?/([^:?]+)(?::([^:]*(?=:)|[^:?]*))?(?::([^:]*(?=:)|[^:?]*))?(?::)?(\\?[a-zA-Z_0-9]+=[^&=?]+(&[a-zA-Z_0-9]+=[^&=?]+)*)?";
-
     private static final String CUBRID_JDBC_URL_HEADER = "jdbc:cubrid";
     private static final String ENV_JDBC_PROP_NAME = "CUBRID_JDBC_PROP";
     private static final String URL_SCHEME_SEPARATOR = "://";
@@ -438,7 +425,9 @@ public class CUBRIDDriver implements Driver {
      * classic path uses to pick the user it connects with — and the password is always shown
      * masked. A non-URI (classic) URL is returned unchanged. Without a {@code '/'} before the
      * options there is no credential section, but positional credentials may still follow the
-     * hosts: everything after the first {@code ':'} up to the options is masked then.
+     * hosts: everything after the first {@code ':'} up to the options is masked then. A credential
+     * section short of {@code db:user:pw:} does not show where its password ends, so everything
+     * after the database name is masked.
      *
      * @param url the JDBC URL to mask; may be {@code null}
      * @param info connection properties supplying the effective {@code user}; may be {@code null}
@@ -469,8 +458,14 @@ public class CUBRIDDriver implements Driver {
             return url.substring(0, colon + 1) + "********" + maskOptions(url.substring(credEnd));
         }
 
-        String[] segs = url.substring(credStart + 1, credEnd).split(":", -1); // db[:user[:pw[:]]]
+        String[] segs = url.substring(credStart + 1, credEnd).split(":", -1); // db:user:pw:
         String db = segs[0];
+        if (segs.length == 1) {
+            return url; // no credentials written
+        }
+        if (segs.length != 4 || segs[3].length() != 0) {
+            return url.substring(0, credStart + 1) + db + ":********";
+        }
 
         // Same precedence as the classic path's resolvedUrl: the properties' user (as passed to
         // DriverManager.getConnection(url, user, password)) wins over the inline URL user.
@@ -492,42 +487,18 @@ public class CUBRIDDriver implements Driver {
     }
 
     /**
-     * Translate a single-node URI URL ({@code jdbc:cubrid[-variant]://host[:port]/db:user:pw:?p})
-     * to the equivalent classic colon-delimited URL ({@code
-     * jdbc:cubrid[-variant]:host:port:db:...}), which differs only in the {@code ://} scheme
-     * separator and the {@code /} before the database.
-     *
-     * <p>The URI URL is validated as written by {@link #URL_PATTERN_SINGLE} — not by checking the
-     * rewritten classic URL afterwards — the way a classic URL is validated by {@link
-     * #URL_PATTERN}, and a URL that does not match the format raises the same classic "invalid URL"
-     * error. An absent host/port/user/password becomes an empty segment, which the classic path
-     * fills with its defaults.
+     * Translate a single-node URI URL ({@code jdbc:cubrid[-variant]://host[:port]/db:user:pw:[?p]})
+     * to its classic URL ({@code jdbc:cubrid[-variant]:host:port:db:user:pw:[?p]}), which core
+     * parses and checks with {@link #URL_PATTERN} as if the user had written it.
      */
     static String uriSingleToClassicUrl(String url) throws SQLException {
-        Matcher matcher = matchUriSingleUrl(url);
-
-        // The classic form always carries all six colon-delimited fields, so an unmatched (absent)
-        // optional group becomes an empty segment: host/port -> classic defaults, user/password ->
-        // taken from the connection Properties instead.
-        return matcher.group(1) // scheme prefix, as written: jdbc:cubrid[-variant]
-                + ":"
-                + nullToEmpty(matcher.group(3)) // host
-                + ":"
-                + nullToEmpty(matcher.group(4)) // port
-                + ":"
-                + matcher.group(5) // db (required by the pattern)
-                + ":"
-                + nullToEmpty(matcher.group(6)) // user
-                + ":"
-                + nullToEmpty(matcher.group(7)) // password
-                + ":"
-                + nullToEmpty(matcher.group(8)); // options, including the leading '?'
+        return matchUriSingleUrl(url).group();
     }
 
     /**
-     * Where the options of a URI URL start, by the classic rule: a user or password may hold a '?'
-     * when the whole {@code db:user:password:} is written, so the options then start after its
-     * third ':'. Otherwise they start at the first '?'.
+     * Where the options of a URI URL start, by the classic rule: right after the ':' that ends
+     * {@code db:user:password:}, so a user or password may hold a '?'. A URL without that whole
+     * section is malformed; its first '?' is returned.
      *
      * @param url a URI URL
      * @return the index of the '?' that starts the options, or -1 when there are none
@@ -542,8 +513,8 @@ public class CUBRIDDriver implements Driver {
         }
         for (int i = 0; i < 3; i++) {
             colon = url.indexOf(':', colon + 1);
-            if (colon < 0 || (i == 0 && first >= 0 && first < colon)) {
-                return first; // no full form, or a '?' in the database name
+            if (colon < 0) {
+                return first;
             }
         }
         if (colon == url.length() - 1) {
@@ -553,13 +524,30 @@ public class CUBRIDDriver implements Driver {
     }
 
     /**
-     * Match a single-node URI URL against {@link #URL_PATTERN_SINGLE}, raising the classic "invalid
-     * URL" error when it does not match the format.
+     * Match the classic form of a single-node URI URL against core's {@link #URL_PATTERN}. The two
+     * differ only in {@code ://} and the {@code /} before {@code db:user:pw:}; a URI may also leave
+     * out the port, which the classic form writes as an empty field.
      */
     private static Matcher matchUriSingleUrl(String url) throws SQLException {
-        Matcher matcher =
-                Pattern.compile(URL_PATTERN_SINGLE, Pattern.CASE_INSENSITIVE).matcher(url);
-        if (!matcher.matches()) {
+        int sep = url.indexOf(URL_SCHEME_SEPARATOR);
+        int authStart = sep + URL_SCHEME_SEPARATOR.length();
+        int slash = url.indexOf('/', authStart);
+
+        Matcher matcher = null;
+        String authority = slash < 0 ? null : url.substring(authStart, slash);
+        // One ':' at most in host[:port], so each classic field gets the URI field it stands for.
+        if (authority != null && authority.indexOf(':') == authority.lastIndexOf(':')) {
+            String classic =
+                    url.substring(0, sep)
+                            + ":"
+                            + authority
+                            + (authority.indexOf(':') < 0 ? ":" : "")
+                            + ":"
+                            + url.substring(slash + 1);
+            matcher = Pattern.compile(URL_PATTERN, Pattern.CASE_INSENSITIVE).matcher(classic);
+        }
+
+        if (matcher == null || !matcher.matches()) {
             // Applications log this message: quote the URL, not its password.
             throw new CUBRIDException(
                     CUBRIDJDBCErrorCode.invalid_url, maskUriUrlPassword(url, null), null);
@@ -580,8 +568,8 @@ public class CUBRIDDriver implements Driver {
     static String uriSingleLogUrl(String url, Properties info) throws SQLException {
         Matcher matcher = matchUriSingleUrl(url);
 
-        String host = nullToEmpty(matcher.group(3));
-        String port = nullToEmpty(matcher.group(4));
+        String host = nullToEmpty(matcher.group(2));
+        String port = nullToEmpty(matcher.group(3));
         if (host.length() != 0 && port.length() != 0) {
             return maskUriUrlPassword(url, info); // nothing to resolve
         }
@@ -595,10 +583,10 @@ public class CUBRIDDriver implements Driver {
 
         // Replace the authority, keeping the rest of the URL (db-cred + options) as written; the
         // credential section is then rendered by maskUriUrlPassword.
-        int credStart =
-                url.indexOf('/', url.indexOf(URL_SCHEME_SEPARATOR) + URL_SCHEME_SEPARATOR.length());
+        int sep = url.indexOf(URL_SCHEME_SEPARATOR);
+        int credStart = url.indexOf('/', sep + URL_SCHEME_SEPARATOR.length());
         String resolved =
-                matcher.group(1)
+                url.substring(0, sep)
                         + URL_SCHEME_SEPARATOR
                         + host
                         + ":"

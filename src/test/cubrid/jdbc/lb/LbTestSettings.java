@@ -63,7 +63,7 @@ public final class LbTestSettings {
             url.append(',').append(ro.getHost()).append(':').append(UNUSED_SLAVE_RW_PORT);
             url.append(':').append(ConfigTestAccess.getPort(ro));
         }
-        url.append("/testdb");
+        url.append("/testdb:::");
         if (ro != null) {
             url.append("?readWeight=slave:1");
         }

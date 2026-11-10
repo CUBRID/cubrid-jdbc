@@ -167,6 +167,8 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     // Where that statement ran: lastExecEndpoint, except a read on the shared RW connection
     // (roOnRw) ran on the RW endpoint. Metrics and logs report this one.
     private Endpoint lastExecRanOn = null;
+    // Whether that statement was a read on the shared RW connection (roOnRw).
+    private boolean lastExecOnRwConn = false;
     // Set only while endLostWriteTx rebinds the write leg: the transaction there is known to be
     // over, although the dead connection's last reply still says it is open.
     private boolean writeTxLost = false;
@@ -577,6 +579,20 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         return endpointForTarget(target);
     }
 
+    /**
+     * The route target whose leg a failed execution recovers. A read on the shared RW connection
+     * (roOnRw) failed on the RW leg: recovered as a read, it climbed the RO ladder again and got
+     * the same dead RW connection back. Recovering the RW leg moves the read with it.
+     *
+     * @param target the route target of the failed execution
+     * @return {@code TO_READ_WRITE} for such a read, otherwise {@code target}
+     */
+    public RouteTarget failedLegTarget(final RouteTarget target) {
+        return target == RouteTarget.TO_READ_ONLY && lastExecOnRwConn
+                ? RouteTarget.TO_READ_WRITE
+                : target;
+    }
+
     public PhysicalRecoveryContext buildRecoveryCtx(
             final RouteTarget target, final Endpoint failedEp) throws SQLException {
         if (failedEp == null) {
@@ -666,12 +682,10 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         Endpoint endpoint = endpointSelection.getEndpoint();
         lastExecEndpoint = endpoint;
         String fallbackReason = endpointSelection.getFallbackReason();
-        // A read on the shared RW connection (roOnRw) stays bound to its RO endpoint, which is
-        // what failover recovers; the records name the endpoint it actually ran on.
-        lastExecRanOn =
-                FallbackReason.RO_PHYSICAL.equals(fallbackReason)
-                        ? currentOrManagerEndpoint(SessionLeg.RW)
-                        : endpoint;
+        // A read on the shared RW connection (roOnRw) stays bound to its RO endpoint but runs, and
+        // fails, on the RW leg: the records and failover name that leg.
+        lastExecOnRwConn = FallbackReason.RO_PHYSICAL.equals(fallbackReason);
+        lastExecRanOn = lastExecOnRwConn ? currentOrManagerEndpoint(SessionLeg.RW) : endpoint;
         if (target == RouteTarget.TO_READ_WRITE) {
             fallbackReason =
                     rejectedReadReason != null

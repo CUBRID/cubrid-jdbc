@@ -193,9 +193,11 @@ public final class ExecuteFailoverHandler {
 
             // Recover the endpoint that was actually used for this execution (captured at execute
             // time), so recomputing the routing preview here cannot mark the wrong node.
+            // Whether to replay is still decided by routeTarget below: a read stays a read.
             try {
-                Endpoint failedEp = connection.resolveFailedExecEndpoint(routeTarget);
-                PhysicalRecoveryContext ctx = connection.buildRecoveryCtx(routeTarget, failedEp);
+                RouteTarget failedLeg = connection.failedLegTarget(routeTarget);
+                Endpoint failedEp = connection.resolveFailedExecEndpoint(failedLeg);
+                PhysicalRecoveryContext ctx = connection.buildRecoveryCtx(failedLeg, failedEp);
                 connection.recoverPhyBinding(ctx, ex);
             } catch (SQLException recoveryEx) {
                 // Recovery preparation failed. The original execution exception is the meaningful

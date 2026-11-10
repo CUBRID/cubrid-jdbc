@@ -80,6 +80,11 @@ public class LBStatement extends CUBRIDStatement {
     // them.
     private Statement countStmt;
     private Statement keysStmt;
+    // What those leg statements answered when this statement last ran. A failover or failback
+    // closes the connection it leaves and core closes its statements, while core's own reconnect
+    // keeps its statements and their results; these answer once the leg statement is closed.
+    private int lastUpdateCount = -1;
+    private ResultSet lastKeys;
     private PhysicalStmtProvider stmtProvider = new UnsupportedStmtProvider();
     // True while a READ the read-only broker refused runs again on RW (see executeWithFailover).
     private boolean rejectedReadRetry = false;
@@ -366,8 +371,8 @@ public class LBStatement extends CUBRIDStatement {
     /** The leg statement's own answer: core drops a result set that was closed or completed. */
     public ResultSet getResultSet() throws SQLException {
         checkClosed();
-        if (lastExecStmt == null) {
-            return null;
+        if (!isOpen(lastExecStmt)) {
+            return null; // nothing yet, or its leg was replaced and its cursor went with it
         }
 
         return stampProducer(lastExecStmt.getResultSet(), this);
@@ -378,6 +383,9 @@ public class LBStatement extends CUBRIDStatement {
         if (countStmt == null) {
             return -1; // core's before any execution
         }
+        if (!isOpen(countStmt)) {
+            return lastUpdateCount;
+        }
 
         return countStmt.getUpdateCount();
     }
@@ -387,10 +395,17 @@ public class LBStatement extends CUBRIDStatement {
         if (lastExecStmt == null) {
             return false;
         }
+        countStmt = lastExecStmt;
+        if (!isOpen(lastExecStmt)) {
+            // As core's getMoreResults on a statement whose results are done.
+            lastRs = null;
+            lastUpdateCount = -1;
+            return false;
+        }
 
         boolean result = lastExecStmt.getMoreResults();
         lastRs = result ? lastExecStmt.getResultSet() : null;
-        countStmt = lastExecStmt;
+        lastUpdateCount = lastExecStmt.getUpdateCount();
 
         return result;
     }
@@ -407,6 +422,9 @@ public class LBStatement extends CUBRIDStatement {
         checkClosed();
         if (keysStmt == null) {
             return super.getGeneratedKeys();
+        }
+        if (!isOpen(keysStmt)) {
+            return lastKeys != null ? lastKeys : super.getGeneratedKeys();
         }
 
         return keysStmt.getGeneratedKeys();
@@ -511,6 +529,7 @@ public class LBStatement extends CUBRIDStatement {
             lastRs = null;
             countStmt = null;
             keysStmt = null;
+            lastKeys = null;
             closed = true;
             lbConnection.untrackStatement(this);
             // Core's own close, so the inherited core methods find a closed statement as on core.
@@ -537,8 +556,8 @@ public class LBStatement extends CUBRIDStatement {
 
     public SQLWarning getWarnings() throws SQLException {
         checkClosed();
-        if (lastExecStmt == null) {
-            return null;
+        if (!isOpen(lastExecStmt)) {
+            return null; // core's own answer is always null
         }
 
         return lastExecStmt.getWarnings();
@@ -546,7 +565,7 @@ public class LBStatement extends CUBRIDStatement {
 
     public void clearWarnings() throws SQLException {
         checkClosed();
-        if (lastExecStmt != null) {
+        if (isOpen(lastExecStmt)) {
             lastExecStmt.clearWarnings();
         }
     }
@@ -891,6 +910,23 @@ public class LBStatement extends CUBRIDStatement {
         if (update) {
             keysStmt = stmt;
         }
+        // Read now, while the leg statement is open; the execution already succeeded, so a failed
+        // read leaves the value unknown instead of failing it.
+        try {
+            lastUpdateCount = stmt.getUpdateCount();
+            if (update) {
+                lastKeys = stmt.getGeneratedKeys();
+            }
+        } catch (SQLException unknown) {
+            lastUpdateCount = -1;
+            if (update) {
+                lastKeys = null;
+            }
+        }
+    }
+
+    private static boolean isOpen(final Statement stmt) throws SQLException {
+        return stmt != null && !stmt.isClosed();
     }
 
     /**

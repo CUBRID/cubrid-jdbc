@@ -42,11 +42,11 @@ import java.util.Set;
  *
  * <ul>
  *   <li><b>Built-in RO vs RW</b> — {@link #isReadOnlyBuiltin(String)} are read-only-safe built-ins
- *       (RO routable); {@link #isWriteBuiltin(String)} are built-ins with write / session-state /
- *       LOB side effects that must use the RW (master) endpoint (e.g. {@code SERIAL_NEXT_VALUE},
- *       {@code SERIAL_CURRENT_VALUE}). RW built-ins split further by classification label: {@link
- *       #isWriteEffectBuiltin(String)} ones mutate state and make the {@code SELECT} {@code WRITE},
- *       while the rest are session-dependent / LOB and make it {@code UNKNOWN}. Both route to RW.
+ *       (RO routable); {@link #isWriteBuiltin(String)} are built-ins that write, read state only
+ *       the RW leg has, or touch LOBs, so they must use the RW (master) endpoint (e.g. {@code
+ *       SERIAL_NEXT_VALUE}, {@code SERIAL_CURRENT_VALUE}). RW built-ins split further by
+ *       classification label: {@link #isWriteEffectBuiltin(String)} ones mutate state and make the
+ *       {@code SELECT} {@code WRITE}, while the rest make it {@code UNKNOWN}. Both route to RW.
  *   <li><b>Built-in vs user routine</b> - {@link #isBuiltin(String)} (RO or RW) answers "is this a
  *       CUBRID built-in?". An {@code ident(...)} call that is not a built-in is assumed to be a
  *       stored procedure / Java SP / PL_CSQL / user-defined function and routed to RW.
@@ -336,12 +336,12 @@ final class BuiltinFunctionCatalog {
     private static final String[] WRITE_EFFECT_RW = {"SERIAL_NEXT_VALUE", "INCR", "DECR"};
 
     /**
-     * Session-dependent functions: the value depends on the session's latest state, so they must
-     * run on the same CAS (RW) as the preceding write. They write nothing, so a {@code SELECT}
-     * using them is {@code UNKNOWN}. {@code SERIAL_CURRENT_VALUE} returns the session's last
-     * NEXTVAL; {@code LAST_INSERT_ID}/{@code ROW_COUNT} return its last DML state. {@code
-     * ROW_COUNT} reports on the statement right before it, so it follows that statement's leg
-     * ({@link #reportsPreviousStatement}).
+     * Functions answered from state a read leg does not share: {@code LAST_INSERT_ID} (the
+     * session's last successful INSERT) and {@code ROW_COUNT} (its previous statement) are kept per
+     * session, and {@code SERIAL_CURRENT_VALUE} is server-wide, held in the master's memory for a
+     * CACHE serial. They write nothing, so a {@code SELECT} using them is {@code UNKNOWN} (RW);
+     * {@code ROW_COUNT} follows the previous statement's leg instead ({@link
+     * #reportsPreviousStatement}).
      */
     private static final String[] SESSION_RW = {
         "SERIAL_CURRENT_VALUE", "LAST_INSERT_ID", "ROW_COUNT"
@@ -430,7 +430,7 @@ final class BuiltinFunctionCatalog {
      */
     private static final String[] WRITE_EFFECT_PSEUDO = {"NEXTVAL", "NEXT_VALUE"};
 
-    /** {@code CURRVAL} is the session's last NEXTVAL (session-dependent) → {@code UNKNOWN}. */
+    /** {@code CURRVAL} reads the serial's current value, as SERIAL_CURRENT_VALUE does: UNKNOWN. */
     private static final String[] SESSION_PSEUDO = {"CURRVAL", "CURRENT_VALUE"};
 
     /**
@@ -637,8 +637,9 @@ final class BuiltinFunctionCatalog {
 
     /**
      * Serial pseudo-column ({@code NEXTVAL}/{@code NEXT_VALUE}/{@code CURRVAL}/{@code
-     * CURRENT_VALUE}) used without parentheses, as {@code serial_name.NEXTVAL}. It has a write or
-     * session side effect, so it must route to RW. The caller must confirm dot-qualification.
+     * CURRENT_VALUE}) used without parentheses, as {@code serial_name.NEXTVAL}. It writes the
+     * serial or reads its master-held current value, so it must route to RW. The caller must
+     * confirm dot-qualification.
      *
      * @param upperAsciiName pseudo-column name, upper-cased ASCII
      * @return {@code true} if the name is a serial pseudo-column

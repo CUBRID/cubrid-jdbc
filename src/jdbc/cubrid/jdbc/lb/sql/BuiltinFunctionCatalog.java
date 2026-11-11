@@ -195,6 +195,7 @@ final class BuiltinFunctionCatalog {
         "TIMESTAMP",
         "TO_DAYS",
         "TZ_OFFSET",
+        "UNIX_TIMESTAMP",
         "WEEK",
         "WEEKDAY",
         "YEAR"
@@ -232,7 +233,6 @@ final class BuiltinFunctionCatalog {
         "DATABASE",
         "SCHEMA",
         "SESSIONTIMEZONE",
-        "DEFAULT",
         "DISK_SIZE",
         "INDEX_CARDINALITY",
         "INET_ATON",
@@ -351,7 +351,9 @@ final class BuiltinFunctionCatalog {
      * Functions whose value comes from the node that runs them: {@code USER()} answers {@code
      * user@host} of that broker, and the rest read the node's clock or configuration. On RW they
      * answer what a classic connection does. The bare {@code USER} and {@code CURRENT_USER} carry
-     * no host.
+     * no host. {@code DEFAULT(col)} evaluates the column's default there, which may be a clock or
+     * {@code USER} expression the SQL text does not show. {@code UNIX_TIMESTAMP} is here only when
+     * called empty ({@link #readsNodeClockWhenCalledEmpty}).
      */
     private static final String[] NODE_RW = {
         "USER",
@@ -374,13 +376,13 @@ final class BuiltinFunctionCatalog {
         "SYSTIME",
         "SYS_TIMESTAMP",
         "SYSTIMESTAMP",
-        "UNIX_TIMESTAMP",
         "UTC_DATE",
         "UTC_TIME",
         "UTC_TIMESTAMP",
         "LIST_DBS",
         "DBTIMEZONE",
-        "VERSION"
+        "VERSION",
+        "DEFAULT"
     };
 
     /**
@@ -602,6 +604,18 @@ final class BuiltinFunctionCatalog {
      */
     static boolean reportsPreviousStatement(final String upperAsciiName) {
         return "ROW_COUNT".equals(upperAsciiName);
+    }
+
+    /**
+     * Read-only built-in that reads the node's clock when called with no argument: {@code
+     * UNIX_TIMESTAMP()} answers the current time, while {@code UNIX_TIMESTAMP(d)} converts {@code
+     * d}.
+     *
+     * @param upperAsciiName built-in name, upper-cased ASCII
+     * @return {@code true} if the empty call answers from the node's clock
+     */
+    static boolean readsNodeClockWhenCalledEmpty(final String upperAsciiName) {
+        return "UNIX_TIMESTAMP".equals(upperAsciiName);
     }
 
     /**

@@ -126,17 +126,26 @@ public class BuiltinFunctionCatalogTest {
             "NOW",
             "SYSDATE",
             "CURRENT_TIMESTAMP",
-            "UNIX_TIMESTAMP",
             "UTC_TIMESTAMP",
             "LIST_DBS",
             "DBTIMEZONE",
-            "VERSION"
+            "VERSION",
+            "DEFAULT"
         };
         for (String name : names) {
             assertFalse(name, BuiltinFunctionCatalog.isReadOnlyBuiltin(name));
             assertTrue(name, BuiltinFunctionCatalog.isWriteBuiltin(name));
             assertFalse(name, BuiltinFunctionCatalog.isWriteEffectBuiltin(name));
         }
+    }
+
+    /** UNIX_TIMESTAMP(d) converts its argument; only the empty call reads the node's clock. */
+    @Test
+    public void unixTimestampIsReadOnlyUnlessCalledEmpty() {
+        assertTrue(BuiltinFunctionCatalog.isReadOnlyBuiltin("UNIX_TIMESTAMP"));
+        assertFalse(BuiltinFunctionCatalog.isWriteBuiltin("UNIX_TIMESTAMP"));
+        assertTrue(BuiltinFunctionCatalog.readsNodeClockWhenCalledEmpty("UNIX_TIMESTAMP"));
+        assertFalse(BuiltinFunctionCatalog.readsNodeClockWhenCalledEmpty("FROM_UNIXTIME"));
     }
 
     @Test

@@ -131,12 +131,14 @@ public final class MetricsConfig {
                 if (EXPORT_PROMETHEUS.equals(token) || EXPORT_CSV.equals(token)) {
                     exports.add(token);
                 } else {
-                    LOGGER.warning("unknown metricsExport target '" + token + "'; ignored");
+                    LoadBalanceOptionValidator.warnOnce(
+                            LOGGER, "unknown metricsExport target '" + token + "'; ignored");
                 }
             }
         }
         if (exports.isEmpty()) {
-            LOGGER.warning(
+            LoadBalanceOptionValidator.warnOnce(
+                    LOGGER,
                     "metricsEnabled=true but metricsExport lists no known target (prometheus/csv);"
                             + " recording is on but nothing is exported");
         }
@@ -225,9 +227,11 @@ public final class MetricsConfig {
             if (parsed > 0) {
                 return parsed;
             }
-            LOGGER.warning("option '" + key + "' must be positive; using default " + defaultValue);
+            LoadBalanceOptionValidator.warnOnce(
+                    LOGGER, "option '" + key + "' must be positive; using default " + defaultValue);
         } catch (NumberFormatException e) {
-            LOGGER.warning(
+            LoadBalanceOptionValidator.warnOnce(
+                    LOGGER,
                     "option '"
                             + key
                             + "' is not an integer ('"

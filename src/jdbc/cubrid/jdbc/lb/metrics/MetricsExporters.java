@@ -41,10 +41,12 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
@@ -88,6 +90,8 @@ public final class MetricsExporters {
     private static final long BIND_RETRY_MS = 60000L;
     private static long prometheusFailedAtMs;
     private static boolean prometheusFailureWarned;
+    // Every connection configures the exporter, so a conflicting port is warned about once too.
+    private static final Set<String> WARNED_CONFLICTS = new HashSet<String>();
     private static boolean csvStarted;
     private static Thread csvThread;
 
@@ -160,11 +164,14 @@ public final class MetricsExporters {
     private static void startPrometheus(final String bind, final int port, final int intervalSec) {
         if (prometheusStarted) {
             if (prometheusPort != port) {
-                LOGGER.warning(
+                String warning =
                         "Prometheus exporter already started on port "
                                 + prometheusPort
                                 + "; ignoring conflicting metricsPrometheusPort="
-                                + port);
+                                + port;
+                if (WARNED_CONFLICTS.add(warning)) {
+                    LOGGER.warning(warning);
+                }
             }
             return;
         }

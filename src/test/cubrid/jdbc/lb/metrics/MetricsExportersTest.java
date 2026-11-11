@@ -275,6 +275,48 @@ public class MetricsExportersTest {
         assertTrue(row, row.contains("," + SLAVE + ",slave,1,0,"));
     }
 
+    /** m27: every connection configures the exporter, so a conflicting port is warned once. */
+    @Test
+    public void aConflictingPrometheusPortIsWarnedAboutOnce() throws Exception {
+        int port = freePort();
+        int other = port + 1;
+        final List<String> warnings = Collections.synchronizedList(new ArrayList<String>());
+        Handler capture =
+                new Handler() {
+                    @Override
+                    public void publish(final LogRecord record) {
+                        warnings.add(record.getMessage());
+                    }
+
+                    @Override
+                    public void flush() {}
+
+                    @Override
+                    public void close() {}
+                };
+        Logger exporters = Logger.getLogger(MetricsExporters.class.getName());
+        exporters.addHandler(capture);
+        exporters.setUseParentHandlers(false);
+        MetricsExporters.configure(prometheus(port, 60));
+        try {
+            for (int i = 0; i < 3; i++) {
+                MetricsExporters.configure(prometheus(other, 60));
+            }
+        } finally {
+            MetricsExporters.stop();
+            exporters.removeHandler(capture);
+            exporters.setUseParentHandlers(true);
+        }
+
+        int conflicts = 0;
+        for (String each : warnings) {
+            if (each.contains("conflicting")) {
+                conflicts++;
+            }
+        }
+        assertEquals(warnings.toString(), 1, conflicts);
+    }
+
     private static MetricsConfig prometheus(final int port, final int intervalSec)
             throws java.sql.SQLException {
         return prometheus(port, intervalSec, null);

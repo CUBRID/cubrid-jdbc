@@ -419,7 +419,7 @@ class UOutputBuffer {
                 if (value == null) {
                     return addByte((byte) 0);
                 } else {
-                    if ((value instanceof byte[]) && (((byte[]) value).length > 1)) {
+                    if (value instanceof byte[]) {
                         return addBytes(UGetTypeConvertedValue.getBytes(value));
                     } else {
                         return addByte(UGetTypeConvertedValue.getByte(value));

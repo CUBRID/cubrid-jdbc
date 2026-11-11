@@ -108,20 +108,11 @@ public class ConfigWarningsOnceTest {
     @Test
     public void metricsWarningsAreGivenOncePerJvm() throws SQLException {
         for (int i = 0; i < 3; i++) {
-            MetricsConfig.parse(
-                    options(MetricsConfig.OPT_ENABLED, "true", MetricsConfig.OPT_EXPORT, "foo"));
-            MetricsConfig.parse(
-                    options(
-                            MetricsConfig.OPT_ENABLED,
-                            "true",
-                            MetricsConfig.OPT_EXPORT,
-                            "prometheus",
-                            MetricsConfig.OPT_INTERVAL_SEC,
-                            "0"));
+            MetricsConfig.parse(options(MetricsConfig.OPT_ENABLED, "true"));
         }
 
-        // an unknown target, no known target, a non-positive interval
-        assertEquals(warnings.toString(), 3, warnings.size());
+        // no target; a bad value refuses the URL instead (m35)
+        assertEquals(warnings.toString(), 1, warnings.size());
     }
 
     private static Map<String, String> options(final String... keysAndValues) {

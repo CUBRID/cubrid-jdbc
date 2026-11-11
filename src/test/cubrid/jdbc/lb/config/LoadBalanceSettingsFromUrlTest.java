@@ -109,6 +109,53 @@ public class LoadBalanceSettingsFromUrlTest {
         }
     }
 
+    /**
+     * m35: a metrics value is checked as core checks its properties - even with metrics off (core
+     * refuses {@code logSlowQueries=false&slowQueryThresholdMillis=-1}), with no trimming, and an
+     * empty value is the default.
+     */
+    @Test
+    public void metricsValuesAreCheckedAsCoreChecksItsProperties() throws SQLException {
+        final String url = "jdbc:cubrid:loadbalance://node1,node2/testdb:::?";
+        final String[][] refused = {
+            {"metricsPrometheusPort=70000", "metricsPrometheusPort"},
+            {
+                "metricsEnabled=true&metricsExport=csv&metricsPrometheusPort=0",
+                "metricsPrometheusPort"
+            },
+            {"metricsPrometheusPort= 9400", "metricsPrometheusPort"},
+            {"metricsIntervalSec=0", "metricsIntervalSec"},
+            {"metricsEnabled=true&metricsIntervalSec=x", "metricsIntervalSec"},
+            {"metricsEnabled=maybe", "metricsEnabled"},
+            {"metricsEnabled=true&metricsExport=prometheus,promethues", "metricsExport"},
+        };
+        for (String[] each : refused) {
+            try {
+                configOf(url + each[0]);
+                fail(each[0] + " must be refused");
+            } catch (SQLException expected) {
+                assertTrue(
+                        expected.getMessage(),
+                        expected.getMessage().contains("uncompitable value for the " + each[1]));
+            }
+        }
+
+        MetricsConfig m =
+                configOf(url + "metricsPrometheusPort=&metricsIntervalSec=").getMetricsConfig();
+        assertEquals(9400, m.getPrometheusPort());
+        assertEquals(60, m.getIntervalSec());
+        // core takes on/yes and reads them as false: useSSL=on leaves SSL off
+        assertFalse(
+                configOf(url + "metricsEnabled=on&metricsExport=csv")
+                        .getMetricsConfig()
+                        .isEnabled());
+        m =
+                configOf(url + "metricsEnabled=TRUE&metricsExport=CSV&metricsPrometheusPort=+9401")
+                        .getMetricsConfig();
+        assertTrue(m.isEnabled() && m.exportsCsv());
+        assertEquals(9401, m.getPrometheusPort());
+    }
+
     @Test
     public void appliesDefaultReadWeightWhenAbsent() throws SQLException {
         LoadBalanceSettings c =

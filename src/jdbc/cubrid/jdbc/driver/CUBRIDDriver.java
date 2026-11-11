@@ -487,6 +487,30 @@ public class CUBRIDDriver implements Driver {
     }
 
     /**
+     * Masks a URI URL that could not be parsed, for its error message. Other drivers' URIs put
+     * {@code user:password@} in front of the host, which {@link #maskUriUrlPassword} does not read
+     * as credentials: with an {@code '@'} after the scheme, all of it up to the options is masked.
+     *
+     * @param url the URL the error quotes; may be {@code null}
+     * @return the URL to quote
+     */
+    public static String maskInvalidUriUrl(String url) {
+        if (url == null) {
+            return null;
+        }
+        int sep = url.indexOf(URL_SCHEME_SEPARATOR);
+        int authStart = sep + URL_SCHEME_SEPARATOR.length();
+        int at = url.lastIndexOf('@');
+        if (sep < 0 || at < authStart) {
+            return maskUriUrlPassword(url, null);
+        }
+        int options = url.indexOf('?', at);
+        return url.substring(0, authStart)
+                + "********"
+                + (options < 0 ? "" : url.substring(options));
+    }
+
+    /**
      * Translate a single-node URI URL ({@code jdbc:cubrid[-variant]://host[:port]/db:user:pw:[?p]})
      * to its classic URL ({@code jdbc:cubrid[-variant]:host:port:db:user:pw:[?p]}), which core
      * parses and checks with {@link #URL_PATTERN} as if the user had written it.
@@ -550,7 +574,7 @@ public class CUBRIDDriver implements Driver {
         if (matcher == null || !matcher.matches()) {
             // Applications log this message: quote the URL, not its password.
             throw new CUBRIDException(
-                    CUBRIDJDBCErrorCode.invalid_url, maskUriUrlPassword(url, null), null);
+                    CUBRIDJDBCErrorCode.invalid_url, maskInvalidUriUrl(url), null);
         }
         return matcher;
     }

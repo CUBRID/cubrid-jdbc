@@ -83,7 +83,7 @@ public final class LoadBalanceUrlParser {
         }
 
         // Every error below quotes the URL, and it reaches the logs: never with the password.
-        final String url = CUBRIDDriver.maskUriUrlPassword(rawUrl, null);
+        final String url = CUBRIDDriver.maskInvalidUriUrl(rawUrl);
         final String trimmed = rawUrl.trim();
 
         final int sep = trimmed.indexOf(SCHEME_SEPARATOR);
@@ -117,9 +117,23 @@ public final class LoadBalanceUrlParser {
 
         final List<HostToken> hosts = new ArrayList<HostToken>();
         final List<ReplicaToken> replicas = new ArrayList<ReplicaToken>();
-        parseSubname(subname, hosts, replicas, url);
-
-        final DbInfo dbInfo = parseDbInfo(dbInfoStr, url);
+        final DbInfo dbInfo;
+        try {
+            parseSubname(subname, hosts, replicas, url);
+            dbInfo = parseDbInfo(dbInfoStr, url);
+        } catch (SQLException quotesWhatItRead) {
+            // Both quote the part they could not read. With an '@' that may hold a password
+            // written as other drivers' user:password@host, a '/' in it moving some into the db.
+            if (beforeOptions.indexOf('@') >= 0) {
+                throw LbExceptions.invalidUrl(
+                        "the hosts or the database could not be read; the user and password go"
+                                + " after the database (/db:user:password:), not in front of a"
+                                + " host (user:password@host): "
+                                + url,
+                        null);
+            }
+            throw quotesWhatItRead;
+        }
         final Map<String, String> options = parseOptions(optionsStr, url);
 
         return new ParsedUrl(

@@ -396,6 +396,29 @@ public class CUBRIDDriverUrlModeTest {
     }
 
     /**
+     * m31: other drivers' URIs put user:password@ in front of the host. That is no part of the
+     * CUBRID form, and its password showed in the invalid-URL message.
+     */
+    @Test
+    public void userInfoInFrontOfTheHostIsNotQuotedInTheError() {
+        String[] malformed = {
+            "jdbc:cubrid://dba:S3cret@127.0.0.1:1/db",
+            "jdbc:cubrid://dba:S3cret@127.0.0.1:1/db:::",
+            "jdbc:cubrid://dba:S3cret@127.0.0.1:1/db?charSet=utf-8",
+            "jdbc:cubrid://dba:a/S3cret@127.0.0.1:1/db" // a '/' in the password
+        };
+        for (String url : malformed) {
+            try {
+                driver.connect(url, new Properties());
+                fail("must be refused: " + url);
+            } catch (SQLException e) {
+                assertFalse(e.getMessage(), e.getMessage().contains("S3cret"));
+                assertTrue(e.getMessage(), e.getMessage().contains("jdbc:cubrid://********"));
+            }
+        }
+    }
+
+    /**
      * The URL logged for a single-node URI connect resolves the host/port the same way the classic
      * path's {@code resolvedUrl} does: an absent host/port is shown as the driver default (the
      * values the connect actually uses), not left empty, and the credentials are rendered {@code

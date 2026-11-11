@@ -82,6 +82,33 @@ public class LoadBalanceUrlParserTest {
         }
     }
 
+    /**
+     * m31: a user:password@ in front of a host quoted its password in the host token, the URL and
+     * the port error's cause. A '/' in that password moves part of it into the database name.
+     */
+    @Test
+    public void userInfoInFrontOfAHostIsNotQuotedInTheError() {
+        String[] malformed = {
+            "jdbc:cubrid:loadbalance://dba:S3cret@127.0.0.1:1:2/db",
+            "jdbc:cubrid:loadbalance://dba:S3cret@127.0.0.1/db:::",
+            "jdbc:cubrid:loadbalance://node1,dba:S3cret@node2/db:::?readWeight=slave:1",
+            "jdbc:cubrid:loadbalance://dba:a/S3cret@127.0.0.1/db:::",
+            "jdbc:cubrid:loadbalance://dba:123/S3cret@127.0.0.1/db:::"
+        };
+        for (String url : malformed) {
+            try {
+                LoadBalanceUrlParser.parse(url);
+                fail("must be refused: " + url);
+            } catch (SQLException e) {
+                assertFalse(e.getMessage(), e.getMessage().contains("S3cret"));
+                for (Throwable t = e.getCause(); t != null; t = t.getCause()) {
+                    assertFalse(String.valueOf(t), String.valueOf(t).contains("S3cret"));
+                }
+                assertTrue(e.getMessage(), e.getMessage().contains("loadbalance://********"));
+            }
+        }
+    }
+
     @Test
     public void parsesGlobalPortExampleWithCredsAndOptions() throws SQLException {
         ParsedUrl p =

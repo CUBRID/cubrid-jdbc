@@ -93,7 +93,7 @@ class UInputBuffer {
         }
 
         buffer = new byte[capacity];
-        readData();
+        readData(input.getTimeout());
 
         resCode = readInt();
 
@@ -119,7 +119,7 @@ class UInputBuffer {
         }
     }
 
-    UInputBuffer(UTimedDataInputStream relatedI, UConnection con, int timeout)
+    UInputBuffer(UTimedDataInputStream relatedI, UConnection con, int timeout, int bodyTimeout)
             throws IOException, UJciException {
         input = relatedI;
         position = 0;
@@ -149,7 +149,7 @@ class UInputBuffer {
         }
 
         buffer = new byte[capacity];
-        readData();
+        readData(bodyTimeout);
 
         resCode = readInt();
 
@@ -528,10 +528,10 @@ class UInputBuffer {
         return (new CUBRIDXid(formatId, gid, bid));
     }
 
-    private void readData() throws IOException, UJciException {
+    private void readData(int timeout) throws IOException, UJciException {
         int realRead = 0, tempRead = 0;
         while (realRead < capacity) {
-            tempRead = input.read(buffer, realRead, capacity - realRead);
+            tempRead = input.read(buffer, realRead, capacity - realRead, timeout);
             if (tempRead < 0) {
                 capacity = realRead;
                 break;

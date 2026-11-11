@@ -181,6 +181,10 @@ public class UClientSideConnection extends UConnection {
         super.checkReconnect();
 
         if (getCASInfoStatus() == CAS_INFO_STATUS_INACTIVE && check_cas() == false) {
+            /* A network timeout in check_cas() closed the connection; do not reconnect. */
+            if (isClosed) {
+                throw createJciException(UErrorCode.ER_NETWORK_TIMEOUT);
+            }
             clientSocketClose();
         }
 
@@ -290,7 +294,7 @@ public class UClientSideConnection extends UConnection {
                         client.getInputStream(), casIp, casPort, casProcessId, sessionId, timeout);
 
         client.setTcpNoDelay(true);
-        client.setSoTimeout(SOCKET_TIMEOUT);
+        client.setSoTimeout(socketTimeout(getNetworkTimeout()));
         needReconnection = false;
         isClosed = false;
 

@@ -1024,7 +1024,7 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
     }
 
     protected void checkIsOpen() throws SQLException {
-        if (is_closed) {
+        if (isClosed()) {
             if (con != null) {
                 throw con.createCUBRIDException(
                         CUBRIDJDBCErrorCode.prepared_statement_closed, null);

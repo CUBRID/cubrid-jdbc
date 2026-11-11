@@ -186,7 +186,7 @@ public final class SqlLiteralMasker {
     /**
      * Whether a numeric literal starts at {@code pos}: a digit, or a '.' before one ({@code .75}).
      * A digit that continues an identifier ({@code col2}, {@code t1.c}) is not a literal, so the
-     * preceding character decides.
+     * preceding character decides - unless it ends a currency code ({@code \KRW5000}).
      */
     private static boolean isNumberStart(final String sql, final int pos) {
         final char c = sql.charAt(pos);
@@ -195,11 +195,21 @@ public final class SqlLiteralMasker {
         if (!isDigit(c) && !leadingDot) {
             return false;
         }
-        if (pos == 0) {
+        if (pos == 0 || followsCurrencyCode(sql, pos)) {
             return true;
         }
         final char prev = sql.charAt(pos - 1);
         return !KeywordSqlClassifier.isIdentifierPart(prev) && prev != '.';
+    }
+
+    /** Whether {@code pos} follows a backslash and 2-3 capitals, as in {@code \KRW5000}. */
+    private static boolean followsCurrencyCode(final String sql, final int pos) {
+        int start = pos;
+        while (start > 0 && 'A' <= sql.charAt(start - 1) && sql.charAt(start - 1) <= 'Z') {
+            start--;
+        }
+        final int letters = pos - start;
+        return letters >= 2 && letters <= 3 && start > 0 && sql.charAt(start - 1) == '\\';
     }
 
     private static int scanNumberEnd(final String sql, final int pos) {

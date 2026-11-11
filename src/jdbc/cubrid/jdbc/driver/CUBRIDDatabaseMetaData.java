@@ -426,7 +426,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
 
     public synchronized String getSchemaTerm() throws SQLException {
         checkIsOpen();
-        return checkSupportSchema() ? "schema" : "";
+        return con.isSchemaSupported() ? "schema" : "";
     }
 
     public synchronized String getProcedureTerm() throws SQLException {
@@ -451,27 +451,27 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
 
     public synchronized boolean supportsSchemasInDataManipulation() throws SQLException {
         checkIsOpen();
-        return checkSupportSchema();
+        return con.isSchemaSupported();
     }
 
     public synchronized boolean supportsSchemasInProcedureCalls() throws SQLException {
         checkIsOpen();
-        return checkSupportSchema();
+        return con.isSchemaSupported();
     }
 
     public synchronized boolean supportsSchemasInTableDefinitions() throws SQLException {
         checkIsOpen();
-        return checkSupportSchema();
+        return con.isSchemaSupported();
     }
 
     public synchronized boolean supportsSchemasInIndexDefinitions() throws SQLException {
         checkIsOpen();
-        return checkSupportSchema();
+        return con.isSchemaSupported();
     }
 
     public synchronized boolean supportsSchemasInPrivilegeDefinitions() throws SQLException {
         checkIsOpen();
-        return checkSupportSchema();
+        return con.isSchemaSupported();
     }
 
     public synchronized boolean supportsCatalogsInDataManipulation() throws SQLException {
@@ -631,7 +631,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
 
     public synchronized int getMaxSchemaNameLength() throws SQLException {
         checkIsOpen();
-        return checkSupportSchema() ? 31 : 0;
+        return con.isSchemaSupported() ? 31 : 0;
     }
 
     public synchronized int getMaxProcedureNameLength() throws SQLException {
@@ -666,7 +666,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
 
     public synchronized int getMaxTableNameLength() throws SQLException {
         checkIsOpen();
-        return checkSupportSchema() ? 222 : 254;
+        return con.isSchemaSupported() ? 222 : 254;
     }
 
     public synchronized int getMaxTablesInSelect() throws SQLException {
@@ -957,7 +957,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
         CUBRIDResultSetWithoutQuery rs =
                 new CUBRIDResultSetWithoutQuery(2, types, names, nullable, null);
 
-        if (!checkSupportSchema() || u_con.brokerProtocolVersion() < UConnection.PROTOCOL_V13) {
+        if (!con.isSchemaSupported() || u_con.brokerProtocolVersion() < UConnection.PROTOCOL_V13) {
             return rs;
         }
 
@@ -2827,18 +2827,6 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
         u_con = null;
         error = null;
         shard_id = UShardInfo.SHARD_ID_INVALID;
-    }
-
-    private boolean checkSupportSchema() throws SQLException {
-        synchronized (u_con) {
-            boolean support = u_con.supportSchema();
-            error = u_con.getRecentError();
-            if (error.getErrorCode() != UErrorCode.ER_NO_ERROR) {
-                throw con.createCUBRIDException(error);
-            }
-
-            return support;
-        }
     }
 
     private void checkIsOpen() throws SQLException {

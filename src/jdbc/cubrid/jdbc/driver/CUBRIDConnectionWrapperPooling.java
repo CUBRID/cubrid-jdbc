@@ -51,6 +51,11 @@ public class CUBRIDConnectionWrapperPooling extends CUBRIDConnection {
         if (is_closed) return;
 
         closeConnection();
-        pcon.notifyConnectionClosed();
+        if (u_con.isClosed()) {
+            pcon.notifyConnectionErrorOccurred(
+                    createCUBRIDException(CUBRIDJDBCErrorCode.connection_closed, null));
+        } else {
+            pcon.notifyConnectionClosed();
+        }
     }
 }

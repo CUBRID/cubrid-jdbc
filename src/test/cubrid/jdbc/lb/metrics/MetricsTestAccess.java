@@ -72,4 +72,14 @@ public final class MetricsTestAccess {
         }
         return new long[] {0L, 0L};
     }
+
+    /** The distinct (role, from, to) movements behind {@code lb_failover_total}. */
+    public static int getFailoverTransitions() {
+        return MetricsRegistry.failovers().size();
+    }
+
+    /** The distinct (role, from, to) movements behind {@code lb_failback_total}. */
+    public static int getFailbackTransitions() {
+        return MetricsRegistry.failbacks().size();
+    }
 }

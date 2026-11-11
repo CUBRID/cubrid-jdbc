@@ -1481,7 +1481,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
 
         replaceRwConn(failed, bind.endpoint, bind.connection);
         markRecovered(bind.endpoint);
-        MetricsRegistry.recordFailover("RW", failed.getId(), bind.endpoint.getId());
+        recordFailover("RW", failed.getId(), bind.endpoint.getId());
 
         return new PhysicalRecoveryResult(bind.endpoint, SessionLeg.RW, null);
     }
@@ -1535,7 +1535,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
                             roTiers, "RO", exclude, config.getRuntimeFailoverMaxAttempts());
             replaceRoConn(failed, bind.endpoint, bind.connection, false);
             markRecovered(bind.endpoint);
-            MetricsRegistry.recordFailover("RO", failed.getId(), bind.endpoint.getId());
+            recordFailover("RO", failed.getId(), bind.endpoint.getId());
             return new PhysicalRecoveryResult(bind.endpoint, SessionLeg.RO, null);
         } catch (SQLException roFailure) {
             lastRoFailure = roFailure;
@@ -1606,7 +1606,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         setRoOnRw(true, rwEndpoint.getId(), "RO ladder exhausted at runtime");
         // Reads now share the RW connection: the last rung of the ladder. Counted as a failover to
         // the RW endpoint so the operator sees where the read went, and the roOnRw gauge rises too.
-        MetricsRegistry.recordFailover("RO", logicalRoKey, rwEndpoint.getId());
+        recordFailover("RO", logicalRoKey, rwEndpoint.getId());
 
         if (previous != null && previous != rwConn && !connInUseElsewhere(previous)) {
             closeQuietly(previous);
@@ -1696,7 +1696,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         final boolean cameOffRw = roOnRw;
         replaceRoConn(previousReadKey, bind.endpoint, bind.connection, false);
         markRecovered(bind.endpoint);
-        MetricsRegistry.recordFailback("RO", fromId, bind.endpoint.getId());
+        recordFailback("RO", fromId, bind.endpoint.getId());
         // Same visibility as the RW leg (see restoreRwIfRecovered): the read leg moving back is
         // otherwise invisible in the log, leaving metrics as the only way to tell a recovered
         // readWeight distribution from a still-displaced one.
@@ -1799,7 +1799,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
             }
         }
         markRecovered(bind.endpoint);
-        MetricsRegistry.recordFailback("RW", from.getId(), bind.endpoint.getId());
+        recordFailback("RW", from.getId(), bind.endpoint.getId());
         LbLogDedup.warn(
                 LOGGER,
                 logContext,
@@ -1837,7 +1837,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
             closeQuietly(previous);
         }
         markRecovered(rwEp);
-        MetricsRegistry.recordFailback("RW", from.getId(), rwEp.getId());
+        recordFailback("RW", from.getId(), rwEp.getId());
         LbLogDedup.warn(
                 LOGGER,
                 logContext,
@@ -1884,7 +1884,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
             closeQuietly(previous);
         }
         markRecovered(rwEp);
-        MetricsRegistry.recordFailback("RO", fromId, rwEp.getId());
+        recordFailback("RO", fromId, rwEp.getId());
         LbLogDedup.warn(
                 LOGGER,
                 logContext,
@@ -2159,6 +2159,20 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
 
         if (previous != null && previous != newConn && !connInUseElsewhere(previous)) {
             closeQuietly(previous);
+        }
+    }
+
+    /** Only with metricsEnabled: the counter is JVM-wide, so another pool's would mix in. */
+    private void recordFailover(final String role, final String fromId, final String toId) {
+        if (config.getMetricsConfig().isEnabled()) {
+            MetricsRegistry.recordFailover(role, fromId, toId);
+        }
+    }
+
+    /** As {@link #recordFailover}. */
+    private void recordFailback(final String role, final String fromId, final String toId) {
+        if (config.getMetricsConfig().isEnabled()) {
+            MetricsRegistry.recordFailback(role, fromId, toId);
         }
     }
 

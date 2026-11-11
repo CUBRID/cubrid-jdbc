@@ -40,11 +40,13 @@ import cubrid.jdbc.jci.UErrorCode;
 import cubrid.jdbc.jci.UUnreachableHostList;
 import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.SessionLeg;
+import cubrid.jdbc.lb.config.ConfigTestAccess;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.failover.PhysicalRecoveryContext;
 import cubrid.jdbc.lb.failover.PhysicalRecoveryResult;
+import cubrid.jdbc.lb.metrics.MetricsTestAccess;
 import cubrid.jdbc.lb.route.Router.RouteTarget;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
@@ -54,7 +56,9 @@ import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -185,6 +189,45 @@ public class SessionPhysicalConnManagerRwFailbackTest {
             markUp(down, NODE1_RW);
             assertEquals(NODE1_RW, mgr.restoreRwIfRecovered());
             assertEquals(NODE1_RW, mgr.getSessionEndpoint(SessionLeg.RW));
+        } finally {
+            cleanup(mgr);
+        }
+    }
+
+    /** m37: a failover and a failback are counted only on a connection with metricsEnabled. */
+    @Test
+    public void failoverAndFailbackAreCountedOnlyWithMetricsEnabled() throws SQLException {
+        MetricsTestAccess.clearForTests();
+        try {
+            failOverAndBack(LbTestSettings.defaults());
+            assertEquals(0, MetricsTestAccess.getFailoverTransitions());
+            assertEquals(0, MetricsTestAccess.getFailbackTransitions());
+
+            Map<String, String> on = new HashMap<String, String>();
+            on.put(ConfigTestAccess.OPT_ENABLED, "true");
+            on.put(ConfigTestAccess.OPT_EXPORT, ConfigTestAccess.EXPORT_CSV);
+            failOverAndBack(
+                    LbTestSettings.with(
+                            LbTestSettings.defaults(),
+                            "metricsConfig",
+                            ConfigTestAccess.parseMetricsConfig(on)));
+            assertEquals(1, MetricsTestAccess.getFailoverTransitions());
+            assertEquals(1, MetricsTestAccess.getFailbackTransitions());
+        } finally {
+            MetricsTestAccess.clearForTests();
+        }
+    }
+
+    private static void failOverAndBack(final LoadBalanceSettings config) throws SQLException {
+        Set<String> down = new HashSet<String>();
+        SessionPhysicalConnManager mgr =
+                newManager(down, UErrorCode.ER_COMMUNICATION, config, null, null);
+        try {
+            mgr.bindSession(NODE1_RW, NODE2_RO, topology());
+            markDown(down, NODE1_RW);
+            assertEquals(NODE2_RW, mgr.recoverRw(rwFailure(NODE1_RW)).getBoundEndpoint());
+            markUp(down, NODE1_RW);
+            assertEquals(NODE1_RW, mgr.restoreRwIfRecovered());
         } finally {
             cleanup(mgr);
         }

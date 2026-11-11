@@ -980,7 +980,7 @@ public class CUBRIDStatement implements Statement {
     }
 
     private void checkIsOpen() throws SQLException {
-        if (is_closed) {
+        if (isClosed()) {
             if (con != null) {
                 throw con.createCUBRIDException(CUBRIDJDBCErrorCode.statement_closed, null);
             } else {

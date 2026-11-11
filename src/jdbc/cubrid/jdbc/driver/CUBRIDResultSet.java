@@ -305,7 +305,7 @@ public class CUBRIDResultSet implements ResultSet {
                         is_closed = true;
 
                         clearCurrentRow();
-                        if (stmt.getResultSetHoldability() == ResultSet.HOLD_CURSORS_OVER_COMMIT) {
+                        if (stmt.getHoldability() == ResultSet.HOLD_CURSORS_OVER_COMMIT) {
                             u_stmt.closeCursor();
                         }
                         if (complete_on_close) {
@@ -1683,7 +1683,7 @@ public class CUBRIDResultSet implements ResultSet {
     }
 
     private void checkIsOpen() throws SQLException {
-        if (is_closed) {
+        if (isClosed()) {
             throw con.createCUBRIDException(CUBRIDJDBCErrorCode.result_set_closed, null);
         }
     }

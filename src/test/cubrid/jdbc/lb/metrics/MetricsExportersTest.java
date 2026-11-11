@@ -39,6 +39,7 @@ import cubrid.jdbc.lb.config.ConfigTestAccess;
 import cubrid.jdbc.lb.config.MetricsConfig;
 import cubrid.jdbc.lb.sql.SqlClassification;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -315,6 +316,114 @@ public class MetricsExportersTest {
             }
         }
         assertEquals(warnings.toString(), 1, conflicts);
+    }
+
+    /** m29: a later connection's different bind or interval was ignored without a word. */
+    @Test
+    public void aConflictingBindOrIntervalIsWarnedAboutOnce() throws Exception {
+        int port = freePort();
+        List<String> warnings = Collections.synchronizedList(new ArrayList<String>());
+        Handler capture = capture(warnings);
+        MetricsExporters.configure(prometheus(port, 60));
+        MetricsExporters.configure(csv(600));
+        try {
+            for (int i = 0; i < 2; i++) {
+                MetricsExporters.configure(prometheus(port, 60, "127.0.0.1")); // the same address
+                MetricsExporters.configure(prometheus(port, 60, "0.0.0.0"));
+                MetricsExporters.configure(prometheus(port, 45));
+                MetricsExporters.configure(csv(300));
+            }
+        } finally {
+            MetricsExporters.stop();
+            release(capture);
+        }
+
+        assertEquals(warnings.toString(), 3, count(warnings, "conflicting"));
+        assertEquals(warnings.toString(), 1, count(warnings, "0.0.0.0"));
+        assertEquals(warnings.toString(), 1, count(warnings, "metricsIntervalSec=45"));
+        assertEquals(warnings.toString(), 1, count(warnings, "metricsIntervalSec=300"));
+    }
+
+    /**
+     * m29: one busy port silenced every later bind failure and held back every other address for a
+     * minute. Each address is now warned about and retried on its own.
+     */
+    @Test
+    public void aBusyPortHoldsBackOnlyItselfAndEachIsWarnedAboutOnce() throws Exception {
+        InetAddress loopback = InetAddress.getLoopbackAddress();
+        ServerSocket busyA = new ServerSocket(0, 1, loopback);
+        ServerSocket busyB = new ServerSocket(0, 1, loopback);
+        String portA = String.valueOf(busyA.getLocalPort());
+        String portB = String.valueOf(busyB.getLocalPort());
+        int free = freePort();
+        List<String> warnings = Collections.synchronizedList(new ArrayList<String>());
+        Handler capture = capture(warnings);
+        try {
+            for (int i = 0; i < 2; i++) {
+                MetricsExporters.configure(prometheus(busyA.getLocalPort(), 60));
+                MetricsExporters.configure(prometheus(busyB.getLocalPort(), 60));
+            }
+            MetricsExporters.configure(prometheus(free, 60));
+            assertTrue("a free port is bound at once", accepts(loopback, free));
+        } finally {
+            MetricsExporters.stop();
+            release(capture);
+            busyA.close();
+            busyB.close();
+        }
+
+        assertEquals(warnings.toString(), 1, count(warnings, "failed", portA));
+        assertEquals(warnings.toString(), 1, count(warnings, "failed", portB));
+        // Closed now, so a later test may be handed the same port numbers.
+        Field failedAt = MetricsExporters.class.getDeclaredField("BIND_FAILED_AT_MS");
+        failedAt.setAccessible(true);
+        ((Map<?, ?>) failedAt.get(null)).clear();
+    }
+
+    private static Handler capture(final List<String> messages) {
+        Handler handler =
+                new Handler() {
+                    @Override
+                    public void publish(final LogRecord record) {
+                        messages.add(record.getMessage());
+                    }
+
+                    @Override
+                    public void flush() {}
+
+                    @Override
+                    public void close() {}
+                };
+        Logger exporters = Logger.getLogger(MetricsExporters.class.getName());
+        exporters.addHandler(handler);
+        exporters.setUseParentHandlers(false);
+        return handler;
+    }
+
+    private static void release(final Handler handler) {
+        Logger exporters = Logger.getLogger(MetricsExporters.class.getName());
+        exporters.removeHandler(handler);
+        exporters.setUseParentHandlers(true);
+    }
+
+    private static int count(final List<String> messages, final String... parts) {
+        int n = 0;
+        for (String each : messages) {
+            boolean all = true;
+            for (String part : parts) {
+                all &= each.contains(part);
+            }
+            n += all ? 1 : 0;
+        }
+        return n;
+    }
+
+    private static MetricsConfig csv(final int intervalSec) throws java.sql.SQLException {
+        Map<String, String> options = new HashMap<String, String>();
+        options.put(ConfigTestAccess.OPT_ENABLED, "true");
+        options.put(ConfigTestAccess.OPT_EXPORT, ConfigTestAccess.EXPORT_CSV);
+        options.put(ConfigTestAccess.OPT_INTERVAL_SEC, String.valueOf(intervalSec));
+        return ConfigTestAccess.parseMetricsConfig(options);
     }
 
     private static MetricsConfig prometheus(final int port, final int intervalSec)

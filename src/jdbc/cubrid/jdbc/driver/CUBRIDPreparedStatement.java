@@ -809,7 +809,7 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
 
         if (col_info.length == 0) return null;
 
-        return new CUBRIDResultSetMetaData(col_info);
+        return new CUBRIDResultSetMetaData(col_info, u_con.brokerSpeaksV13());
     }
 
     public synchronized void setDate(int parameterIndex, Date x, Calendar cal) throws SQLException {

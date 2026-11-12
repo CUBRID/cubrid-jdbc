@@ -60,6 +60,11 @@ public class CUBRIDResultSetMetaData implements ResultSetMetaData {
     private String[] col_charset_name;
 
     protected CUBRIDResultSetMetaData(UColumnInfo[] col_info) {
+        this(col_info, true);
+    }
+
+    /* v13 is false for a broker before PROTOCOL_V13, which calls the external-file LOBs BLOB/CLOB */
+    CUBRIDResultSetMetaData(UColumnInfo[] col_info, boolean v13) {
         col_name = new String[col_info.length];
         col_type = new int[col_info.length];
         ele_type = new int[col_info.length];
@@ -427,13 +432,13 @@ public class CUBRIDResultSetMetaData implements ResultSetMetaData {
                     break;
 
                 case UUType.U_TYPE_BFILE:
-                    col_type_name[i] = "BFILE";
+                    col_type_name[i] = v13 ? "BFILE" : "BLOB";
                     col_type[i] = java.sql.Types.BLOB;
                     ele_type[i] = -1;
                     break;
 
                 case UUType.U_TYPE_CFILE:
-                    col_type_name[i] = "CFILE";
+                    col_type_name[i] = v13 ? "CFILE" : "CLOB";
                     col_type[i] = java.sql.Types.CLOB;
                     ele_type[i] = -1;
                     break;

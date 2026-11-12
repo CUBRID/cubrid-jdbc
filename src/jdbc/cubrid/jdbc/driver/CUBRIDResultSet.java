@@ -704,7 +704,9 @@ public class CUBRIDResultSet implements ResultSet {
         checkIsOpen();
 
         if (meta_data == null) {
-            meta_data = new CUBRIDResultSetMetaData(u_stmt.getColumnInfo());
+            meta_data =
+                    new CUBRIDResultSetMetaData(
+                            u_stmt.getColumnInfo(), con.u_con.brokerSpeaksV13());
         }
 
         return meta_data;

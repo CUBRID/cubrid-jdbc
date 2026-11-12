@@ -137,10 +137,10 @@ public class UBindParameter extends UParameter {
         try {
             for (int i = 0; i < number; i++) {
                 if (isSetDefaultValue(i) == false && values[i] == null) {
-                    outBuffer.addType(typedNull ? (byte) types[i] : UUType.U_TYPE_NULL);
+                    outBuffer.addByte(typedNull ? (byte) types[i] : UUType.U_TYPE_NULL);
                     outBuffer.addNull();
                 } else {
-                    outBuffer.addType((byte) types[i]);
+                    outBuffer.addByte((byte) types[i]);
                     outBuffer.writeParameter(((byte) types[i]), values[i], isSetDefaultValue(i));
                 }
             }

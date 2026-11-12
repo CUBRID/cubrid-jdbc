@@ -74,7 +74,7 @@ class UPutByOIDParameter extends UParameter {
             for (int i = 0; i < number; i++) {
                 if (attributeNames[i] != null) outBuffer.addStringWithNull(attributeNames[i]);
                 else outBuffer.addNull();
-                outBuffer.addType(types[i]);
+                outBuffer.addByte(types[i]);
                 outBuffer.writeParameter(types[i], values[i], false);
             }
         } catch (IOException e) {

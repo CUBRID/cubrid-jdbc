@@ -1843,10 +1843,8 @@ public class CUBRIDResultSet implements ResultSet {
         checkColumnIsUpdatable(columnIndex);
         byte type = column_info[columnIndex - 1].getColumnType();
         if ((type == UUType.U_TYPE_BLOB || type == UUType.U_TYPE_CLOB)
-                && (value instanceof Blob || value instanceof Clob)
-                && con.u_con.brokerSpeaksV13()) {
-            /* as on develop: a row update goes through the object, which takes no internal LOB
-             * (a pre-V13 BLOB/CLOB is an external LOB, which it takes) */
+                && (value instanceof Blob || value instanceof Clob)) {
+            /* as on develop: a row update goes through the object, which takes no internal LOB */
             throw CUBRIDException.notSupported();
         }
 

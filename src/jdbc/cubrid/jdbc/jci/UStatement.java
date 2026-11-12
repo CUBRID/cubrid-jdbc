@@ -2307,7 +2307,7 @@ public class UStatement {
             collectionByte = inBuffer.readByte();
             if ((byte) (collectionByte & MASK_TYPE_HAS_2_BYTES) == 0) {
                 /* legacy protocol : we expect only simple type here */
-                typeInfo[0] = relatedConnection.typeFromBroker(collectionByte);
+                typeInfo[0] = collectionByte;
                 typeInfo[2] = 1;
             } else {
                 byte typeInfoColumn[];
@@ -2315,7 +2315,7 @@ public class UStatement {
 
                 charset = (byte) (collectionByte & MASK_CHARSET_FROM_TYPE);
                 collectionByte = (byte) (collectionByte & MASK_COLLECTION_FROM_TYPE);
-                setType = relatedConnection.typeFromBroker(inBuffer.readByte());
+                setType = inBuffer.readByte();
                 typeInfoColumn = UColumnInfo.confirmType(setType, collectionByte);
                 typeInfo[0] = typeInfoColumn[0];
                 typeInfo[1] = typeInfoColumn[1];
@@ -2410,7 +2410,6 @@ public class UStatement {
                     originalType = (byte) (fetchedType.byteValue() & MASK_TYPE_FROM_SINGLE_BYTE);
                 }
 
-                originalType = relatedConnection.typeFromBroker(originalType);
                 realType = UColumnInfo.confirmType(originalType, collectionFlags);
                 tuples[index].setAttribute(1, new Short((short) realType[0]));
         }
@@ -2490,10 +2489,7 @@ public class UStatement {
             case UUType.U_TYPE_SEQUENCE:
                 {
                     CUBRIDArray aArray;
-                    aArray =
-                            new CUBRIDArray(
-                                    relatedConnection.typeFromBroker(inBuffer.readByte()),
-                                    inBuffer.readInt());
+                    aArray = new CUBRIDArray(inBuffer.readByte(), inBuffer.readInt());
                     int baseType = aArray.getBaseType();
                     for (int i = 0; i < aArray.getLength(); i++) {
                         int eleSize = inBuffer.readInt();
@@ -2525,16 +2521,10 @@ public class UStatement {
             case UUType.U_TYPE_CFILE:
                 return inBuffer.readCfile(dataSize, relatedConnection.cubridcon);
             case UUType.U_TYPE_BLOB:
-                /* an internal LOB arrives as a locator; the pre-V13 wire carried an external LOB handle */
-                if (relatedConnection.brokerSpeaksV13()) {
-                    return inBuffer.readInternalBlob(dataSize, relatedConnection.cubridcon);
-                }
-                return inBuffer.readBfile(dataSize, relatedConnection.cubridcon);
+                /* arrives as a locator or inline content; only a server with internal LOBs sends it */
+                return inBuffer.readInternalBlob(dataSize, relatedConnection.cubridcon);
             case UUType.U_TYPE_CLOB:
-                if (relatedConnection.brokerSpeaksV13()) {
-                    return inBuffer.readInternalClob(dataSize, relatedConnection.cubridcon);
-                }
-                return inBuffer.readCfile(dataSize, relatedConnection.cubridcon);
+                return inBuffer.readInternalClob(dataSize, relatedConnection.cubridcon);
             case UUType.U_TYPE_NULL:
                 return null;
             default:
@@ -2611,7 +2601,6 @@ public class UStatement {
                 collectionByte = (byte) (collectionByte & MASK_COLLECTION_FROM_TYPE);
                 type = inBuffer.readByte();
             }
-            type = relatedConnection.typeFromBroker(type);
 
             scale = inBuffer.readShort();
             precision = inBuffer.readInt();

@@ -2361,6 +2361,16 @@ public abstract class UConnection {
         return protocolVersion >= PROTOCOL_V13;
     }
 
+    /* Before V13 there were no BFILE/CFILE codes: BLOB/CLOB (external files) and every type after
+     * them were two lower. These convert a type code read from or sent to the broker. */
+    byte typeFromBroker(byte type) {
+        return (brokerSpeaksV13() || type < UUType.U_TYPE_BFILE) ? type : (byte) (type + 2);
+    }
+
+    byte typeToBroker(byte type) {
+        return (brokerSpeaksV13() || type < UUType.U_TYPE_BLOB) ? type : (byte) (type - 2);
+    }
+
     /* The stream requests are never sent to a broker that does not know them. */
     private boolean refuseStreamRequest() {
         if (brokerSpeaksV13()) {

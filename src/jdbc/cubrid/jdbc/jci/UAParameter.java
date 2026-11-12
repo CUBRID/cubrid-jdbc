@@ -68,7 +68,7 @@ class UAParameter extends UParameter {
         try {
             if (attributeName != null) outBuffer.addStringWithNull(attributeName);
             else outBuffer.addNull();
-            outBuffer.addByte(types[0]);
+            outBuffer.addType(types[0]);
             outBuffer.writeParameter(types[0], values[0], false);
         } catch (IOException e) {
             throw new UJciException(UErrorCode.ER_INVALID_ARGUMENT);

@@ -115,6 +115,11 @@ class UOutputBuffer {
         return 5;
     }
 
+    /* a type code, in the broker's numbering */
+    int addType(byte type) throws IOException {
+        return addByte(u_con.typeToBroker(type));
+    }
+
     int addBytes(byte[] value) throws IOException {
         return addBytes(value, 0, value.length);
     }
@@ -554,6 +559,16 @@ class UOutputBuffer {
                     }
                     return addOID((CUBRIDOID) value);
                 }
+            case UUType.U_TYPE_BLOB:
+            case UUType.U_TYPE_CLOB:
+                /* a row update sends the column's type: a pre-V13 BLOB/CLOB is an external LOB */
+                if (u_con.brokerSpeaksV13()) {
+                    throw u_con.createJciException(UErrorCode.ER_TYPE_CONVERSION);
+                }
+                return writeParameter(
+                        type == UUType.U_TYPE_BLOB ? UUType.U_TYPE_BFILE : UUType.U_TYPE_CFILE,
+                        value,
+                        setDefaultValue);
             case UUType.U_TYPE_INTERNAL_BLOB_UPLOAD:
             case UUType.U_TYPE_INTERNAL_CLOB_UPLOAD:
                 if (!(value instanceof byte[])) {
@@ -590,7 +605,7 @@ class UOutputBuffer {
         Object[] values = (Object[]) data.getArray();
         if (values == null) {
             dataBuffer.writeInt(1);
-            dataBuffer.writeByte((byte) data.getBaseType());
+            dataBuffer.writeByte(u_con.typeToBroker((byte) data.getBaseType()));
             return 5;
         }
 
@@ -598,7 +613,7 @@ class UOutputBuffer {
         ByteArrayBuffer saveBuffer = dataBuffer;
         try {
             dataBuffer = new ByteArrayBuffer(false);
-            dataBuffer.writeByte((byte) data.getBaseType());
+            dataBuffer.writeByte(u_con.typeToBroker((byte) data.getBaseType()));
 
             switch (data.getBaseType()) {
                 case UUType.U_TYPE_BIT:

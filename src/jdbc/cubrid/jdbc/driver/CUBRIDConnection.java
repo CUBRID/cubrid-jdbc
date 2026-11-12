@@ -795,14 +795,23 @@ public class CUBRIDConnection implements Connection {
     }
 
     /* JDK 1.6. Its bytes are held in the driver and sent when it is bound (or its stream is
-     * closed), so other statements may run while it is filled. */
+     * closed), so other statements may run while it is filled. A pre-V13 broker gets an
+     * external LOB, its only BLOB. */
     public Blob createBlob() throws SQLException {
+        checkIsOpen();
+        if (!u_con.brokerSpeaksV13()) {
+            return createBfile();
+        }
         Blob blob = new CUBRIDBlob(this);
         return blob;
     }
 
     /* JDK 1.6. Held and sent like createBlob (). */
     public Clob createClob() throws SQLException {
+        checkIsOpen();
+        if (!u_con.brokerSpeaksV13()) {
+            return createCfile();
+        }
         Clob clob = new CUBRIDClob(this, getUConnection().getCharset());
         return clob;
     }

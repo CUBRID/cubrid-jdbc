@@ -41,7 +41,9 @@ import cubrid.sql.CUBRIDOID;
 import cubrid.sql.CUBRIDTimestamptz;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.Reader;
+import java.io.Writer;
 import java.math.BigDecimal;
 import java.net.URL;
 import java.sql.Array;
@@ -642,14 +644,15 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
         throw CUBRIDException.notSupported();
     }
 
-    /* A Bfile binds its external handle; any other Blob is bound as an internal LOB upload. */
+    /* A Bfile binds its external handle; any other Blob is bound as an internal LOB upload.
+     * A pre-V13 broker has only the external LOB, so every Blob binds as one there. */
     public void setBlob(int parameterIndex, Blob x) throws SQLException {
         checkIsOpen();
         if (x == null) {
             setNull(parameterIndex, java.sql.Types.BLOB);
             return;
         }
-        if (x instanceof CUBRIDBfile) {
+        if (x instanceof CUBRIDBfile || !u_con.brokerSpeaksV13()) {
             synchronized (u_stmt) {
                 u_stmt.bindBfile(parameterIndex - 1, x);
                 error = u_stmt.getRecentError();
@@ -667,7 +670,7 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
             setNull(parameterIndex, java.sql.Types.CLOB);
             return;
         }
-        if (x instanceof CUBRIDCfile) {
+        if (x instanceof CUBRIDCfile || !u_con.brokerSpeaksV13()) {
             synchronized (u_stmt) {
                 u_stmt.bindCfile(parameterIndex - 1, x);
                 error = u_stmt.getRecentError();
@@ -694,9 +697,32 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
         if (length < 0) {
             throw con.createCUBRIDException(CUBRIDJDBCErrorCode.negative_value_for_length, null);
         }
-        if (length > CUBRIDInternalLobUpload.MAX_LENGTH) {
+        if (length > CUBRIDInternalLobUpload.MAX_LENGTH && u_con.brokerSpeaksV13()) {
             throw con.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
         }
+    }
+
+    /* A pre-V13 broker takes a stream into a new external LOB, as before internal LOBs. */
+    private Blob newBfile(InputStream in, long length) throws SQLException {
+        Blob blob = con.createBfile();
+        OutputStream out = blob.setBinaryStream(1);
+        try {
+            ((CUBRIDBufferedOutputStream) out).streamCopyFromInputStream(in, length);
+        } catch (IOException e) {
+            throw con.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
+        }
+        return blob;
+    }
+
+    private Clob newCfile(Reader in, long length) throws SQLException {
+        Clob clob = con.createCfile();
+        Writer out = clob.setCharacterStream(1);
+        try {
+            ((CUBRIDBufferedWriter) out).streamCopyFromReader(in, length);
+        } catch (IOException e) {
+            throw con.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
+        }
+        return clob;
     }
 
     /* JDK 1.6 */
@@ -704,6 +730,10 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
         checkIsOpen();
         if (inputStream == null) {
             setNull(parameterIndex, java.sql.Types.BLOB);
+            return;
+        }
+        if (!u_con.brokerSpeaksV13()) {
+            setBlob(parameterIndex, newBfile(inputStream, Long.MAX_VALUE));
             return;
         }
         bindInternalLobUpload(
@@ -719,6 +749,10 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
             setNull(parameterIndex, java.sql.Types.BLOB);
             return;
         }
+        if (!u_con.brokerSpeaksV13()) {
+            setBlob(parameterIndex, newBfile(inputStream, length));
+            return;
+        }
         bindInternalLobUpload(
                 parameterIndex, CUBRIDInternalLobUpload.fromStream(con, true, inputStream, length));
     }
@@ -730,6 +764,10 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
             setNull(parameterIndex, java.sql.Types.CLOB);
             return;
         }
+        if (!u_con.brokerSpeaksV13()) {
+            setClob(parameterIndex, newCfile(reader, Long.MAX_VALUE));
+            return;
+        }
         bindInternalLobUpload(parameterIndex, CUBRIDInternalLobUpload.fromReader(con, reader, -1));
     }
 
@@ -739,6 +777,10 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
         checkStreamLength(length);
         if (reader == null) {
             setNull(parameterIndex, java.sql.Types.CLOB);
+            return;
+        }
+        if (!u_con.brokerSpeaksV13()) {
+            setClob(parameterIndex, newCfile(reader, length));
             return;
         }
         bindInternalLobUpload(

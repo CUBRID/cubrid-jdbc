@@ -1184,6 +1184,7 @@ public abstract class UConnection {
             setBeginTime();
             checkReconnect();
             if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR) return -1;
+            if (refuseStreamRequest()) return -1;
 
             outBuffer.newRequest(output, UFunctionCode.STREAM_INIT);
             outBuffer.addInt(streamKind);
@@ -1220,6 +1221,7 @@ public abstract class UConnection {
             setBeginTime();
             checkReconnect();
             if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR) return -1;
+            if (refuseStreamRequest()) return -1;
 
             outBuffer.newRequest(output, UFunctionCode.STREAM_SEND_DATA);
             outBuffer.addBytes(data, start, len);
@@ -1257,6 +1259,7 @@ public abstract class UConnection {
             setBeginTime();
             checkReconnect();
             if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR) return -1;
+            if (refuseStreamRequest()) return -1;
 
             outBuffer.newRequest(output, UFunctionCode.STREAM_END);
             UInputBuffer inBuffer = send_recv_msg();
@@ -1312,6 +1315,7 @@ public abstract class UConnection {
             setBeginTime();
             checkReconnect();
             if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR) return -1;
+            if (refuseStreamRequest()) return -1;
 
             outBuffer.newRequest(output, UFunctionCode.STREAM_READ_OPEN);
             outBuffer.addInt(streamKind);
@@ -1374,6 +1378,7 @@ public abstract class UConnection {
             setBeginTime();
             checkReconnect();
             if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR) return -1;
+            if (refuseStreamRequest()) return -1;
 
             outBuffer.newRequest(output, UFunctionCode.STREAM_READ);
             outBuffer.addLong(handle);
@@ -1423,6 +1428,7 @@ public abstract class UConnection {
             setBeginTime();
             checkReconnect();
             if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR) return -1;
+            if (refuseStreamRequest()) return -1;
 
             outBuffer.newRequest(output, UFunctionCode.STREAM_RELEASE);
             outBuffer.addLong(handle);
@@ -1461,6 +1467,7 @@ public abstract class UConnection {
             setBeginTime();
             checkReconnect();
             if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR) return -1;
+            if (refuseStreamRequest()) return -1;
 
             int resCode = 0;
             for (int from = 0;
@@ -1500,6 +1507,7 @@ public abstract class UConnection {
             setBeginTime();
             checkReconnect();
             if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR) return -1;
+            if (refuseStreamRequest()) return -1;
 
             outBuffer.newRequest(output, UFunctionCode.STREAM_ABORT);
             UInputBuffer inBuffer = send_recv_msg();
@@ -2347,6 +2355,23 @@ public abstract class UConnection {
         return protocolVersion;
     }
 
+    /* Internal BLOB/CLOB and the stream requests came with PROTOCOL_V13; an older broker has only
+     * the external-file BLOB/CLOB, so the driver works with it as before them. */
+    public boolean brokerSpeaksV13() {
+        return protocolVersion >= PROTOCOL_V13;
+    }
+
+    /* The stream requests are never sent to a broker that does not know them. */
+    private boolean refuseStreamRequest() {
+        if (brokerSpeaksV13()) {
+            return false;
+        }
+        errorHandler.setDBError(
+                UErrorCode.CAS_ER_NOT_IMPLEMENTED,
+                UErrorCode.codeToCASMessage(UErrorCode.CAS_ER_NOT_IMPLEMENTED));
+        return true;
+    }
+
     /*
      * Is a stream session open on this connection? The server reports it in
      * every reply, so the statement that opened one can be recognised as
@@ -2357,7 +2382,7 @@ public abstract class UConnection {
      * answer is only meaningful from PROTOCOL_V13 on.
      */
     public boolean isStreamOpen() {
-        if (protocolVersion < PROTOCOL_V13 || casInfo == null) {
+        if (!brokerSpeaksV13() || casInfo == null) {
             return false;
         }
         return (casInfo[CAS_INFO_ADDITIONAL_FLAG] & CAS_INFO_FLAG_MASK_STREAM_OPEN) != 0;

@@ -110,7 +110,7 @@ class LBDatabaseMetaData extends CUBRIDDatabaseMetaData {
      * Serve one call that <b>sends a request</b> to the write endpoint, under the failover handler.
      *
      * <p>{@link #rwMeta} resolves the handle inside the closure, so a rebind is followed by a fresh
-     * handle rather than by a query on the connection that just died. Fourteen of the 173 methods
+     * handle rather than by a query on the connection that just died. Eighteen of the 173 methods
      * need this - the ones whose physical implementation touches {@code u_con}; the others answer
      * from local constants and are left as plain {@code rwMeta(...)} forwards.
      *
@@ -335,13 +335,25 @@ class LBDatabaseMetaData extends CUBRIDDatabaseMetaData {
     public ResultSet getFunctionColumns(
             final String a0, final String a1, final String a2, final String a3)
             throws SQLException {
-        throw LbExceptions.featureNotSupported();
+        return rwMetaQuery(
+                "getFunctionColumns",
+                new SqlExecution<ResultSet>() {
+                    public ResultSet run() throws SQLException {
+                        return rwMeta("getFunctionColumns").getFunctionColumns(a0, a1, a2, a3);
+                    }
+                });
     }
 
     @Override
     public ResultSet getFunctions(final String a0, final String a1, final String a2)
             throws SQLException {
-        throw LbExceptions.featureNotSupported();
+        return rwMetaQuery(
+                "getFunctions",
+                new SqlExecution<ResultSet>() {
+                    public ResultSet run() throws SQLException {
+                        return rwMeta("getFunctions").getFunctions(a0, a1, a2);
+                    }
+                });
     }
 
     @Override
@@ -505,7 +517,13 @@ class LBDatabaseMetaData extends CUBRIDDatabaseMetaData {
     public ResultSet getProcedureColumns(
             final String a0, final String a1, final String a2, final String a3)
             throws SQLException {
-        return rwMeta("getProcedureColumns").getProcedureColumns(a0, a1, a2, a3);
+        return rwMetaQuery(
+                "getProcedureColumns",
+                new SqlExecution<ResultSet>() {
+                    public ResultSet run() throws SQLException {
+                        return rwMeta("getProcedureColumns").getProcedureColumns(a0, a1, a2, a3);
+                    }
+                });
     }
 
     @Override
@@ -516,7 +534,13 @@ class LBDatabaseMetaData extends CUBRIDDatabaseMetaData {
     @Override
     public ResultSet getProcedures(final String a0, final String a1, final String a2)
             throws SQLException {
-        return rwMeta("getProcedures").getProcedures(a0, a1, a2);
+        return rwMetaQuery(
+                "getProcedures",
+                new SqlExecution<ResultSet>() {
+                    public ResultSet run() throws SQLException {
+                        return rwMeta("getProcedures").getProcedures(a0, a1, a2);
+                    }
+                });
     }
 
     @Override

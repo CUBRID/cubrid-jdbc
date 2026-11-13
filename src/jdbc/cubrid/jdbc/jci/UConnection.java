@@ -119,7 +119,7 @@ public abstract class UConnection {
     /* The CAS takes at most this many tokens in one STREAM_UPLOAD_RELEASE. */
     private static final int STREAM_UPLOAD_RELEASE_MAX = 1024;
 
-    /* The flags byte of the bundled download requests, and the flags their replies carry. */
+    /* The flags byte of INIT and the download requests, and the flags download replies carry. */
     public static final byte STREAM_FLAG_RELEASE_AT_EOF = 0x01;
     public static final byte STREAM_FLAG_AUTO_COMMIT = 0x02;
     public static final int STREAM_FLAG_EOF = 0x01;
@@ -1176,6 +1176,9 @@ public abstract class UConnection {
             outBuffer.newRequest(output, UFunctionCode.STREAM_INIT);
             outBuffer.addInt(streamKind);
             outBuffer.addBytes(config);
+            /* kind, config, flags, data: opens only (no FINAL, no first chunk) */
+            outBuffer.addByte(getAutoCommit() ? STREAM_FLAG_AUTO_COMMIT : (byte) 0);
+            outBuffer.addBytes(new byte[0]);
 
             UInputBuffer inBuffer = send_recv_msg();
             int resCode = inBuffer.getResCode();

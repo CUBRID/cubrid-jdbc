@@ -67,6 +67,7 @@ import java.util.Set;
 class CUBRIDInternalLobUpload {
     static final long MAX_LENGTH = 0x100000000L;
     private static final int STREAM_KIND = 1;
+    private static final int CONFIG_VERSION = 1;
     private static final int CHUNK_SIZE = 1024 * 1024;
 
     private final CUBRIDConnection conn;
@@ -367,9 +368,14 @@ class CUBRIDInternalLobUpload {
         if (started) {
             return;
         }
-        /* the length is unknown until the value is finished */
+        /* version, type, then both lengths, unknown until the value is finished */
         byte[] config =
-                ByteBuffer.allocate(20).putInt(blob ? 0 : 1).putLong(-1).putLong(-1).array();
+                ByteBuffer.allocate(24)
+                        .putInt(CONFIG_VERSION)
+                        .putInt(blob ? 0 : 1)
+                        .putLong(-1)
+                        .putLong(-1)
+                        .array();
         synchronized (conn) {
             conn.streamInit(STREAM_KIND, config);
             session = conn.getStreamSessionCount();

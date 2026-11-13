@@ -720,7 +720,7 @@ public class CUBRIDConnection implements Connection {
         }
     }
 
-    boolean isClosedWithoutLock() {
+    protected boolean isClosedWithoutLock() {
         /* close() on another thread can set u_con to null. */
         UConnection u = u_con;
         return is_closed || u == null || u.isClosed();

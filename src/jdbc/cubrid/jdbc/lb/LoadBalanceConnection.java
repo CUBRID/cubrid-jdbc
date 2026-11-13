@@ -1458,6 +1458,12 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         return closed;
     }
 
+    /** Core asks this for the closed state; this session has no single socket to ask. */
+    @Override
+    protected boolean isClosedWithoutLock() {
+        return closed;
+    }
+
     private void closeOpenStatements() {
         // Snapshot-and-clear under the list monitor so a concurrent trackStatement() (app thread)
         // cannot corrupt the list or trigger ConcurrentModificationException while close()

@@ -34,6 +34,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import cubrid.jdbc.jci.UErrorCode;
+import cubrid.jdbc.jci.UUnreachableHostList;
 import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
@@ -81,6 +82,8 @@ public class LbSessionRecordsTest {
 
     @Before
     public void setUp() {
+        // The list is JVM-wide; a RO listed by an earlier test would have its probe spent at bind.
+        UUnreachableHostList.getInstance().remove(RO.getId());
         LbLogDedup.resetForTests();
         lbLogger = Logger.getLogger("cubrid.jdbc.lb");
         lbLogger.setLevel(Level.ALL);
@@ -95,6 +98,7 @@ public class LbSessionRecordsTest {
         lbLogger.setLevel(null);
         lbLogger.setUseParentHandlers(true);
         LbLogDedup.resetForTests();
+        UUnreachableHostList.getInstance().remove(RO.getId());
     }
 
     @Test

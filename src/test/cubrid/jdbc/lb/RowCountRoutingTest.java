@@ -43,6 +43,7 @@ import cubrid.jdbc.lb.statement.FakePhysicalStatement;
 import cubrid.jdbc.lb.statement.LBPreparedStatement;
 import cubrid.jdbc.lb.statement.LBStatement;
 import cubrid.jdbc.lb.statement.StatementTestAccess;
+import java.sql.BatchUpdateException;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -121,6 +122,76 @@ public final class RowCountRoutingTest {
         assertEquals(Arrays.asList(RW, RO), targets);
     }
 
+    /**
+     * m21: a batch whose rows partly failed still ran on RW, where core's ROW_COUNT() reports its
+     * last row. Recorded only on success, the read went to the leg of the statement before it.
+     */
+    @Test
+    public void rowCountFollowsABatchThatEndedInBatchUpdateException() throws SQLException {
+        final List<RouteTarget> targets = new ArrayList<RouteTarget>();
+        LBStatement statement = recordingStatement(createBoundSessionConnection(), targets);
+
+        statement.executeQuery("SELECT v FROM t");
+        statement.addBatch("INSERT INTO t VALUES (1)");
+        statement.addBatch("UPDATE t SET v = v + 1");
+        try {
+            statement.executeBatch();
+            fail("expected the batch's BatchUpdateException");
+        } catch (BatchUpdateException expected) {
+        }
+        statement.executeQuery("SELECT ROW_COUNT()");
+
+        assertEquals(Arrays.asList(RO, RW, RW), targets);
+    }
+
+    @Test
+    public void rowCountFollowsAPreparedBatchThatEndedInBatchUpdateException() throws SQLException {
+        LoadBalanceConnection connection = createBoundSessionConnection();
+        final List<RouteTarget> targets = new ArrayList<RouteTarget>();
+        LBStatement statement = recordingStatement(connection, targets);
+        LBPreparedStatement insert =
+                new LBPreparedStatement(connection, "INSERT INTO t VALUES (?)");
+        insert.setPsProvider(
+                new LBPreparedStatement.PhysicalPsProvider() {
+                    public PreparedStatement getPreparedStatement(
+                            final RouteTarget target, final String rawSql) {
+                        return new FakePhysicalPreparedStatement() {
+                            @Override
+                            protected Object dispatch(final String name, final Object[] args)
+                                    throws SQLException {
+                                if ("executeBatch".equals(name)) {
+                                    throw partlyFailedBatch();
+                                }
+                                return null;
+                            }
+                        };
+                    }
+
+                    public void prepareOnBoundReadEndpoint(final String rawSql) {}
+
+                    public void prepareOnWriteEndpoint(final String rawSql) {}
+
+                    public void closePrepStmts() {}
+                });
+
+        statement.executeQuery("SELECT v FROM t");
+        insert.setInt(1, 1);
+        insert.addBatch();
+        try {
+            insert.executeBatch();
+            fail("expected the batch's BatchUpdateException");
+        } catch (BatchUpdateException expected) {
+        }
+        statement.executeQuery("SELECT ROW_COUNT()");
+
+        assertEquals(Arrays.asList(RO, RW), targets);
+    }
+
+    private static BatchUpdateException partlyFailedBatch() {
+        return new BatchUpdateException(
+                "duplicate key", null, -670, new int[] {Statement.EXECUTE_FAILED, 3});
+    }
+
     private static LBStatement recordingStatement(
             final LoadBalanceConnection connection, final List<RouteTarget> targets)
             throws SQLException {
@@ -136,6 +207,9 @@ public final class RowCountRoutingTest {
                                     throws SQLException {
                                 if (rawSql.contains("nope")) {
                                     throw new SQLException("nope is not defined", null, -494);
+                                }
+                                if ("executeBatch".equals(name)) {
+                                    throw partlyFailedBatch();
                                 }
                                 return null;
                             }

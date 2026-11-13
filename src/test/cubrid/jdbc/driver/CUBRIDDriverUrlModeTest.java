@@ -89,7 +89,7 @@ public class CUBRIDDriverUrlModeTest {
     public void uriUrlWithoutModeIsSingleNode() {
         assertEquals(
                 UrlMode.URI_SINGLE,
-                CUBRIDDriver.detectUrlMode("jdbc:cubrid://localhost:33000/demodb"));
+                CUBRIDDriver.detectUrlMode("jdbc:cubrid://localhost:33000/demodb:::"));
         assertEquals(
                 UrlMode.URI_SINGLE,
                 CUBRIDDriver.detectUrlMode(
@@ -111,14 +111,16 @@ public class CUBRIDDriverUrlModeTest {
 
     @Test
     public void detectUrlModeHandlesVariants() {
-        assertEquals(UrlMode.URI_SINGLE, CUBRIDDriver.detectUrlMode("jdbc:cubrid-mysql://h:1/db"));
-        assertEquals(UrlMode.URI_SINGLE, CUBRIDDriver.detectUrlMode("jdbc:cubrid-oracle://h:1/db"));
+        assertEquals(
+                UrlMode.URI_SINGLE, CUBRIDDriver.detectUrlMode("jdbc:cubrid-mysql://h:1/db:::"));
+        assertEquals(
+                UrlMode.URI_SINGLE, CUBRIDDriver.detectUrlMode("jdbc:cubrid-oracle://h:1/db:::"));
         assertEquals(
                 UrlMode.URI_LOADBALANCE,
-                CUBRIDDriver.detectUrlMode("jdbc:cubrid-mysql:loadbalance://n1,n2/db"));
+                CUBRIDDriver.detectUrlMode("jdbc:cubrid-mysql:loadbalance://n1,n2/db:::"));
         assertEquals(
                 UrlMode.URI_LOADBALANCE,
-                CUBRIDDriver.detectUrlMode("jdbc:cubrid-oracle:loadbalance://n1,n2/db"));
+                CUBRIDDriver.detectUrlMode("jdbc:cubrid-oracle:loadbalance://n1,n2/db:::"));
     }
 
     @Test
@@ -140,7 +142,7 @@ public class CUBRIDDriverUrlModeTest {
     public void loadbalanceAsHostNameIsNotLoadBalanceMode() {
         assertEquals(
                 UrlMode.URI_SINGLE,
-                CUBRIDDriver.detectUrlMode("jdbc:cubrid://loadbalance:33000/db"));
+                CUBRIDDriver.detectUrlMode("jdbc:cubrid://loadbalance:33000/db:::"));
     }
 
     @Test
@@ -151,8 +153,8 @@ public class CUBRIDDriverUrlModeTest {
     @Test
     public void acceptsUrlForClassicAndUriCubridUrls() throws SQLException {
         assertTrue(driver.acceptsURL("jdbc:cubrid:localhost:33000:demodb:dba:pw:"));
-        assertTrue(driver.acceptsURL("jdbc:cubrid://localhost:33000/demodb"));
-        assertTrue(driver.acceptsURL("jdbc:cubrid:loadbalance://n1,n2/db"));
+        assertTrue(driver.acceptsURL("jdbc:cubrid://localhost:33000/demodb:::"));
+        assertTrue(driver.acceptsURL("jdbc:cubrid:loadbalance://n1,n2/db:::"));
         assertFalse(driver.acceptsURL("jdbc:mysql://localhost:3306/db"));
         assertFalse(driver.acceptsURL(null));
     }
@@ -172,7 +174,7 @@ public class CUBRIDDriverUrlModeTest {
     @Test
     public void connectOnLoadBalanceUrlDispatchesToUriPath() {
         try {
-            driver.connect("jdbc:cubrid:loadbalance://n1,n2/db", new Properties());
+            driver.connect("jdbc:cubrid:loadbalance://n1,n2/db:::", new Properties());
             fail("expected SQLException connecting to unreachable loadbalance hosts");
         } catch (SQLException e) {
             String msg = e.getMessage() == null ? "" : e.getMessage();
@@ -206,17 +208,19 @@ public class CUBRIDDriverUrlModeTest {
     public void uriSingleUrlTranslatesToClassicForm() throws SQLException {
         assertEquals(
                 "jdbc:cubrid:localhost:33000:demodb:::",
-                CUBRIDDriver.uriSingleToClassicUrl("jdbc:cubrid://localhost:33000/demodb"));
+                CUBRIDDriver.uriSingleToClassicUrl("jdbc:cubrid://localhost:33000/demodb:::"));
         assertEquals(
                 "jdbc:cubrid:h:1:db:dba:pw:?charSet=utf-8",
                 CUBRIDDriver.uriSingleToClassicUrl("jdbc:cubrid://h:1/db:dba:pw:?charSet=utf-8"));
         assertEquals(
-                "jdbc:cubrid:h::db:::", CUBRIDDriver.uriSingleToClassicUrl("jdbc:cubrid://h/db"));
+                "jdbc:cubrid:h::db:::",
+                CUBRIDDriver.uriSingleToClassicUrl("jdbc:cubrid://h/db:::"));
         assertEquals(
-                "jdbc:cubrid:h::db:::", CUBRIDDriver.uriSingleToClassicUrl("jdbc:cubrid://h:/db"));
+                "jdbc:cubrid:h::db:::",
+                CUBRIDDriver.uriSingleToClassicUrl("jdbc:cubrid://h:/db:::"));
         assertEquals(
                 "jdbc:Cubrid:h:1:db:::",
-                CUBRIDDriver.uriSingleToClassicUrl("jdbc:Cubrid://h:1/db"));
+                CUBRIDDriver.uriSingleToClassicUrl("jdbc:Cubrid://h:1/db:::"));
         assertEquals(
                 "jdbc:cubrid-oracle:h:1:db:dba:pw:?a=1&b=2",
                 CUBRIDDriver.uriSingleToClassicUrl("jdbc:cubrid-oracle://h:1/db:dba:pw:?a=1&b=2"));
@@ -234,24 +238,23 @@ public class CUBRIDDriverUrlModeTest {
                 CUBRIDDriver.uriSingleToClassicUrl("jdbc:cubrid:///tdb:::?rcTime=600"));
         assertEquals(
                 "jdbc:cubrid::30000:tdb:::",
-                CUBRIDDriver.uriSingleToClassicUrl("jdbc:cubrid://:30000/tdb"));
+                CUBRIDDriver.uriSingleToClassicUrl("jdbc:cubrid://:30000/tdb:::"));
     }
 
     /**
-     * The URI URL is validated as written (URL_PATTERN_SINGLE), so a URL that does not match the
-     * single-node URI format is rejected with the classic "invalid URL" error instead of being
-     * rewritten into something the classic pattern happens to accept: {@code //h:1:2/db} used to
-     * become {@code jdbc:cubrid:h:1:2:db:::}, which the classic pattern reads as db=2, user=db.
+     * A URL whose classic form core's pattern refuses is rejected with the classic "invalid URL"
+     * error. A second ':' in the authority is refused before that, since {@code //h:1:2/db} would
+     * shift every classic field by one.
      */
     @Test
     public void uriSingleUrlRejectsMalformedFormat() {
         String[] malformed = {
-            "jdbc:cubrid://h:1:2/db", // two ports in the authority
-            "jdbc:cubrid://h:abc/db", // non-numeric port
+            "jdbc:cubrid://h:1:2/db:::", // two ports in the authority
+            "jdbc:cubrid://h:abc/db:::", // non-numeric port
             "jdbc:cubrid://h:1", // no '/<db>'
             "jdbc:cubrid://h:1/", // empty db
-            "jdbc:cubrid://h_o$t:1/db", // host charset
-            "jdbc:cubrid://h:1/db?a=", // empty option value (as in the classic pattern)
+            "jdbc:cubrid://h_o$t:1/db:::", // host charset
+            "jdbc:cubrid://h:1/db:::?a=", // empty option value (as in the classic pattern)
         };
         for (int i = 0; i < malformed.length; i++) {
             try {
@@ -282,7 +285,7 @@ public class CUBRIDDriverUrlModeTest {
                         "jdbc:cubrid:loadbalance://h1,h2;replica=h3/tdb:::?rcTime=600", info));
         assertEquals(
                 "jdbc:cubrid://h:1/tdb:dba:********:",
-                CUBRIDDriver.maskUriUrlPassword("jdbc:cubrid://h:1/tdb", info));
+                CUBRIDDriver.maskUriUrlPassword("jdbc:cubrid://h:1/tdb:::", info));
         assertEquals(
                 "jdbc:cubrid://h:1/tdb:dba:********:",
                 CUBRIDDriver.maskUriUrlPassword("jdbc:cubrid://h:1/tdb:scott:tiger:", info));
@@ -323,11 +326,11 @@ public class CUBRIDDriverUrlModeTest {
     }
 
     /**
-     * As in a classic URL, a user or password may hold a '?' when the whole {@code db:user:pw:} is
-     * written: the options start after its third ':'. Otherwise they start at the first '?'.
+     * As in a classic URL, a user or password may hold a '?': the options start after the third ':'
+     * of {@code db:user:pw:}.
      */
     @Test
-    public void questionMarkInTheFullCredentialFormIsPartOfThePassword() throws SQLException {
+    public void questionMarkInTheCredentialsIsPartOfThem() throws SQLException {
         assertEquals(
                 "jdbc:cubrid:h:1:db:u:Pa?zz=Q9x:",
                 CUBRIDDriver.uriSingleToClassicUrl("jdbc:cubrid://h:1/db:u:Pa?zz=Q9x:"));
@@ -335,18 +338,84 @@ public class CUBRIDDriverUrlModeTest {
                 "jdbc:cubrid:h:1:db:u:Pa?z:?charSet=utf-8",
                 CUBRIDDriver.uriSingleToClassicUrl("jdbc:cubrid://h:1/db:u:Pa?z:?charSet=utf-8"));
         assertEquals(
-                "jdbc:cubrid:h:1:db:u:p:?a=1",
-                CUBRIDDriver.uriSingleToClassicUrl("jdbc:cubrid://h:1/db:u:p?a=1"));
-        assertEquals(
                 "jdbc:cubrid://h:1/db:u:********:",
                 CUBRIDDriver.maskUriUrlPassword("jdbc:cubrid://h:1/db:u:Pa?zz=Q9x:", null));
         assertEquals(
                 "jdbc:cubrid:loadbalance://h/db:u:********:?a=1",
                 CUBRIDDriver.maskUriUrlPassword(
                         "jdbc:cubrid:loadbalance://h/db:u:Pa?z:?a=1", null));
+    }
+
+    /**
+     * As in a classic URL, {@code db:user:pw:} is always written in full and only its values may be
+     * empty ({@code db:::}), so a ':' in an option value is never read as a credential separator.
+     */
+    @Test
+    public void credentialFieldsAreAlwaysWritten() throws SQLException {
         assertEquals(
-                "jdbc:cubrid://h:1/db:u:********:?a=x:y:z",
+                "jdbc:cubrid:h:33000:db:::?altHosts=h2:33000",
+                CUBRIDDriver.uriSingleToClassicUrl(
+                        "jdbc:cubrid://h:33000/db:::?altHosts=h2:33000"));
+        assertEquals(
+                "jdbc:cubrid:h:33000:db:dba::?altHosts=h2:33000",
+                CUBRIDDriver.uriSingleToClassicUrl(
+                        "jdbc:cubrid://h:33000/db:dba::?altHosts=h2:33000"));
+
+        String[] shortForms = {
+            "jdbc:cubrid://h:33000/db",
+            "jdbc:cubrid://h:33000/db?altHosts=h2:33000",
+            "jdbc:cubrid://h:33000/db:dba?altHosts=h2:33000",
+            "jdbc:cubrid://h:33000/db:dba:?altHosts=h2:33000",
+            "jdbc:cubrid://h:33000/db:dba:pw?altHosts=h2:33000",
+        };
+        for (String url : shortForms) {
+            try {
+                CUBRIDDriver.uriSingleToClassicUrl(url);
+                fail("expected invalid URL for " + url);
+            } catch (SQLException e) {
+                assertTrue(e.getMessage(), e.getMessage().toLowerCase().contains("invalid url"));
+            }
+        }
+    }
+
+    /**
+     * A short credential form does not say where its password ends, so the error quoting it hides
+     * everything after the database name.
+     */
+    @Test
+    public void shortCredentialFormErrorDoesNotQuoteThePassword() {
+        assertEquals(
+                "jdbc:cubrid://h:1/db:********",
+                CUBRIDDriver.maskUriUrlPassword("jdbc:cubrid://h:1/db:u:se?cret", null));
+        assertEquals(
+                "jdbc:cubrid://h:1/db:********",
                 CUBRIDDriver.maskUriUrlPassword("jdbc:cubrid://h:1/db:u:p?a=x:y:z", null));
+        assertEquals(
+                "jdbc:cubrid://h:1/db?a=1",
+                CUBRIDDriver.maskUriUrlPassword("jdbc:cubrid://h:1/db?a=1", null));
+    }
+
+    /**
+     * m31: other drivers' URIs put user:password@ in front of the host. That is no part of the
+     * CUBRID form, and its password showed in the invalid-URL message.
+     */
+    @Test
+    public void userInfoInFrontOfTheHostIsNotQuotedInTheError() {
+        String[] malformed = {
+            "jdbc:cubrid://dba:S3cret@127.0.0.1:1/db",
+            "jdbc:cubrid://dba:S3cret@127.0.0.1:1/db:::",
+            "jdbc:cubrid://dba:S3cret@127.0.0.1:1/db?charSet=utf-8",
+            "jdbc:cubrid://dba:a/S3cret@127.0.0.1:1/db" // a '/' in the password
+        };
+        for (String url : malformed) {
+            try {
+                driver.connect(url, new Properties());
+                fail("must be refused: " + url);
+            } catch (SQLException e) {
+                assertFalse(e.getMessage(), e.getMessage().contains("S3cret"));
+                assertTrue(e.getMessage(), e.getMessage().contains("jdbc:cubrid://********"));
+            }
+        }
     }
 
     /**
@@ -367,10 +436,10 @@ public class CUBRIDDriverUrlModeTest {
                 CUBRIDDriver.uriSingleLogUrl("jdbc:Cubrid:///tdb:::?rcTime=600", info));
         assertEquals(
                 "jdbc:cubrid://h:30000/tdb:dba:********:",
-                CUBRIDDriver.uriSingleLogUrl("jdbc:cubrid://h/tdb", info));
+                CUBRIDDriver.uriSingleLogUrl("jdbc:cubrid://h/tdb:::", info));
         assertEquals(
                 "jdbc:cubrid://localhost:33000/tdb:dba:********:",
-                CUBRIDDriver.uriSingleLogUrl("jdbc:cubrid://:33000/tdb", info));
+                CUBRIDDriver.uriSingleLogUrl("jdbc:cubrid://:33000/tdb:::", info));
         assertEquals(
                 "jdbc:cubrid://h:1/tdb:dba:********:?charSet=utf-8",
                 CUBRIDDriver.uriSingleLogUrl(
@@ -435,7 +504,7 @@ public class CUBRIDDriverUrlModeTest {
     public void uriUrlWithoutDatabaseSeparatorErrorDoesNotQuoteThePassword() {
         String[] urls = {
             "jdbc:cubrid://node1:33000:testdb:dba:s3cret:",
-            "jdbc:cubrid://node1:33000:testdb:dba:s3cret:?charSet=a/b"
+            "jdbc:cubrid://node1:33000:testdb:dba:s3cret:?charSet=a/b:::"
         };
         for (String url : urls) {
             try {
@@ -452,9 +521,9 @@ public class CUBRIDDriverUrlModeTest {
                 CUBRIDDriver.maskUriUrlPassword(
                         "jdbc:cubrid:loadbalance://node1:33000:testdb:dba:s3cret:", null));
         assertEquals(
-                "jdbc:cubrid://node1:********?charSet=a/b",
+                "jdbc:cubrid://node1:********?charSet=a/b:::",
                 CUBRIDDriver.maskUriUrlPassword(
-                        "jdbc:cubrid://node1:33000:testdb:dba:s3cret:?charSet=a/b", null));
+                        "jdbc:cubrid://node1:33000:testdb:dba:s3cret:?charSet=a/b:::", null));
         assertEquals(
                 "jdbc:cubrid:loadbalance://node1,node2?rcTime=600",
                 CUBRIDDriver.maskUriUrlPassword(

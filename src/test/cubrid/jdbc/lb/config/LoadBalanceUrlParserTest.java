@@ -58,10 +58,6 @@ public class LoadBalanceUrlParserTest {
                         "jdbc:cubrid:loadbalance://h1/tdb:u:Pa?z:?readWeight=slave:1");
         assertEquals("Pa?z", p.getPassword());
         assertEquals("slave:1", p.getOptions().get("readWeight"));
-
-        p = LoadBalanceUrlParser.parse("jdbc:cubrid:loadbalance://h1/tdb:u:pw?readWeight=slave:1");
-        assertEquals("pw", p.getPassword());
-        assertEquals("slave:1", p.getOptions().get("readWeight"));
     }
 
     @Test
@@ -71,7 +67,7 @@ public class LoadBalanceUrlParserTest {
             "jdbc:cubrid:loadbalance://node1,node2/testdb:dba:s3cret:extra",
             // No '/<db>' at all, or a '/' only in an option value
             "jdbc:cubrid:loadbalance://node1:33000:testdb:dba:s3cret:",
-            "jdbc:cubrid:loadbalance://node1:33000:testdb:dba:s3cret:?charSet=a/b"
+            "jdbc:cubrid:loadbalance://node1:33000:testdb:dba:s3cret:?charSet=a/b:::"
         };
         for (String url : malformed) {
             try {
@@ -82,6 +78,33 @@ public class LoadBalanceUrlParserTest {
                 assertTrue(
                         "still quoted, masked: " + e.getMessage(),
                         e.getMessage().contains("********"));
+            }
+        }
+    }
+
+    /**
+     * m31: a user:password@ in front of a host quoted its password in the host token, the URL and
+     * the port error's cause. A '/' in that password moves part of it into the database name.
+     */
+    @Test
+    public void userInfoInFrontOfAHostIsNotQuotedInTheError() {
+        String[] malformed = {
+            "jdbc:cubrid:loadbalance://dba:S3cret@127.0.0.1:1:2/db",
+            "jdbc:cubrid:loadbalance://dba:S3cret@127.0.0.1/db:::",
+            "jdbc:cubrid:loadbalance://node1,dba:S3cret@node2/db:::?readWeight=slave:1",
+            "jdbc:cubrid:loadbalance://dba:a/S3cret@127.0.0.1/db:::",
+            "jdbc:cubrid:loadbalance://dba:123/S3cret@127.0.0.1/db:::"
+        };
+        for (String url : malformed) {
+            try {
+                LoadBalanceUrlParser.parse(url);
+                fail("must be refused: " + url);
+            } catch (SQLException e) {
+                assertFalse(e.getMessage(), e.getMessage().contains("S3cret"));
+                for (Throwable t = e.getCause(); t != null; t = t.getCause()) {
+                    assertFalse(String.valueOf(t), String.valueOf(t).contains("S3cret"));
+                }
+                assertTrue(e.getMessage(), e.getMessage().contains("loadbalance://********"));
             }
         }
     }
@@ -153,10 +176,10 @@ public class LoadBalanceUrlParserTest {
     }
 
     @Test
-    public void parsesWithoutCredentials() throws SQLException {
+    public void parsesEmptyCredentials() throws SQLException {
         ParsedUrl p =
                 LoadBalanceUrlParser.parse(
-                        "jdbc:cubrid:loadbalance://node1,node2/testdb?rwPort=33000");
+                        "jdbc:cubrid:loadbalance://node1,node2/testdb:::?rwPort=33000");
 
         assertEquals("testdb", p.getDb());
         assertNull(p.getUser());
@@ -165,21 +188,26 @@ public class LoadBalanceUrlParserTest {
         assertTrue(p.getReplicas().isEmpty());
     }
 
+    /**
+     * As in a classic URL, {@code db:user:pw:} is written in full; only its values may be empty.
+     */
     @Test
-    public void parsesCredentialsWithoutTrailingColon() throws SQLException {
-        ParsedUrl p =
-                LoadBalanceUrlParser.parse("jdbc:cubrid:loadbalance://node1/testdb:dba:secret");
-
-        assertEquals("testdb", p.getDb());
-        assertEquals("dba", p.getUser());
-        assertEquals("secret", p.getPassword());
+    public void rejectsShortCredentialForms() {
+        assertParseFails("jdbc:cubrid:loadbalance://node1/testdb");
+        assertParseFails("jdbc:cubrid:loadbalance://node1/testdb?rwPort=33000");
+        assertParseFails("jdbc:cubrid:loadbalance://node1/testdb:dba");
+        assertParseFails("jdbc:cubrid:loadbalance://node1/testdb:dba:");
+        assertParseFails("jdbc:cubrid:loadbalance://node1/testdb:dba:secret");
+        assertParseFails("jdbc:cubrid:loadbalance://node1/testdb:dba?readWeight=slave:1");
+        assertParseFails("jdbc:cubrid:loadbalance://node1/testdb:dba:pw?readWeight=slave:1");
     }
 
     /** The driver connects a single-node URI URL through the classic path; it never comes here. */
     @Test
     public void rejectsSingleNodeUriUrl() {
         String[] singleNode = {
-            "jdbc:cubrid://localhost:33000/demodb", "jdbc:cubrid-oracle://h1:33000,h2:33000/demodb"
+            "jdbc:cubrid://localhost:33000/demodb:::",
+            "jdbc:cubrid-oracle://h1:33000,h2:33000/demodb:::"
         };
         for (String url : singleNode) {
             try {
@@ -195,17 +223,19 @@ public class LoadBalanceUrlParserTest {
     public void parsesVariant() throws SQLException {
         assertEquals(
                 "-mysql",
-                LoadBalanceUrlParser.parse("jdbc:cubrid-mysql:loadbalance://n1/db").getVariant());
+                LoadBalanceUrlParser.parse("jdbc:cubrid-mysql:loadbalance://n1/db:::")
+                        .getVariant());
         assertEquals(
                 "-oracle",
-                LoadBalanceUrlParser.parse("jdbc:cubrid-oracle:loadbalance://h:1/db").getVariant());
+                LoadBalanceUrlParser.parse("jdbc:cubrid-oracle:loadbalance://h:1/db:::")
+                        .getVariant());
     }
 
     @Test
     public void parsesOptionsSeparatedBySemicolon() throws SQLException {
         ParsedUrl p =
                 LoadBalanceUrlParser.parse(
-                        "jdbc:cubrid:loadbalance://n1/db?charSet=utf-8;rwPort=33000");
+                        "jdbc:cubrid:loadbalance://n1/db:::?charSet=utf-8;rwPort=33000");
 
         assertEquals("utf-8", p.getOptions().get("charSet"));
         assertEquals("33000", p.getOptions().get("rwPort"));
@@ -215,7 +245,8 @@ public class LoadBalanceUrlParserTest {
     @Test
     public void duplicateOptionKeyLastWins() throws SQLException {
         ParsedUrl p =
-                LoadBalanceUrlParser.parse("jdbc:cubrid:loadbalance://n1/db?rwPort=100&RWPort=200");
+                LoadBalanceUrlParser.parse(
+                        "jdbc:cubrid:loadbalance://n1/db:::?rwPort=100&RWPort=200");
 
         // only the last occurrence survives; lookup is case-insensitive
         assertEquals("200", p.getOptions().get("RWPort"));
@@ -225,7 +256,7 @@ public class LoadBalanceUrlParserTest {
 
     @Test
     public void noReplicaYieldsEmptyReplicaList() throws SQLException {
-        ParsedUrl p = LoadBalanceUrlParser.parse("jdbc:cubrid:loadbalance://n1,n2/db");
+        ParsedUrl p = LoadBalanceUrlParser.parse("jdbc:cubrid:loadbalance://n1,n2/db:::");
 
         assertEquals(2, p.getHosts().size());
         assertTrue(p.getReplicas().isEmpty());
@@ -256,17 +287,17 @@ public class LoadBalanceUrlParserTest {
 
     @Test
     public void rejectsNonNumericPort() {
-        assertParseFails("jdbc:cubrid:loadbalance://node1:abc/db");
+        assertParseFails("jdbc:cubrid:loadbalance://node1:abc/db:::");
     }
 
     @Test
     public void rejectsTooManyPortSegments() {
-        assertParseFails("jdbc:cubrid:loadbalance://node1:1:2:3/db");
+        assertParseFails("jdbc:cubrid:loadbalance://node1:1:2:3/db:::");
     }
 
     @Test
     public void rejectsEmptyHostToken() {
-        assertParseFails("jdbc:cubrid:loadbalance://node1,,node2/db");
+        assertParseFails("jdbc:cubrid:loadbalance://node1,,node2/db:::");
     }
 
     /** db-cred beyond db:user:pw(:) is malformed — core rejects it, so LB must too. */
@@ -287,18 +318,18 @@ public class LoadBalanceUrlParserTest {
 
     @Test
     public void rejectsEmptyReplicaListAfterMarker() {
-        assertParseFails("jdbc:cubrid:loadbalance://node1;replica=/db");
+        assertParseFails("jdbc:cubrid:loadbalance://node1;replica=/db:::");
     }
 
     @Test
     public void rejectsIpv6Host() {
-        assertParseFails("jdbc:cubrid:loadbalance://::1/db");
+        assertParseFails("jdbc:cubrid:loadbalance://::1/db:::");
     }
 
     @Test
     public void rejectsMalformedOption() {
-        assertParseFails("jdbc:cubrid:loadbalance://n1/db?=novalue");
-        assertParseFails("jdbc:cubrid:loadbalance://n1/db?novalue");
+        assertParseFails("jdbc:cubrid:loadbalance://n1/db:::?=novalue");
+        assertParseFails("jdbc:cubrid:loadbalance://n1/db:::?novalue");
     }
 
     private static void assertParseFails(String url) {

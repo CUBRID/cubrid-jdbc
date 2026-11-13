@@ -49,11 +49,13 @@ read-write broker; reads go to the brokers chosen by `readWeight`.
   jdbc:cubrid:<host>:<port>:<db>:<user>:<password>:[?options]
 
   # single node, URI form
-  jdbc:cubrid://<host>[:<port>]/<db>[:<user>[:<password>[:]]][?options]
+  jdbc:cubrid://<host>[:<port>]/<db>:<user>:<password>:[?options]
 
   # load-balanced: the first host is the master, the others slaves; replicas after ;replica=
-  jdbc:cubrid:loadbalance://node1,node2;replica=rep1/<db>[:<user>:<password>:]?rwPort=33000&roPort=33002&soPort=33004&readWeight=slave:2,master:1,replica:1
+  jdbc:cubrid:loadbalance://node1,node2;replica=rep1/<db>:<user>:<password>:?rwPort=33000&roPort=33002&soPort=33004&readWeight=slave:2,master:1,replica:1
   ```
+  As in the classic form, `<db>:<user>:<password>:` is always written in full; the user and
+  password may be left empty (`<db>:::`) and passed to `getConnection(url, user, password)`.
 - Main options (load-balanced URLs only)
 
   | option | meaning |

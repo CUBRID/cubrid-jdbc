@@ -1227,6 +1227,39 @@ public class KeywordSqlClassifierTest {
         }
     }
 
+    /** UNIX_TIMESTAMP(d) converts d; only the empty call reads the node's clock. */
+    @Test
+    public void unixTimestampReadsTheClockOnlyWhenCalledEmpty() {
+        String[] rw = {
+            "SELECT UNIX_TIMESTAMP ( ) FROM db_root",
+            "SELECT UNIX_TIMESTAMP(/* now */) FROM db_root",
+            "SELECT \"UNIX_TIMESTAMP\"() FROM db_root",
+            "SELECT UNIX_TIMESTAMP(SYSDATE) FROM db_root"
+        };
+        for (String sql : rw) {
+            assertEquals(sql, SqlClassification.UNKNOWN, classifier.classify(sql));
+        }
+        String[] read = {
+            "SELECT UNIX_TIMESTAMP(created_at) FROM t",
+            "select unix_timestamp(?) from db_root",
+            "SELECT \"UNIX_TIMESTAMP\"(created_at) FROM t"
+        };
+        for (String sql : read) {
+            assertEquals(sql, SqlClassification.READ, classifier.classify(sql));
+        }
+    }
+
+    /** The engine evaluates a clock or USER column default on the node that runs DEFAULT(col). */
+    @Test
+    public void defaultOfAColumnRunsOnRw() {
+        assertEquals(
+                SqlClassification.UNKNOWN,
+                classifier.classify("SELECT DEFAULT(created_at) FROM t"));
+        assertEquals(
+                SqlClassification.UNKNOWN,
+                classifier.classify("select a from t where b = default(b)"));
+    }
+
     /** No released server has these built-ins, so the name can only be a user routine. */
     @Test
     public void namesNoReleasedServerHasAreUserRoutines() {

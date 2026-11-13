@@ -63,7 +63,7 @@ import org.junit.Test;
 public class RoleReadSelectorChurnTest {
 
     private static final String URL =
-            "jdbc:cubrid:loadbalance://node1,node2;replica=rep1/db"
+            "jdbc:cubrid:loadbalance://node1,node2;replica=rep1/db:::"
                     + "?rwPort=33000&roPort=33002&soPort=33004"
                     + "&readWeight=slave:40,master:10,replica:50";
 

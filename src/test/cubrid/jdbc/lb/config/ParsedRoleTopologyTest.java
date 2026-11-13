@@ -49,7 +49,7 @@ public class ParsedRoleTopologyTest {
     @Test
     public void assignsFirstHostAsMasterRestAsSlavesAndReplicaList() throws SQLException {
         ParsedRoleTopology t =
-                topologyOf("jdbc:cubrid:loadbalance://node1,node2,node3;replica=rep1/testdb");
+                topologyOf("jdbc:cubrid:loadbalance://node1,node2,node3;replica=rep1/testdb:::");
 
         assertEquals("node1", t.getMasterHost());
         assertEquals(Arrays.asList("node2", "node3"), t.getSlaveHosts());
@@ -61,7 +61,7 @@ public class ParsedRoleTopologyTest {
 
     @Test
     public void singleHostIsMasterOnly() throws SQLException {
-        ParsedRoleTopology t = topologyOf("jdbc:cubrid:loadbalance://node1/testdb");
+        ParsedRoleTopology t = topologyOf("jdbc:cubrid:loadbalance://node1/testdb:::");
 
         assertEquals("node1", t.getMasterHost());
         assertFalse(t.hasSlaves());
@@ -72,7 +72,7 @@ public class ParsedRoleTopologyTest {
 
     @Test
     public void hostsWithoutReplicaYieldNoReplicas() throws SQLException {
-        ParsedRoleTopology t = topologyOf("jdbc:cubrid:loadbalance://node1,node2/testdb");
+        ParsedRoleTopology t = topologyOf("jdbc:cubrid:loadbalance://node1,node2/testdb:::");
 
         assertEquals("node1", t.getMasterHost());
         assertEquals(Arrays.asList("node2"), t.getSlaveHosts());
@@ -82,7 +82,8 @@ public class ParsedRoleTopologyTest {
     @Test
     public void multipleReplicasPreservedInOrder() throws SQLException {
         ParsedRoleTopology t =
-                topologyOf("jdbc:cubrid:loadbalance://node1,node2;replica=rep1,rep2,rep3/testdb");
+                topologyOf(
+                        "jdbc:cubrid:loadbalance://node1,node2;replica=rep1,rep2,rep3/testdb:::");
 
         assertEquals(Arrays.asList("node2"), t.getSlaveHosts());
         assertEquals(Arrays.asList("rep1", "rep2", "rep3"), t.getReplicaHosts());
@@ -96,7 +97,7 @@ public class ParsedRoleTopologyTest {
         ParsedRoleTopology t =
                 topologyOf(
                         "jdbc:cubrid:loadbalance://node1:33000:33002,node2:34000:34002"
-                                + ";replica=rep1:33004/testdb");
+                                + ";replica=rep1:33004/testdb:::");
 
         assertEquals(33000, t.getMaster().getRwPort());
         assertEquals(33002, t.getMaster().getRoPort());

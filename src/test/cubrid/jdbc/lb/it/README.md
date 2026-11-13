@@ -110,7 +110,7 @@ Master/slave cluster, every suite:
 ```sh
 ant test-it-all \
   -Dlb.it.enabled=true \
-  -Dlb.it.jdbc.url='jdbc:cubrid:loadbalance://192.168.2.197:30000:33000,192.168.2.196:30000:33000/tdb?readWeight=master:50,slave:50' \
+  -Dlb.it.jdbc.url='jdbc:cubrid:loadbalance://192.168.2.197:30000:33000,192.168.2.196:30000:33000/tdb:::?readWeight=master:50,slave:50' \
   -Dlb.it.jdbc.user=dba \
   -Dlb.it.jdbc.password= \
   -Dlb.it.table=lb_scenario_it
@@ -121,7 +121,7 @@ With a replica rung:
 ```sh
 ant test-it-all \
   -Dlb.it.enabled=true \
-  -Dlb.it.jdbc.url='jdbc:cubrid:loadbalance://192.168.2.197:30000:33000,192.168.2.196:30000:33000;replica=192.168.2.195:36000/tdb?readWeight=master:33,slave:33,replica:34' \
+  -Dlb.it.jdbc.url='jdbc:cubrid:loadbalance://192.168.2.197:30000:33000,192.168.2.196:30000:33000;replica=192.168.2.195:36000/tdb:::?readWeight=master:33,slave:33,replica:34' \
   -Dlb.it.jdbc.user=dba -Dlb.it.jdbc.password= -Dlb.it.table=lb_scenario_it
 ```
 

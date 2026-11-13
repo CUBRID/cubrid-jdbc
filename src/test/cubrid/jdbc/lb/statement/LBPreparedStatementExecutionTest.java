@@ -300,6 +300,22 @@ public class LBPreparedStatementExecutionTest {
         }
     }
 
+    /**
+     * m22: LB ran executeInsert(String) on a separate statement and kept its own SQL, while core
+     * swapped its prepared statement for that SQL. Both now refuse it; core's refusal answers.
+     */
+    @Test
+    public void assertExecuteInsertWithSqlIsRefused() throws Exception {
+        LBPreparedStatement statement =
+                (LBPreparedStatement) connection.prepareStatement("INSERT INTO a VALUES (?)");
+        try {
+            statement.executeInsert("INSERT INTO b VALUES (1)");
+            fail("a PreparedStatement runs only the SQL it prepared");
+        } catch (java.sql.SQLFeatureNotSupportedException expected) {
+            assertEquals(CUBRIDJDBCErrorCode.not_supported, expected.getErrorCode());
+        }
+    }
+
     @Test
     public void assertP1StreamAndLobSettersAreReplayed() throws Exception {
         LBPreparedStatement statement =

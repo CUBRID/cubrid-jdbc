@@ -45,6 +45,7 @@ import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.connection.ConnectionTestAccess;
 import cubrid.jdbc.lb.connection.JdbcConnectionFactory;
+import cubrid.jdbc.lb.connection.SessionPhysicalConnManager;
 import cubrid.jdbc.lb.failover.PhysicalRecoveryContext;
 import cubrid.jdbc.lb.failover.PhysicalRecoveryResult;
 import cubrid.jdbc.lb.failover.UnreachableEndpoints;
@@ -54,12 +55,16 @@ import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Properties;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -102,6 +107,52 @@ public class LoadBalanceConnectionRecoverPhyBindingTest {
         assertEquals("rw:33000", ctx.getFailedEndpoint().getId());
 
         conn.close();
+    }
+
+    /**
+     * M13: every read broker was down at bind, so reads ran on the RW connection (roOnRw), and then
+     * the master's RW broker died. The read failed on the RW leg but was recovered as a read: the
+     * RO ladder failed again and handed back the same dead RW connection, so every read failed
+     * until a write moved the RW leg. The RW leg is what failed, so it moves, and the read with it.
+     */
+    @Test
+    public void readOnTheSharedRwConnectionMovesTheWriteLegWhenTheMasterDies() throws SQLException {
+        final Set<Object> dead = Collections.synchronizedSet(new HashSet<Object>());
+        JdbcConnectionFactory factory =
+                new JdbcConnectionFactory() {
+                    public Connection getConnection(final String url, final Properties info)
+                            throws SQLException {
+                        if (url.contains(":33001:")) {
+                            throw new SQLException(
+                                    "read broker down", null, UErrorCode.ER_CONNECTION);
+                        }
+                        return executingConnection(dead);
+                    }
+                };
+        LoadBalanceSettings config =
+                LbTestSettings.fromUrl(
+                        "jdbc:cubrid:loadbalance://m13rw,m13sl/testdb:::"
+                                + "?rwPort=33000&roPort=33001&readWeight=slave:1");
+        SessionPhysicalConnManager mgr =
+                ConnectionTestAccess.newSessionPhysicalConnManager(
+                        LOGICAL_URL, new Properties(), config, factory);
+        LoadBalanceConnection conn = new LoadBalanceConnection(config);
+        conn.setConnectionManager(mgr);
+        conn.setSharedSelectorState(new SharedSelectorState());
+        try {
+            conn.initSessionBindings(config.buildEndpointTopology());
+            assertTrue(mgr.isReadOnRwConnection());
+            dead.add(mgr.boundConnection(SessionLeg.RW));
+
+            conn.prepareStatement("SELECT a FROM t").executeQuery();
+
+            assertEquals("m13sl:33000", conn.getCurrentEp(SessionLeg.RW).getId());
+        } finally {
+            conn.close();
+            for (String id : new String[] {"m13rw:33001", "m13sl:33001"}) {
+                UUnreachableHostList.getInstance().remove(id);
+            }
+        }
     }
 
     /**
@@ -802,6 +853,87 @@ public class LoadBalanceConnectionRecoverPhyBindingTest {
                                 return null;
                             }
                         });
+    }
+
+    /**
+     * A physical connection whose statements fail like a lost broker once it is in {@code dead}.
+     */
+    private static Connection executingConnection(final Set<Object> dead) {
+        return (Connection)
+                Proxy.newProxyInstance(
+                        Connection.class.getClassLoader(),
+                        new Class[] {Connection.class},
+                        new InvocationHandler() {
+                            public Object invoke(
+                                    final Object proxy, final Method method, final Object[] args) {
+                                String name = method.getName();
+                                if ("hashCode".equals(name)) {
+                                    return Integer.valueOf(System.identityHashCode(proxy));
+                                }
+                                if ("equals".equals(name)) {
+                                    return Boolean.valueOf(proxy == args[0]);
+                                }
+                                if ("prepareStatement".equals(name)) {
+                                    return executingStatement(proxy, dead);
+                                }
+                                if ("getAutoCommit".equals(name)) {
+                                    return Boolean.TRUE;
+                                }
+                                return defaultFor(method.getReturnType());
+                            }
+                        });
+    }
+
+    private static PreparedStatement executingStatement(
+            final Object owner, final Set<Object> dead) {
+        return (PreparedStatement)
+                Proxy.newProxyInstance(
+                        PreparedStatement.class.getClassLoader(),
+                        new Class[] {PreparedStatement.class},
+                        new InvocationHandler() {
+                            public Object invoke(
+                                    final Object proxy, final Method method, final Object[] args)
+                                    throws SQLException {
+                                String name = method.getName();
+                                if ("hashCode".equals(name)) {
+                                    return Integer.valueOf(System.identityHashCode(proxy));
+                                }
+                                if ("equals".equals(name)) {
+                                    return Boolean.valueOf(proxy == args[0]);
+                                }
+                                if ("getConnection".equals(name)) {
+                                    return owner;
+                                }
+                                if (name.startsWith("execute") && dead.contains(owner)) {
+                                    throw new SQLException(
+                                            "broker gone", null, UErrorCode.ER_COMMUNICATION);
+                                }
+                                if ("executeQuery".equals(name)) {
+                                    return Proxy.newProxyInstance(
+                                            ResultSet.class.getClassLoader(),
+                                            new Class[] {ResultSet.class},
+                                            new InvocationHandler() {
+                                                public Object invoke(
+                                                        final Object rs,
+                                                        final Method m,
+                                                        final Object[] a) {
+                                                    return defaultFor(m.getReturnType());
+                                                }
+                                            });
+                                }
+                                return defaultFor(method.getReturnType());
+                            }
+                        });
+    }
+
+    private static Object defaultFor(final Class<?> type) {
+        if (type.equals(Boolean.TYPE)) {
+            return Boolean.FALSE;
+        }
+        if (type.equals(Integer.TYPE)) {
+            return Integer.valueOf(0);
+        }
+        return null;
     }
 
     private static EndpointTopology topology(final String rwHost, final String roHost) {

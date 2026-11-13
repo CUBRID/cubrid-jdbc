@@ -58,6 +58,7 @@ import java.util.HashSet;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.After;
 import org.junit.Test;
 
@@ -95,7 +96,7 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
     public void softExcludedIdsIsEmptyWhenNoEndpointIsUnreachable() {
         SessionPhysicalConnManager mgr = newManager(new RecoveryBackoff(3000));
 
-        assertTrue(mgr.softExcludedIds(topo, 42L).isEmpty());
+        assertTrue(mgr.softExcludedIds(topo, Arrays.asList(ro), 42L).isEmpty());
     }
 
     @Test
@@ -105,12 +106,15 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
         long t0 = 42L;
 
         // First call claims the probe -> RO leaves the exclude set (gate bypass).
-        assertTrue(mgr.softExcludedIds(topo, t0).isEmpty());
+        assertTrue(mgr.softExcludedIds(topo, Arrays.asList(ro), t0).isEmpty());
         // Within the window the claim is spent -> RO is excluded as before.
-        assertEquals(Collections.singleton(RO_ID), mgr.softExcludedIds(topo, t0));
-        assertEquals(Collections.singleton(RO_ID), mgr.softExcludedIds(topo, t0 + 2999 * MS));
+        assertEquals(
+                Collections.singleton(RO_ID), mgr.softExcludedIds(topo, Arrays.asList(ro), t0));
+        assertEquals(
+                Collections.singleton(RO_ID),
+                mgr.softExcludedIds(topo, Arrays.asList(ro), t0 + 2999 * MS));
         // Window elapsed -> allowed through again.
-        assertTrue(mgr.softExcludedIds(topo, t0 + 3000 * MS).isEmpty());
+        assertTrue(mgr.softExcludedIds(topo, Arrays.asList(ro), t0 + 3000 * MS).isEmpty());
     }
 
     @Test
@@ -121,8 +125,21 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
         SessionPhysicalConnManager mgrB = newManager(shared);
         long t0 = 42L;
 
-        assertTrue(mgrA.softExcludedIds(topo, t0).isEmpty());
-        assertEquals(Collections.singleton(RO_ID), mgrB.softExcludedIds(topo, t0));
+        assertTrue(mgrA.softExcludedIds(topo, Arrays.asList(ro), t0).isEmpty());
+        assertEquals(
+                Collections.singleton(RO_ID), mgrB.softExcludedIds(topo, Arrays.asList(ro), t0));
+    }
+
+    // m38: the claim is spent only on the endpoints the caller passes as candidates.
+    @Test
+    public void softExcludedIdsClaimsOnlyTheGivenCandidates() {
+        UUnreachableHostList.getInstance().add(RO_ID);
+        SessionPhysicalConnManager mgr = newManager(new RecoveryBackoff(3000));
+        long t0 = 42L;
+
+        assertEquals(
+                Collections.singleton(RO_ID), mgr.softExcludedIds(topo, Arrays.asList(rw), t0));
+        assertTrue(mgr.softExcludedIds(topo, Arrays.asList(ro), t0).isEmpty());
     }
 
     @Test
@@ -506,9 +523,12 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
     @Test
     public void oneSessionRestoreImmediatelyPropagatesToOtherSessions() throws SQLException {
         final AtomicBoolean roUp = new AtomicBoolean(false);
-        RecoveryBackoff shared = new RecoveryBackoff(3600000); // one claim only
-        SessionPhysicalConnManager mgrA = newManager(shared, roGatedFactory(roUp));
-        SessionPhysicalConnManager mgrB = newManager(shared, roGatedFactory(roUp));
+        // One claim per session. B binds after A has listed RO, so B's bind spends B's claim on a
+        // probe while RO is still down; B can then come back only through A clearing the list.
+        SessionPhysicalConnManager mgrA =
+                newManager(new RecoveryBackoff(3600000), roGatedFactory(roUp));
+        SessionPhysicalConnManager mgrB =
+                newManager(new RecoveryBackoff(3600000), roGatedFactory(roUp));
 
         try {
             // Both sessions bind while RO is down -> both roOnRw, RO listed.
@@ -520,12 +540,13 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
 
             roUp.set(true);
 
-            // Session A claims the single probe and restores -> markReachable clears the list.
+            // Session A claims its probe and restores -> markReachable clears the list.
             assertEquals(ro, mgrA.restoreRoIfRecovered());
             assertFalse(UUnreachableHostList.getInstance().contains(RO_ID));
 
-            // Session B never probes (window is huge) yet restores immediately on its next read
-            // because the endpoint is no longer listed: the propagation path.
+            // Session B cannot probe (its claim is spent, the window is huge) yet restores
+            // immediately on its next read because the endpoint is no longer listed: the
+            // propagation path.
             assertEquals(ro, mgrB.restoreRoIfRecovered());
             assertEquals("NONE", mgrB.getRoFallbackReason());
         } finally {
@@ -555,6 +576,114 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
 
             assertEquals(ro, restored);
             assertEquals("NONE", mgr.getRoFallbackReason());
+        } finally {
+            mgr.releasePhysicalConnections();
+        }
+    }
+
+    // M12: a new session must reach a broker that is back but still listed. The bind path used to
+    // hard-exclude the list and throw -23010 without dialing until the 60s JCI poll cleared it.
+    @Test
+    public void bindRwOnlyDialsListedRwOnceItsProbeIsDue() throws SQLException {
+        UUnreachableHostList.getInstance().add(RW_ID);
+        SessionPhysicalConnManager mgr = newManager(new RecoveryBackoff(3000), alwaysUpFactory());
+        try {
+            mgr.bindSessionRwOnly(rw, topo);
+
+            assertEquals(rw, mgr.getSessionEndpoint(SessionLeg.RW));
+            assertFalse(UUnreachableHostList.getInstance().contains(RW_ID));
+        } finally {
+            mgr.releasePhysicalConnections();
+        }
+    }
+
+    // M12: one caller per window wins the probe; the other new sessions in that window must still
+    // dial the listed RW once more, as core's reconnect() does, instead of failing undialed.
+    @Test
+    public void bindRwOnlyDialsListedRwWhileAnotherCallerHoldsTheProbe() throws SQLException {
+        UUnreachableHostList.getInstance().add(RW_ID);
+        RecoveryBackoff backoff = new RecoveryBackoff(3600000);
+        assertTrue(backoff.tryClaimProbe(RW_ID, System.nanoTime()));
+        SessionPhysicalConnManager mgr = newManager(backoff, alwaysUpFactory());
+        try {
+            mgr.bindSessionRwOnly(rw, topo);
+
+            assertEquals(rw, mgr.getSessionEndpoint(SessionLeg.RW));
+        } finally {
+            mgr.releasePhysicalConnections();
+        }
+    }
+
+    // M12 with m38: the RW step must not spend the RO endpoint's probe, or the RO step finds it
+    // held and puts the read leg on RW although the read broker is up.
+    @Test
+    public void bindSessionDialsListedRwAndRoOnceTheirProbesAreDue() throws SQLException {
+        UUnreachableHostList.getInstance().add(RW_ID);
+        UUnreachableHostList.getInstance().add(RO_ID);
+        SessionPhysicalConnManager mgr = newManager(new RecoveryBackoff(3000), alwaysUpFactory());
+        try {
+            mgr.bindSession(rw, ro, topo);
+
+            assertEquals(rw, mgr.getSessionEndpoint(SessionLeg.RW));
+            assertEquals("NONE", mgr.getRoFallbackReason());
+        } finally {
+            mgr.releasePhysicalConnections();
+        }
+    }
+
+    // The read leg has roOnRw to fall back on, so the bind does not dial a listed RO whose probe
+    // another caller holds; a down read broker would otherwise slow every getConnection().
+    @Test
+    public void bindSessionPutsReadsOnRwWithoutDialingListedRoWhoseProbeIsHeld()
+            throws SQLException {
+        UUnreachableHostList.getInstance().add(RO_ID);
+        RecoveryBackoff backoff = new RecoveryBackoff(3600000);
+        assertTrue(backoff.tryClaimProbe(RO_ID, System.nanoTime()));
+        final AtomicInteger roDials = new AtomicInteger();
+        JdbcConnectionFactory factory =
+                new JdbcConnectionFactory() {
+                    public Connection getConnection(final String url, final Properties info) {
+                        if (url.contains(RO_ID)) {
+                            roDials.incrementAndGet();
+                        }
+                        return connectionProxy();
+                    }
+                };
+        SessionPhysicalConnManager mgr = newManager(backoff, factory);
+        try {
+            mgr.bindSession(rw, ro, topo);
+
+            assertEquals(
+                    SessionPhysicalConnManager.RO_PHYSICAL_FAILOVER_REASON,
+                    mgr.getRoFallbackReason());
+            assertEquals(0, roDials.get());
+        } finally {
+            mgr.releasePhysicalConnections();
+        }
+    }
+
+    // m38: recoverRw dials only RW endpoints, so it must leave a listed read endpoint's probe to
+    // the read path instead of spending that window on a probe nobody makes.
+    @Test
+    public void recoverRwLeavesTheProbeOfAListedReadEndpoint() throws SQLException {
+        Endpoint rw1 = new Endpoint("bkrw1", 34110);
+        Endpoint rw2 = new Endpoint("bkrw2", 34111);
+        Endpoint bkRo = new Endpoint("bkro", 34112);
+        EndpointTopology rwTopo =
+                new EndpointTopology(
+                        Arrays.asList(rw1, rw2),
+                        Arrays.asList(bkRo),
+                        Collections.<Endpoint>emptyList());
+        RecoveryBackoff backoff = new RecoveryBackoff(3600000);
+
+        SessionPhysicalConnManager mgr = newManager(backoff, alwaysUpFactory());
+        try {
+            mgr.bindSession(rw1, bkRo, rwTopo);
+            UUnreachableHostList.getInstance().add(bkRo.getId());
+
+            mgr.recoverRw(rwCtx(rw1, rwTopo, null));
+
+            assertTrue(backoff.tryClaimProbe(bkRo.getId(), System.nanoTime()));
         } finally {
             mgr.releasePhysicalConnections();
         }

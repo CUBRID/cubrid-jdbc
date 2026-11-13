@@ -75,6 +75,7 @@ public final class MetricsConfig {
 
     private static final int DEFAULT_PROMETHEUS_PORT = 9400;
     private static final int DEFAULT_INTERVAL_SEC = 60;
+    private static final String[] BOOLEAN_VALUES = {"true", "false", "yes", "no", "on", "off"};
 
     /** Feature-off singleton. */
     static final MetricsConfig DISABLED =
@@ -106,7 +107,8 @@ public final class MetricsConfig {
 
     /**
      * Parse metrics options from a URL's option map. Returns {@link #DISABLED} unless {@code
-     * metricsEnabled=true}.
+     * metricsEnabled=true}, but checks every value first, as core checks its properties whether or
+     * not the feature is on: an invalid value refuses the URL.
      *
      * @param options the URL's raw option map; may be {@code null}
      * @return the parsed config, or {@link #DISABLED}
@@ -115,40 +117,26 @@ public final class MetricsConfig {
         if (options == null) {
             return DISABLED;
         }
-        if (!parseBoolean(find(options, OPT_ENABLED), false)) {
+        final boolean enabled = parseBoolean(options, OPT_ENABLED);
+        final Set<String> exports = parseExports(find(options, OPT_EXPORT));
+        final int port = parseInt(options, OPT_PROMETHEUS_PORT, DEFAULT_PROMETHEUS_PORT, 1, 65535);
+        final int interval =
+                parseInt(options, OPT_INTERVAL_SEC, DEFAULT_INTERVAL_SEC, 1, Integer.MAX_VALUE);
+        if (!enabled) {
             return DISABLED;
         }
 
-        Set<String> exports = new LinkedHashSet<String>();
-        String exportRaw = find(options, OPT_EXPORT);
-        if (exportRaw != null) {
-            String[] parts = exportRaw.split(",");
-            for (int i = 0; i < parts.length; i++) {
-                String token = parts[i].trim().toLowerCase();
-                if (token.length() == 0) {
-                    continue;
-                }
-                if (EXPORT_PROMETHEUS.equals(token) || EXPORT_CSV.equals(token)) {
-                    exports.add(token);
-                } else {
-                    LOGGER.warning("unknown metricsExport target '" + token + "'; ignored");
-                }
-            }
-        }
         if (exports.isEmpty()) {
-            LOGGER.warning(
+            LoadBalanceOptionValidator.warnOnce(
+                    LOGGER,
                     "metricsEnabled=true but metricsExport lists no known target (prometheus/csv);"
                             + " recording is on but nothing is exported");
         }
 
-        int port = parsePort(find(options, OPT_PROMETHEUS_PORT));
         String bind = find(options, OPT_PROMETHEUS_BIND);
         if (bind != null && bind.trim().length() == 0) {
             bind = null;
         }
-        int interval =
-                parsePositiveInt(
-                        find(options, OPT_INTERVAL_SEC), DEFAULT_INTERVAL_SEC, OPT_INTERVAL_SEC);
 
         return new MetricsConfig(true, exports, port, bind == null ? null : bind.trim(), interval);
     }
@@ -191,50 +179,67 @@ public final class MetricsConfig {
         return null;
     }
 
-    private static boolean parseBoolean(final String value, final boolean defaultValue) {
-        if (value == null) {
-            return defaultValue;
+    /**
+     * As core's {@code BooleanConnectionProperty}: one of true/false/yes/no/on/off in any case, or
+     * the URL is refused; only {@code true} turns it on, as core reads {@code useSSL=on} as false.
+     */
+    private static boolean parseBoolean(final Map<String, String> options, final String key)
+            throws SQLException {
+        final String value = find(options, key);
+        if (value == null || value.length() == 0) {
+            return false;
         }
-        return "true".equalsIgnoreCase(value.trim());
+        for (int i = 0; i < BOOLEAN_VALUES.length; i++) {
+            if (BOOLEAN_VALUES[i].equalsIgnoreCase(value)) {
+                return "true".equalsIgnoreCase(value);
+            }
+        }
+        throw LbExceptions.optionValueIncompatible(key, value);
     }
 
-    /** As the URL parser takes a broker port: 1-65535, or the URL is refused. */
-    private static int parsePort(final String value) throws SQLException {
-        if (value == null || value.trim().length() == 0) {
-            return DEFAULT_PROMETHEUS_PORT;
+    /**
+     * As core's {@code IntegerConnectionProperty}: an untrimmed integer within [min, max], or the
+     * URL is refused. An empty value is the default, as core drops {@code key=} from a URL.
+     */
+    private static int parseInt(
+            final Map<String, String> options,
+            final String key,
+            final int defaultValue,
+            final int min,
+            final int max)
+            throws SQLException {
+        final String value = find(options, key);
+        if (value == null || value.length() == 0) {
+            return defaultValue;
         }
         try {
-            int port = Integer.parseInt(value.trim());
-            if (port >= 1 && port <= 65535) {
-                return port;
+            final int parsed = Integer.parseInt(value);
+            if (min <= parsed && parsed <= max) {
+                return parsed;
             }
         } catch (NumberFormatException notANumber) {
             // refused below
         }
-        throw LbExceptions.optionInvalid(
-                "option '" + OPT_PROMETHEUS_PORT + "' must be a port (1-65535): '" + value + "'");
+        throw LbExceptions.optionValueIncompatible(key, value);
     }
 
-    private static int parsePositiveInt(
-            final String value, final int defaultValue, final String key) {
-        if (value == null || value.trim().length() == 0) {
-            return defaultValue;
+    /** A comma list of prometheus and csv; another target refuses the URL, as a bad value does. */
+    private static Set<String> parseExports(final String value) throws SQLException {
+        final Set<String> exports = new LinkedHashSet<String>();
+        if (value == null) {
+            return exports;
         }
-        try {
-            int parsed = Integer.parseInt(value.trim());
-            if (parsed > 0) {
-                return parsed;
+        final String[] parts = value.split(",");
+        for (int i = 0; i < parts.length; i++) {
+            final String token = parts[i].trim().toLowerCase();
+            if (token.length() == 0) {
+                continue;
             }
-            LOGGER.warning("option '" + key + "' must be positive; using default " + defaultValue);
-        } catch (NumberFormatException e) {
-            LOGGER.warning(
-                    "option '"
-                            + key
-                            + "' is not an integer ('"
-                            + value
-                            + "'); using default "
-                            + defaultValue);
+            if (!EXPORT_PROMETHEUS.equals(token) && !EXPORT_CSV.equals(token)) {
+                throw LbExceptions.optionValueIncompatible(OPT_EXPORT, value);
+            }
+            exports.add(token);
         }
-        return defaultValue;
+        return exports;
     }
 }

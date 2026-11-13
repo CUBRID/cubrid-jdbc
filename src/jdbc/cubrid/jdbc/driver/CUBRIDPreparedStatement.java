@@ -105,8 +105,9 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
     }
 
     /*
-     * java.sql.Statement methods that take SQL: JDBC has a PreparedStatement refuse them. Inherited,
-     * they replaced the prepared statement, so a later executeQuery() ran their SQL instead.
+     * java.sql.Statement methods that take SQL, and CUBRIDStatement's executeInsert(String): JDBC
+     * has a PreparedStatement refuse them. Inherited, they replaced the prepared statement, so a
+     * later execution ran their SQL instead.
      */
 
     @Override
@@ -151,6 +152,11 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
 
     @Override
     public boolean execute(String sql, String[] columnNames) throws SQLException {
+        throw CUBRIDException.notSupported();
+    }
+
+    @Override
+    public CUBRIDOID executeInsert(String sql) throws SQLException {
         throw CUBRIDException.notSupported();
     }
 

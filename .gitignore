@@ -1,3 +1,6 @@
 output/
+*.class
 *.jar
+.classpath
+.project
 .vscode/

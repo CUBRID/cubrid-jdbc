@@ -1,0 +1,492 @@
+/*
+ * Copyright (c) 2016 CUBRID Corporation.
+ *
+ * Redistribution and use in source and binary forms, with or without modification,
+ * are permitted provided that the following conditions are met:
+ *
+ * - Redistributions of source code must retain the above copyright notice,
+ *   this list of conditions and the following disclaimer.
+ *
+ * - Redistributions in binary form must reproduce the above copyright notice,
+ *   this list of conditions and the following disclaimer in the documentation
+ *   and/or other materials provided with the distribution.
+ *
+ * - Neither the name of the <ORGANIZATION> nor the names of its contributors
+ *   may be used to endorse or promote products derived from this software without
+ *   specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+ * IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
+ * INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA,
+ * OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY
+ * OF SUCH DAMAGE.
+ *
+ */
+
+package cubrid.jdbc.lb.statement;
+
+import static org.junit.Assert.assertArrayEquals;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+
+import cubrid.sql.CUBRIDOID;
+import cubrid.sql.CUBRIDTimestamptz;
+import java.io.ByteArrayInputStream;
+import java.io.StringReader;
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
+import java.math.BigDecimal;
+import java.sql.Blob;
+import java.sql.Clob;
+import java.sql.Date;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
+import java.sql.Time;
+import java.sql.Timestamp;
+import java.sql.Types;
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.List;
+import java.util.TimeZone;
+import org.junit.Test;
+
+public class ParameterBinderTest {
+
+    @Test
+    public void assertRecordOrderAndReplay() throws Exception {
+        ParameterBinder binder = new ParameterBinder();
+        binder.recordSetInt(1, 12);
+        binder.recordSetString(2, "abc");
+        binder.recordSetNull(3, Types.INTEGER);
+
+        RecordingPreparedStatementHandler handler = new RecordingPreparedStatementHandler();
+        PreparedStatement target = handler.createProxy();
+        binder.replay(target);
+
+        assertEquals(3, handler.calls.size());
+        assertEquals("setInt:2:1", handler.calls.get(0));
+        assertEquals("setString:2:2", handler.calls.get(1));
+        assertEquals("setNull:2:3", handler.calls.get(2));
+    }
+
+    @Test
+    public void assertClearRemovesRecordedOperations() throws Exception {
+        ParameterBinder binder = new ParameterBinder();
+        binder.recordSetInt(1, 1);
+        binder.recordSetString(2, "x");
+        assertEquals(2, binder.size());
+        binder.clear();
+        assertEquals(0, binder.size());
+    }
+
+    @Test
+    public void assertLatestSetterWinsAndSizeDoesNotGrowForSameParameter() throws Exception {
+        ParameterBinder binder = new ParameterBinder();
+        binder.recordSetInt(1, 10);
+        binder.recordSetInt(1, 20);
+        binder.recordSetInt(1, 30);
+
+        assertEquals(1, binder.size());
+
+        RecordingPreparedStatementHandler handler = new RecordingPreparedStatementHandler();
+        PreparedStatement target = handler.createProxy();
+        binder.replay(target);
+
+        assertEquals(1, handler.calls.size());
+        assertEquals("setInt:2:1", handler.calls.get(0));
+    }
+
+    /**
+     * Core reads the stream inside the setter; LB used to keep the caller's reference and read it
+     * at execute. A stream is readable once, so a second execute, a second batch row sharing the
+     * binding, and an application that closed the stream after the setter each bound something
+     * other than what was set. Materializing at record time turns the parameter into a value -
+     * which is what replay needs, and what core has always sent.
+     */
+    @Test
+    public void assertLengthBoundedStreamParamsAreReadAtSetTimeAndReplayRepeatedly()
+            throws Exception {
+        ParameterBinder binder = new ParameterBinder();
+        ByteArrayInputStream binary = new ByteArrayInputStream(new byte[] {1, 2, 3});
+        ByteArrayInputStream ascii = new ByteArrayInputStream(new byte[] {65, 66});
+        StringReader characters = new StringReader("lb");
+
+        binder.recordSetBinaryStream(1, binary, 3);
+        binder.recordSetAsciiStream(2, ascii, 2);
+        binder.recordSetCharacterStream(3, characters, 2);
+
+        assertEquals("the setter consumed the stream, as core's does", -1, binary.read());
+        assertEquals(-1, ascii.read());
+
+        // JDBC lets the caller drop the stream once the setter returned.
+        characters.close();
+
+        ParameterBinder batched = binder.snapshot();
+        for (int round = 1; round <= 2; round++) {
+            StreamCapturingHandler captured = new StreamCapturingHandler();
+            binder.replay(captured.createProxy());
+
+            assertArrayEquals(new byte[] {1, 2, 3}, captured.bytes("setBinaryStream"));
+            assertArrayEquals(new byte[] {65, 66}, captured.bytes("setAsciiStream"));
+            assertEquals("lb", captured.chars("setCharacterStream"));
+        }
+
+        StreamCapturingHandler fromBatch = new StreamCapturingHandler();
+        batched.replay(fromBatch.createProxy());
+        assertArrayEquals(
+                "a batch row must not share the exhausted stream",
+                new byte[] {1, 2, 3},
+                fromBatch.bytes("setBinaryStream"));
+    }
+
+    /**
+     * A zero length is read as core reads it: the caller's stream answers 0, or -1 once spent, and
+     * core's setter gets that same answer to bind, or fail on, as it would have.
+     */
+    @Test
+    public void assertZeroLengthStreamReplaysTheReadCoreGot() throws Exception {
+        ParameterBinder binder = new ParameterBinder();
+        binder.recordSetAsciiStream(1, new ByteArrayInputStream(new byte[] {65}), 0);
+        binder.recordSetBinaryStream(2, new ByteArrayInputStream(new byte[0]), 0);
+
+        StreamCapturingHandler captured = new StreamCapturingHandler();
+        binder.replay(captured.createProxy());
+
+        byte[][] out = new byte[1][];
+        assertEquals(0, captured.read("setAsciiStream", out));
+        assertEquals("a spent stream answers -1", -1, captured.read("setBinaryStream", out));
+    }
+
+    @Test
+    public void assertReplayWithNullTargetThrowsSQLException() throws Exception {
+        ParameterBinder binder = new ParameterBinder();
+        binder.recordSetInt(1, 1);
+        try {
+            binder.replay(null);
+            fail("Expected SQLException");
+        } catch (SQLException ex) {
+            assertTrue(ex.getMessage().contains("missing prepared statement"));
+        }
+    }
+
+    @Test
+    public void assertAllRecordedSetterOperationsReplayWithoutLoss() throws Exception {
+        ParameterBinder binder = new ParameterBinder();
+        Calendar calendar = Calendar.getInstance();
+        Date date = new Date(0L);
+        Time time = new Time(0L);
+        Timestamp timestamp = new Timestamp(0L);
+        ByteArrayInputStream binaryStream = new ByteArrayInputStream(new byte[] {1, 2, 3});
+        ByteArrayInputStream asciiStream = new ByteArrayInputStream(new byte[] {65, 66});
+        StringReader reader = new StringReader("lb-jdbc");
+        Blob blob =
+                (Blob)
+                        Proxy.newProxyInstance(
+                                Blob.class.getClassLoader(),
+                                new Class[] {Blob.class},
+                                new NoOpHandler());
+        Clob clob =
+                (Clob)
+                        Proxy.newProxyInstance(
+                                Clob.class.getClassLoader(),
+                                new Class[] {Clob.class},
+                                new NoOpHandler());
+
+        binder.recordSetNull(1, Types.INTEGER);
+        binder.recordSetNull(2, Types.VARCHAR, "VARCHAR");
+        binder.recordSetBoolean(3, true);
+        binder.recordSetByte(4, (byte) 7);
+        binder.recordSetShort(5, (short) 8);
+        binder.recordSetInt(6, 9);
+        binder.recordSetLong(7, 10L);
+        binder.recordSetFloat(8, 1.5f);
+        binder.recordSetDouble(9, 2.5d);
+        binder.recordSetBigDecimal(10, new BigDecimal("3.14"));
+        binder.recordSetString(11, "text");
+        binder.recordSetBytes(12, new byte[] {1, 2});
+        binder.recordSetDate(13, date);
+        binder.recordSetDate(14, date, calendar);
+        binder.recordSetTime(15, time);
+        binder.recordSetTime(16, time, calendar);
+        binder.recordSetTimestamp(17, timestamp);
+        binder.recordSetTimestamp(18, timestamp, calendar);
+        binder.recordSetAsciiStream(19, asciiStream, 2);
+        binder.recordSetBinaryStream(23, binaryStream, 3);
+        binder.recordSetObject(26, "obj", Types.VARCHAR);
+        binder.recordSetObject(27, "obj");
+        binder.recordSetObject(28, "obj", Types.VARCHAR, 10);
+        binder.recordSetCharacterStream(29, reader, 4);
+        binder.recordSetBlob(33, blob);
+        binder.recordSetClob(36, clob);
+        binder.recordSetOID(49, (CUBRIDOID) null);
+        binder.recordSetCollection(50, new Object[] {"a", Integer.valueOf(1)});
+        binder.recordSetTimestamptz(51, (CUBRIDTimestamptz) null);
+        binder.recordSetTimestamptz(52, (CUBRIDTimestamptz) null, calendar);
+
+        RecordingPreparedStatementHandler handler = new RecordingPreparedStatementHandler();
+        PreparedStatement target = handler.createProxy();
+        binder.replay(target);
+
+        assertEquals(30, handler.calls.size());
+        assertTrue(handler.calls.contains("setCollection:2:50"));
+        assertTrue(handler.calls.contains("setTimestamptz:2:51"));
+        assertTrue(handler.calls.contains("setTimestamptz:3:52"));
+    }
+
+    /**
+     * The goal is to match core, not to capture everything at set time.
+     *
+     * <p>LB keeps each setter as an operation and replays it at execute time; core binds inside the
+     * setter. That is observable only where core copies or converts the value at set time: a {@code
+     * byte[]} ({@code UStatement.bind} clones it), a collection array ({@code CUBRIDArray}
+     * shallow-clones it), the calendar forms of the temporal setters and a NUMERIC/DECIMAL {@code
+     * Number}. A plain temporal value and an arbitrary object core keeps by reference and
+     * serializes at execute time, so copying those in LB would create a divergence, not remove one.
+     *
+     * <p>Against a classic connection to a live broker, a {@code Timestamp} mutated between {@code
+     * setTimestamp} and {@code executeUpdate} lands in the row with its new value, a mutated {@code
+     * byte[]} with its old one. These tests pin both halves.
+     */
+    /** Core binds a NUMERIC/DECIMAL Number as a BigDecimal of its value when it is set. */
+    @Test
+    public void assertNumericNumberReplaysTheValueAsItWasWhenSet() throws Exception {
+        java.util.concurrent.atomic.AtomicLong value =
+                new java.util.concurrent.atomic.AtomicLong(5);
+        ParameterBinder binder = new ParameterBinder();
+        binder.recordSetObject(1, value, Types.NUMERIC, 3);
+
+        value.set(9);
+
+        ValueCapturingHandler handler = new ValueCapturingHandler();
+        binder.replay(handler.createProxy());
+
+        List<Object[]> calls = handler.calls("setObject");
+        assertEquals(new BigDecimal("5"), calls.get(0)[1]);
+    }
+
+    @Test
+    public void assertMutatedByteArrayReplaysTheValueAsItWasWhenSet() throws Exception {
+        byte[] value = new byte[] {1, 2, 3};
+        ParameterBinder binder = new ParameterBinder();
+        binder.recordSetBytes(1, value);
+
+        value[0] = 99;
+
+        ValueCapturingHandler handler = new ValueCapturingHandler();
+        binder.replay(handler.createProxy());
+
+        byte[] replayed = (byte[]) handler.lastArgument("setBytes");
+        assertNotNull(replayed);
+        assertEquals("the bytes as they were at set time", 1, replayed[0]);
+    }
+
+    /**
+     * The other half: a temporal value must NOT be snapshotted, because core does not snapshot one
+     * either. Copying it would make LB send the old value where core sends the new one — a
+     * divergence introduced by the fix rather than removed by it.
+     */
+    @Test
+    public void assertMutatedTimestampReplaysTheMutatedValueAsCoreDoes() throws Exception {
+        Timestamp value = new Timestamp(1000L);
+        ParameterBinder binder = new ParameterBinder();
+        binder.recordSetTimestamp(1, value);
+
+        value.setTime(999000L);
+
+        ValueCapturingHandler handler = new ValueCapturingHandler();
+        binder.replay(handler.createProxy());
+
+        Timestamp replayed = (Timestamp) handler.lastArgument("setTimestamp");
+        assertSame("the caller's instance must reach the physical statement", value, replayed);
+        assertEquals(999000L, replayed.getTime());
+    }
+
+    @Test
+    public void assertMutatedCollectionReplaysTheValueAsItWasWhenSet() throws Exception {
+        Object[] collection = new Object[] {"a", "b"};
+        ParameterBinder binder = new ParameterBinder();
+        binder.recordSetCollection(1, collection);
+
+        collection[0] = "mutated";
+
+        ValueCapturingHandler handler = new ValueCapturingHandler();
+        binder.replay(handler.createProxy());
+
+        Object[] replayed = (Object[]) handler.lastArgument("setCollection");
+        assertEquals("a", replayed[0]);
+    }
+
+    /**
+     * Core converts a calendar form's value in the calendar's zone when it is set, so a later
+     * change to either does not reach the server. A {@code CUBRIDTimestamptz} it binds as it is.
+     */
+    @Test
+    public void assertCalendarFormRecordsCopiesAsCoreConvertsAtSetTime() throws Exception {
+        Calendar cal = Calendar.getInstance(TimeZone.getTimeZone("UTC"));
+        Timestamp value = new Timestamp(1000L);
+        CUBRIDTimestamptz tz =
+                CUBRIDTimestamptz.valueOf("2026-08-21 10:00:00.000", true, "Asia/Seoul");
+        ParameterBinder binder = new ParameterBinder();
+        binder.recordSetTimestamp(1, value, cal);
+        binder.recordSetTimestamp(2, tz, cal);
+        value.setTime(2000L);
+        cal.setTimeZone(TimeZone.getTimeZone("Asia/Seoul"));
+
+        ValueCapturingHandler handler = new ValueCapturingHandler();
+        binder.replay(handler.createProxy());
+
+        List<Object[]> calls = handler.calls("setTimestamp");
+        assertEquals(1000L, ((Timestamp) calls.get(0)[1]).getTime());
+        assertEquals("UTC", ((Calendar) calls.get(0)[2]).getTimeZone().getID());
+        assertSame(tz, calls.get(1)[1]);
+    }
+
+    /**
+     * A second reason not to copy temporal values, independent of the parity argument: {@code
+     * CUBRIDTimestamptz} carries a timezone and an {@code isDatetime} flag, and core derives the
+     * wire type (TIMESTAMPTZ/DATETIMETZ) from the runtime class. Replacing it with a plain {@code
+     * java.sql.Timestamp} would silently turn the column type into TIMESTAMP. The instance itself
+     * must reach the physical statement.
+     */
+    @Test
+    public void assertTimestamptzSubclassIsPreservedRatherThanCopied() throws Exception {
+        CUBRIDTimestamptz value =
+                CUBRIDTimestamptz.valueOf("2026-08-21 10:00:00.000", true, "Asia/Seoul");
+        ParameterBinder binder = new ParameterBinder();
+        binder.recordSetTimestamp(1, value);
+
+        ValueCapturingHandler handler = new ValueCapturingHandler();
+        binder.replay(handler.createProxy());
+
+        Object replayed = handler.lastArgument("setTimestamp");
+        assertSame(
+                "the subclass instance itself must reach the physical statement", value, replayed);
+    }
+
+    private static final class ValueCapturingHandler {
+
+        private final java.util.Map<String, Object> lastValues =
+                new java.util.HashMap<String, Object>();
+        private final java.util.Map<String, List<Object[]>> allCalls =
+                new java.util.HashMap<String, List<Object[]>>();
+
+        private PreparedStatement createProxy() {
+            return new FakePhysicalPreparedStatement() {
+                @Override
+                protected Object dispatch(final String name, final Object[] args) {
+                    if (name.startsWith("set") && args.length >= 2) {
+                        // The value is the second argument; for the Calendar overloads the third is
+                        // the one worth keeping, so it wins.
+                        lastValues.put(name, args[args.length - 1]);
+                        calls(name).add(args.clone());
+                    }
+
+                    return null;
+                }
+            };
+        }
+
+        private Object lastArgument(final String setter) {
+            return lastValues.get(setter);
+        }
+
+        private List<Object[]> calls(final String setter) {
+            List<Object[]> list = allCalls.get(setter);
+            if (list == null) {
+                list = new ArrayList<Object[]>();
+                allCalls.put(setter, list);
+            }
+            return list;
+        }
+    }
+
+    private static final class RecordingPreparedStatementHandler {
+
+        private final List<String> calls = new ArrayList<String>();
+
+        private PreparedStatement createProxy() {
+            return new FakePhysicalPreparedStatement() {
+                @Override
+                protected Object dispatch(final String name, final Object[] args) {
+                    if (name.startsWith("set")) {
+                        Object parameterIndex = args.length > 0 ? args[0] : null;
+                        calls.add(name + ":" + args.length + ":" + parameterIndex);
+                    }
+
+                    return null;
+                }
+            };
+        }
+    }
+
+    /** Keeps the source each length-taking stream setter was replayed with, so it can be read. */
+    private static final class StreamCapturingHandler {
+
+        private final java.util.Map<String, Object[]> calls =
+                new java.util.HashMap<String, Object[]>();
+
+        private PreparedStatement createProxy() {
+            return new FakePhysicalPreparedStatement() {
+                @Override
+                protected Object dispatch(final String name, final Object[] args) {
+                    if (name.startsWith("set") && args.length == 3) {
+                        calls.put(name, args);
+                    }
+
+                    return null;
+                }
+            };
+        }
+
+        /** What core's setter reads: one read into a buffer of the declared length. */
+        private int read(final String setter, final byte[][] out) throws java.io.IOException {
+            Object[] args = calls.get(setter);
+            assertNotNull(setter + " was not replayed", args);
+            byte[] buffer = new byte[((Integer) args[2]).intValue()];
+            int n = ((java.io.InputStream) args[1]).read(buffer);
+            out[0] = n < 0 ? null : java.util.Arrays.copyOf(buffer, n);
+            return n;
+        }
+
+        private byte[] bytes(final String setter) throws java.io.IOException {
+            byte[][] out = new byte[1][];
+            read(setter, out);
+            return out[0];
+        }
+
+        private String chars(final String setter) throws java.io.IOException {
+            Object[] args = calls.get(setter);
+            assertNotNull(setter + " was not replayed", args);
+            char[] buffer = new char[((Integer) args[2]).intValue()];
+            int n = ((java.io.Reader) args[1]).read(buffer);
+            return new String(buffer, 0, n);
+        }
+    }
+
+    private static final class NoOpHandler implements InvocationHandler {
+
+        public Object invoke(final Object proxy, final Method method, final Object[] args) {
+            Class<?> returnType = method.getReturnType();
+            if (Boolean.TYPE.equals(returnType)) {
+                return Boolean.FALSE;
+            }
+            if (Integer.TYPE.equals(returnType)) {
+                return Integer.valueOf(0);
+            }
+            if (Long.TYPE.equals(returnType)) {
+                return Long.valueOf(0L);
+            }
+            assertNotNull(proxy);
+            return null;
+        }
+    }
+}

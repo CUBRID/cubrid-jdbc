@@ -1,0 +1,220 @@
+/*
+ * Copyright (c) 2016 CUBRID Corporation.
+ *
+ * Redistribution and use in source and binary forms, with or without modification,
+ * are permitted provided that the following conditions are met:
+ *
+ * - Redistributions of source code must retain the above copyright notice,
+ *   this list of conditions and the following disclaimer.
+ *
+ * - Redistributions in binary form must reproduce the above copyright notice,
+ *   this list of conditions and the following disclaimer in the documentation
+ *   and/or other materials provided with the distribution.
+ *
+ * - Neither the name of the <ORGANIZATION> nor the names of its contributors
+ *   may be used to endorse or promote products derived from this software without
+ *   specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+ * IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
+ * INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA,
+ * OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY
+ * OF SUCH DAMAGE.
+ *
+ */
+
+package cubrid.jdbc.lb;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+
+import cubrid.jdbc.lb.config.Endpoint;
+import cubrid.jdbc.lb.config.EndpointTopology;
+import cubrid.jdbc.lb.connection.SimpleEndpointConnManager;
+import cubrid.jdbc.lb.route.Router.RouteTarget;
+import cubrid.jdbc.lb.state.SharedSelectorState;
+import cubrid.jdbc.lb.statement.FakePhysicalPreparedStatement;
+import cubrid.jdbc.lb.statement.FakePhysicalStatement;
+import cubrid.jdbc.lb.statement.LBPreparedStatement;
+import cubrid.jdbc.lb.statement.LBStatement;
+import cubrid.jdbc.lb.statement.StatementTestAccess;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import org.junit.Test;
+
+public final class TransactionPhysicalPropagationTest {
+
+    @Test
+    public void initSessionBindingsAppliesLogicalAutoCommitToPhysical() throws SQLException {
+        SimpleEndpointConnManager manager = new SimpleEndpointConnManager();
+        LoadBalanceConnection connection = createSessionConnection();
+        connection.setConnectionManager(manager);
+        connection.setSharedSelectorState(new SharedSelectorState());
+        connection.setAutoCommit(false);
+        connection.initSessionBindings(createTopology());
+        assertEquals(1, manager.getApplyPhysicalAutoCommitCallCount());
+    }
+
+    @Test
+    public void setAutoCommitAndCommitPropagateWhenSessionBound() throws SQLException {
+        SimpleEndpointConnManager manager = new SimpleEndpointConnManager();
+        LoadBalanceConnection connection = createBoundSessionConnection(manager);
+        assertEquals(1, manager.getApplyPhysicalAutoCommitCallCount());
+        connection.setAutoCommit(false);
+        assertEquals(2, manager.getApplyPhysicalAutoCommitCallCount());
+        connection.commit();
+        assertEquals(1, manager.getCommitPhysicalTransactionCallCount());
+    }
+
+    @Test
+    public void rollbackPropagatesWhenSessionBound() throws SQLException {
+        SimpleEndpointConnManager manager = new SimpleEndpointConnManager();
+        LoadBalanceConnection connection = createBoundSessionConnection(manager);
+        connection.setAutoCommit(false);
+        connection.rollback();
+        assertEquals(1, manager.getRollbackPhysicalTransactionCallCount());
+    }
+
+    /**
+     * Core's commit and rollback in autocommit end no transaction but still complete the open
+     * statements, closing their cursors, so each leg runs core's own.
+     */
+    @Test
+    public void commitAndRollbackInAutoCommitRunOnThePhysicalLegsLikeCore() throws SQLException {
+        SimpleEndpointConnManager manager = new SimpleEndpointConnManager();
+        LoadBalanceConnection connection = createBoundSessionConnection(manager);
+
+        connection.commit();
+        connection.rollback();
+
+        assertEquals(1, manager.getCommitPhysicalTransactionCallCount());
+        assertEquals(1, manager.getRollbackPhysicalTransactionCallCount());
+        assertTrue(connection.getAutoCommit());
+    }
+
+    /**
+     * Core leaves an autocommit transaction open after an OID write or a CALL, and the next
+     * statement on that connection ends it. While the write leg's CAS reports one, reads run there.
+     */
+    @Test
+    public void readsRunOnRwWhileTheWriteLegReportsAnOpenTransaction() throws SQLException {
+        SimpleEndpointConnManager manager = new SimpleEndpointConnManager();
+        LoadBalanceConnection connection = createBoundSessionConnection(manager);
+        LBStatement statement = (LBStatement) connection.createStatement();
+        final List<RouteTarget> targets = new ArrayList<RouteTarget>();
+        StatementTestAccess.setStatementProvider(
+                statement,
+                new LBStatement.PhysicalStmtProvider() {
+                    public Statement getStatement(final RouteTarget target, final String rawSql) {
+                        targets.add(target);
+                        return new FakePhysicalStatement();
+                    }
+                });
+
+        statement.executeQuery("SELECT 1");
+        manager.setRwTxReportedOpen(true);
+        statement.executeQuery("SELECT 1");
+        manager.setRwTxReportedOpen(false);
+        statement.executeQuery("SELECT 1");
+
+        assertEquals(
+                Arrays.asList(
+                        RouteTarget.TO_READ_ONLY,
+                        RouteTarget.TO_READ_WRITE,
+                        RouteTarget.TO_READ_ONLY),
+                targets);
+    }
+
+    @Test
+    public void preparedReadsRunOnRwWhileTheWriteLegReportsAnOpenTransaction() throws SQLException {
+        SimpleEndpointConnManager manager = new SimpleEndpointConnManager();
+        LoadBalanceConnection connection = createBoundSessionConnection(manager);
+        LBPreparedStatement statement = new LBPreparedStatement(connection, "SELECT 1");
+        final List<RouteTarget> targets = new ArrayList<RouteTarget>();
+        statement.setPsProvider(
+                new LBPreparedStatement.PhysicalPsProvider() {
+                    public PreparedStatement getPreparedStatement(
+                            final RouteTarget target, final String rawSql) {
+                        targets.add(target);
+                        return new FakePhysicalPreparedStatement();
+                    }
+
+                    public void prepareOnBoundReadEndpoint(final String rawSql) {}
+
+                    public void prepareOnWriteEndpoint(final String rawSql) {}
+
+                    public void closePrepStmts() {}
+                });
+
+        manager.setRwTxReportedOpen(true);
+        statement.executeQuery();
+
+        assertEquals(Arrays.asList(RouteTarget.TO_READ_WRITE), targets);
+    }
+
+    @Test
+    public void setAutoCommitTrueWithOpenTransactionCommitsPhysicallyFirst() throws SQLException {
+        SimpleEndpointConnManager manager = new SimpleEndpointConnManager();
+        LoadBalanceConnection connection = createBoundSessionConnection(manager);
+        connection.setAutoCommit(false);
+        connection.setAutoCommit(true);
+        assertEquals(1, manager.getCommitPhysicalTransactionCallCount());
+        assertEquals(3, manager.getApplyPhysicalAutoCommitCallCount());
+    }
+
+    /**
+     * m-10: when {@code setAutoCommit(true)} commits a live transaction physically but the
+     * subsequent autocommit-mode propagation fails, the logical state must already reflect the
+     * commit (autocommit on, no active tx) — never left manual+txActive over committed work.
+     */
+    @Test
+    public void setAutoCommitTrueReflectsCommitEvenIfAutoCommitPropagationFails()
+            throws SQLException {
+        SimpleEndpointConnManager manager = new SimpleEndpointConnManager();
+        LoadBalanceConnection connection = createBoundSessionConnection(manager);
+        connection.setAutoCommit(false); // open a manual transaction
+
+        manager.failNextApplyPhyAutoCommit();
+        try {
+            connection.setAutoCommit(true);
+            fail("expected the simulated applyPhyAutoCommit failure to propagate");
+        } catch (SQLException expected) {
+        }
+
+        // Physical commit ran; logical state reflects it despite the later propagation failure.
+        assertEquals(1, manager.getCommitPhysicalTransactionCallCount());
+        assertTrue(connection.getAutoCommit());
+        // The session is not stuck manual+txActive over the committed work.
+        assertFalse(connection.getSessionState().isTransactionActive());
+    }
+
+    private static LoadBalanceConnection createSessionConnection() {
+        return new LoadBalanceConnection(LbTestSettings.defaults());
+    }
+
+    private static LoadBalanceConnection createBoundSessionConnection(
+            final SimpleEndpointConnManager manager) throws SQLException {
+        LoadBalanceConnection connection = createSessionConnection();
+        connection.setConnectionManager(manager);
+        connection.setSharedSelectorState(new SharedSelectorState());
+        connection.initSessionBindings(createTopology());
+        return connection;
+    }
+
+    private static EndpointTopology createTopology() {
+        List<Endpoint> ro = new ArrayList<Endpoint>();
+        ro.add(new Endpoint("ro1", 33000));
+        return new EndpointTopology(new Endpoint("rw", 33000), ro, null);
+    }
+}

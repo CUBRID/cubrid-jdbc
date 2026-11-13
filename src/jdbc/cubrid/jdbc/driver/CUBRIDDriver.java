@@ -115,8 +115,9 @@ public class CUBRIDDriver implements Driver {
             Pattern.compile(
                     "^jdbc:cubrid(-oracle|-mysql)?(:loadbalance)?://", Pattern.CASE_INSENSITIVE);
 
+    // A load-balance URL also separates options with ';'.
     private static final Pattern TRUST_STORE_PASSWORD =
-            Pattern.compile("(?i)([?&]truststorepassword=)[^&]*");
+            Pattern.compile("(?i)([?&;]truststorepassword=)[^&]*");
     private int conn_count = 0;
 
     /**
@@ -429,7 +430,8 @@ public class CUBRIDDriver implements Driver {
      * Rewrite the credential section of a URI ({@code ://}) CUBRID JDBC URL for logging as {@code
      * db:user:********:}, the same form the classic path's {@code resolvedUrl} logs, leaving every
      * other character (scheme, hosts, ports, {@code ;replica=...}, and {@code ?} options) exactly
-     * as the user wrote them. The credential section is what follows the first {@code '/'} after
+     * as the user wrote them, except a {@code trustStorePassword} value, masked as {@code
+     * resolvedUrl} masks it. The credential section is what follows the first {@code '/'} after
      * {@code '://'}; the user shown is {@code info}'s {@code user} property (credentials passed to
      * {@link java.sql.DriverManager#getConnection(String, String, String)}) and otherwise the
      * second {@code ':'}-separated segment of the credential section — the same precedence the
@@ -464,7 +466,7 @@ public class CUBRIDDriver implements Driver {
             if (colon < 0 || colon > credEnd) {
                 return url;
             }
-            return url.substring(0, colon + 1) + "********" + url.substring(credEnd);
+            return url.substring(0, colon + 1) + "********" + maskOptions(url.substring(credEnd));
         }
 
         String[] segs = url.substring(credStart + 1, credEnd).split(":", -1); // db[:user[:pw[:]]]
@@ -482,7 +484,11 @@ public class CUBRIDDriver implements Driver {
                 + ":"
                 + user
                 + ":********:"
-                + url.substring(credEnd);
+                + maskOptions(url.substring(credEnd));
+    }
+
+    private static String maskOptions(String options) {
+        return TRUST_STORE_PASSWORD.matcher(options).replaceAll("$1********");
     }
 
     /**

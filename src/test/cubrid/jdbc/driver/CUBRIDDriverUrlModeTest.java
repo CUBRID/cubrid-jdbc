@@ -296,6 +296,33 @@ public class CUBRIDDriverUrlModeTest {
     }
 
     /**
+     * The classic URL hides the trustStorePassword value in the URL it reports, so the URI URL does
+     * too. A load-balance URL may separate options with ';', and the value runs to the next '&'
+     * because a single-node URI value may hold a ';'.
+     */
+    @Test
+    public void maskUriUrlPasswordHidesTheTrustStorePasswordAsTheClassicUrlDoes() {
+        assertEquals(
+                "jdbc:cubrid:loadbalance://h1,h2/db:u:********:"
+                        + "?sslmode=verify-ca&trustStorePassword=********&readWeight=slave:1",
+                CUBRIDDriver.maskUriUrlPassword(
+                        "jdbc:cubrid:loadbalance://h1,h2/db:u:pw:"
+                                + "?sslmode=verify-ca&trustStorePassword=tp&readWeight=slave:1",
+                        null));
+        assertEquals(
+                "jdbc:cubrid:loadbalance://h1,h2/db:u:********:"
+                        + "?readWeight=slave:1;TRUSTSTOREPASSWORD=********",
+                CUBRIDDriver.maskUriUrlPassword(
+                        "jdbc:cubrid:loadbalance://h1,h2/db:u:pw:"
+                                + "?readWeight=slave:1;TRUSTSTOREPASSWORD=tp",
+                        null));
+        assertEquals(
+                "jdbc:cubrid://h:1/db:u:********:?trustStorePassword=********",
+                CUBRIDDriver.maskUriUrlPassword(
+                        "jdbc:cubrid://h:1/db:u:pw:?trustStorePassword=t;p", null));
+    }
+
+    /**
      * As in a classic URL, a user or password may hold a '?' when the whole {@code db:user:pw:} is
      * written: the options start after its third ':'. Otherwise they start at the first '?'.
      */

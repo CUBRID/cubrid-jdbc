@@ -704,7 +704,9 @@ public class CUBRIDResultSet implements ResultSet {
         checkIsOpen();
 
         if (meta_data == null) {
-            meta_data = new CUBRIDResultSetMetaData(u_stmt.getColumnInfo());
+            meta_data =
+                    new CUBRIDResultSetMetaData(
+                            u_stmt.getColumnInfo(), con.u_con.brokerSpeaksV13());
         }
 
         return meta_data;
@@ -1841,6 +1843,12 @@ public class CUBRIDResultSet implements ResultSet {
         checkRowIsValidForUpdate();
         checkColumnIsValid(columnIndex);
         checkColumnIsUpdatable(columnIndex);
+        byte type = column_info[columnIndex - 1].getColumnType();
+        if ((type == UUType.U_TYPE_BLOB || type == UUType.U_TYPE_CLOB)
+                && (value instanceof Blob || value instanceof Clob)) {
+            /* as on develop: a row update goes through the object, which takes no internal LOB */
+            throw CUBRIDException.notSupported();
+        }
 
         if (CUBRIDPreparedStatement.isUnsupportedJavaTime(value)) {
             throw CUBRIDException.notSupported(

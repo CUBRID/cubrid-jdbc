@@ -32,7 +32,7 @@
 package cubrid.jdbc.driver;
 
 public class CUBRIDLobHandle {
-    private int lobType; // U_TYPE_BLOB or U_TYPE_CLOB
+    private int lobType; // U_TYPE_BFILE or U_TYPE_CFILE
     private long lobSize;
     private byte[] packedLobHandle;
     private String locator;

@@ -644,100 +644,147 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
         throw CUBRIDException.notSupported();
     }
 
+    /* A Bfile binds its external handle; any other Blob is bound as an internal LOB upload.
+     * A pre-V13 broker has only the external LOB, so every Blob binds as one there. */
     public void setBlob(int parameterIndex, Blob x) throws SQLException {
         checkIsOpen();
+        if (x == null) {
+            setNull(parameterIndex, java.sql.Types.BLOB);
+            return;
+        }
+        if (x instanceof CUBRIDBfile || !u_con.brokerSpeaksV13()) {
+            synchronized (u_stmt) {
+                u_stmt.bindBfile(parameterIndex - 1, x);
+                error = u_stmt.getRecentError();
+            }
+            checkBindError();
+            return;
+        }
+        bindInternalLobUpload(parameterIndex, CUBRIDInternalLobUpload.of(con, x));
+    }
+
+    /* Same as setBlob (Blob), with a Cfile in place of a Bfile. */
+    public void setClob(int parameterIndex, Clob x) throws SQLException {
+        checkIsOpen();
+        if (x == null) {
+            setNull(parameterIndex, java.sql.Types.CLOB);
+            return;
+        }
+        if (x instanceof CUBRIDCfile || !u_con.brokerSpeaksV13()) {
+            synchronized (u_stmt) {
+                u_stmt.bindCfile(parameterIndex - 1, x);
+                error = u_stmt.getRecentError();
+            }
+            checkBindError();
+            return;
+        }
+        bindInternalLobUpload(parameterIndex, CUBRIDInternalLobUpload.of(con, x));
+    }
+
+    private void bindInternalLobUpload(int parameterIndex, CUBRIDInternalLobUpload upload)
+            throws SQLException {
+        long token = upload.finish();
         synchronized (u_stmt) {
-            u_stmt.bindBlob(parameterIndex - 1, x);
+            u_stmt.bindInternalLobUpload(
+                    parameterIndex - 1, upload.isBlob(), token, upload.length());
             error = u_stmt.getRecentError();
         }
         checkBindError();
     }
 
-    public void setClob(int parameterIndex, Clob x) throws SQLException {
-        checkIsOpen();
-        synchronized (u_stmt) {
-            u_stmt.bindClob(parameterIndex - 1, x);
-            error = u_stmt.getRecentError();
+    /* JDBC wants an SQLException for a negative length */
+    private void checkStreamLength(long length) throws SQLException {
+        if (length < 0) {
+            throw con.createCUBRIDException(CUBRIDJDBCErrorCode.negative_value_for_length, null);
         }
-        checkBindError();
+        if (length > CUBRIDInternalLobUpload.MAX_LENGTH && u_con.brokerSpeaksV13()) {
+            throw con.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
+        }
+    }
+
+    /* A pre-V13 broker takes a stream into a new external LOB, as before internal LOBs. */
+    private Blob newBfile(InputStream in, long length) throws SQLException {
+        Blob blob = con.createBfile();
+        OutputStream out = blob.setBinaryStream(1);
+        try {
+            ((CUBRIDBufferedOutputStream) out).streamCopyFromInputStream(in, length);
+        } catch (IOException e) {
+            throw con.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
+        }
+        return blob;
+    }
+
+    private Clob newCfile(Reader in, long length) throws SQLException {
+        Clob clob = con.createCfile();
+        Writer out = clob.setCharacterStream(1);
+        try {
+            ((CUBRIDBufferedWriter) out).streamCopyFromReader(in, length);
+        } catch (IOException e) {
+            throw con.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
+        }
+        return clob;
     }
 
     /* JDK 1.6 */
     public void setBlob(int parameterIndex, InputStream inputStream) throws SQLException {
+        checkIsOpen();
         if (inputStream == null) {
             setNull(parameterIndex, java.sql.Types.BLOB);
             return;
         }
-
-        checkIsOpen();
-        Blob blob = con.createBlob();
-        OutputStream out = blob.setBinaryStream(1);
-        try {
-            ((CUBRIDBufferedOutputStream) out)
-                    .streamCopyFromInputStream(inputStream, Long.MAX_VALUE);
-        } catch (IOException e) {
-            throw con.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
+        if (!u_con.brokerSpeaksV13()) {
+            setBlob(parameterIndex, newBfile(inputStream, Long.MAX_VALUE));
+            return;
         }
-
-        setBlob(parameterIndex, blob);
+        bindInternalLobUpload(
+                parameterIndex, CUBRIDInternalLobUpload.fromStream(con, true, inputStream, -1));
     }
 
     /* JDK 1.6 */
     public void setBlob(int parameterIndex, InputStream inputStream, long length)
             throws SQLException {
+        checkIsOpen();
+        checkStreamLength(length);
         if (inputStream == null) {
             setNull(parameterIndex, java.sql.Types.BLOB);
             return;
         }
-
-        checkIsOpen();
-        Blob blob = con.createBlob();
-        OutputStream out = blob.setBinaryStream(1);
-        try {
-            ((CUBRIDBufferedOutputStream) out).streamCopyFromInputStream(inputStream, length);
-        } catch (IOException e) {
-            throw con.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
+        if (!u_con.brokerSpeaksV13()) {
+            setBlob(parameterIndex, newBfile(inputStream, length));
+            return;
         }
-
-        setBlob(parameterIndex, blob);
+        bindInternalLobUpload(
+                parameterIndex, CUBRIDInternalLobUpload.fromStream(con, true, inputStream, length));
     }
 
     /* JDK 1.6 */
     public void setClob(int parameterIndex, Reader reader) throws SQLException {
+        checkIsOpen();
         if (reader == null) {
             setNull(parameterIndex, java.sql.Types.CLOB);
             return;
         }
-
-        checkIsOpen();
-        Clob clob = con.createClob();
-        Writer out = clob.setCharacterStream(1);
-        try {
-            ((CUBRIDBufferedWriter) out).streamCopyFromReader(reader, Long.MAX_VALUE);
-        } catch (IOException e) {
-            throw con.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
+        if (!u_con.brokerSpeaksV13()) {
+            setClob(parameterIndex, newCfile(reader, Long.MAX_VALUE));
+            return;
         }
-
-        setClob(parameterIndex, clob);
+        bindInternalLobUpload(parameterIndex, CUBRIDInternalLobUpload.fromReader(con, reader, -1));
     }
 
     /* JDK 1.6 */
     public void setClob(int parameterIndex, Reader reader, long length) throws SQLException {
+        checkIsOpen();
+        checkStreamLength(length);
         if (reader == null) {
             setNull(parameterIndex, java.sql.Types.CLOB);
             return;
         }
-
-        checkIsOpen();
-        Clob clob = con.createClob();
-        Writer out = clob.setCharacterStream(1);
-        try {
-            ((CUBRIDBufferedWriter) out).streamCopyFromReader(reader, length);
-        } catch (IOException e) {
-            throw con.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
+        if (!u_con.brokerSpeaksV13()) {
+            setClob(parameterIndex, newCfile(reader, length));
+            return;
         }
-
-        setClob(parameterIndex, clob);
+        bindInternalLobUpload(
+                parameterIndex, CUBRIDInternalLobUpload.fromReader(con, reader, length));
     }
 
     public void setArray(int i, Array x) throws SQLException {
@@ -762,7 +809,7 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
 
         if (col_info.length == 0) return null;
 
-        return new CUBRIDResultSetMetaData(col_info);
+        return new CUBRIDResultSetMetaData(col_info, u_con.brokerSpeaksV13());
     }
 
     public synchronized void setDate(int parameterIndex, Date x, Calendar cal) throws SQLException {
@@ -835,6 +882,7 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
                     is_closed = true;
 
                     if (u_stmt != null) {
+                        u_stmt.releaseUnsentUploads();
                         u_stmt.close();
                         u_stmt = null;
                     }

@@ -40,8 +40,8 @@
  */
 package cubrid.jdbc.jci;
 
-import cubrid.jdbc.driver.CUBRIDBlob;
-import cubrid.jdbc.driver.CUBRIDClob;
+import cubrid.jdbc.driver.CUBRIDBfile;
+import cubrid.jdbc.driver.CUBRIDCfile;
 import java.io.IOException;
 
 public class UBindParameter extends UParameter {
@@ -57,10 +57,14 @@ public class UBindParameter extends UParameter {
     private boolean isBinded[];
     private byte dbmsType;
 
+    /* per index, the token of an upload bound there that no execute has sent; 0 if none */
+    long[] unsentUploads;
+
     UBindParameter(int parameterNumber, byte dbmsType) {
         super(parameterNumber);
 
         isBinded = new boolean[number];
+        unsentUploads = new long[number];
         this.dbmsType = dbmsType;
         paramMode = new byte[number];
 
@@ -149,10 +153,10 @@ public class UBindParameter extends UParameter {
         for (int i = 0; i < number; i++) {
             if (values[i] == null) {
                 continue;
-            } else if (values[i] instanceof CUBRIDBlob) {
-                ((CUBRIDBlob) values[i]).flushFlushableStreams();
-            } else if (values[i] instanceof CUBRIDClob) {
-                ((CUBRIDClob) values[i]).flushFlushableStreams();
+            } else if (values[i] instanceof CUBRIDBfile) {
+                ((CUBRIDBfile) values[i]).flushFlushableStreams();
+            } else if (values[i] instanceof CUBRIDCfile) {
+                ((CUBRIDCfile) values[i]).flushFlushableStreams();
             }
         }
     }

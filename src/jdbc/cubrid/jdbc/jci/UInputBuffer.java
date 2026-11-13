@@ -52,8 +52,6 @@ import cubrid.sql.CUBRIDOIDImpl;
 import cubrid.sql.CUBRIDTimestamp;
 import cubrid.sql.CUBRIDTimestamptz;
 import java.io.IOException;
-import java.sql.Date;
-import java.sql.Time;
 import java.util.Calendar;
 import java.util.TimeZone;
 
@@ -97,7 +95,7 @@ class UInputBuffer {
         }
 
         buffer = new byte[capacity];
-        readData();
+        readData(input.getTimeout());
 
         resCode = readInt();
 
@@ -123,7 +121,7 @@ class UInputBuffer {
         }
     }
 
-    UInputBuffer(UTimedDataInputStream relatedI, UConnection con, int timeout)
+    UInputBuffer(UTimedDataInputStream relatedI, UConnection con, int timeout, int bodyTimeout)
             throws IOException, UJciException {
         input = relatedI;
         position = 0;
@@ -153,7 +151,7 @@ class UInputBuffer {
         }
 
         buffer = new byte[capacity];
-        readData();
+        readData(bodyTimeout);
 
         resCode = readInt();
 
@@ -315,7 +313,7 @@ class UInputBuffer {
         return stringData;
     }
 
-    Date readDate() throws UJciException {
+    UDateTimeFields readDate() throws UJciException {
         int year, month, day;
         year = readShort();
         month = readShort();
@@ -339,10 +337,10 @@ class UInputBuffer {
         }
         cal.set(Calendar.MILLISECOND, 0);
 
-        return new Date(cal.getTimeInMillis());
+        return UDateTimeFields.ofDate(cal.getTimeInMillis(), year, month, day);
     }
 
-    Time readTime() throws UJciException {
+    UDateTimeFields readTime() throws UJciException {
         int hour, minute, second;
         hour = readShort();
         minute = readShort();
@@ -352,10 +350,14 @@ class UInputBuffer {
         cal.set(1970, 0, 1, hour, minute, second);
         cal.set(Calendar.MILLISECOND, 0);
 
-        return new Time(cal.getTimeInMillis());
+        return UDateTimeFields.ofTime(cal.getTimeInMillis(), hour, minute, second);
     }
 
-    CUBRIDTimestamp readTimestamp(boolean is_tz) throws UJciException {
+    private CUBRIDTimestamp readTimestamp(boolean is_tz) throws UJciException {
+        return (CUBRIDTimestamp) UDateTimeFields.sqlValueOf(readTimestampFields(is_tz));
+    }
+
+    UDateTimeFields readTimestampFields(boolean is_tz) throws UJciException {
         int year, month, day, hour, minute, second;
         year = readShort();
         month = readShort();
@@ -385,7 +387,8 @@ class UInputBuffer {
         }
         cal.set(Calendar.MILLISECOND, 0);
 
-        return new CUBRIDTimestamp(cal.getTimeInMillis(), CUBRIDTimestamp.TIMESTAMP);
+        return UDateTimeFields.ofTimestamp(
+                cal.getTimeInMillis(), year, month, day, hour, minute, second);
     }
 
     CUBRIDTimestamptz readTimestamptz(int size) throws UJciException {
@@ -414,7 +417,11 @@ class UInputBuffer {
         return CUBRIDTimestamptz.valueOf(cubrid_ts, timezone);
     }
 
-    CUBRIDTimestamp readDatetime(boolean is_tz) throws UJciException {
+    private CUBRIDTimestamp readDatetime(boolean is_tz) throws UJciException {
+        return (CUBRIDTimestamp) UDateTimeFields.sqlValueOf(readDatetimeFields(is_tz));
+    }
+
+    UDateTimeFields readDatetimeFields(boolean is_tz) throws UJciException {
         int year, month, day, hour, minute, second, millisecond;
         year = readShort();
         month = readShort();
@@ -445,7 +452,8 @@ class UInputBuffer {
         }
         cal.set(Calendar.MILLISECOND, millisecond);
 
-        return new CUBRIDTimestamp(cal.getTimeInMillis(), CUBRIDTimestamp.DATETIME);
+        return UDateTimeFields.ofDatetime(
+                cal.getTimeInMillis(), year, month, day, hour, minute, second, millisecond);
     }
 
     CUBRIDTimestamptz readDatetimetz(int size) throws UJciException {
@@ -565,10 +573,10 @@ class UInputBuffer {
         return (new CUBRIDXid(formatId, gid, bid));
     }
 
-    private void readData() throws IOException, UJciException {
+    private void readData(int timeout) throws IOException, UJciException {
         int realRead = 0, tempRead = 0;
         while (realRead < capacity) {
-            tempRead = input.read(buffer, realRead, capacity - realRead);
+            tempRead = input.read(buffer, realRead, capacity - realRead, timeout);
             if (tempRead < 0) {
                 capacity = realRead;
                 break;

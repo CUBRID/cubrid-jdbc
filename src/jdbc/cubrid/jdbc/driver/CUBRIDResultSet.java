@@ -60,10 +60,15 @@ import java.sql.SQLXML;
 import java.sql.Statement;
 import java.sql.Time;
 import java.sql.Timestamp;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.Locale;
 import java.util.Map;
 import java.util.TimeZone;
 
@@ -73,6 +78,13 @@ import java.util.TimeZone;
  * @version 2.0
  */
 public class CUBRIDResultSet implements ResultSet {
+    private static final DateTimeFormatter DATE_LITERAL =
+            DateTimeFormatter.ofPattern("MM/dd/uuuu", Locale.ROOT);
+    private static final DateTimeFormatter TIME_LITERAL =
+            DateTimeFormatter.ofPattern("HH:mm:ss", Locale.ROOT);
+    private static final DateTimeFormatter DATETIME_LITERAL =
+            DateTimeFormatter.ofPattern("MM/dd/uuuu HH:mm:ss.SSS", Locale.ROOT);
+
     public boolean complete_on_close;
 
     private CUBRIDConnection con;
@@ -264,6 +276,7 @@ public class CUBRIDResultSet implements ResultSet {
             switch (errorCode) {
                 case UErrorCode.ER_DBMS:
                 case UErrorCode.ER_COMMUNICATION:
+                case UErrorCode.ER_NETWORK_TIMEOUT:
                 case UErrorCode.ER_ILLEGAL_DATA_SIZE:
                 case UErrorCode.CAS_ER_DBMS:
                 case UErrorCode.CAS_ER_COMMUNICATION:
@@ -292,7 +305,7 @@ public class CUBRIDResultSet implements ResultSet {
                         is_closed = true;
 
                         clearCurrentRow();
-                        if (stmt.getResultSetHoldability() == ResultSet.HOLD_CURSORS_OVER_COMMIT) {
+                        if (stmt.getHoldability() == ResultSet.HOLD_CURSORS_OVER_COMMIT) {
                             u_stmt.closeCursor();
                         }
                         if (complete_on_close) {
@@ -338,6 +351,7 @@ public class CUBRIDResultSet implements ResultSet {
             error = u_stmt.getRecentError();
         }
         if (obj != null && obj instanceof Clob) {
+            checkGetXXXError();
             Clob clob = (Clob) obj;
             int length;
             if (clob.length() > (long) Integer.MAX_VALUE) {
@@ -471,6 +485,7 @@ public class CUBRIDResultSet implements ResultSet {
             error = u_stmt.getRecentError();
         }
         if (obj != null && obj instanceof Blob) {
+            checkGetXXXError();
             Blob blob = (Blob) obj;
             int length;
             if (blob.length() > (long) Integer.MAX_VALUE) {
@@ -543,6 +558,7 @@ public class CUBRIDResultSet implements ResultSet {
             error = u_stmt.getRecentError();
         }
         if (obj != null && obj instanceof Clob) {
+            checkGetXXXError();
             Clob clob = (Clob) obj;
             InputStream stream = clob.getAsciiStream();
             addStream(stream);
@@ -580,6 +596,7 @@ public class CUBRIDResultSet implements ResultSet {
             error = u_stmt.getRecentError();
         }
         if (obj != null && obj instanceof Blob) {
+            checkGetXXXError();
             Blob blob = (Blob) obj;
             InputStream stream = blob.getBinaryStream();
             addStream(stream);
@@ -732,6 +749,7 @@ public class CUBRIDResultSet implements ResultSet {
             error = u_stmt.getRecentError();
         }
         if (obj != null && obj instanceof Clob) {
+            checkGetXXXError();
             Clob clob = (Clob) obj;
             Reader stream = clob.getCharacterStream();
             addStream(stream);
@@ -1328,11 +1346,10 @@ public class CUBRIDResultSet implements ResultSet {
                     t_u_stmt.execute(
                             false, 0, 0, false, false, false, false, false, false, null, 0);
 
-                    error = t_u_stmt.getRecentError();
+                    error = new UError(t_u_stmt.getRecentError());
                     t_u_stmt.close();
                     if (error.getErrorCode() != UErrorCode.ER_NO_ERROR)
-                        throw con.createCUBRIDException(
-                                CUBRIDJDBCErrorCode.insertion_query_fail, null);
+                        throw con.createCUBRIDException(error);
                 }
             }
         } catch (NullPointerException e) {
@@ -1501,28 +1518,67 @@ public class CUBRIDResultSet implements ResultSet {
     }
 
     public synchronized Date getDate(int columnIndex, Calendar cal) throws SQLException {
-        return getDate(columnIndex);
+        if (cal == null) {
+            return getDate(columnIndex);
+        }
+        checkIsOpen();
+        beforeGetValue(columnIndex);
+
+        Date value;
+        synchronized (u_stmt) {
+            value = u_stmt.getDate(columnIndex - 1, cal.getTimeZone());
+            error = u_stmt.getRecentError();
+        }
+
+        checkGetXXXError();
+        return value;
     }
 
     public synchronized Date getDate(String columnName, Calendar cal) throws SQLException {
-        return getDate(columnName);
+        return getDate(findColumn(columnName), cal);
     }
 
     public synchronized Time getTime(int columnIndex, Calendar cal) throws SQLException {
-        return getTime(columnIndex);
+        if (cal == null) {
+            return getTime(columnIndex);
+        }
+        checkIsOpen();
+        beforeGetValue(columnIndex);
+
+        Time value;
+        synchronized (u_stmt) {
+            value = u_stmt.getTime(columnIndex - 1, cal.getTimeZone());
+            error = u_stmt.getRecentError();
+        }
+
+        checkGetXXXError();
+        return value;
     }
 
     public synchronized Time getTime(String columnName, Calendar cal) throws SQLException {
-        return getTime(columnName);
+        return getTime(findColumn(columnName), cal);
     }
 
     public synchronized Timestamp getTimestamp(int columnIndex, Calendar cal) throws SQLException {
-        return getTimestamp(columnIndex);
+        if (cal == null) {
+            return getTimestamp(columnIndex);
+        }
+        checkIsOpen();
+        beforeGetValue(columnIndex);
+
+        Timestamp value;
+        synchronized (u_stmt) {
+            value = u_stmt.getTimestamp(columnIndex - 1, cal.getTimeZone());
+            error = u_stmt.getRecentError();
+        }
+
+        checkGetXXXError();
+        return value;
     }
 
     public synchronized Timestamp getTimestamp(String columnName, Calendar cal)
             throws SQLException {
-        return getTimestamp(columnName);
+        return getTimestamp(findColumn(columnName), cal);
     }
 
     // 3.0
@@ -1632,7 +1688,7 @@ public class CUBRIDResultSet implements ResultSet {
     }
 
     private void checkIsOpen() throws SQLException {
-        if (is_closed) {
+        if (isClosed()) {
             throw con.createCUBRIDException(CUBRIDJDBCErrorCode.result_set_closed, null);
         }
     }
@@ -1679,6 +1735,76 @@ public class CUBRIDResultSet implements ResultSet {
         }
     }
 
+    private LocalDate getLocalDate(int columnIndex) throws SQLException {
+        checkJavaTimeColumn(columnIndex, LocalDate.class);
+
+        LocalDate value;
+        synchronized (u_stmt) {
+            value = u_stmt.getLocalDate(columnIndex - 1);
+            error = u_stmt.getRecentError();
+        }
+
+        checkGetXXXError();
+        return value;
+    }
+
+    private LocalTime getLocalTime(int columnIndex) throws SQLException {
+        checkJavaTimeColumn(columnIndex, LocalTime.class);
+
+        LocalTime value;
+        synchronized (u_stmt) {
+            value = u_stmt.getLocalTime(columnIndex - 1);
+            error = u_stmt.getRecentError();
+        }
+
+        checkGetXXXError();
+        return value;
+    }
+
+    private LocalDateTime getLocalDateTime(int columnIndex) throws SQLException {
+        checkJavaTimeColumn(columnIndex, LocalDateTime.class);
+
+        LocalDateTime value;
+        synchronized (u_stmt) {
+            value = u_stmt.getLocalDateTime(columnIndex - 1);
+            error = u_stmt.getRecentError();
+        }
+
+        checkGetXXXError();
+        return value;
+    }
+
+    private void checkJavaTimeColumn(int columnIndex, Class<?> type) throws SQLException {
+        checkRowIsValidForGet();
+        checkColumnIsValid(columnIndex);
+
+        if (isJavaTimeConversionSupported(column_info[columnIndex - 1].getColumnType(), type)) {
+            return;
+        }
+
+        throw con.createCUBRIDException(
+                CUBRIDJDBCErrorCode.invalid_value,
+                CUBRIDException.cannotConvertMessage(type),
+                null);
+    }
+
+    static boolean isJavaTimeConversionSupported(byte columnType, Class<?> type) {
+        switch (columnType) {
+            case UUType.U_TYPE_DATE:
+                return type == LocalDate.class || type == LocalDateTime.class;
+            case UUType.U_TYPE_TIME:
+                return type == LocalTime.class || type == LocalDateTime.class;
+            case UUType.U_TYPE_TIMESTAMP:
+            case UUType.U_TYPE_DATETIME:
+                return true;
+            case UUType.U_TYPE_NULL:
+                /* The server did not declare a type, so the decoded value carries its own. */
+                return true;
+            default:
+                return false;
+        }
+    }
+
     private void beforeGetValue(int columnIndex) throws SQLException {
         checkRowIsValidForGet();
         checkColumnIsValid(columnIndex);
@@ -1720,6 +1846,11 @@ public class CUBRIDResultSet implements ResultSet {
                 && (value instanceof Blob || value instanceof Clob)) {
             /* as on develop: a row update goes through the object, which takes no internal LOB */
             throw CUBRIDException.notSupported();
+        }
+
+        if (CUBRIDPreparedStatement.isUnsupportedJavaTime(value)) {
+            throw CUBRIDException.notSupported(
+                    CUBRIDException.cannotStoreMessage(value.getClass()));
         }
 
         updates[columnIndex - 1] = value;
@@ -1775,7 +1906,13 @@ public class CUBRIDResultSet implements ResultSet {
         }
 
         String strvalue = null;
-        if (value instanceof java.sql.Time) {
+        if (value instanceof LocalTime) {
+            strvalue = "'" + TIME_LITERAL.format((LocalTime) value) + "'";
+        } else if (value instanceof LocalDate) {
+            strvalue = "'" + DATE_LITERAL.format((LocalDate) value) + "'";
+        } else if (value instanceof LocalDateTime) {
+            strvalue = "'" + DATETIME_LITERAL.format((LocalDateTime) value) + "'";
+        } else if (value instanceof java.sql.Time) {
             java.text.SimpleDateFormat format = new java.text.SimpleDateFormat("HH:mm:ss");
             strvalue = "'" + format.format((java.util.Date) value) + "'";
         } else if (value instanceof java.sql.Date) {
@@ -1815,7 +1952,7 @@ public class CUBRIDResultSet implements ResultSet {
             }
         } else if (value instanceof java.sql.Timestamp) {
             java.text.SimpleDateFormat format =
-                    new java.text.SimpleDateFormat("MM/dd/yyyy HH:mm:ss");
+                    new java.text.SimpleDateFormat("MM/dd/yyyy HH:mm:ss.SSS");
             strvalue = "'" + format.format((java.util.Date) value) + "'";
         } else if (value instanceof CUBRIDOID) {
             strvalue = "'" + ((CUBRIDOID) value).getOidString() + "'";
@@ -1837,7 +1974,7 @@ public class CUBRIDResultSet implements ResultSet {
             }
             strvalue = "X'" + strvalue + "'";
         } else if (value instanceof String) {
-            strvalue = "'" + value.toString() + "'";
+            strvalue = "'" + value.toString().replace("'", "''") + "'";
         } else if (value instanceof Boolean) {
             strvalue = "B'";
             strvalue += ((Boolean) value).booleanValue() ? "1" : "0";
@@ -1916,7 +2053,17 @@ public class CUBRIDResultSet implements ResultSet {
 
     /* JDK 1.6 */
     public boolean isClosed() throws SQLException {
-        return is_closed;
+        if (is_closed) {
+            return true;
+        }
+
+        CUBRIDStatement s = stmt;
+        if (s != null) {
+            return s.isClosed();
+        }
+
+        CUBRIDConnection c = con;
+        return c != null && c.isClosedWithoutLock();
     }
 
     /* JDK 1.6 */
@@ -2127,13 +2274,86 @@ public class CUBRIDResultSet implements ResultSet {
     }
 
     /* JDK 1.7 */
-    public <T> T getObject(int columnIndex, Class<T> type) throws SQLException {
-        throw CUBRIDException.notSupported();
+    public synchronized <T> T getObject(int columnIndex, Class<T> type) throws SQLException {
+        checkIsOpen();
+        if (type == null) {
+            throw con.createCUBRIDException(
+                    CUBRIDJDBCErrorCode.invalid_value, CUBRIDException.nullTypeMessage(), null);
+        }
+
+        if (type == String.class) {
+            return type.cast(getString(columnIndex));
+        }
+        if (type == BigDecimal.class) {
+            return type.cast(getBigDecimal(columnIndex));
+        }
+        if (type == byte[].class) {
+            return type.cast(getBytes(columnIndex));
+        }
+        if (type == Date.class) {
+            return type.cast(getDate(columnIndex));
+        }
+        if (type == Time.class) {
+            return type.cast(getTime(columnIndex));
+        }
+        if (type == Timestamp.class) {
+            return type.cast(getTimestamp(columnIndex));
+        }
+        if (type == Blob.class) {
+            return type.cast(getBlob(columnIndex));
+        }
+        if (type == Clob.class) {
+            return type.cast(getClob(columnIndex));
+        }
+
+        if (type == Boolean.class) {
+            boolean value = getBoolean(columnIndex);
+            return wasNull() ? null : type.cast(value);
+        }
+        if (type == Byte.class) {
+            byte value = getByte(columnIndex);
+            return wasNull() ? null : type.cast(value);
+        }
+        if (type == Short.class) {
+            short value = getShort(columnIndex);
+            return wasNull() ? null : type.cast(value);
+        }
+        if (type == Integer.class) {
+            int value = getInt(columnIndex);
+            return wasNull() ? null : type.cast(value);
+        }
+        if (type == Long.class) {
+            long value = getLong(columnIndex);
+            return wasNull() ? null : type.cast(value);
+        }
+        if (type == Float.class) {
+            float value = getFloat(columnIndex);
+            return wasNull() ? null : type.cast(value);
+        }
+        if (type == Double.class) {
+            double value = getDouble(columnIndex);
+            return wasNull() ? null : type.cast(value);
+        }
+
+        if (type == LocalDate.class) {
+            return type.cast(getLocalDate(columnIndex));
+        }
+        if (type == LocalTime.class) {
+            return type.cast(getLocalTime(columnIndex));
+        }
+        if (type == LocalDateTime.class) {
+            return type.cast(getLocalDateTime(columnIndex));
+        }
+
+        throw con.createCUBRIDException(
+                CUBRIDJDBCErrorCode.invalid_value,
+                CUBRIDException.cannotConvertMessage(type),
+                null);
     }
 
     /* JDK 1.7 */
-    public <T> T getObject(String columnLabel, Class<T> type) throws SQLException {
-        throw CUBRIDException.notSupported();
+    public synchronized <T> T getObject(String columnLabel, Class<T> type) throws SQLException {
+        return getObject(findColumn(columnLabel), type);
     }
 
     // ------------------------- JDBC 4.2 -----------------------------------

@@ -61,6 +61,9 @@ import java.sql.SQLXML;
 import java.sql.Statement;
 import java.sql.Time;
 import java.sql.Timestamp;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.Calendar;
 
 /**
@@ -177,7 +180,7 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
     public synchronized void setNull(int parameterIndex, int sqlType) throws SQLException {
         checkIsOpen();
         synchronized (u_stmt) {
-            u_stmt.bindNull(parameterIndex - 1);
+            u_stmt.bindNull(parameterIndex - 1, sqlType);
             error = u_stmt.getRecentError();
         }
         checkBindError();
@@ -315,11 +318,7 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
         checkIsOpen();
 
         if (x == null) {
-            synchronized (u_stmt) {
-                u_stmt.bind(parameterIndex - 1, x);
-                error = u_stmt.getRecentError();
-            }
-            checkBindError();
+            setNull(parameterIndex, java.sql.Types.LONGVARCHAR);
             return;
         }
 
@@ -355,11 +354,7 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
         checkIsOpen();
 
         if (x == null) {
-            synchronized (u_stmt) {
-                u_stmt.bind(parameterIndex - 1, x);
-                error = u_stmt.getRecentError();
-            }
-            checkBindError();
+            setNull(parameterIndex, java.sql.Types.LONGVARBINARY);
             return;
         }
 
@@ -407,11 +402,16 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
 
     public synchronized void setObject(int parameterIndex, Object x, int targetSqlType, int scale)
             throws SQLException {
-        if (x instanceof Blob) {
+        if (x == null) {
+            setNull(parameterIndex, targetSqlType);
+            return;
+        } else if (x instanceof Blob) {
             setBlob(parameterIndex, (Blob) x);
             return;
         } else if (x instanceof Clob) {
             setClob(parameterIndex, (Clob) x);
+            return;
+        } else if (setJavaTimeObject(parameterIndex, x)) {
             return;
         }
 
@@ -444,6 +444,10 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
             throws SQLException {
         checkIsOpen();
 
+        if (x == null) {
+            setNull(parameterIndex, targetSqlType);
+            return;
+        }
         setObject(parameterIndex, x);
     }
 
@@ -454,8 +458,71 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
         } else if (x instanceof Clob) {
             setClob(parameterIndex, (Clob) x);
             return;
+        } else if (setJavaTimeObject(parameterIndex, x)) {
+            return;
         }
 
+        checkIsOpen();
+        synchronized (u_stmt) {
+            u_stmt.bind(parameterIndex - 1, x);
+            error = u_stmt.getRecentError();
+        }
+        checkBindError();
+    }
+
+    /*
+     * Binds x when it is a java.time value and answers whether it did, so that setObject falls
+     * through for everything else.
+     */
+    private boolean setJavaTimeObject(int parameterIndex, Object x) throws SQLException {
+        if (x instanceof LocalDate) {
+            setLocalDate(parameterIndex, (LocalDate) x);
+        } else if (x instanceof LocalTime) {
+            setLocalTime(parameterIndex, (LocalTime) x);
+        } else if (x instanceof LocalDateTime) {
+            setLocalDateTime(parameterIndex, (LocalDateTime) x);
+        } else if (isUnsupportedJavaTime(x)) {
+            checkIsOpen();
+            throw CUBRIDException.notSupported(CUBRIDException.cannotStoreMessage(x.getClass()));
+        } else {
+            return false;
+        }
+        return true;
+    }
+
+    /* Several java.time types are not Temporal, so an instanceof Temporal guard would miss them. */
+    static boolean isUnsupportedJavaTime(Object x) {
+        return x != null
+                && x.getClass().getName().startsWith("java.time.")
+                && !(x instanceof LocalDate)
+                && !(x instanceof LocalTime)
+                && !(x instanceof LocalDateTime);
+    }
+
+    /*
+     * These three exist to pick the matching UStatement.bind overload. Binding through
+     * bind(int, Object) would not do: overloads are chosen from the static type, and
+     * UUType.getObjectDBtype has no java.time arm, so the bind would fail as an invalid argument.
+     */
+    private void setLocalDate(int parameterIndex, LocalDate x) throws SQLException {
+        checkIsOpen();
+        synchronized (u_stmt) {
+            u_stmt.bind(parameterIndex - 1, x);
+            error = u_stmt.getRecentError();
+        }
+        checkBindError();
+    }
+
+    private void setLocalTime(int parameterIndex, LocalTime x) throws SQLException {
+        checkIsOpen();
+        synchronized (u_stmt) {
+            u_stmt.bind(parameterIndex - 1, x);
+            error = u_stmt.getRecentError();
+        }
+        checkBindError();
+    }
+
+    private void setLocalDateTime(int parameterIndex, LocalDateTime x) throws SQLException {
         checkIsOpen();
         synchronized (u_stmt) {
             u_stmt.bind(parameterIndex - 1, x);
@@ -541,11 +608,7 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
         checkIsOpen();
 
         if (reader == null) {
-            synchronized (u_stmt) {
-                u_stmt.bind(parameterIndex - 1, reader);
-                error = u_stmt.getRecentError();
-            }
-            checkBindError();
+            setNull(parameterIndex, java.sql.Types.LONGVARCHAR);
             return;
         }
 
@@ -708,16 +771,43 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
     }
 
     public synchronized void setDate(int parameterIndex, Date x, Calendar cal) throws SQLException {
-        setDate(parameterIndex, x);
+        if (cal == null || x == null) {
+            setDate(parameterIndex, x);
+            return;
+        }
+        checkIsOpen();
+        synchronized (u_stmt) {
+            u_stmt.bind(parameterIndex - 1, x, cal.getTimeZone());
+            error = u_stmt.getRecentError();
+        }
+        checkBindError();
     }
 
     public synchronized void setTime(int parameterIndex, Time x, Calendar cal) throws SQLException {
-        setTime(parameterIndex, x);
+        if (cal == null || x == null) {
+            setTime(parameterIndex, x);
+            return;
+        }
+        checkIsOpen();
+        synchronized (u_stmt) {
+            u_stmt.bind(parameterIndex - 1, x, cal.getTimeZone());
+            error = u_stmt.getRecentError();
+        }
+        checkBindError();
     }
 
     public synchronized void setTimestamp(int parameterIndex, Timestamp x, Calendar cal)
             throws SQLException {
-        setTimestamp(parameterIndex, x);
+        if (cal == null || x == null) {
+            setTimestamp(parameterIndex, x);
+            return;
+        }
+        checkIsOpen();
+        synchronized (u_stmt) {
+            u_stmt.bind(parameterIndex - 1, x, cal.getTimeZone());
+            error = u_stmt.getRecentError();
+        }
+        checkBindError();
     }
 
     public synchronized void setTimestamptz(int parameterIndex, CUBRIDTimestamptz x, Calendar cal)
@@ -940,7 +1030,7 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
     }
 
     protected void checkIsOpen() throws SQLException {
-        if (is_closed) {
+        if (isClosed()) {
             if (con != null) {
                 throw con.createCUBRIDException(
                         CUBRIDJDBCErrorCode.prepared_statement_closed, null);

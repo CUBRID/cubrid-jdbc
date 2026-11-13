@@ -50,6 +50,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.sql.SQLException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -109,7 +110,10 @@ public abstract class UConnection {
 
     public static final int PROTOCOL_V11 = 11;
     public static final int PROTOCOL_V12 = 12;
-    /* byte-stream transport (STREAM_*) with CAS_INFO_FLAG_MASK_STREAM_OPEN, and a BLOB/CLOB
+    /* CAS-issued session id required (not just optionally checked) for QC/X1 query cancel,
+     * see KVE-2026-1827 and engine ticket CBRD-27389. Mirrors src/broker/cas_protocol.h's
+     * PROTOCOL_V13 (engine) and src/cci/broker_cas_protocol.h's PROTOCOL_V13 (CCI).
+     * Also the byte-stream transport (STREAM_*) with CAS_INFO_FLAG_MASK_STREAM_OPEN, and a BLOB/CLOB
      * column led by INTERNAL_LOB_WIRE_REF / _INLINE */
     public static final int PROTOCOL_V13 = 13;
 
@@ -139,6 +143,13 @@ public abstract class UConnection {
     protected static final byte CAS_SUPPORT_HOLDABLE_RESULT = (byte) 0x40;
     /* Do not remove and rename CAS_RECONNECT_WHEN_SERVER_DOWN */
     protected static final byte CAS_RECONNECT_WHEN_SERVER_DOWN = (byte) 0x20;
+    /* Announces that a 4-byte CAS-issued session id is appended after the standard 10-byte
+     * query-cancel header sent to BrokerHandler.cancelBroker's "X1" request, so the broker can
+     * verify the cancel request against the session id in addition to source IP/port. This bit
+     * only controls wire framing on that one (unauthenticated) cancel request; whether the check
+     * is actually mandatory is decided by the broker from this connection's own CAS_PROTOCOL_VERSION
+     * (PROTOCOL_V13 or later), recorded at connect time, not from this bit. */
+    public static final byte CAS_SUPPORT_SESSION_CANCEL = (byte) 0x10;
 
     protected static final byte CAS_ORACLE_COMPAT_NUMBER_BEHAVIOR = (byte) 0x01;
 
@@ -266,10 +277,11 @@ public abstract class UConnection {
     protected boolean lastAutoCommit = true;
     private boolean isAutoCommitBySelf = false;
 
-    protected boolean isClosed = false;
+    protected volatile boolean isClosed = false;
 
     private int lastIsolationLevel;
     private int lastLockTimeout = LOCK_TIMEOUT_NOT_USED;
+    private volatile int networkTimeout;
 
     protected byte[] dbInfo;
     protected String dbname = "";
@@ -1754,7 +1766,15 @@ public abstract class UConnection {
     }
 
     void cancel() throws UJciException, IOException {
-        BrokerHandler.cancelBroker(casIp, casPort, casProcessId, READ_TIMEOUT);
+        byte[] session = null;
+
+        /* Only a PROTOCOL_V13 or later broker reads the session id appended to the cancel request. */
+        if (brokerProtocolVersion() >= PROTOCOL_V13) {
+            session = new byte[4];
+            for (int i = 0; i < 4; i++) session[i] = sessionId[i + 8];
+        }
+
+        BrokerHandler.cancelBroker(casIp, casPort, casProcessId, session, READ_TIMEOUT);
     }
 
     /*
@@ -1950,6 +1970,29 @@ public abstract class UConnection {
         return lastLockTimeout;
     }
 
+    public void setNetworkTimeout(int milliseconds) {
+        networkTimeout = milliseconds;
+        Socket socket = client;
+        if (socket == null) {
+            return;
+        }
+
+        try {
+            socket.setSoTimeout(socketTimeout(milliseconds));
+        } catch (IOException e) {
+            logException(e);
+        }
+    }
+
+    public int getNetworkTimeout() {
+        return networkTimeout;
+    }
+
+    /* No CAS status check before the deadline: it fails first when the network is down. */
+    static int socketTimeout(int networkTimeout) {
+        return networkTimeout > 0 ? networkTimeout : SOCKET_TIMEOUT;
+    }
+
     // UFunctionCode.SAVEPOINT
     public synchronized void savepoint(byte mode, String name) {
         errorHandler = new UError(this);
@@ -2066,6 +2109,28 @@ public abstract class UConnection {
         }
 
         return false;
+    }
+
+    public synchronized boolean supportSchema() {
+        errorHandler = new UError(this);
+
+        /* XA, DataSource and useLazyConnection ask for metadata before the handshake. */
+        if (protocolVersion == 0 && isClosed == false) {
+            try {
+                setBeginTime();
+                checkReconnect();
+                endTransaction(true);
+                errorHandler.clear();
+            } catch (IOException e) {
+                logException(e);
+                errorHandler.setErrorCode(UErrorCode.ER_COMMUNICATION);
+            } catch (UJciException e) {
+                logException(e);
+                e.toUError(errorHandler);
+            }
+        }
+
+        return isConnectedToCubrid() && protocolVersion >= PROTOCOL_V11;
     }
 
     public boolean isOracleCompatNumberBehavior() {
@@ -2217,9 +2282,9 @@ public abstract class UConnection {
         outBuffer.sendData();
         /* set cas info to UConnection member variable and return InputBuffer */
         if (timeout > 0) {
-            inputBuffer = new UInputBuffer(input, this, timeout * 1000 + READ_TIMEOUT);
+            inputBuffer = receive(timeout * 1000 + READ_TIMEOUT);
         } else {
-            inputBuffer = new UInputBuffer(input, this, 0);
+            inputBuffer = receive(0);
         }
 
         if (UJCIUtil.isConsoleDebug()) {
@@ -2239,7 +2304,7 @@ public abstract class UConnection {
         byte prev_casinfo[] = casInfo;
         outBuffer.sendData();
         /* set cas info to UConnection member variable and return InputBuffer */
-        UInputBuffer inputBuffer = new UInputBuffer(input, this, 0);
+        UInputBuffer inputBuffer = receive(0);
 
         if (UJCIUtil.isConsoleDebug()) {
             printCasInfo(prev_casinfo, casInfo);
@@ -2252,6 +2317,21 @@ public abstract class UConnection {
             createJciException(UErrorCode.ER_COMMUNICATION);
         }
         return send_recv_msg(true);
+    }
+
+    private UInputBuffer receive(int headerTimeout) throws UJciException, IOException {
+        int networkTimeout = this.networkTimeout;
+        if (networkTimeout <= 0) {
+            return new UInputBuffer(input, this, headerTimeout, input.getTimeout());
+        }
+
+        try {
+            return new UInputBuffer(input, this, networkTimeout, networkTimeout);
+        } catch (SocketTimeoutException e) {
+            clientSocketClose();
+            isClosed = true;
+            throw createJciException(UErrorCode.ER_NETWORK_TIMEOUT);
+        }
     }
 
     UUrlCache getUrlCache() {

@@ -53,11 +53,15 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Time;
 import java.sql.Timestamp;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.TimeZone;
 
 public class UStatement {
     public static final int CURSOR_SET = 0, CURSOR_CUR = 1, CURSOR_END = 2;
@@ -436,6 +440,18 @@ public class UStatement {
         bindValue(index, UUType.U_TYPE_VARBIT, data);
     }
 
+    public void bind(int index, LocalDate value) {
+        bindValue(index, UUType.U_TYPE_DATE, value);
+    }
+
+    public void bind(int index, LocalTime value) {
+        bindValue(index, UUType.U_TYPE_TIME, value);
+    }
+
+    public void bind(int index, LocalDateTime value) {
+        bindValue(index, UUType.U_TYPE_DATETIME, value);
+    }
+
     public void bind(int index, Date value) {
         bindValue(index, UUType.U_TYPE_DATE, value);
     }
@@ -445,15 +461,32 @@ public class UStatement {
     }
 
     public void bind(int index, Timestamp value) {
-        byte type = UUType.getObjectDBtype(value);
+        byte type = value == null ? UUType.U_TYPE_DATETIME : UUType.getObjectDBtype(value);
 
         bindValue(index, type, value);
     }
 
     public void bind(int index, CUBRIDTimestamptz value) {
-        byte type = UUType.getObjectDBtype(value);
+        byte type = value == null ? UUType.U_TYPE_DATETIMETZ : UUType.getObjectDBtype(value);
 
         bindValue(index, type, value);
+    }
+
+    public void bind(int index, Date value, TimeZone zone) {
+        bindValue(index, UUType.U_TYPE_DATE, UDateTimeFields.of(value, UUType.U_TYPE_DATE, zone));
+    }
+
+    public void bind(int index, Time value, TimeZone zone) {
+        bindValue(index, UUType.U_TYPE_TIME, UDateTimeFields.of(value, UUType.U_TYPE_TIME, zone));
+    }
+
+    public void bind(int index, Timestamp value, TimeZone zone) {
+        if (value instanceof CUBRIDTimestamptz) {
+            bind(index, value);
+            return;
+        }
+        byte type = UUType.getObjectDBtype(value);
+        bindValue(index, type, UDateTimeFields.of(value, type, zone));
     }
 
     public void bind(int index, Object value) {
@@ -583,6 +616,14 @@ public class UStatement {
 
     public void bindNull(int index) {
         bindValue(index, UUType.U_TYPE_NULL, null);
+    }
+
+    public void bindNull(int index, int sqlType) {
+        bindValue(index, UUType.getNullTypeOfSqlType(sqlType), null);
+    }
+
+    private boolean sendsTypedNull() {
+        return relatedConnection.brokerProtocolVersion() >= UConnection.PROTOCOL_V13;
     }
 
     public UError cancel() {
@@ -853,7 +894,7 @@ public class UStatement {
         outBuffer.addInt((int) remainingTime);
 
         if (bindParameter != null) {
-            bindParameter.writeParameter(outBuffer);
+            bindParameter.writeParameter(outBuffer, sendsTypedNull());
         }
     }
 
@@ -1126,7 +1167,7 @@ public class UStatement {
             synchronized (batchParameter) {
                 for (int i = 0; i < batchParameter.size(); i++) {
                     UBindParameter b = (UBindParameter) batchParameter.get(i);
-                    b.writeParameter(outBuffer);
+                    b.writeParameter(outBuffer, sendsTypedNull());
                 }
             }
         }
@@ -1426,6 +1467,76 @@ public class UStatement {
         return null;
     }
 
+    public synchronized LocalDate getLocalDate(int index) {
+        UDateTimeFields fields = dateTimeFieldsOf(index);
+        if (fields == null) return null;
+
+        try {
+            return fields.toLocalDate();
+        } catch (UJciException e) {
+            e.toUError(errorHandler);
+        }
+        return null;
+    }
+
+    public synchronized LocalTime getLocalTime(int index) {
+        UDateTimeFields fields = dateTimeFieldsOf(index);
+        if (fields == null) return null;
+
+        try {
+            return fields.toLocalTime();
+        } catch (UJciException e) {
+            e.toUError(errorHandler);
+        }
+        return null;
+    }
+
+    public synchronized LocalDateTime getLocalDateTime(int index) {
+        UDateTimeFields fields = dateTimeFieldsOf(index);
+        if (fields == null) return null;
+
+        try {
+            return fields.toLocalDateTime();
+        } catch (UJciException e) {
+            e.toUError(errorHandler);
+        }
+        return null;
+    }
+
+    private UDateTimeFields dateTimeFieldsOf(int index) {
+        errorHandler = new UError(relatedConnection);
+
+        if (isClosed == true) {
+            errorHandler.setErrorCode(UErrorCode.ER_IS_CLOSED);
+            return null;
+        }
+        if (index < 0 || index >= columnNumber) {
+            errorHandler.setErrorCode(UErrorCode.ER_COLUMN_INDEX);
+            return null;
+        }
+        if (checkReFetch() != true) return null;
+        if (fetchedTupleNumber <= 0) {
+            errorHandler.setErrorCode(UErrorCode.ER_NO_MORE_DATA);
+            return null;
+        }
+
+        Object obj;
+        if ((tuples == null)
+                || (tuples[cursorPosition - currentFirstCursor] == null)
+                || ((obj = tuples[cursorPosition - currentFirstCursor].getAttribute(index))
+                        == null)) {
+            errorHandler.setErrorCode(UErrorCode.ER_WAS_NULL);
+            return null;
+        }
+
+        if (obj instanceof UDateTimeFields) {
+            return (UDateTimeFields) obj;
+        }
+
+        errorHandler.setErrorCode(UErrorCode.ER_TYPE_CONVERSION);
+        return null;
+    }
+
     public synchronized Date getDate(int index) {
         errorHandler = new UError(relatedConnection);
 
@@ -1667,6 +1778,48 @@ public class UStatement {
 
         try {
             return (UGetTypeConvertedValue.getTimestamp(obj));
+        } catch (UJciException e) {
+            e.toUError(errorHandler);
+        }
+        return null;
+    }
+
+    public synchronized Date getDate(int index, TimeZone zone) {
+        errorHandler = new UError(relatedConnection);
+
+        Object obj = beforeGetRaw(index);
+        if (obj == null) return null;
+
+        try {
+            return (UGetTypeConvertedValue.getDate(obj, zone));
+        } catch (UJciException e) {
+            e.toUError(errorHandler);
+        }
+        return null;
+    }
+
+    public synchronized Time getTime(int index, TimeZone zone) {
+        errorHandler = new UError(relatedConnection);
+
+        Object obj = beforeGetRaw(index);
+        if (obj == null) return null;
+
+        try {
+            return (UGetTypeConvertedValue.getTime(obj, zone));
+        } catch (UJciException e) {
+            e.toUError(errorHandler);
+        }
+        return null;
+    }
+
+    public synchronized Timestamp getTimestamp(int index, TimeZone zone) {
+        errorHandler = new UError(relatedConnection);
+
+        Object obj = beforeGetRaw(index);
+        if (obj == null) return null;
+
+        try {
+            return (UGetTypeConvertedValue.getTimestamp(obj, zone));
         } catch (UJciException e) {
             e.toUError(errorHandler);
         }
@@ -2088,6 +2241,11 @@ public class UStatement {
     }
 
     private Object beforeGetXXX(int index) {
+        Object obj = beforeGetRaw(index);
+        return obj == null ? null : UDateTimeFields.sqlValueOf(obj);
+    }
+
+    private Object beforeGetRaw(int index) {
         if (isClosed == true) {
             errorHandler.setErrorCode(UErrorCode.ER_IS_CLOSED);
             return null;
@@ -2315,12 +2473,12 @@ public class UStatement {
             case UUType.U_TYPE_TIME:
                 return inBuffer.readTime();
             case UUType.U_TYPE_TIMESTAMP:
-                return inBuffer.readTimestamp(false);
+                return inBuffer.readTimestampFields(false);
             case UUType.U_TYPE_TIMESTAMPTZ:
             case UUType.U_TYPE_TIMESTAMPLTZ:
                 return inBuffer.readTimestamptz(dataSize);
             case UUType.U_TYPE_DATETIME:
-                return inBuffer.readDatetime(false);
+                return inBuffer.readDatetimeFields(false);
             case UUType.U_TYPE_DATETIMETZ:
             case UUType.U_TYPE_DATETIMELTZ:
                 return inBuffer.readDatetimetz(dataSize);
@@ -2338,7 +2496,9 @@ public class UStatement {
                         if (eleSize <= 0) aArray.setElement(i, null);
                         else
                             aArray.setElement(
-                                    i, readData(inBuffer, baseType, eleSize, charsetName));
+                                    i,
+                                    UDateTimeFields.sqlValueOf(
+                                            readData(inBuffer, baseType, eleSize, charsetName)));
                     }
                     return aArray;
                 }

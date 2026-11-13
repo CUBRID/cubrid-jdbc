@@ -78,17 +78,34 @@ public class CUBRIDException extends SQLException {
      * the driver's own reason message and error code (not_supported).
      */
     static SQLFeatureNotSupportedException notSupported() {
+        return notSupported("");
+    }
+
+    /* As notSupported(), with a reason saying what in particular was refused. */
+    static SQLFeatureNotSupportedException notSupported(String reason) {
         return new SQLFeatureNotSupportedException(
-                CUBRIDJDBCErrorCode.getMessage(CUBRIDJDBCErrorCode.not_supported),
+                CUBRIDJDBCErrorCode.getMessage(CUBRIDJDBCErrorCode.not_supported) + reason,
                 null,
                 CUBRIDJDBCErrorCode.not_supported);
     }
 
     /*
-     * Builds the reason message for an unwrap request that this object cannot satisfy.
-     * Pairs with CUBRIDJDBCErrorCode.invalid_value.
+     * Reason messages. The caller supplies the error code, so the pairing lives here: the store
+     * message goes with not_supported, the other three with invalid_value.
      */
+    static String cannotStoreMessage(Class<?> type) {
+        return " - cannot store " + type.getName();
+    }
+
     static String cannotUnwrapMessage(Class<?> iface) {
         return " - cannot unwrap to " + iface.getName();
+    }
+
+    static String cannotConvertMessage(Class<?> type) {
+        return " - cannot convert to " + type.getName();
+    }
+
+    static String nullTypeMessage() {
+        return " - type is null";
     }
 }

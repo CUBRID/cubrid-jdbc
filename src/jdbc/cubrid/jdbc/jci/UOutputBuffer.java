@@ -52,11 +52,16 @@ import java.io.OutputStream;
 import java.sql.Date;
 import java.sql.Time;
 import java.sql.Timestamp;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.Calendar;
 import java.util.TimeZone;
 import javax.transaction.xa.Xid;
 
 class UOutputBuffer {
+    private static final int NANOS_PER_MILLI = 1000000;
+
     private UConnection u_con;
     private OutputStream output;
     private ByteArrayBuffer dataBuffer;
@@ -184,6 +189,54 @@ class UOutputBuffer {
         dataBuffer.writeShort((short) 0);
     }
 
+    int addDate(LocalDate value) throws IOException {
+        dataBuffer.writeInt(14);
+        dataBuffer.writeShort(value.getYear());
+        dataBuffer.writeShort(value.getMonthValue());
+        dataBuffer.writeShort(value.getDayOfMonth());
+        dataBuffer.writeShort((short) 0);
+        dataBuffer.writeShort((short) 0);
+        dataBuffer.writeShort((short) 0);
+        dataBuffer.writeShort((short) 0);
+        return 18;
+    }
+
+    int addTimestamp(LocalDateTime value) throws IOException {
+        dataBuffer.writeInt(14);
+        dataBuffer.writeShort(value.getYear());
+        dataBuffer.writeShort(value.getMonthValue());
+        dataBuffer.writeShort(value.getDayOfMonth());
+        dataBuffer.writeShort(value.getHour());
+        dataBuffer.writeShort(value.getMinute());
+        dataBuffer.writeShort(value.getSecond());
+        dataBuffer.writeShort((short) 0);
+        return 18;
+    }
+
+    int addTime(LocalTime value) throws IOException {
+        dataBuffer.writeInt(14);
+        dataBuffer.writeShort((short) 0);
+        dataBuffer.writeShort((short) 0);
+        dataBuffer.writeShort((short) 0);
+        dataBuffer.writeShort(value.getHour());
+        dataBuffer.writeShort(value.getMinute());
+        dataBuffer.writeShort(value.getSecond());
+        dataBuffer.writeShort((short) 0);
+        return 18;
+    }
+
+    int addDatetime(LocalDateTime value) throws IOException {
+        dataBuffer.writeInt(14);
+        dataBuffer.writeShort(value.getYear());
+        dataBuffer.writeShort(value.getMonthValue());
+        dataBuffer.writeShort(value.getDayOfMonth());
+        dataBuffer.writeShort(value.getHour());
+        dataBuffer.writeShort(value.getMinute());
+        dataBuffer.writeShort(value.getSecond());
+        dataBuffer.writeShort(value.getNano() / NANOS_PER_MILLI);
+        return 18;
+    }
+
     int addTime(Time value) throws IOException {
         dataBuffer.writeInt(14);
         writeTime(value);
@@ -251,6 +304,14 @@ class UOutputBuffer {
     int addDatetime(Timestamp value) throws IOException {
         dataBuffer.writeInt(14);
         writeTimestamp(value, true, false);
+        return 18;
+    }
+
+    int addFields(UDateTimeFields value) throws IOException {
+        dataBuffer.writeInt(14);
+        for (int field : value.wireFields()) {
+            dataBuffer.writeShort(field);
+        }
         return 18;
     }
 
@@ -362,7 +423,7 @@ class UOutputBuffer {
                 if (value == null) {
                     return addByte((byte) 0);
                 } else {
-                    if ((value instanceof byte[]) && (((byte[]) value).length > 1)) {
+                    if (value instanceof byte[]) {
                         return addBytes(UGetTypeConvertedValue.getBytes(value));
                     } else {
                         return addByte(UGetTypeConvertedValue.getByte(value));
@@ -378,12 +439,24 @@ class UOutputBuffer {
             case UUType.U_TYPE_DATE:
                 if (value == null) {
                     return addDate(UGetTypeConvertedValue.getDate(new Timestamp(0)));
+                } else if (value instanceof UDateTimeFields) {
+                    return addFields((UDateTimeFields) value);
+                } else if (value instanceof LocalDate) {
+                    return addDate((LocalDate) value);
+                } else if (value instanceof LocalDateTime) {
+                    return addDate(((LocalDateTime) value).toLocalDate());
                 } else {
                     return addDate(UGetTypeConvertedValue.getDate(value));
                 }
             case UUType.U_TYPE_TIME:
                 if (value == null) {
                     return addTime(UGetTypeConvertedValue.getTime(new Timestamp(0)));
+                } else if (value instanceof UDateTimeFields) {
+                    return addFields((UDateTimeFields) value);
+                } else if (value instanceof LocalTime) {
+                    return addTime((LocalTime) value);
+                } else if (value instanceof LocalDateTime) {
+                    return addTime(((LocalDateTime) value).toLocalTime());
                 } else {
                     return addTime(UGetTypeConvertedValue.getTime(value));
                 }
@@ -391,6 +464,14 @@ class UOutputBuffer {
             case UUType.U_TYPE_TIMESTAMP:
                 if (value == null) {
                     return addTimestamp(UGetTypeConvertedValue.getTimestamp(new Timestamp(0)));
+                } else if (value instanceof UDateTimeFields) {
+                    return addFields((UDateTimeFields) value);
+                } else if (value instanceof LocalDateTime) {
+                    return addTimestamp((LocalDateTime) value);
+                } else if (value instanceof LocalDate) {
+                    return addTimestamp(((LocalDate) value).atStartOfDay());
+                } else if (value instanceof LocalTime) {
+                    return addTimestamp(((LocalTime) value).atDate(UDateTimeFields.TIME_BASE_DATE));
                 } else {
                     return addTimestamp(UGetTypeConvertedValue.getTimestamp(value));
                 }
@@ -406,6 +487,14 @@ class UOutputBuffer {
             case UUType.U_TYPE_DATETIME:
                 if (value == null) {
                     return addDatetime(UGetTypeConvertedValue.getTimestamp(new Timestamp(0)));
+                } else if (value instanceof UDateTimeFields) {
+                    return addFields((UDateTimeFields) value);
+                } else if (value instanceof LocalDateTime) {
+                    return addDatetime((LocalDateTime) value);
+                } else if (value instanceof LocalDate) {
+                    return addDatetime(((LocalDate) value).atStartOfDay());
+                } else if (value instanceof LocalTime) {
+                    return addDatetime(((LocalTime) value).atDate(UDateTimeFields.TIME_BASE_DATE));
                 } else {
                     return addDatetime(UGetTypeConvertedValue.getTimestamp(value));
                 }

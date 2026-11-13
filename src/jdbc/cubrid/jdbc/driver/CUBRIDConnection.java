@@ -51,6 +51,7 @@ import java.sql.ResultSet;
 import java.sql.SQLClientInfoException;
 import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
+import java.sql.SQLPermission;
 import java.sql.SQLWarning;
 import java.sql.SQLXML;
 import java.sql.Savepoint;
@@ -80,7 +81,7 @@ public class CUBRIDConnection implements Connection {
     String user;
     String url;
 
-    protected boolean is_closed;
+    protected volatile boolean is_closed;
     protected boolean auto_commit;
     protected int holdability;
 
@@ -259,7 +260,7 @@ public class CUBRIDConnection implements Connection {
     }
 
     public synchronized boolean isClosed() throws SQLException {
-        return is_closed;
+        return isClosedWithoutLock();
     }
 
     public synchronized DatabaseMetaData getMetaData() throws SQLException {
@@ -623,6 +624,11 @@ public class CUBRIDConnection implements Connection {
     }
 
     protected void autoCommit() throws SQLException {
+        /* After a network timeout, let statements close instead of failing to commit. */
+        if (isClosedByNetworkTimeout()) {
+            return;
+        }
+
         checkIsOpen();
         /* A statement that opened a stream session is not finished when execute
          * returns -- the bytes still have to be sent -- so committing here would
@@ -632,6 +638,11 @@ public class CUBRIDConnection implements Connection {
     }
 
     protected void autoRollback() throws SQLException {
+        /* After a network timeout, keep the caller's error instead of failing to roll back. */
+        if (isClosedByNetworkTimeout()) {
+            return;
+        }
+
         checkIsOpen();
         if (auto_commit) rollback();
     }
@@ -663,9 +674,20 @@ public class CUBRIDConnection implements Connection {
     }
 
     private void checkIsOpen() throws SQLException {
-        if (is_closed) {
+        if (isClosedWithoutLock()) {
             throw createCUBRIDException(CUBRIDJDBCErrorCode.connection_closed, null);
         }
+    }
+
+    boolean isClosedWithoutLock() {
+        /* close() on another thread can set u_con to null. */
+        UConnection u = u_con;
+        return is_closed || u == null || u.isClosed();
+    }
+
+    private boolean isClosedByNetworkTimeout() {
+        UConnection u = u_con;
+        return !is_closed && u != null && u.isClosed();
     }
 
     boolean isSavepointTopologySupported() {
@@ -1145,7 +1167,7 @@ public class CUBRIDConnection implements Connection {
             throw new SQLException();
         }
 
-        if (u_con == null || is_closed) return false;
+        if (isClosedWithoutLock()) return false;
 
         return u_con.isValid(timeout * 1000);
     }
@@ -1200,12 +1222,24 @@ public class CUBRIDConnection implements Connection {
     }
 
     /* JDK 1.7 */
-    public void setNetworkTimeout(Executor executor, int milliseconds) throws SQLException {
-        throw CUBRIDException.notSupported();
+    public synchronized void setNetworkTimeout(Executor executor, int milliseconds)
+            throws SQLException {
+        checkIsOpen();
+        if (executor == null || milliseconds < 0) {
+            throw createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
+        }
+
+        SecurityManager securityManager = System.getSecurityManager();
+        if (securityManager != null) {
+            securityManager.checkPermission(new SQLPermission("setNetworkTimeout"));
+        }
+
+        u_con.setNetworkTimeout(milliseconds);
     }
 
     /* JDK 1.7 */
-    public int getNetworkTimeout() throws SQLException {
-        throw CUBRIDException.notSupported();
+    public synchronized int getNetworkTimeout() throws SQLException {
+        checkIsOpen();
+        return u_con.getNetworkTimeout();
     }
 }

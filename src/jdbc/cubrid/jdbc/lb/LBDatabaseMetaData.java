@@ -110,7 +110,7 @@ class LBDatabaseMetaData extends CUBRIDDatabaseMetaData {
      * Serve one call that <b>sends a request</b> to the write endpoint, under the failover handler.
      *
      * <p>{@link #rwMeta} resolves the handle inside the closure, so a rebind is followed by a fresh
-     * handle rather than by a query on the connection that just died. Twelve of the 173 methods
+     * handle rather than by a query on the connection that just died. Fourteen of the 173 methods
      * need this - the ones whose physical implementation touches {@code u_con}; the others answer
      * from local constants and are left as plain {@code rwMeta(...)} forwards.
      *
@@ -553,12 +553,24 @@ class LBDatabaseMetaData extends CUBRIDDatabaseMetaData {
 
     @Override
     public ResultSet getSchemas() throws SQLException {
-        return rwMeta("getSchemas").getSchemas();
+        return rwMetaQuery(
+                "getSchemas",
+                new SqlExecution<ResultSet>() {
+                    public ResultSet run() throws SQLException {
+                        return rwMeta("getSchemas").getSchemas();
+                    }
+                });
     }
 
     @Override
     public ResultSet getSchemas(final String a0, final String a1) throws SQLException {
-        throw LbExceptions.featureNotSupported();
+        return rwMetaQuery(
+                "getSchemas",
+                new SqlExecution<ResultSet>() {
+                    public ResultSet run() throws SQLException {
+                        return rwMeta("getSchemas").getSchemas(a0, a1);
+                    }
+                });
     }
 
     @Override

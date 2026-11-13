@@ -214,6 +214,41 @@ public final class BrokerDownOutsideExecuteTest {
         conn.close();
     }
 
+    /** Core's getSchemas now asks the server, so it rebinds the write leg as getTables does. */
+    @Test
+    public void schemaQueryRebindsTheWriteLegWhenTheWriteBrokerIsDown() throws SQLException {
+        assertSchemaQueryRebinds(false);
+        assertSchemaQueryRebinds(true);
+    }
+
+    private static void assertSchemaQueryRebinds(final boolean withPattern) throws SQLException {
+        final List<String> asked = new ArrayList<String>();
+        LoadBalanceConnection conn =
+                sessionOverTwoWriteEndpoints(catalogQueryFactory("rw1", asked, "getSchemas"));
+
+        try {
+            getSchemas(conn, withPattern);
+            fail("Expected the original write-leg failure to be reported");
+        } catch (SQLException expected) {
+            assertEquals(UErrorCode.ER_COMMUNICATION, expected.getErrorCode());
+        }
+
+        assertTrue(hasFailoverEvent(conn));
+        getSchemas(conn, withPattern);
+
+        assertEquals(Arrays.asList("rw1", "rw2"), asked);
+        conn.close();
+    }
+
+    private static void getSchemas(final LoadBalanceConnection conn, final boolean withPattern)
+            throws SQLException {
+        if (withPattern) {
+            conn.getMetaData().getSchemas(null, "P%");
+        } else {
+            conn.getMetaData().getSchemas();
+        }
+    }
+
     /** A session-property read is a physical command too, so it rebinds the write leg. */
     @Test
     public void isReadOnlyRebindsTheWriteLegWhenTheWriteBrokerIsDown() throws SQLException {
@@ -403,6 +438,12 @@ public final class BrokerDownOutsideExecuteTest {
     /** {@code DatabaseMetaData.getTables} fails on {@code deadHost} and works elsewhere. */
     private static JdbcConnectionFactory catalogQueryFactory(
             final String deadHost, final List<String> asked) {
+        return catalogQueryFactory(deadHost, asked, "getTables");
+    }
+
+    /** One {@code DatabaseMetaData} method fails on {@code deadHost} and works elsewhere. */
+    private static JdbcConnectionFactory catalogQueryFactory(
+            final String deadHost, final List<String> asked, final String failingMethod) {
         return new JdbcConnectionFactory() {
             public Connection getConnection(final String url, final Properties info) {
                 final String host = hostOf(url);
@@ -418,7 +459,8 @@ public final class BrokerDownOutsideExecuteTest {
                                             final Object[] args)
                                             throws Throwable {
                                         if ("getMetaData".equals(method.getName())) {
-                                            return catalogProxy(host, deadHost, asked);
+                                            return catalogProxy(
+                                                    host, deadHost, asked, failingMethod);
                                         }
 
                                         return defaultAnswer(method);
@@ -429,7 +471,10 @@ public final class BrokerDownOutsideExecuteTest {
     }
 
     private static Object catalogProxy(
-            final String host, final String deadHost, final List<String> asked) {
+            final String host,
+            final String deadHost,
+            final List<String> asked,
+            final String failingMethod) {
         return Proxy.newProxyInstance(
                 java.sql.DatabaseMetaData.class.getClassLoader(),
                 new Class[] {java.sql.DatabaseMetaData.class},
@@ -437,7 +482,7 @@ public final class BrokerDownOutsideExecuteTest {
                     public Object invoke(
                             final Object proxy, final Method method, final Object[] args)
                             throws Throwable {
-                        if ("getTables".equals(method.getName())) {
+                        if (failingMethod.equals(method.getName())) {
                             asked.add(host);
                             if (deadHost.equals(host)) {
                                 throw new SQLException(

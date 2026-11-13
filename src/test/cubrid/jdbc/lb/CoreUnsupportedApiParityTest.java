@@ -30,6 +30,7 @@
 
 package cubrid.jdbc.lb;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import cubrid.jdbc.driver.CUBRIDConnection;
@@ -42,9 +43,11 @@ import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.sql.DatabaseMetaData;
 import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import org.junit.Test;
@@ -55,6 +58,12 @@ import org.junit.Test;
  * called on a core object built without its constructor - so there is no list to maintain.
  */
 public class CoreUnsupportedApiParityTest {
+
+    /** Core supports these since APIS-1123; LB does not yet. */
+    private static final List<String> LB_ONLY_REFUSALS =
+            Arrays.asList(
+                    "CUBRIDConnection.getNetworkTimeout()",
+                    "CUBRIDConnection.setNetworkTimeout(Executor,int)");
 
     @Test
     public void connectionRefusesWhatCoreRefuses() throws Exception {
@@ -84,6 +93,44 @@ public class CoreUnsupportedApiParityTest {
     @Test
     public void databaseMetaDataRefusesWhatCoreRefuses() throws Exception {
         assertParity(CUBRIDDatabaseMetaData.class, newConnection().getMetaData(), null);
+    }
+
+    /**
+     * The other way round: LB refuses outright only what core refuses. Called on closed LB objects,
+     * so a method that does work stops at the closed check instead of dialing.
+     */
+    @Test
+    public void lbRefusesOnlyWhatCoreRefuses() throws Exception {
+        LoadBalanceConnection conn = newConnection();
+        DatabaseMetaData meta = conn.getMetaData();
+        LBStatement stmt = new LBStatement(conn);
+        LBPreparedStatement ps = new LBPreparedStatement(conn, "SELECT 1");
+        stmt.close();
+        ps.close();
+        conn.close();
+
+        List<String> lbOnly = new ArrayList<String>();
+        lbOnly.addAll(refusedByLbOnly(CUBRIDConnection.class, conn));
+        lbOnly.addAll(refusedByLbOnly(CUBRIDStatement.class, stmt));
+        lbOnly.addAll(refusedByLbOnly(CUBRIDPreparedStatement.class, ps));
+        lbOnly.addAll(refusedByLbOnly(CUBRIDDatabaseMetaData.class, meta));
+
+        assertEquals(LB_ONLY_REFUSALS, lbOnly);
+    }
+
+    private static List<String> refusedByLbOnly(final Class<?> coreClass, final Object lbClosed)
+            throws Exception {
+        Object coreOpen = coreWithoutConstructor(coreClass);
+        List<String> lbOnly = new ArrayList<String>();
+        for (Method m : coreApi(coreClass)) {
+            Object[] args = defaultArgs(m);
+            Method lbMethod = lbClosed.getClass().getMethod(m.getName(), m.getParameterTypes());
+            if (thrownBy(lbMethod, lbClosed, args) instanceof SQLFeatureNotSupportedException
+                    && !(thrownBy(m, coreOpen, args) instanceof SQLFeatureNotSupportedException)) {
+                lbOnly.add(coreClass.getSimpleName() + "." + signature(m));
+            }
+        }
+        return lbOnly;
     }
 
     private static LoadBalanceConnection newConnection() {

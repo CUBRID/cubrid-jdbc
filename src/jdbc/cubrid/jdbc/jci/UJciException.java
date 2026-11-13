@@ -37,6 +37,8 @@ public class UJciException extends Exception {
     private int jciErrCode;
     private int serverErrCode;
     private int serverErrIndicator;
+    /* completes the message for jciErrCode; set only by the constructor that takes it */
+    private String detail;
 
     public UJciException(int err) {
         super();
@@ -46,6 +48,31 @@ public class UJciException extends Exception {
     public UJciException(int err, Throwable t) {
         super();
         jciErrCode = err;
+        setStackTrace(t.getStackTrace());
+    }
+
+    /**
+     * A driver error whose message is completed by a detail, with no exception behind it.
+     *
+     * @param err the {@link UErrorCode} driver error
+     * @param detail appended to the message for {@code err}
+     */
+    public UJciException(int err, String detail) {
+        super(detail);
+        jciErrCode = err;
+        this.detail = detail;
+    }
+
+    /**
+     * A driver error whose message is completed by a detail, such as why a certificate was
+     * rejected. The cause itself is not kept, so the detail is all the application gets of it.
+     *
+     * @param err the {@link UErrorCode} driver error
+     * @param detail appended to the message for {@code err}
+     * @param t the failure, whose stack trace is kept
+     */
+    public UJciException(int err, String detail, Throwable t) {
+        this(err, detail);
         setStackTrace(t.getStackTrace());
     }
 
@@ -70,6 +97,8 @@ public class UJciException extends Exception {
             error.setDBError(serverErrCode, msg);
         } else if (jciErrCode == UErrorCode.ER_UNKNOWN) {
             error.setErrorMessage(jciErrCode, getMessage());
+        } else if (detail != null) {
+            error.setErrorMessage(jciErrCode, " " + detail);
         } else {
             error.setErrorCode(jciErrCode);
         }

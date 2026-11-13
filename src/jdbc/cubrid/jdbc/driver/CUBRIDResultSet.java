@@ -298,6 +298,7 @@ public class CUBRIDResultSet implements ResultSet {
             switch (errorCode) {
                 case UErrorCode.ER_DBMS:
                 case UErrorCode.ER_COMMUNICATION:
+                case UErrorCode.ER_NETWORK_TIMEOUT:
                 case UErrorCode.ER_ILLEGAL_DATA_SIZE:
                 case UErrorCode.CAS_ER_DBMS:
                 case UErrorCode.CAS_ER_COMMUNICATION:
@@ -326,7 +327,7 @@ public class CUBRIDResultSet implements ResultSet {
                         is_closed = true;
 
                         clearCurrentRow();
-                        if (stmt.getResultSetHoldability() == ResultSet.HOLD_CURSORS_OVER_COMMIT) {
+                        if (stmt.getHoldability() == ResultSet.HOLD_CURSORS_OVER_COMMIT) {
                             u_stmt.closeCursor();
                         }
                         if (complete_on_close) {
@@ -373,6 +374,7 @@ public class CUBRIDResultSet implements ResultSet {
             error = u_stmt.getRecentError();
         }
         if (obj != null && obj instanceof Clob) {
+            checkGetXXXError();
             Clob clob = (Clob) obj;
             int length;
             if (clob.length() > (long) Integer.MAX_VALUE) {
@@ -506,6 +508,7 @@ public class CUBRIDResultSet implements ResultSet {
             error = u_stmt.getRecentError();
         }
         if (obj != null && obj instanceof Blob) {
+            checkGetXXXError();
             Blob blob = (Blob) obj;
             int length;
             if (blob.length() > (long) Integer.MAX_VALUE) {
@@ -578,6 +581,7 @@ public class CUBRIDResultSet implements ResultSet {
             error = u_stmt.getRecentError();
         }
         if (obj != null && obj instanceof Clob) {
+            checkGetXXXError();
             Clob clob = (Clob) obj;
             InputStream stream = clob.getAsciiStream();
             addStream(stream);
@@ -615,6 +619,7 @@ public class CUBRIDResultSet implements ResultSet {
             error = u_stmt.getRecentError();
         }
         if (obj != null && obj instanceof Blob) {
+            checkGetXXXError();
             Blob blob = (Blob) obj;
             InputStream stream = blob.getBinaryStream();
             addStream(stream);
@@ -767,6 +772,7 @@ public class CUBRIDResultSet implements ResultSet {
             error = u_stmt.getRecentError();
         }
         if (obj != null && obj instanceof Clob) {
+            checkGetXXXError();
             Clob clob = (Clob) obj;
             Reader stream = clob.getCharacterStream();
             addStream(stream);
@@ -1722,7 +1728,7 @@ public class CUBRIDResultSet implements ResultSet {
     }
 
     private void checkIsOpen() throws SQLException {
-        if (is_closed) {
+        if (isClosed()) {
             throw con.createCUBRIDException(CUBRIDJDBCErrorCode.result_set_closed, null);
         }
     }
@@ -2081,7 +2087,17 @@ public class CUBRIDResultSet implements ResultSet {
 
     /* JDK 1.6 */
     public boolean isClosed() throws SQLException {
-        return is_closed;
+        if (is_closed) {
+            return true;
+        }
+
+        CUBRIDStatement s = stmt;
+        if (s != null) {
+            return s.isClosed();
+        }
+
+        CUBRIDConnection c = con;
+        return c != null && c.isClosedWithoutLock();
     }
 
     /* JDK 1.6 */

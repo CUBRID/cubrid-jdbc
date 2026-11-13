@@ -115,6 +115,8 @@ public class CUBRIDDriver implements Driver {
             Pattern.compile(
                     "^jdbc:cubrid(-oracle|-mysql)?(:loadbalance)?://", Pattern.CASE_INSENSITIVE);
 
+    private static final Pattern TRUST_STORE_PASSWORD =
+            Pattern.compile("(?i)([?&]truststorepassword=)[^&]*");
     private int conn_count = 0;
 
     /**
@@ -317,7 +319,7 @@ public class CUBRIDDriver implements Driver {
 
         resolvedUrl = "jdbc:cubrid:" + host + ":" + port + ":" + db + ":" + user + ":********:";
         if (prop != null) {
-            resolvedUrl += prop;
+            resolvedUrl += TRUST_STORE_PASSWORD.matcher(prop).replaceAll("$1********");
         }
 
         // The URL to report back (JDBC errors + CAS DB_INFO): the user's URL behind a URI connect,

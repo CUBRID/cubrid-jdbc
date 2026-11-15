@@ -59,13 +59,11 @@ import org.junit.Test;
  */
 public class CoreUnsupportedApiParityTest {
 
-    /** Core supports these since APIS-1123 and APIS-1134; LB does not yet. */
+    /** Core supports these since APIS-1123; LB does not yet. */
     private static final List<String> LB_ONLY_REFUSALS =
             Arrays.asList(
                     "CUBRIDConnection.getNetworkTimeout()",
-                    "CUBRIDConnection.getSchema()",
-                    "CUBRIDConnection.setNetworkTimeout(Executor,int)",
-                    "CUBRIDConnection.setSchema(String)");
+                    "CUBRIDConnection.setNetworkTimeout(Executor,int)");
 
     @Test
     public void connectionRefusesWhatCoreRefuses() throws Exception {

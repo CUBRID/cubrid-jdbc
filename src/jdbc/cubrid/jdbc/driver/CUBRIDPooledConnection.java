@@ -86,6 +86,10 @@ public class CUBRIDPooledConnection implements PooledConnection {
             u_con = storedConnection.getUConnection();
         }
 
+        if (u_con.isClosed()) {
+            throw new CUBRIDException(CUBRIDJDBCErrorCode.pooled_connection_closed);
+        }
+
         if (u_con.check_cas() == false) {
             u_con.resetConnection();
         }

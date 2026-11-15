@@ -78,6 +78,7 @@ public abstract class UErrorCode {
     public static final int ER_SSL_HANDSHAKE = -21028;
     public static final int ER_NOT_SUPPORTED_PROTOCOL = -21029;
     public static final int ER_SSL_CERT_VERIFY = -21030;
+    public static final int ER_NETWORK_TIMEOUT = -21031;
 
     /* CAS Error Code */
 
@@ -185,6 +186,9 @@ public abstract class UErrorCode {
                 "The server certificate could not be verified. "
                         + "Check the trust anchor (sslca or trustStore) and the certificate's "
                         + "validity period and subject alternative names");
+        messageString.put(
+                new Integer(ER_NETWORK_TIMEOUT),
+                "Network timeout expired. The connection is closed.");
     }
 
     private static void setCASMessageHash() {

@@ -107,6 +107,10 @@ public class CUBRIDXAConnection extends CUBRIDPooledConnection implements XAConn
             u_con = createUConnection();
         }
 
+        if (u_con.isClosed()) {
+            throw new CUBRIDException(CUBRIDJDBCErrorCode.xa_connection_closed);
+        }
+
         cubConnection = new CUBRIDConnectionWrapperXA(u_con, null, null, this, xa_started);
         return cubConnection;
     }

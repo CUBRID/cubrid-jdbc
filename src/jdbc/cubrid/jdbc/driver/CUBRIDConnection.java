@@ -50,6 +50,7 @@ import java.sql.ResultSet;
 import java.sql.SQLClientInfoException;
 import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
+import java.sql.SQLPermission;
 import java.sql.SQLWarning;
 import java.sql.SQLXML;
 import java.sql.Savepoint;
@@ -79,7 +80,7 @@ public class CUBRIDConnection implements Connection {
     String user;
     String url;
 
-    protected boolean is_closed;
+    protected volatile boolean is_closed;
     protected boolean auto_commit;
     protected int holdability;
 
@@ -123,6 +124,36 @@ public class CUBRIDConnection implements Connection {
          * 3.0 savepoints = new ArrayList(); sv_count = 0; sv_name = "";
          * isFromPooledCon = false;
          */
+    }
+
+    /**
+     * For a logical connection that owns no single {@link UConnection}.
+     *
+     * <p>The public constructor binds this object to one physical socket and registers itself on
+     * it. A load-balancing connection holds a write leg and a read leg and rebinds them on
+     * failover, so there is no single socket to name — {@code u_con} stays null and every inherited
+     * method that would dereference it must be overridden by the subclass. That obligation is not
+     * optional: an inherited method reaching {@code synchronized (u_con)} throws
+     * NullPointerException from a stack trace that never mentions the subclass, and one reading
+     * {@code is_closed} silently sees the wrong state because the subclass tracks closing itself.
+     *
+     * @param r the logical URL to report
+     * @param s the user name to report
+     */
+    protected CUBRIDConnection(String r, String s) {
+        u_con = null;
+        url = r;
+        user = s;
+        is_closed = false;
+        auto_commit = true;
+        holdability = ResultSet.HOLD_CURSORS_OVER_COMMIT;
+        error = null;
+        mdata = null;
+        ending = false;
+        statements = new ArrayList<Statement>();
+        outRs = new ArrayList<CUBRIDOutResultSet>();
+        shard_mdata = null;
+        prepStmtCache = null;
     }
 
     /*
@@ -205,6 +236,7 @@ public class CUBRIDConnection implements Connection {
         completeStatementForCommit();
 
         try {
+            tellOwnerTransactionEnds(true);
             end(true);
         } finally {
             ending = false;
@@ -223,6 +255,7 @@ public class CUBRIDConnection implements Connection {
         completeAllStatements();
 
         try {
+            tellOwnerTransactionEnds(false);
             end(false);
         } finally {
             ending = false;
@@ -255,7 +288,7 @@ public class CUBRIDConnection implements Connection {
     }
 
     public synchronized boolean isClosed() throws SQLException {
-        return is_closed;
+        return isClosedWithoutLock();
     }
 
     public synchronized DatabaseMetaData getMetaData() throws SQLException {
@@ -407,11 +440,7 @@ public class CUBRIDConnection implements Connection {
     public synchronized Statement createStatement(int type, int concur, int holdable)
             throws SQLException {
         checkIsOpen();
-        if (holdable == ResultSet.HOLD_CURSORS_OVER_COMMIT) {
-            if (type == ResultSet.TYPE_SCROLL_SENSITIVE || concur == ResultSet.CONCUR_UPDATABLE) {
-                throw CUBRIDException.notSupported();
-            }
-        }
+        checkHoldableResultType(type, concur, holdable);
         Statement stmt = new CUBRIDStatement(this, type, concur, holdable);
         addStatement(stmt);
 
@@ -449,12 +478,18 @@ public class CUBRIDConnection implements Connection {
 
     public synchronized PreparedStatement prepareStatement(
             String sql, int type, int concur, int holdable) throws SQLException {
+        checkHoldableResultType(type, concur, holdable);
+        return prepare(sql, type, concur, holdable, Statement.NO_GENERATED_KEYS);
+    }
+
+    /** A holdable cursor can be neither sensitive nor updatable. */
+    protected static void checkHoldableResultType(int type, int concur, int holdable)
+            throws SQLException {
         if (holdable == ResultSet.HOLD_CURSORS_OVER_COMMIT) {
             if (type == ResultSet.TYPE_SCROLL_SENSITIVE || concur == ResultSet.CONCUR_UPDATABLE) {
                 throw CUBRIDException.notSupported();
             }
         }
-        return prepare(sql, type, concur, holdable, Statement.NO_GENERATED_KEYS);
     }
 
     public synchronized PreparedStatement prepareStatement(String sql, int[] indexes)
@@ -620,13 +655,40 @@ public class CUBRIDConnection implements Connection {
     }
 
     protected void autoCommit() throws SQLException {
+        /* After a network timeout, let statements close instead of failing to commit. */
+        if (isClosedByNetworkTimeout()) {
+            return;
+        }
+
         checkIsOpen();
         if (auto_commit) commit();
     }
 
     protected void autoRollback() throws SQLException {
+        /* After a network timeout, keep the caller's error instead of failing to roll back. */
+        if (isClosedByNetworkTimeout()) {
+            return;
+        }
+
         checkIsOpen();
         if (auto_commit) rollback();
+    }
+
+    /**
+     * Called on the connection that owns a leg's value objects ({@link
+     * UConnection#setCUBRIDConnection}) when that leg commits or rolls back, after it completed its
+     * own statements. A connection spread over several legs completes the others' the same way.
+     *
+     * @param leg the leg ending a transaction
+     * @param commit {@code true} for a commit, {@code false} for a rollback
+     */
+    protected void legTransactionEnding(final CUBRIDConnection leg, final boolean commit) {}
+
+    private void tellOwnerTransactionEnds(final boolean commit) {
+        final CUBRIDConnection owner = u_con == null ? null : u_con.getCUBRIDConnection();
+        if (owner != null && owner != this) {
+            owner.legTransactionEnding(this, commit);
+        }
     }
 
     synchronized void closeConnection() throws SQLException {
@@ -656,9 +718,20 @@ public class CUBRIDConnection implements Connection {
     }
 
     private void checkIsOpen() throws SQLException {
-        if (is_closed) {
+        if (isClosedWithoutLock()) {
             throw createCUBRIDException(CUBRIDJDBCErrorCode.connection_closed, null);
         }
+    }
+
+    protected boolean isClosedWithoutLock() {
+        /* close() on another thread can set u_con to null. */
+        UConnection u = u_con;
+        return is_closed || u == null || u.isClosed();
+    }
+
+    private boolean isClosedByNetworkTimeout() {
+        UConnection u = u_con;
+        return !is_closed && u != null && u.isClosed();
     }
 
     boolean isSavepointTopologySupported() {
@@ -975,9 +1048,18 @@ public class CUBRIDConnection implements Connection {
         }
     }
 
+    /**
+     * Logging is best-effort: a logical connection owns no single {@link UConnection}, so {@code
+     * u_con} is null there. Without the guard this reports a NullPointerException instead of the
+     * SQLException it was asked to build — turning a diagnosable server error into a stack trace
+     * that names neither the error nor the caller. The two-argument overload below has always
+     * guarded; these did not.
+     */
     CUBRIDException createCUBRIDException(UError error) {
         CUBRIDException e = new CUBRIDException(error);
-        u_con.logException(e);
+        if (u_con != null) {
+            u_con.logException(e);
+        }
         return e;
     }
 
@@ -991,7 +1073,9 @@ public class CUBRIDConnection implements Connection {
 
     CUBRIDException createCUBRIDException(int errCode, String msg, Throwable t) {
         CUBRIDException e = new CUBRIDException(errCode, msg, t);
-        u_con.logException(e);
+        if (u_con != null) {
+            u_con.logException(e);
+        }
         return e;
     }
 
@@ -1031,7 +1115,7 @@ public class CUBRIDConnection implements Connection {
             throw new SQLException();
         }
 
-        if (u_con == null || is_closed) return false;
+        if (isClosedWithoutLock()) return false;
 
         return u_con.isValid(timeout * 1000);
     }
@@ -1140,12 +1224,24 @@ public class CUBRIDConnection implements Connection {
     }
 
     /* JDK 1.7 */
-    public void setNetworkTimeout(Executor executor, int milliseconds) throws SQLException {
-        throw CUBRIDException.notSupported();
+    public synchronized void setNetworkTimeout(Executor executor, int milliseconds)
+            throws SQLException {
+        checkIsOpen();
+        if (executor == null || milliseconds < 0) {
+            throw createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
+        }
+
+        SecurityManager securityManager = System.getSecurityManager();
+        if (securityManager != null) {
+            securityManager.checkPermission(new SQLPermission("setNetworkTimeout"));
+        }
+
+        u_con.setNetworkTimeout(milliseconds);
     }
 
     /* JDK 1.7 */
-    public int getNetworkTimeout() throws SQLException {
-        throw CUBRIDException.notSupported();
+    public synchronized int getNetworkTimeout() throws SQLException {
+        checkIsOpen();
+        return u_con.getNetworkTimeout();
     }
 }

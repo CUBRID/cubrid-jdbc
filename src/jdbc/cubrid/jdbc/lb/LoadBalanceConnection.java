@@ -226,6 +226,8 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     private static final int ER_ES_FILE_NOT_FOUND = -1020;
     /** CUBRID ER_TP_CANT_COERCE: how reading a LOB column's content fails on a read node. */
     private static final int ER_TP_CANT_COERCE = -181;
+    /** Read pin of a session change a prepared {@code CALL} makes; only closing releases it. */
+    private static final String PREPARED_CALL_PIN = "PREPARED_CALL";
 
     private ExecuteFailoverHandler executeFailoverHandler = new ExecuteFailoverHandler();
     // True when this connection's RuntimeMetrics was registered for export; drives unregister
@@ -2145,7 +2147,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                         new SqlExecution<CallableStatement>() {
                             public CallableStatement run() throws SQLException {
                                 final Connection rw = getPhysicalConnForCmd(SessionLeg.RW);
-                                return trackCall(rw.prepareCall(sql), rw);
+                                return afterCallPrepared(sql, trackCall(rw.prepareCall(sql), rw));
                             }
                         }));
     }
@@ -2157,6 +2159,23 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             openCalls.put(call, leg);
         }
 
+        return call;
+    }
+
+    /**
+     * LB does not see a CallableStatement run, so what its {@code CALL} changes in the session is
+     * assumed once it is prepared: a login keeps reads on RW, and reads naming the variables it
+     * assigns follow them there, both until the connection closes.
+     */
+    private CallableStatement afterCallPrepared(final String sql, final CallableStatement call) {
+        sessionState.addPreparedCallVariables(IntoVariables.assignedBy(sql));
+        if (SessionSetStatement.parse(sql).changesSession()) {
+            pinReads(
+                    sql,
+                    Collections.singleton(PREPARED_CALL_PIN),
+                    "a CALL prepared with prepareCall changes the session, and LB does not see it"
+                            + " run");
+        }
         return call;
     }
 
@@ -2213,9 +2232,12 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                         new SqlExecution<CallableStatement>() {
                             public CallableStatement run() throws SQLException {
                                 final Connection rw = getPhysicalConnForCmd(SessionLeg.RW);
-                                return trackCall(
-                                        rw.prepareCall(sql, resultSetType, resultSetConcurrency),
-                                        rw);
+                                return afterCallPrepared(
+                                        sql,
+                                        trackCall(
+                                                rw.prepareCall(
+                                                        sql, resultSetType, resultSetConcurrency),
+                                                rw));
                             }
                         }));
     }
@@ -2234,13 +2256,15 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                         new SqlExecution<CallableStatement>() {
                             public CallableStatement run() throws SQLException {
                                 final Connection rw = getPhysicalConnForCmd(SessionLeg.RW);
-                                return trackCall(
-                                        rw.prepareCall(
-                                                sql,
-                                                resultSetType,
-                                                resultSetConcurrency,
-                                                resultSetHoldability),
-                                        rw);
+                                return afterCallPrepared(
+                                        sql,
+                                        trackCall(
+                                                rw.prepareCall(
+                                                        sql,
+                                                        resultSetType,
+                                                        resultSetConcurrency,
+                                                        resultSetHoldability),
+                                                rw));
                             }
                         }));
     }

@@ -51,6 +51,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.sql.BatchUpdateException;
+import java.sql.CallableStatement;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -390,6 +391,44 @@ public class ReadLegSafetyTest {
         assertEquals(1, legs.count("ro", "SELECT 2"));
     }
 
+    /**
+     * LB does not see a CallableStatement run, so a login prepared with prepareCall keeps reads on
+     * RW from the prepare on, and a later login LB does see does not release that.
+     */
+    @Test
+    public void loginPreparedAsCallKeepsReadsOnRw() throws SQLException {
+        CallableStatement cs = conn.prepareCall("CALL login('u2', 'pw') ON CLASS db_user");
+        cs.execute();
+        Statement st = conn.createStatement();
+        st.executeQuery("SELECT 1");
+        st.execute("CALL login('public', '') ON CLASS db_user");
+        cs.execute();
+        st.executeQuery("SELECT 2");
+
+        assertEquals(1, legs.count("rw", "SELECT 1"));
+        assertEquals(1, legs.count("rw", "SELECT 2"));
+        assertTrue(lastRouteEvent().contains("fallbackReason=SESSION_SET_PIN"));
+    }
+
+    @Test
+    public void callPreparedWithoutLoginOrThatFailedKeepsReadsDistributed() throws SQLException {
+        legs.refuseOnRw("broken", -494);
+        conn.prepareCall("CALL p()");
+        for (String sql :
+                Arrays.asList(
+                        "CALL login('broken', 'pw') ON CLASS db_user", "CALL broken() INTO :v")) {
+            try {
+                conn.prepareCall(sql);
+                fail("the prepare must fail: " + sql);
+            } catch (SQLException expected) {
+                assertEquals(-494, expected.getErrorCode());
+            }
+        }
+        conn.createStatement().executeQuery("SELECT v");
+
+        assertEquals(Arrays.asList("SELECT v"), legs.log("ro"));
+    }
+
     @Test
     public void execStatisticsOffReleasesTheReadPin() throws SQLException {
         Statement st = conn.createStatement();
@@ -683,6 +722,25 @@ public class ReadLegSafetyTest {
         assertEquals(1, legs.count("ro", "SELECT v + 1 FROM db_root"));
     }
 
+    /**
+     * A CallableStatement can assign its variable again after DROP VARIABLE without LB seeing it,
+     * so reads naming that variable stay on RW.
+     */
+    @Test
+    public void variableOfCallPreparedAsCallStaysFollowedAfterDrop() throws SQLException {
+        CallableStatement cs = conn.prepareCall("CALL next_no() INTO :no");
+        cs.execute();
+        Statement st = conn.createStatement();
+        st.executeQuery("SELECT no");
+        st.execute("DROP VARIABLE no");
+        cs.execute();
+        st.executeQuery("SELECT no + 1");
+
+        assertEquals(1, legs.count("rw", "SELECT no"));
+        assertEquals(1, legs.count("rw", "SELECT no + 1"));
+        assertTrue(lastRouteEvent().contains("fallbackReason=SESSION_VARIABLE"));
+    }
+
     /** DEALLOCATE VARIABLE drops @session variables, a different namespace from INTO variables. */
     @Test
     public void deallocatingSessionVariableKeepsIntoVariableTracked() throws SQLException {
@@ -806,7 +864,8 @@ public class ReadLegSafetyTest {
                 this.role = role;
             }
 
-            public Object invoke(final Object proxy, final Method m, final Object[] args) {
+            public Object invoke(final Object proxy, final Method m, final Object[] args)
+                    throws SQLException {
                 String name = m.getName();
                 if ("close".equals(name)) {
                     closed = true;
@@ -824,6 +883,13 @@ public class ReadLegSafetyTest {
                 if (name.startsWith("prepareStatement")) {
                     return proxy(
                             PreparedStatement.class, new StatementHandler(role, (String) args[0]));
+                }
+                if (name.startsWith("prepareCall")) {
+                    final String sql = (String) args[0];
+                    if ("rw".equals(role) && refuseRw != null && sql.indexOf(refuseRw) >= 0) {
+                        throw new SQLException("prepare refused on rw", null, refuseRwCode);
+                    }
+                    return proxy(CallableStatement.class, new StatementHandler(role, sql));
                 }
                 return defaultValue(m.getReturnType());
             }

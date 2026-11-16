@@ -118,6 +118,22 @@ public class SessionSetStatementTest {
         assertUntracked("CALL p()");
     }
 
+    /** The engine reads a quoted routine name as the same name, so these log in too. */
+    @Test
+    public void quotedLoginIsLogin() {
+        final String key = SessionSetStatement.LOGIN_KEY;
+        assertEquals(
+                "CALL \"login\"('u', 'pw') ON CLASS db_user",
+                replay("CALL \"login\"('u', 'pw') ON CLASS db_user").get(key));
+        assertEquals(
+                "call /* c */ `LOGIN` ('u', 'pw') on class db_user",
+                replay("call /* c */ `LOGIN` ('u', 'pw') on class db_user").get(key));
+        assertEquals(only(key), pins("CALL [login](?, ?) ON CLASS db_user"));
+        assertUntracked("CALL \"login_audit\"('u')");
+        assertUntracked("CALL \"log\"\"in\"('u')");
+        assertUntracked("CALL [login]");
+    }
+
     /** A parameter LB cannot place, or one session-scoped in some versions only, pins. */
     @Test
     public void unknownParameterPinsUntilClose() {

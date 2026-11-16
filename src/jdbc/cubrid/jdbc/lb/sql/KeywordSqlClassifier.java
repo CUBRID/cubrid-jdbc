@@ -788,8 +788,7 @@ final class KeywordSqlClassifier implements SqlClassifier {
      * delimiter, end one past the closing delimiter), uppercased ASCII. Collapses {@code ""}
      * escapes for the double-quote form; brackets/backticks have no escape in this scanner.
      */
-    private static String extractQuotedIdentifierUpper(
-            final String sql, final int start, final int end) {
+    static String extractQuotedIdentifierUpper(final String sql, final int start, final int end) {
         if (end - start < 2) {
             return "";
         }

@@ -444,12 +444,18 @@ public final class SessionSetStatement {
         if (!"CALL".equals(wordAt(sql, pos))) {
             return false;
         }
-        final int name = skipWord(sql, pos);
-        if (!"LOGIN".equals(wordAt(sql, name))) {
-            return false;
+        final int name = SqlLexer.skipWhitespaceAndComments(sql, skipWord(sql, pos));
+        final String routine;
+        final int nameEnd;
+        if (name < sql.length() && KeywordSqlClassifier.isQuotedIdentifierStart(sql.charAt(name))) {
+            nameEnd = SqlLexer.skipCommentOrQuoted(sql, name);
+            routine = KeywordSqlClassifier.extractQuotedIdentifierUpper(sql, name, nameEnd);
+        } else {
+            nameEnd = skipWord(sql, name);
+            routine = wordAt(sql, name);
         }
-        final int after = SqlLexer.skipWhitespaceAndComments(sql, skipWord(sql, name));
-        return after < sql.length() && sql.charAt(after) == '(';
+        final int after = SqlLexer.skipWhitespaceAndComments(sql, nameEnd);
+        return "LOGIN".equals(routine) && after < sql.length() && sql.charAt(after) == '(';
     }
 
     /** {@code stmt} starts with SET and holds a single statement (no top-level ';'). */

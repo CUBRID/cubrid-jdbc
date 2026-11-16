@@ -3115,7 +3115,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      * @param sql the statement about to run
      */
     public void beforeSessionSet(final String sql) {
-        if (SessionSetStatement.parse(sql).getAction() == SessionSetStatement.Action.NONE) {
+        if (!SessionSetStatement.parse(sql).changesSession()) {
             return;
         }
         final List<Statement> open;
@@ -3132,9 +3132,10 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     /**
      * Records what a statement that just succeeded changed in its session. A SQL {@code SET} ran
      * only on the leg it was routed to (RW): a session-scoped one is replayed on the read leg now
-     * and on every leg opened later; any other keeps this session's reads on RW. Variables an
-     * {@code INTO/TO} clause created on RW are remembered so reads naming them follow, until a
-     * {@code DROP VARIABLE} removes them. Its leg is where a following {@code ROW_COUNT()} runs.
+     * and on every leg opened later; one the read leg cannot be given keeps reads on RW until a
+     * later statement undoes it or the connection closes. Variables an {@code INTO/TO} clause
+     * created on RW are remembered so reads naming them follow, until a {@code DROP VARIABLE}
+     * removes them. Its leg is where a following {@code ROW_COUNT()} runs.
      *
      * @param sql the statement as the application issued it
      * @param ranOn the leg it ran on
@@ -3146,22 +3147,61 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             sessionState.removeSessionVariables(IntoVariables.droppedBy(sql));
         }
         final SessionSetStatement set = SessionSetStatement.parse(sql);
-        if (set.getAction() == SessionSetStatement.Action.REPLAY) {
+        if (!set.changesSession()) {
+            return;
+        }
+        if (!set.getReplay().isEmpty()) {
             replaySessionSet(sql, set.getReplay());
-        } else if (set.getAction() == SessionSetStatement.Action.PIN_TO_RW) {
-            pinReadsToRw(sql);
+        }
+        pinReads(sql, set.getPins(), "a session change the read leg does not have ran on RW");
+        unpinReads(set.getUnpins(), sqlForLog(sql));
+        if (!set.getNonSessionParams().isEmpty()) {
+            LbLog.warn(
+                    LOGGER,
+                    LbLog.conn(connectionId),
+                    "LB SESSION SET: "
+                            + set.getNonSessionParams()
+                            + " is not a session parameter; it changed the RW node only and read"
+                            + " nodes keep their own value, so reads are not pinned"
+                            + sqlForLog(sql));
         }
     }
 
     /**
-     * Records the leg a batch the server answered with a {@link java.sql.BatchUpdateException} ran
-     * on, so a following {@code ROW_COUNT()} goes there as on core. Only the leg: which of its
-     * statements took effect is not known here.
+     * Records what a statement that failed on RW may have changed. CUBRID keeps the SETs a
+     * multi-statement string ran before the failing statement; which ones ran is not known, so each
+     * setting the string touches keeps reads on RW until a later statement sets it again.
      *
+     * @param sql the statement as the application issued it
+     */
+    public void afterStatementFailed(final String sql) {
+        pinReads(
+                sql,
+                SessionSetStatement.parse(sql).getPinsIfFailed(),
+                "a statement string with a session change failed; the SETs before the failing"
+                        + " statement may have run on RW");
+    }
+
+    /**
+     * Records a batch the server answered with a {@link java.sql.BatchUpdateException}. Its leg is
+     * where a following {@code ROW_COUNT()} goes, as on core, and each entry whose count is not
+     * {@link Statement#EXECUTE_FAILED} changed the session as it would have alone.
+     *
+     * @param sqls the batch entries, in order
+     * @param counts the update counts the server answered, possibly {@code null}
      * @param ranOn the leg the batch ran on
      */
-    public void afterBatchAnswered(final RouteTarget ranOn) {
+    public void afterBatchAnswered(
+            final List<String> sqls, final int[] counts, final RouteTarget ranOn) {
         sessionState.setLastStatementOnReadLeg(ranOn == RouteTarget.TO_READ_ONLY);
+        final int answered = counts == null ? 0 : Math.min(sqls.size(), counts.length);
+        for (int i = 0; i < answered; i++) {
+            if (counts[i] == Statement.EXECUTE_FAILED) {
+                afterStatementFailed(sqls.get(i));
+            } else {
+                afterStatementSucceeded(sqls.get(i), ranOn);
+            }
+        }
     }
 
     private void replaySessionSet(final String sql, final Map<String, String> replay) {
@@ -3171,55 +3211,68 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                 sessionSets.put(each.getKey(), each.getValue());
             }
         }
-        if (connMgr == null || !isSessionInitialized()) {
-            return;
+        if (connMgr != null && isSessionInitialized()) {
+            final Collection<String> statements = replay.values();
+            try {
+                connMgr.applyToOpenReadLeg(
+                        "session SET",
+                        new EndpointConnManager.SessionStateApplier() {
+                            public void applyTo(final Connection physical) throws SQLException {
+                                runSessionSets(physical, statements);
+                            }
+                        });
+            } catch (SQLException rejected) {
+                // A reopened leg would reject it again: keep reads where the SET took effect.
+                pinReads(
+                        sql,
+                        replay.keySet(),
+                        "the read leg rejected a SET that ran on RW ("
+                                + LbLog.cause(rejected)
+                                + ")");
+                return;
+            }
         }
-
-        final Collection<String> statements = replay.values();
-        try {
-            connMgr.applyToOpenReadLeg(
-                    "session SET",
-                    new EndpointConnManager.SessionStateApplier() {
-                        public void applyTo(final Connection physical) throws SQLException {
-                            runSessionSets(physical, statements);
-                        }
-                    });
-        } catch (SQLException rejected) {
-            // A reopened leg would reject it again: keep reads where the SET took effect.
-            sessionState.pinReadsToRw();
-            LbLog.warn(
-                    LOGGER,
-                    LbLog.conn(connectionId),
-                    "LB SESSION PIN: the read leg rejected a SET that ran on RW; this session's"
-                            + " reads stay on RW until it closes"
-                            + sqlForLog(sql)
-                            + " | cause: "
-                            + LbLog.cause(rejected));
-        }
+        // The read leg has these settings now, or gets them when it opens.
+        unpinReads(replay.keySet(), sqlForLog(sql));
     }
 
-    private void pinReadsToRw(final String sql) {
-        if (sessionState.isReadsPinnedToRw()) {
+    private void pinReads(final String sql, final Collection<String> reasons, final String what) {
+        if (reasons.isEmpty() || sessionState.pinReadsToRw(reasons).isEmpty()) {
             return;
         }
-        sessionState.pinReadsToRw();
         LbLog.warn(
                 LOGGER,
                 LbLog.conn(connectionId),
-                "LB SESSION PIN: a session change the read leg cannot replay ran on RW; this"
-                        + " session's reads"
-                        + " stay on RW until it closes"
+                "LB SESSION PIN: "
+                        + what
+                        + "; this session's reads stay on RW until a later statement undoes it or"
+                        + " the connection closes | reasons="
+                        + sessionState.getReadPinReasons()
                         + sqlForLog(sql));
     }
 
+    private void unpinReads(final Collection<String> reasons, final String cause) {
+        if (!sessionState.unpinReads(reasons)) {
+            return;
+        }
+        LbLog.info(
+                LOGGER,
+                LbLog.conn(connectionId),
+                "LB SESSION UNPIN: the last change that kept reads on RW was undone; reads are"
+                        + " distributed again"
+                        + cause);
+    }
+
     /**
-     * A JDBC setter now owns {@code key}'s setting: drop the SQL {@code SET} of it, or a leg opened
-     * later would get the older SQL value on top of the setter's.
+     * A JDBC setter now owns {@code key}'s setting on both legs: drop the SQL {@code SET} of it, or
+     * a leg opened later would get the older SQL value on top of the setter's, and release a pin a
+     * bound SQL value of it left.
      */
     private void forgetSessionSet(final String key) {
         synchronized (sessionSets) {
             sessionSets.remove(key);
         }
+        unpinReads(Collections.singleton(key), " | by=a JDBC setter");
     }
 
     private List<String> sessionSetsSnapshot() {

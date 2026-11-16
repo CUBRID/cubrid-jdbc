@@ -223,7 +223,7 @@ public class LBStatement extends CUBRIDStatement {
 
             return result;
         } catch (BatchUpdateException answered) {
-            lbConnection.afterBatchAnswered(target);
+            lbConnection.afterBatchAnswered(batchedSql, answered.getUpdateCounts(), target);
             throw answered;
         } finally {
             // JDBC convention (matching CUBRIDStatement.executeBatch): the batch is consumed by an
@@ -664,6 +664,7 @@ public class LBStatement extends CUBRIDStatement {
                     retrySafe && lbConnection.mayRetryRejectedReadOnRw(target, sql, failure);
             lbConnection.settleReadLegRollback(!runAgain);
             if (!runAgain) {
+                lbConnection.afterStatementFailed(sql);
                 throw failure;
             }
             lbConnection.beginRejectedReadRetry(sql, failure);

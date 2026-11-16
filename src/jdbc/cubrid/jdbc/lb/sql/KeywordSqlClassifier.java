@@ -65,6 +65,8 @@ import java.util.Set;
  *       about itself.
  *   <li>the node's clock and configuration, called ({@code NOW()}, {@code VERSION()}) or bare
  *       ({@code SYSDATE}) - a read node would answer from its own.
+ *   <li>{@code SHOW TRACE} - it reports the last query of its own session, so it runs where that
+ *       query ran: {@link SqlClassification#READ_ON_PREVIOUS_LEG}.
  * </ul>
  *
  * <p>An explicit {@code TO_RO} hint still wins, because the {@code Router} resolves hints before it
@@ -232,9 +234,22 @@ final class KeywordSqlClassifier implements SqlClassifier {
             return classifyCte(normalized);
         }
 
+        if ("SHOW".equals(first) && "TRACE".equals(wordAt(normalized, first.length()))) {
+            return SqlClassification.READ_ON_PREVIOUS_LEG;
+        }
+
         final SqlClassification classified = LEADING_WRITE_KEYWORDS.get(first);
 
         return classified != null ? classified : SqlClassification.UNKNOWN;
+    }
+
+    /** The upper-cased word after whitespace and comments from {@code pos}, or "". */
+    private static String wordAt(final String sql, final int pos) {
+        final int start = SqlLexer.skipWhitespaceAndComments(sql, pos);
+        if (start >= sql.length() || !isIdentifierStart(sql.charAt(start))) {
+            return "";
+        }
+        return extractUpperAscii(sql, start, scanIdentifierEnd(sql, start));
     }
 
     /**

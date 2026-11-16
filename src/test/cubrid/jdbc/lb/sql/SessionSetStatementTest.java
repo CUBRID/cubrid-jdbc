@@ -31,27 +31,48 @@
 package cubrid.jdbc.lb.sql;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-import cubrid.jdbc.lb.sql.SessionSetStatement.Action;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.Test;
 
 public class SessionSetStatementTest {
-
-    private static Action action(final String sql) {
-        return SessionSetStatement.parse(sql).getAction();
-    }
 
     private static Map<String, String> replay(final String sql) {
         return SessionSetStatement.parse(sql).getReplay();
     }
 
+    private static List<String> replayed(final String sql) {
+        return new ArrayList<String>(replay(sql).values());
+    }
+
+    private static Set<String> pins(final String sql) {
+        return SessionSetStatement.parse(sql).getPins();
+    }
+
+    private static Set<String> unpins(final String sql) {
+        return SessionSetStatement.parse(sql).getUnpins();
+    }
+
+    private static Set<String> only(final String reason) {
+        return Collections.singleton(reason);
+    }
+
+    private static void assertUntracked(final String sql) {
+        assertFalse(sql, SessionSetStatement.parse(sql).changesSession());
+    }
+
     @Test
     public void namesAndTimezoneAreReplayedVerbatim() {
-        assertEquals(Action.REPLAY, action("SET NAMES utf8 COLLATE utf8_bin"));
+        assertEquals(
+                "SET NAMES utf8 COLLATE utf8_bin",
+                replay("SET NAMES utf8 COLLATE utf8_bin").get(SessionSetStatement.NAMES_KEY));
         assertEquals("set names euckr", replay("set names euckr;").get("NAMES"));
         assertEquals(
                 "SET TIMEZONE 'Asia/Seoul'",
@@ -63,53 +84,78 @@ public class SessionSetStatementTest {
 
     @Test
     public void sessionParametersAreReplayedOnePerKey() {
-        Map<String, String> r =
-                replay(
-                        "SET SYSTEM PARAMETERS 'intl_date_lang=ko_KR; return_null_on_function_errors"
-                                + "=yes'");
-        assertEquals(Action.REPLAY, action("set system parameters 'default_week_format=1'"));
+        assertEquals(
+                Arrays.asList("SET SYSTEM PARAMETERS 'default_week_format=1'"),
+                replayed("set system parameters 'default_week_format=1'"));
         assertEquals(
                 Arrays.asList(
                         "SET SYSTEM PARAMETERS 'intl_date_lang=ko_KR'",
                         "SET SYSTEM PARAMETERS 'return_null_on_function_errors=yes'"),
-                new ArrayList<String>(r.values()));
+                replayed(
+                        "SET SYSTEM PARAMETERS 'intl_date_lang=ko_KR; return_null_on_function_errors"
+                                + "=yes'"));
         // SET TIMEZONE and the timezone parameter change one setting, so they share a key.
         assertTrue(
                 replay("set system parameters 'timezone=UTC'")
                         .containsKey(SessionSetStatement.TIMEZONE_KEY));
     }
 
-    /** {@code login()} changes the session's user, which the read leg cannot take over. */
+    /** {@code login()} changes the session's user, so the read leg logs in too. */
     @Test
-    public void callingLoginPins() {
-        assertEquals(Action.PIN_TO_RW, action("CALL login('u', 'pw') ON CLASS db_user"));
-        assertEquals(Action.PIN_TO_RW, action("  call /* c */ LOGIN ('u', 'pw') on class db_user"));
-        assertEquals(Action.PIN_TO_RW, action("CALL login('u', 'pw') ON CLASS db_user; SELECT 1"));
-        assertEquals(Action.NONE, action("CALL login_audit('u')"));
-        assertEquals(Action.NONE, action("CALL p()"));
+    public void loginIsReplayed() {
+        final String key = SessionSetStatement.LOGIN_KEY;
+        assertEquals(
+                "CALL login('u', 'pw') ON CLASS db_user",
+                replay("CALL login('u', 'pw') ON CLASS db_user").get(key));
+        assertEquals(
+                "call /* c */ LOGIN ('u', 'pw') on class db_user",
+                replay("  call /* c */ LOGIN ('u', 'pw') on class db_user").get(key));
+        assertEquals(
+                "CALL login('u', 'pw') ON CLASS db_user",
+                replay("CALL login('u', 'pw') ON CLASS db_user; SELECT 1").get(key));
+        assertEquals(only(key), pins("CALL login(?, ?) ON CLASS db_user"));
+        assertUntracked("CALL login_audit('u')");
+        assertUntracked("CALL p()");
     }
 
+    /** A parameter LB cannot place, or one session-scoped in some versions only, pins. */
     @Test
-    public void parameterOutsideTheSessionListPins() {
-        assertEquals(Action.PIN_TO_RW, action("set system parameters 'compat_mode=mysql'"));
-        assertEquals(
-                Action.PIN_TO_RW,
-                action("set system parameters 'default_week_format=1; error_log_level=warning'"));
-        assertEquals(Action.PIN_TO_RW, action("set system parameters 'no_equals_sign'"));
+    public void unknownParameterPinsUntilClose() {
+        final Set<String> unknown = only(SessionSetStatement.UNKNOWN_PIN);
+        assertEquals(unknown, pins("set system parameters 'compat_mode=mysql'"));
+        assertEquals(unknown, pins("set system parameters 'no_equals_sign'"));
+        assertEquals(unknown, pins("set system parameters ?"));
+        assertEquals(unknown, pins("set system parameters 'compat_numeric_division_scale=yes'"));
+        assertEquals(unknown, pins("set system parameters 'max_hash_list_scan_size=8M'"));
+    }
+
+    /**
+     * A server- or CAS-wide parameter changed the RW node only: reported, not replayed or pinned.
+     */
+    @Test
+    public void nonSessionParameterIsReportedWithoutPin() {
+        SessionSetStatement s =
+                SessionSetStatement.parse("set system parameters 'group_concat_max_len=10000'");
+        assertEquals(Arrays.asList("group_concat_max_len"), s.getNonSessionParams());
+        assertTrue(s.getPins().isEmpty());
+        assertTrue(s.getReplay().isEmpty());
+
+        s =
+                SessionSetStatement.parse(
+                        "set system parameters 'default_week_format=1; error_log_level=warning'");
+        assertEquals(Arrays.asList("error_log_level"), s.getNonSessionParams());
+        assertTrue(s.getPins().isEmpty());
+        assertEquals(1, s.getReplay().size());
     }
 
     @Test
     public void parametersThatChangeNoReadAreIgnored() {
-        assertEquals(Action.NONE, action("set system parameters 'xasl_debug_dump=yes'"));
-        assertEquals(
-                Action.NONE,
-                action("set system parameters 'insert_execution_mode=1; csql_auto_commit=no'"));
-        assertEquals(Action.NONE, action("set system parameters 'deduplicate_key_level=10'"));
+        assertUntracked("set system parameters 'xasl_debug_dump=yes'");
+        assertUntracked("set system parameters 'insert_execution_mode=1; csql_auto_commit=no'");
+        assertUntracked("set system parameters 'deduplicate_key_level=10'");
         assertEquals(
                 Arrays.asList("SET SYSTEM PARAMETERS 'timezone=UTC'"),
-                new ArrayList<String>(
-                        replay("set system parameters 'like_term_selectivity=0.1; timezone=UTC'")
-                                .values()));
+                replayed("set system parameters 'like_term_selectivity=0.1; timezone=UTC'"));
     }
 
     @Test
@@ -129,9 +175,31 @@ public class SessionSetStatementTest {
         assertTrue(
                 replay("set system parameters 'lock_timeout_in_secs=5'")
                         .containsKey(SessionSetStatement.LOCK_TIMEOUT_KEY));
+    }
+
+    /** One statement setting both is replayed as two, each under its own key. */
+    @Test
+    public void transactionStatementSettingBothIsSplit() {
         assertEquals(
-                Action.PIN_TO_RW,
-                action("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE, LOCK TIMEOUT 5"));
+                Arrays.asList(
+                        "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE",
+                        "SET TRANSACTION LOCK TIMEOUT 5"),
+                replayed("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE, LOCK TIMEOUT 5"));
+        assertEquals(
+                "set transaction isolation level 4",
+                replay("set transaction lock timeout ?, isolation level 4")
+                        .get(SessionSetStatement.ISOLATION_LEVEL_KEY));
+        assertEquals(
+                only(SessionSetStatement.LOCK_TIMEOUT_KEY),
+                pins("set transaction lock timeout ?, isolation level 4"));
+        // A comma inside an isolation level name does not start a second clause.
+        assertEquals(
+                Arrays.asList(
+                        "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ CLASS, READ COMMITTED"
+                                + " INSTANCES"),
+                replayed(
+                        "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ CLASS, READ COMMITTED"
+                                + " INSTANCES"));
     }
 
     @Test
@@ -143,54 +211,114 @@ public class SessionSetStatementTest {
         assertTrue(
                 replay("set system parameters 'optimization_level=1'")
                         .containsKey("PARAM:OPTIMIZATION_LEVEL"));
-        assertEquals(Action.PIN_TO_RW, action("SET OPTIMIZATION LEVEL ?"));
-        assertEquals(Action.PIN_TO_RW, action("SET OPTIMIZATION COST 'iscan' '0'"));
+        assertEquals(only("PARAM:OPTIMIZATION_LEVEL"), pins("SET OPTIMIZATION LEVEL ?"));
+        assertEquals(
+                only(SessionSetStatement.UNKNOWN_PIN), pins("SET OPTIMIZATION COST 'iscan' '0'"));
     }
 
-    /** SHOW TRACE reports the last query of its own session, so tracing keeps reads on RW. */
+    /** Both legs trace; SHOW TRACE then runs where the traced query ran. */
     @Test
-    public void queryTracePins() {
-        assertEquals(Action.PIN_TO_RW, action("SET TRACE ON"));
-        assertEquals(Action.PIN_TO_RW, action("set trace on output json"));
-        assertEquals(Action.NONE, action("SET TRACE OFF"));
-        assertEquals(Action.PIN_TO_RW, action("set system parameters 'query_trace=yes'"));
-        assertEquals(Action.NONE, action("set system parameters 'query_trace=no'"));
-        assertEquals(Action.REPLAY, action("set system parameters 'query_trace_format=json'"));
+    public void queryTraceIsReplayedUnderOneKey() {
+        final String key = SessionSetStatement.QUERY_TRACE_KEY;
+        assertEquals("SET TRACE ON", replay("SET TRACE ON").get(key));
+        assertEquals("set trace on output json", replay("set trace on output json").get(key));
+        assertEquals("SET TRACE OFF", replay("SET TRACE OFF").get(key));
+        assertEquals(
+                "SET SYSTEM PARAMETERS 'query_trace=yes'",
+                replay("set system parameters 'query_trace=yes'").get(key));
+        assertTrue(pins("SET TRACE ON").isEmpty());
+        assertFalse(replay("set system parameters 'query_trace_format=json'").isEmpty());
     }
 
     /**
-     * SHOW EXEC STATISTICS reports what its own session collected, and a session collects only
-     * while its {@code @collect_exec_stats} is on, so collecting keeps reads on RW like tracing.
+     * SHOW EXEC STATISTICS reports what its own session collected so far, and a session collects
+     * only while its {@code @collect_exec_stats} is on: split over two legs the totals would
+     * differ.
      */
     @Test
-    public void execStatisticsCollectionPins() {
-        assertEquals(Action.PIN_TO_RW, action("SET @collect_exec_stats = 1"));
-        assertEquals(Action.PIN_TO_RW, action("set @COLLECT_EXEC_STATS := 1"));
-        assertEquals(Action.PIN_TO_RW, action("SET @a = (1, 2), @collect_exec_stats = 1"));
-        assertEquals(Action.PIN_TO_RW, action("SET @collect_exec_stats = ?"));
-        assertEquals(Action.NONE, action("SET @collect_exec_stats = 0 -- off"));
-        assertEquals(Action.NONE, action("SET @collect_exec_stats = 0, @v = 1"));
-        assertEquals(
-                Action.NONE, action("SET @collect_exec_statsx = 1, @v = '@collect_exec_stats'"));
+    public void execStatisticsCollectionPinsUntilTurnedOff() {
+        final Set<String> stats = only(SessionSetStatement.EXEC_STATS_PIN);
+        assertEquals(stats, pins("SET @collect_exec_stats = 1"));
+        assertEquals(stats, pins("set @COLLECT_EXEC_STATS := 1"));
+        assertEquals(stats, pins("SET @a = (1, 2), @collect_exec_stats = 1"));
+        assertEquals(stats, pins("SET @collect_exec_stats = ?"));
+        assertEquals(stats, unpins("SET @collect_exec_stats = 0 -- off"));
+        assertEquals(stats, unpins("SET @collect_exec_stats = 0, @v = 1"));
+        assertUntracked("SET @collect_exec_statsx = 1, @v = '@collect_exec_stats'");
     }
 
     @Test
     public void otherStatementsAreNotTracked() {
-        assertEquals(Action.NONE, action("SET @v = 1"));
-        assertEquals(Action.NONE, action("SELECT 'set names utf8' FROM t"));
-        assertEquals(Action.NONE, action("SETTINGS"));
-        assertEquals(Action.NONE, action(null));
+        assertUntracked("SET @v = 1");
+        assertUntracked("SELECT 'set names utf8' FROM t");
+        assertUntracked("SETTINGS");
+        assertUntracked(null);
+        assertUntracked("SELECT 1; SELECT 2");
     }
 
+    /** A bound value is not in the text, so the setting pins until a literal SET of it. */
     @Test
-    public void setThatCannotBeReplayedOnItsOwnPins() {
-        // A compound string cannot be replayed without its other statements.
-        assertEquals(Action.PIN_TO_RW, action("SELECT 1; SET NAMES utf8"));
-        // A bound value is not in the text.
-        assertEquals(Action.PIN_TO_RW, action("SET TIMEZONE ?"));
-        // Only the trailing ';' of a single statement is not a compound string.
-        assertEquals(Action.REPLAY, action("SET NAMES utf8;  -- done\n"));
-        assertEquals(Action.NONE, action("SELECT 1; SELECT 2"));
+    public void boundValuePinsUnderItsSetting() {
+        assertEquals(only(SessionSetStatement.TIMEZONE_KEY), pins("SET TIMEZONE ?"));
+        assertEquals(only(SessionSetStatement.NAMES_KEY), pins("SET NAMES ?"));
+        assertEquals(
+                only(SessionSetStatement.ISOLATION_LEVEL_KEY),
+                pins("SET TRANSACTION ISOLATION LEVEL ?"));
+    }
+
+    /** Each statement of a multi-statement string counts on its own; a later one wins. */
+    @Test
+    public void multiStatementStringIsReadInOrder() {
+        assertEquals(Arrays.asList("SET NAMES utf8"), replayed("SELECT 1; SET NAMES utf8"));
+        assertEquals(Arrays.asList("SET NAMES utf8"), replayed("SET NAMES utf8;  -- done\n"));
+        assertEquals(
+                Arrays.asList("SET NAMES euckr", "SET TIMEZONE 'UTC'"),
+                replayed("SET NAMES euckr; SELECT 2; SET TIMEZONE 'UTC'"));
+        assertEquals(Arrays.asList("SET NAMES euckr"), replayed("SET NAMES utf8; SET NAMES euckr"));
+
+        final String stats = "SET @collect_exec_stats = 1; SET NAMES utf8";
+        assertEquals(only(SessionSetStatement.EXEC_STATS_PIN), pins(stats));
+        assertEquals(Arrays.asList("SET NAMES utf8"), replayed(stats));
+
+        final String onOff = "SET @collect_exec_stats = 1; SET @collect_exec_stats = 0";
+        assertTrue(pins(onOff).isEmpty());
+        assertEquals(only(SessionSetStatement.EXEC_STATS_PIN), unpins(onOff));
+        assertEquals(Arrays.asList("SET TRACE OFF"), replayed("SET TRACE ON; SET TRACE OFF"));
+
+        assertTrue(pins("SET TIMEZONE ?; SET TIMEZONE 'UTC'").isEmpty());
+        assertEquals(
+                Arrays.asList("SET TIMEZONE 'UTC'"),
+                replayed("SET TIMEZONE ?; SET TIMEZONE 'UTC'"));
+        assertEquals(
+                only(SessionSetStatement.TIMEZONE_KEY), pins("SET TIMEZONE 'UTC'; SET TIMEZONE ?"));
+        assertTrue(replay("SET TIMEZONE 'UTC'; SET TIMEZONE ?").isEmpty());
+    }
+
+    /** A failed string may have run any of its SETs; a single failed statement ran none. */
+    @Test
+    public void everySettingOfAMultiStatementStringPinsIfItFails() {
+        assertEquals(
+                new ArrayList<String>(
+                        Arrays.asList(
+                                SessionSetStatement.NAMES_KEY, SessionSetStatement.EXEC_STATS_PIN)),
+                new ArrayList<String>(
+                        SessionSetStatement.parse(
+                                        "SET NAMES utf8; SET @collect_exec_stats = 0; SELECT 1")
+                                .getPinsIfFailed()));
+        assertEquals(
+                only(SessionSetStatement.UNKNOWN_PIN),
+                SessionSetStatement.parse("SELECT 1; SET SYSTEM PARAMETERS 'no_such=1'")
+                        .getPinsIfFailed());
+        assertTrue(SessionSetStatement.parse("SET NAMES utf8").getPinsIfFailed().isEmpty());
+        assertTrue(SessionSetStatement.parse("SET NAMES utf8;").getPinsIfFailed().isEmpty());
+        assertTrue(
+                SessionSetStatement.parse("SET TRANSACTION ISOLATION LEVEL 4, LOCK TIMEOUT 5")
+                        .getPinsIfFailed()
+                        .isEmpty());
+        assertTrue(
+                SessionSetStatement.parse("SELECT 1; SET SYSTEM PARAMETERS 'sort_buffer_size=1M'")
+                        .getPinsIfFailed()
+                        .isEmpty());
     }
 
     @Test

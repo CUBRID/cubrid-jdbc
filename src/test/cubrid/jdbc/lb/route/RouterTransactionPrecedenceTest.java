@@ -53,7 +53,7 @@ public class RouterTransactionPrecedenceTest {
     @Test
     public void assertSessionReadPinSendsReadsToRw() {
         SessionRoutingState pinned = new SessionRoutingState();
-        pinned.pinReadsToRw();
+        pinned.pinReadsToRw(Collections.singleton("TRACE"));
         Router.RouteDecision d = Router.decide("SELECT * FROM t", pinned, readAdvisor());
         assertEquals(RouteTarget.TO_READ_WRITE, d.getTarget());
         assertEquals(
@@ -65,7 +65,7 @@ public class RouterTransactionPrecedenceTest {
     @Test
     public void assertToRoHintStillWinsOverSessionReadPin() {
         SessionRoutingState pinned = new SessionRoutingState();
-        pinned.pinReadsToRw();
+        pinned.pinReadsToRw(Collections.singleton("TRACE"));
         Router.RouteDecision d =
                 Router.decide("SELECT /*+ TO_RO */ * FROM t", pinned, failingDefaultAdvisor());
         assertEquals(RouteTarget.TO_READ_ONLY, d.getTarget());

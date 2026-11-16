@@ -338,8 +338,10 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
                                         }
                                     });
         } catch (BatchUpdateException answered) {
+            final int rows = batchedBinders.size();
             batchedBinders.clear();
-            ownerConn.afterBatchAnswered(target);
+            ownerConn.afterBatchAnswered(
+                    Collections.nCopies(rows, sql), answered.getUpdateCounts(), target);
             throw answered;
         }
         batchedBinders.clear();
@@ -1235,7 +1237,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
             final HintSet hints = HintParser.parse(sql);
 
             final RouteTarget targetFromHint =
-                    hints.hasTargetHint() ? Router.mapTargetHint(hints.getTargetHint()) : null;
+                    hints.hasTargetHint() ? Router.mapTargetHint(hints.getTargetHint(), sql) : null;
             final SqlClassification classification = classifier.classify(sql);
 
             final RouteTarget defaultTarget =

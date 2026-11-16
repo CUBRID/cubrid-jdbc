@@ -33,6 +33,7 @@ package cubrid.jdbc.lb.route;
 import cubrid.jdbc.lb.sql.HintParser;
 import cubrid.jdbc.lb.sql.HintSet;
 import cubrid.jdbc.lb.sql.IntoVariables;
+import cubrid.jdbc.lb.sql.SessionSetStatement;
 import cubrid.jdbc.lb.state.SessionRoutingState;
 import java.util.Set;
 
@@ -41,11 +42,12 @@ import java.util.Set;
  *
  * <p>A target hint decides the route, except while a transaction is active: then every target hint
  * is overridden to RW, because a transaction must not leave the bound RW connection. That makes
- * {@code TO_RO} invalid inside a transaction; for {@code TO_RW} the override changes nothing. With
- * no hint, an active transaction or a session read pin ({@link
- * SessionRoutingState#isReadsPinnedToRw}) sends the statement to RW, otherwise the default advisor
- * (READ/WRITE classification) decides. A read naming a variable an {@code INTO/TO} clause left on
- * the write leg ({@link SessionRoutingState#getSessionVariables}) goes to RW, where it lives.
+ * {@code TO_RO} invalid inside a transaction; for {@code TO_RW} the override changes nothing. A
+ * {@code TO_RO} string that changes the session runs on RW too ({@link #mapTargetHint}). With no
+ * hint, an active transaction or a session read pin ({@link SessionRoutingState#isReadsPinnedToRw})
+ * sends the statement to RW, otherwise the default advisor (READ/WRITE classification) decides. A
+ * read naming a variable an {@code INTO/TO} clause left on the write leg ({@link
+ * SessionRoutingState#getSessionVariables}) goes to RW, where it lives.
  *
  * <p>Routing is stateless: {@link SessionRoutingState} is only read, and the input SQL is returned
  * verbatim on the decision.
@@ -99,7 +101,7 @@ public final class Router {
         final HintSet hints = HintParser.parse(effectiveSql);
 
         if (hints.hasTargetHint()) {
-            final RouteTarget mapped = mapTargetHint(hints.getTargetHint());
+            final RouteTarget mapped = mapTargetHint(hints.getTargetHint(), effectiveSql);
             // An active transaction overrides every target hint: the statement must not leave the
             // bound RW connection. Testing the transaction rather than the target keeps this
             // fail-closed if another target is ever added; for TO_RW the override is a no-op.
@@ -179,12 +181,23 @@ public final class Router {
                 : RouteTarget.TO_READ_WRITE;
     }
 
-    public static RouteTarget mapTargetHint(final HintSet.TargetHint hint) {
+    /**
+     * The target a hint asks for. A {@code TO_RO} string that changes the session runs on RW: core
+     * runs it in its one session, and a change made on the read leg alone would reach neither RW
+     * nor the read legs opened later.
+     *
+     * @param hint the target hint
+     * @param sql the statement carrying it
+     * @return the target
+     */
+    public static RouteTarget mapTargetHint(final HintSet.TargetHint hint, final String sql) {
         switch (hint) {
             case TO_RW:
                 return RouteTarget.TO_READ_WRITE;
             case TO_RO:
-                return RouteTarget.TO_READ_ONLY;
+                return SessionSetStatement.parse(sql).changesSession()
+                        ? RouteTarget.TO_READ_WRITE
+                        : RouteTarget.TO_READ_ONLY;
             default:
                 throw new IllegalArgumentException("Unsupported target hint: " + hint);
         }

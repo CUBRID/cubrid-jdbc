@@ -653,6 +653,16 @@ public class KeywordSqlClassifierTest {
      * {@code ROW_COUNT()} reports on the statement before it in its own session, so it runs on the
      * leg that statement ran on; anything else that keeps a statement off the read leg still does.
      */
+    /** SHOW TRACE reports the last query of its own session, so it runs where that query ran. */
+    @Test
+    public void assertShowTraceFollowsThePreviousStatement() {
+        final SqlClassification previous = SqlClassification.READ_ON_PREVIOUS_LEG;
+        assertEquals(previous, classifier.classify("SHOW TRACE"));
+        assertEquals(previous, classifier.classify("  show /* c */ trace;"));
+        assertEquals(SqlClassification.UNKNOWN, classifier.classify("SHOW TABLES"));
+        assertEquals(SqlClassification.UNKNOWN, classifier.classify("SHOW TRACES"));
+    }
+
     @Test
     public void assertRowCountReadFollowsThePreviousStatement() {
         final SqlClassification previous = SqlClassification.READ_ON_PREVIOUS_LEG;
@@ -1093,13 +1103,12 @@ public class KeywordSqlClassifierTest {
     }
 
     /**
-     * SHOW, DESC, EXPLAIN and VALUES stay on RW: SHOW TRACE reports the session's last query, and
-     * SHOW LOG HEADER and the like report the node they run on.
+     * SHOW, DESC, EXPLAIN and VALUES stay on RW: SHOW LOG HEADER and the like report the node they
+     * run on. SHOW TRACE follows the previous statement instead.
      */
     @Test
     public void assertShowDescExplainValuesAreNotReadOnly() {
         String[] sqls = {
-            "SHOW TRACE",
             "SHOW LOG HEADER",
             "SHOW COLUMNS FROM t",
             "DESC t",

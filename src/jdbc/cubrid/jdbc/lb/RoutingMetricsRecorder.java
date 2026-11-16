@@ -41,6 +41,7 @@ import cubrid.jdbc.lb.route.Router;
 import cubrid.jdbc.lb.route.Router.RouteTarget;
 import cubrid.jdbc.lb.sql.HintParser;
 import cubrid.jdbc.lb.sql.HintSet;
+import cubrid.jdbc.lb.sql.SessionSetStatement;
 import cubrid.jdbc.lb.sql.SqlClassification;
 import cubrid.jdbc.lb.sql.SqlClassifier;
 import cubrid.jdbc.lb.sql.SqlLiteralMasker;
@@ -250,7 +251,7 @@ final class RoutingMetricsRecorder {
                 .append('@')
                 .append(endpoint == null ? "?" : endpoint.getId())
                 .append(" by=")
-                .append(decidedBy(hint, classification));
+                .append(decidedBy(hint, classification, sql));
 
         if (isFallback(fallbackReason)) {
             b.append(" fallback=").append(fallbackReason);
@@ -271,14 +272,22 @@ final class RoutingMetricsRecorder {
 
     /**
      * The reason token, in {@link Router#decide}'s own precedence order: a hint wins unless an
-     * active transaction overrides it, then the transaction pin, then the classification.
+     * active transaction or a session change overrides it, then the transaction pin, then the
+     * classification.
      */
     private String decidedBy(
-            final HintSet.TargetHint hint, final SqlClassification classification) {
+            final HintSet.TargetHint hint,
+            final SqlClassification classification,
+            final String sql) {
         if (hint != null) {
             // A read hint inside a live transaction is overridden, so the pin is the real reason.
             if (sessionState.isTransactionActive() && HintSet.TargetHint.TO_RO == hint) {
                 return "txPin(hint=" + hint + ")";
+            }
+            // So is one on a string that changes the session (Router.mapTargetHint).
+            if (HintSet.TargetHint.TO_RO == hint
+                    && SessionSetStatement.parse(sql).changesSession()) {
+                return "sessionSet(hint=" + hint + ")";
             }
             return "hint(" + hint + ")";
         }

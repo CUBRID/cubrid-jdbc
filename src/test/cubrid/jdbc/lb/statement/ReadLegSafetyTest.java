@@ -50,6 +50,7 @@ import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.sql.BatchUpdateException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -296,14 +297,19 @@ public class ReadLegSafetyTest {
                 Arrays.asList("SELECT 1", "SET OPTIMIZATION LEVEL 2", "SELECT 2"), legs.log("ro"));
     }
 
+    /** Both legs trace, and SHOW TRACE reports on the leg the last query ran on. */
     @Test
-    public void queryTraceKeepsReadsWithTheTrace() throws SQLException {
+    public void queryTraceIsReplayedAndShowTraceFollowsTheTracedQuery() throws SQLException {
         Statement st = conn.createStatement();
         st.execute("SET TRACE ON");
         st.executeQuery("SELECT 1");
+        st.executeQuery("SHOW TRACE");
+        st.execute("UPDATE t SET a = 1");
+        st.executeQuery("SHOW TRACE");
 
-        assertEquals(1, legs.count("rw", "SELECT 1"));
-        assertTrue(lastRouteEvent().contains("fallbackReason=SESSION_SET_PIN"));
+        assertEquals(Arrays.asList("SET TRACE ON", "SELECT 1", "SHOW TRACE"), legs.log("ro"));
+        assertEquals(
+                Arrays.asList("SET TRACE ON", "UPDATE t SET a = 1", "SHOW TRACE"), legs.log("rw"));
     }
 
     @Test
@@ -353,6 +359,232 @@ public class ReadLegSafetyTest {
         conn.createStatement().executeQuery("SELECT 1");
         assertEquals(1, legs.count("rw", "SELECT 1"));
         assertTrue(lastRouteEvent().contains("fallbackReason=SESSION_SET_PIN"));
+    }
+
+    /** The read leg logs in as the same user, so reads stay distributed. */
+    @Test
+    public void loginIsReplayedOnTheReadLeg() throws SQLException {
+        Statement st = conn.createStatement();
+        st.executeQuery("SELECT 1");
+        st.execute("CALL login('u2', 'pw') ON CLASS db_user");
+        st.executeQuery("SELECT 2");
+
+        assertEquals(
+                Arrays.asList("SELECT 1", "CALL login('u2', 'pw') ON CLASS db_user", "SELECT 2"),
+                legs.log("ro"));
+    }
+
+    /** A login with bound arguments pins until a literal one is replayed, as a login back does. */
+    @Test
+    public void literalLoginReleasesThePinOfABoundLogin() throws SQLException {
+        PreparedStatement ps = conn.prepareStatement("CALL login(?, ?) ON CLASS db_user");
+        ps.setString(1, "u2");
+        ps.setString(2, "pw");
+        ps.execute();
+        Statement st = conn.createStatement();
+        st.executeQuery("SELECT 1");
+        st.execute("CALL login('public', '') ON CLASS db_user");
+        st.executeQuery("SELECT 2");
+
+        assertEquals(1, legs.count("rw", "SELECT 1"));
+        assertEquals(1, legs.count("ro", "SELECT 2"));
+    }
+
+    @Test
+    public void execStatisticsOffReleasesTheReadPin() throws SQLException {
+        Statement st = conn.createStatement();
+        st.execute("SET @collect_exec_stats = 1");
+        st.executeQuery("SELECT 1");
+        st.execute("SET @collect_exec_stats = 0");
+        st.executeQuery("SELECT 2");
+
+        assertEquals(1, legs.count("rw", "SELECT 1"));
+        assertEquals(1, legs.count("ro", "SELECT 2"));
+    }
+
+    /** A literal SET of the setting a bound value pinned is replayed, so reads leave RW. */
+    @Test
+    public void literalSetReleasesThePinOfABoundValue() throws SQLException {
+        PreparedStatement ps = conn.prepareStatement("SET TIMEZONE ?");
+        ps.setString(1, "UTC");
+        ps.execute();
+        Statement st = conn.createStatement();
+        st.executeQuery("SELECT 1");
+        st.execute("SET TIMEZONE 'Asia/Seoul'");
+        st.executeQuery("SELECT 2");
+
+        assertEquals(1, legs.count("rw", "SELECT 1"));
+        assertEquals(
+                Arrays.asList("SET TIMEZONE 'Asia/Seoul'", "SELECT 2"), tail(legs.log("ro"), 2));
+    }
+
+    @Test
+    public void readsStayOnRwUntilEveryPinReasonClears() throws SQLException {
+        Statement st = conn.createStatement();
+        st.execute("SET @collect_exec_stats = 1");
+        PreparedStatement ps = conn.prepareStatement("SET TIMEZONE ?");
+        ps.setString(1, "UTC");
+        ps.execute();
+        st.execute("SET @collect_exec_stats = 0");
+        st.executeQuery("SELECT 1");
+        st.execute("SET TIMEZONE 'UTC'");
+        st.executeQuery("SELECT 2");
+
+        assertEquals(1, legs.count("rw", "SELECT 1"));
+        assertEquals(1, legs.count("ro", "SELECT 2"));
+    }
+
+    @Test
+    public void laterReplayOfARejectedSettingReleasesThePin() throws SQLException {
+        Statement st = conn.createStatement();
+        st.executeQuery("SELECT 1");
+        legs.refuseSetsOnRo(-204);
+        st.execute("SET NAMES euckr");
+        st.executeQuery("SELECT 2");
+        legs.refuseSetsOnRo(0);
+        st.execute("SET NAMES utf8");
+        st.executeQuery("SELECT 3");
+
+        assertEquals(1, legs.count("rw", "SELECT 2"));
+        assertEquals(Arrays.asList("SET NAMES utf8", "SELECT 3"), tail(legs.log("ro"), 2));
+    }
+
+    @Test
+    public void jdbcIsolationSetterReleasesThePinOfABoundIsolation() throws SQLException {
+        PreparedStatement ps = conn.prepareStatement("SET TRANSACTION ISOLATION LEVEL ?");
+        ps.setInt(1, 4);
+        ps.execute();
+        Statement st = conn.createStatement();
+        st.executeQuery("SELECT 1");
+        conn.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
+        st.executeQuery("SELECT 2");
+
+        assertEquals(1, legs.count("rw", "SELECT 1"));
+        assertEquals(1, legs.count("ro", "SELECT 2"));
+    }
+
+    /** The SETs of a multi-statement string are replayed on their own, in order. */
+    @Test
+    public void setsOfAMultiStatementStringAreReplayed() throws SQLException {
+        Statement st = conn.createStatement();
+        st.executeQuery("SELECT 1");
+        st.execute("SET NAMES euckr; SELECT 2; SET TIMEZONE 'UTC'");
+        st.executeQuery("SELECT 3");
+
+        assertEquals(
+                Arrays.asList("SET NAMES euckr", "SET TIMEZONE 'UTC'", "SELECT 3"),
+                tail(legs.log("ro"), 3));
+    }
+
+    @Test
+    public void bothTransactionSettingsOfOneStatementAreReplayed() throws SQLException {
+        Statement st = conn.createStatement();
+        st.executeQuery("SELECT 1");
+        st.execute("SET TRANSACTION ISOLATION LEVEL 4, LOCK TIMEOUT 5");
+        st.executeQuery("SELECT 2");
+
+        assertEquals(
+                Arrays.asList(
+                        "SET TRANSACTION ISOLATION LEVEL 4",
+                        "SET TRANSACTION LOCK TIMEOUT 5",
+                        "SELECT 2"),
+                tail(legs.log("ro"), 3));
+    }
+
+    /**
+     * CUBRID keeps the SETs that ran before a later statement of the string failed. Which ones ran
+     * is not known, so reads stay on RW until the setting is set again.
+     */
+    @Test
+    public void setOfAStringThatFailedPartwayKeepsReadsOnRwUntilSetAgain() throws SQLException {
+        Statement st = conn.createStatement();
+        st.executeQuery("SELECT 1");
+        legs.refuseOnRw("missing", -493);
+        try {
+            st.execute("SET NAMES euckr; SELECT * FROM missing");
+            fail("the RW leg's failure must reach the caller");
+        } catch (SQLException expected) {
+            assertEquals(-493, expected.getErrorCode());
+        }
+        st.executeQuery("SELECT 2");
+        st.execute("SET NAMES utf8");
+        st.executeQuery("SELECT 3");
+
+        assertEquals(1, legs.count("rw", "SELECT 2"));
+        assertEquals(Arrays.asList("SELECT 1", "SET NAMES utf8", "SELECT 3"), legs.log("ro"));
+    }
+
+    /** Each entry of a batch the server answered with a failure ran or failed on its own. */
+    @Test
+    public void setThatRanInAFailedBatchIsReplayed() throws SQLException {
+        Statement st = conn.createStatement();
+        st.executeQuery("SELECT 1");
+        legs.refuseOnRw("missing", -493);
+        st.addBatch("SET TIMEZONE 'missing/zone'");
+        st.addBatch("SET NAMES euckr");
+        st.addBatch("INSERT INTO missing VALUES (1)");
+        try {
+            st.executeBatch();
+            fail("the batch failure must reach the caller");
+        } catch (BatchUpdateException expected) {
+            assertEquals(
+                    Arrays.toString(
+                            new int[] {Statement.EXECUTE_FAILED, 0, Statement.EXECUTE_FAILED}),
+                    Arrays.toString(expected.getUpdateCounts()));
+        }
+        st.executeQuery("SELECT 2");
+
+        assertEquals(Arrays.asList("SELECT 1", "SET NAMES euckr", "SELECT 2"), legs.log("ro"));
+    }
+
+    @Test
+    public void setThatRanInAFailedPreparedBatchIsReplayed() throws SQLException {
+        conn.createStatement().executeQuery("SELECT 1");
+        PreparedStatement ps = conn.prepareStatement("SET NAMES euckr");
+        ps.addBatch();
+        ps.addBatch();
+        legs.refuseOnceOnRw("euckr", -493);
+        try {
+            ps.executeBatch();
+            fail("the batch failure must reach the caller");
+        } catch (BatchUpdateException expected) {
+            assertEquals(
+                    Arrays.toString(new int[] {Statement.EXECUTE_FAILED, 0}),
+                    Arrays.toString(expected.getUpdateCounts()));
+        }
+
+        assertEquals(Arrays.asList("SELECT 1", "SET NAMES euckr"), legs.log("ro"));
+    }
+
+    /** Core runs the whole string in its one session, so a TO_RO hint does not take a SET away. */
+    @Test
+    public void hintedReadStringWithASetRunsOnRwAndIsReplayed() throws SQLException {
+        Statement st = conn.createStatement();
+        st.executeQuery("SELECT 1");
+        st.execute("SELECT /*+ TO_RO */ 2; SET NAMES euckr");
+        st.executeQuery("SELECT 3");
+
+        assertEquals(1, legs.count("rw", "SELECT /*+ TO_RO */ 2; SET NAMES euckr"));
+        assertEquals(Arrays.asList("SELECT 1", "SET NAMES euckr", "SELECT 3"), legs.log("ro"));
+    }
+
+    @Test
+    public void preparedHintedReadStringWithASetRunsOnRw() throws SQLException {
+        conn.prepareStatement("SELECT /*+ TO_RO */ 1; SET NAMES euckr").execute();
+        conn.createStatement().executeQuery("SELECT 2");
+
+        assertEquals(1, legs.count("rw", "SELECT /*+ TO_RO */ 1; SET NAMES euckr"));
+        assertEquals(Arrays.asList("SET NAMES euckr", "SELECT 2"), legs.log("ro"));
+    }
+
+    /** A server-wide parameter changed the RW node only; read nodes keep their own value. */
+    @Test
+    public void nonSessionParameterNeitherReplaysNorPins() throws SQLException {
+        Statement st = conn.createStatement();
+        st.execute("set system parameters 'group_concat_max_len=10000'");
+        st.executeQuery("SELECT 1");
+
+        assertEquals(Arrays.asList("SELECT 1"), legs.log("ro"));
     }
 
     /** A read naming a SELECT INTO variable runs on RW, where it lives; other reads stay on RO. */
@@ -486,6 +718,7 @@ public class ReadLegSafetyTest {
         private volatile String refuseRoMessage = "refused on ro";
         private volatile String refuseRw;
         private volatile int refuseRwCode;
+        private volatile boolean refuseRwOnce;
         private final AtomicInteger roSetRefusals = new AtomicInteger();
         private volatile int roSetRefusalCode;
 
@@ -502,6 +735,12 @@ public class ReadLegSafetyTest {
         void refuseOnRw(final String fragment, final int code) {
             refuseRw = fragment;
             refuseRwCode = code;
+        }
+
+        /** Only the first statement on RW containing {@code fragment} fails. */
+        void refuseOnceOnRw(final String fragment, final int code) {
+            refuseOnRw(fragment, code);
+            refuseRwOnce = true;
         }
 
         /** The next {@code n} SETs on the read leg lose the connection. */
@@ -552,6 +791,9 @@ public class ReadLegSafetyTest {
                 throw new SQLException(refuseRoMessage, null, refuseRoCode);
             }
             if ("rw".equals(role) && refuseRw != null && sql.indexOf(refuseRw) >= 0) {
+                if (refuseRwOnce) {
+                    refuseRw = null;
+                }
                 throw new SQLException("refused on rw", null, refuseRwCode);
             }
         }
@@ -590,6 +832,7 @@ public class ReadLegSafetyTest {
         private final class StatementHandler implements InvocationHandler {
             private final String role;
             private final String prepared;
+            private final List<String> batch = new ArrayList<String>();
 
             StatementHandler(final String role, final String prepared) {
                 this.role = role;
@@ -599,7 +842,18 @@ public class ReadLegSafetyTest {
             public Object invoke(final Object proxy, final Method m, final Object[] args)
                     throws SQLException {
                 String name = m.getName();
-                if (name.startsWith("execute") && !"executeBatch".equals(name)) {
+                if ("addBatch".equals(name)) {
+                    batch.add(prepared != null ? prepared : (String) args[0]);
+                    return null;
+                }
+                if ("clearBatch".equals(name)) {
+                    batch.clear();
+                    return null;
+                }
+                if ("executeBatch".equals(name)) {
+                    return runBatch();
+                }
+                if (name.startsWith("execute")) {
                     String sql = prepared != null ? prepared : (String) args[0];
                     run(role, sql);
                     if ("executeQuery".equals(name)) {
@@ -617,6 +871,26 @@ public class ReadLegSafetyTest {
                     return Integer.valueOf(-1);
                 }
                 return defaultValue(m.getReturnType());
+            }
+
+            /** Runs every entry as the server does, a failed one included, then reports them. */
+            private int[] runBatch() throws SQLException {
+                final int[] counts = new int[batch.size()];
+                SQLException failed = null;
+                for (int i = 0; i < counts.length; i++) {
+                    try {
+                        run(role, batch.get(i));
+                    } catch (SQLException e) {
+                        counts[i] = Statement.EXECUTE_FAILED;
+                        failed = e;
+                    }
+                }
+                batch.clear();
+                if (failed != null) {
+                    throw new BatchUpdateException(
+                            failed.getMessage(), null, failed.getErrorCode(), counts);
+                }
+                return counts;
             }
         }
 

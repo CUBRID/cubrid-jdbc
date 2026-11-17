@@ -704,7 +704,7 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
 
     /* A pre-V13 broker takes a stream into a new external LOB, as before internal LOBs. */
     private Blob newBfile(InputStream in, long length) throws SQLException {
-        Blob blob = con.createBfile();
+        Blob blob = new CUBRIDBfile(con);
         OutputStream out = blob.setBinaryStream(1);
         try {
             ((CUBRIDBufferedOutputStream) out).streamCopyFromInputStream(in, length);
@@ -715,7 +715,7 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
     }
 
     private Clob newCfile(Reader in, long length) throws SQLException {
-        Clob clob = con.createCfile();
+        Clob clob = new CUBRIDCfile(con, con.getUConnection().getCharset());
         Writer out = clob.setCharacterStream(1);
         try {
             ((CUBRIDBufferedWriter) out).streamCopyFromReader(in, length);

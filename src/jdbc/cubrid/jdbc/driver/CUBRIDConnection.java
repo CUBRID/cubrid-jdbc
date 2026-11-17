@@ -800,7 +800,7 @@ public class CUBRIDConnection implements Connection {
     public Blob createBlob() throws SQLException {
         checkIsOpen();
         if (!u_con.brokerSpeaksV13()) {
-            return createBfile();
+            return new CUBRIDBfile(this);
         }
         Blob blob = new CUBRIDBlob(this);
         return blob;
@@ -810,20 +810,35 @@ public class CUBRIDConnection implements Connection {
     public Clob createClob() throws SQLException {
         checkIsOpen();
         if (!u_con.brokerSpeaksV13()) {
-            return createCfile();
+            return new CUBRIDCfile(this, getUConnection().getCharset());
         }
         Clob clob = new CUBRIDClob(this, getUConnection().getCharset());
         return clob;
     }
 
-    /* an external LOB (BFILE): its bytes live in a file outside the database */
+    /* an external LOB (BFILE): its bytes live in a file outside the database. A pre-V13 broker has
+     * no BFILE (its BLOB is this LOB, through createBlob ()), so it is refused there. */
     public Blob createBfile() throws SQLException {
+        checkIsOpen();
+        checkBrokerHasFileLob();
         return new CUBRIDBfile(this);
     }
 
-    /* an external LOB (CFILE) */
+    /* an external LOB (CFILE), refused by a pre-V13 broker like createBfile () */
     public Clob createCfile() throws SQLException {
+        checkIsOpen();
+        checkBrokerHasFileLob();
         return new CUBRIDCfile(this, getUConnection().getCharset());
+    }
+
+    private void checkBrokerHasFileLob() throws SQLException {
+        synchronized (u_con) {
+            if (!u_con.refuseFileLob()) {
+                return;
+            }
+            error = u_con.getRecentError();
+        }
+        throw createCUBRIDException(error);
     }
 
     private void end(boolean commit) throws SQLException {

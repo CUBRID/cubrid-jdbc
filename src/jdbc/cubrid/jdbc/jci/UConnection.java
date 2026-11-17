@@ -2361,6 +2361,18 @@ public abstract class UConnection {
         return protocolVersion >= PROTOCOL_V13;
     }
 
+    /* BFILE/CFILE came with PROTOCOL_V13. An older broker's external LOB is its BLOB/CLOB, made by
+     * createBlob/createClob, so a BFILE/CFILE asked of it is a version mismatch. */
+    public synchronized boolean refuseFileLob() {
+        errorHandler = new UError(this);
+        if (brokerSpeaksV13()) {
+            return false;
+        }
+        errorHandler.setDBError(
+                UErrorCode.CAS_ER_VERSION, UErrorCode.codeToCASMessage(UErrorCode.CAS_ER_VERSION));
+        return true;
+    }
+
     /* The stream requests are never sent to a broker that does not know them. */
     private boolean refuseStreamRequest() {
         if (brokerSpeaksV13()) {

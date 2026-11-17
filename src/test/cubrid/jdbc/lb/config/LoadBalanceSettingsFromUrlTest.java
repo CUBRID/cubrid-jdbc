@@ -206,6 +206,54 @@ public class LoadBalanceSettingsFromUrlTest {
                         .getPrepStmtCache());
     }
 
+    /**
+     * As on a core connect, the {@code CUBRID_JDBC_PROP} file's options take the place of the URL's
+     * for the legs and the statement cache, less those LB keeps off the legs; LB's own options
+     * still come from the URL.
+     */
+    @Test
+    public void propFileTakesThePlaceOfTheUrlOptions() throws SQLException {
+        java.util.Properties file = new java.util.Properties();
+        file.setProperty("altHosts", "node3:33000");
+        file.setProperty("loadBalance", "true");
+        file.setProperty("useLazyConnection", "true");
+        file.setProperty("usePreparedStmtCache", "true");
+        file.setProperty("connectTimeout", "5");
+        LoadBalanceSettings c =
+                LoadBalanceSettings.fromUrl(
+                        LoadBalanceUrlParser.parse(
+                                "jdbc:cubrid:loadbalance://node1,node2/testdb:::"
+                                        + "?charSet=utf-8&readWeight=master:1"
+                                        + "&preparedStmtCacheSize=3"),
+                        null,
+                        file);
+
+        String leg = c.buildPhysicalJdbcSpec(null, new Endpoint("node1", 33000)).getJdbcUrl();
+        assertTrue(leg, leg.endsWith("?connectTimeout=5"));
+        assertTrue(c.getStatementCacheOptions().getPrepStmtCache());
+        assertEquals(
+                "the file replaces the URL's options, as in core",
+                25,
+                c.getStatementCacheOptions().getPrepStmtCacheSize());
+        assertEquals(1, c.getReadWeight().weightOf(NodeRole.MASTER));
+    }
+
+    /** A file that only sets keys LB keeps off the legs is still a valid file. */
+    @Test
+    public void propFileWithOnlyClassicOnlyKeysLeavesTheLegsWithoutOptions() throws SQLException {
+        java.util.Properties file = new java.util.Properties();
+        file.setProperty("altHosts", "node3:33000");
+        LoadBalanceSettings c =
+                LoadBalanceSettings.fromUrl(
+                        LoadBalanceUrlParser.parse(
+                                "jdbc:cubrid:loadbalance://node1,node2/testdb:::?charSet=utf-8"),
+                        null,
+                        file);
+
+        String leg = c.buildPhysicalJdbcSpec(null, new Endpoint("node1", 33000)).getJdbcUrl();
+        assertFalse(leg, leg.contains("?"));
+    }
+
     @Test
     public void appliesDefaultReadWeightWhenAbsent() throws SQLException {
         LoadBalanceSettings c =

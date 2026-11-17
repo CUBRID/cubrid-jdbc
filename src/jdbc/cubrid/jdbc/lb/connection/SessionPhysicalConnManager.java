@@ -121,8 +121,10 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
                 public Connection getConnection(
                         final String url, final Properties info, final String userUrl)
                         throws SQLException {
+                    // LoadBalanceSettings read the CUBRID_JDBC_PROP file once and put the options a
+                    // leg may take in this URL, so the leg does not read the file again.
                     return ((CUBRIDDriver) DriverManager.getDriver(url))
-                            .connect(url, info, userUrl);
+                            .connect(url, info, userUrl, false);
                 }
             };
 

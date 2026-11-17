@@ -90,6 +90,9 @@ public class CUBRIDDriver implements Driver {
             "jdbc:cubrid(-oracle|-mysql)?:([a-zA-Z_0-9\\.-]*):([0-9]*):([^:]+):([^:]*):([^:]*):(\\?[a-zA-Z_0-9]+=[^&=?]+(&[a-zA-Z_0-9]+=[^&=?]+)*)?";
     private static final String CUBRID_JDBC_URL_HEADER = "jdbc:cubrid";
     private static final String ENV_JDBC_PROP_NAME = "CUBRID_JDBC_PROP";
+    // An option name and value as URL_PATTERN takes them.
+    private static final Pattern PROP_FILE_KEY = Pattern.compile("[a-zA-Z_0-9]+");
+    private static final Pattern PROP_FILE_VALUE = Pattern.compile("[^&=?]+");
     private static final String URL_SCHEME_SEPARATOR = "://";
 
     /**
@@ -164,7 +167,7 @@ public class CUBRIDDriver implements Driver {
             return connectUri(url, info, urlMode);
         }
 
-        return connect(url, info, null);
+        return connect(url, info, null, true);
     }
 
     /**
@@ -175,10 +178,13 @@ public class CUBRIDDriver implements Driver {
      * @param url the classic URL to open
      * @param info the connection properties
      * @param userUrl the URL to report, or null to report {@code url}
+     * @param usePropFile whether the {@code CUBRID_JDBC_PROP} file replaces the URL's options;
+     *     false for a load-balanced leg, whose URL already holds the file's options it may take
      * @return the connection
      * @throws SQLException if the connect fails
      */
-    public Connection connect(String url, Properties info, String userUrl) throws SQLException {
+    public Connection connect(String url, Properties info, String userUrl, boolean usePropFile)
+            throws SQLException {
         Connection conn = null;
         String holdability = null;
         String dummy = null;
@@ -238,70 +244,32 @@ public class CUBRIDDriver implements Driver {
             pass = matcher.group(6);
         }
 
-        String filePath = System.getenv(ENV_JDBC_PROP_NAME);
+        String filePath = usePropFile ? System.getenv(ENV_JDBC_PROP_NAME) : null;
 
         if (filePath != null) {
-            if (existPropertiesFile(filePath)) {
-                Properties temp_prop = new Properties();
-                FileInputStream in;
-                try {
-                    in = new FileInputStream(filePath);
-                    temp_prop.load(in);
-                    in.close();
+            prop = optionsOf(propFile(filePath));
+            url =
+                    "jdbc:cubrid:"
+                            + host
+                            + ":"
+                            + port
+                            + ":"
+                            + db
+                            + ":"
+                            + user
+                            + ":"
+                            + pass
+                            + ":"
+                            + prop;
 
-                    StringBuilder sbProp = new StringBuilder();
-                    String value = null;
-                    for (String key : temp_prop.stringPropertyNames()) {
-                        value = temp_prop.getProperty(key);
-                        if (sbProp.length() == 0) {
-                            sbProp.append("?");
-                        } else {
-                            sbProp.append("&");
-                        }
-                        sbProp.append(key + "=" + value);
-                    }
+            Matcher propMatcher = pattern.matcher(url);
+            if (!propMatcher.find()) {
+                throw new CUBRIDException(CUBRIDJDBCErrorCode.invalid_prop_file, filePath, null);
+            }
 
-                    if (sbProp == null || sbProp.length() <= 0) {
-                        throw new CUBRIDException(
-                                CUBRIDJDBCErrorCode.invalid_prop_file, filePath, null);
-                    }
-
-                    prop = sbProp.toString();
-                    url =
-                            "jdbc:cubrid:"
-                                    + host
-                                    + ":"
-                                    + port
-                                    + ":"
-                                    + db
-                                    + ":"
-                                    + user
-                                    + ":"
-                                    + pass
-                                    + ":"
-                                    + prop;
-
-                    Matcher propMatcher = pattern.matcher(url);
-                    if (!propMatcher.find()) {
-                        throw new CUBRIDException(
-                                CUBRIDJDBCErrorCode.invalid_prop_file, filePath, null);
-                    }
-
-                    String propMatch = propMatcher.group();
-                    if (!propMatch.equals(url)) {
-                        throw new CUBRIDException(
-                                CUBRIDJDBCErrorCode.invalid_prop_file, filePath, null);
-                    }
-
-                } catch (FileNotFoundException e) {
-                    throw new CUBRIDException(
-                            CUBRIDJDBCErrorCode.file_not_found_prop, filePath, null);
-                } catch (IOException e) {
-                    throw new CUBRIDException(
-                            CUBRIDJDBCErrorCode.invalid_prop_file, filePath, null);
-                }
-            } else {
-                throw new CUBRIDException(CUBRIDJDBCErrorCode.file_not_found_prop, filePath, null);
+            String propMatch = propMatcher.group();
+            if (!propMatch.equals(url)) {
+                throw new CUBRIDException(CUBRIDJDBCErrorCode.invalid_prop_file, filePath, null);
             }
         }
 
@@ -410,7 +378,7 @@ public class CUBRIDDriver implements Driver {
 
         // Single-node URI URL: connect through the classic path with the rewritten colon-delimited
         // URL, reporting the URI URL so JDBC errors / CAS show the form the user wrote.
-        return connect(uriSingleToClassicUrl(url), info, uriSingleLogUrl(url, info));
+        return connect(uriSingleToClassicUrl(url), info, uriSingleLogUrl(url, info), true);
     }
 
     /**
@@ -667,9 +635,53 @@ public class CUBRIDDriver implements Driver {
         throw new java.lang.UnsupportedOperationException();
     }
 
-    private boolean existPropertiesFile(String filePath) {
-        File file = new File(filePath);
-        return file.exists();
+    /**
+     * The options of the file {@code CUBRID_JDBC_PROP} names, which take the place of a URL's
+     * options on connect, or {@code null} when the variable is not set. A load-balanced connection
+     * reads them once and gives its legs the ones they may take.
+     *
+     * @return the options, or {@code null}
+     * @throws SQLException if the file is missing, unreadable, empty, or holds an option a URL
+     *     cannot carry
+     */
+    public static Properties readPropFile() throws SQLException {
+        String filePath = System.getenv(ENV_JDBC_PROP_NAME);
+        return filePath == null ? null : propFile(filePath);
+    }
+
+    static Properties propFile(String filePath) throws SQLException {
+        if (!new File(filePath).exists()) {
+            throw new CUBRIDException(CUBRIDJDBCErrorCode.file_not_found_prop, filePath, null);
+        }
+
+        Properties options = new Properties();
+        try (FileInputStream in = new FileInputStream(filePath)) {
+            options.load(in);
+        } catch (FileNotFoundException e) {
+            throw new CUBRIDException(CUBRIDJDBCErrorCode.file_not_found_prop, filePath, null);
+        } catch (IOException e) {
+            throw new CUBRIDException(CUBRIDJDBCErrorCode.invalid_prop_file, filePath, null);
+        }
+
+        if (options.isEmpty()) {
+            throw new CUBRIDException(CUBRIDJDBCErrorCode.invalid_prop_file, filePath, null);
+        }
+        for (String key : options.stringPropertyNames()) {
+            if (!PROP_FILE_KEY.matcher(key).matches()
+                    || !PROP_FILE_VALUE.matcher(options.getProperty(key)).matches()) {
+                throw new CUBRIDException(CUBRIDJDBCErrorCode.invalid_prop_file, filePath, null);
+            }
+        }
+        return options;
+    }
+
+    /** The {@code ?k=v&...} part of a URL. */
+    private static String optionsOf(Properties options) {
+        StringBuilder sb = new StringBuilder();
+        for (String key : options.stringPropertyNames()) {
+            sb.append(sb.length() == 0 ? "?" : "&").append(key + "=" + options.getProperty(key));
+        }
+        return sb.toString();
     }
 
     private void adjustHostList(String loadBalValue, ArrayList<String> altHostList) {

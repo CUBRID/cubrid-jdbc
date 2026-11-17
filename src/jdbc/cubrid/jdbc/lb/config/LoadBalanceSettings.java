@@ -30,6 +30,7 @@
 
 package cubrid.jdbc.lb.config;
 
+import cubrid.jdbc.driver.CUBRIDDriver;
 import cubrid.jdbc.driver.ConnectionProperties;
 import cubrid.jdbc.lb.LbExceptions;
 import cubrid.jdbc.lb.config.LoadBalanceUrlParser.ParsedUrl;
@@ -152,6 +153,17 @@ public class LoadBalanceSettings {
      */
     public static LoadBalanceSettings fromUrl(final ParsedUrl parsed, final Properties info)
             throws SQLException {
+        return fromUrl(parsed, info, CUBRIDDriver.readPropFile());
+    }
+
+    /**
+     * {@link #fromUrl(ParsedUrl, Properties)} with the {@code CUBRID_JDBC_PROP} file's options, or
+     * {@code null}. As on a core connect, they take the place of the URL's options for the legs and
+     * the statement cache; LB's own options still come from the URL.
+     */
+    static LoadBalanceSettings fromUrl(
+            final ParsedUrl parsed, final Properties info, final Properties propFile)
+            throws SQLException {
         if (parsed == null) {
             throw LbExceptions.invalidUrl("parsed URL is null", null);
         }
@@ -171,8 +183,16 @@ public class LoadBalanceSettings {
         final ReadWeight weights =
                 ReadWeight.resolve(
                         OptionKeys.findValueIgnoreCase(options, "readWeight"), roleTopology);
-        final Map<String, String> propagated =
+        Map<String, String> propagated =
                 LoadBalanceOptionValidator.validate(options).getRetainedOptions();
+        Map<String, String> coreOptions = parsed.getOptions();
+        if (propFile != null) {
+            coreOptions = new LinkedHashMap<String, String>();
+            for (String name : propFile.stringPropertyNames()) {
+                coreOptions.put(name, propFile.getProperty(name));
+            }
+            propagated = LoadBalanceOptionValidator.validate(coreOptions).getRetainedOptions();
+        }
         JdbcEndpointConnSpecFactory.checkPropagatable(propagated);
         final MetricsConfig metrics = MetricsConfig.parse(options);
         final LbLogConfig lbLog = LbLogConfig.parse(options);
@@ -187,11 +207,12 @@ public class LoadBalanceSettings {
                 propagated,
                 metrics,
                 lbLog,
-                statementCacheOptions(parsed.getOptions(), info));
+                statementCacheOptions(coreOptions, info));
     }
 
     /**
-     * The statement cache options read as a core connect reads them: the URL, then {@code info}.
+     * The statement cache options read as a core connect reads them: the URL's (or the file's in
+     * their place), then {@code info}.
      */
     private static ConnectionProperties statementCacheOptions(
             final Map<String, String> urlOptions, final Properties info) throws SQLException {

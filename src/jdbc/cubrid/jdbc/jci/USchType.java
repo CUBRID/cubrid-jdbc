@@ -69,6 +69,7 @@ public abstract class USchType {
     public static final int SCH_EXPORTED_KEYS = 18;
     public static final int SCH_CROSS_REFERENCE = 19;
     public static final int SCH_SCHEMAS = 21;
+    public static final int SCH_CURRENT_SCHEMA = 22;
     public static final int SCH_PROCEDURES = 23;
     public static final int SCH_PROCEDURE_COLUMNS = 24;
     public static final int SCH_FUNCTIONS = 25;

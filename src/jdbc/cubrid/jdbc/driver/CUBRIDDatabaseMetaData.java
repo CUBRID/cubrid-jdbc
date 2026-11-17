@@ -2924,7 +2924,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
     private UStatement requestRoutines(
             int type, String schemaPattern, String namePattern, String columnNamePattern, byte flag)
             throws SQLException {
-        if (!checkSupportSchema() || u_con.brokerProtocolVersion() < UConnection.PROTOCOL_V13) {
+        if (!con.isSchemaSupported() || u_con.brokerProtocolVersion() < UConnection.PROTOCOL_V13) {
             return null;
         }
 

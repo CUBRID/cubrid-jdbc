@@ -30,6 +30,7 @@
 
 package cubrid.jdbc.lb.config;
 
+import cubrid.jdbc.driver.ConnectionProperties;
 import cubrid.jdbc.lb.LbExceptions;
 import cubrid.jdbc.lb.config.LoadBalanceUrlParser.ParsedUrl;
 import java.sql.SQLException;
@@ -125,6 +126,7 @@ public class LoadBalanceSettings {
     // Metrics export settings; DISABLED unless the URL enabled it.
     private final MetricsConfig metricsConfig;
     private final LbLogConfig lbLogConfig;
+    private final ConnectionProperties statementCacheOptions;
 
     /**
      * Build settings from a parsed URI URL. Roles/ports come from {@link ParsedRoleTopology}/{@link
@@ -184,7 +186,36 @@ public class LoadBalanceSettings {
                 parsed.getPassword(),
                 propagated,
                 metrics,
-                lbLog);
+                lbLog,
+                statementCacheOptions(parsed.getOptions(), info));
+    }
+
+    /**
+     * The statement cache options read as a core connect reads them: the URL, then {@code info}.
+     */
+    private static ConnectionProperties statementCacheOptions(
+            final Map<String, String> urlOptions, final Properties info) throws SQLException {
+        final StringBuilder fromUrl = new StringBuilder();
+        final Properties fromInfo = new Properties();
+        for (String key : LoadBalanceOptionValidator.STATEMENT_CACHE) {
+            final String value = OptionKeys.findValueIgnoreCase(urlOptions, key);
+            if (value != null) {
+                fromUrl.append('&').append(key).append('=').append(value);
+            }
+        }
+        if (info != null) {
+            for (String name : info.stringPropertyNames()) {
+                if (OptionKeys.containsIgnoreCase(
+                        LoadBalanceOptionValidator.STATEMENT_CACHE, name)) {
+                    fromInfo.setProperty(name, info.getProperty(name));
+                }
+            }
+        }
+
+        final ConnectionProperties props = new ConnectionProperties();
+        props.setProperties(fromUrl.toString());
+        props.setProperties(fromInfo);
+        return props;
     }
 
     private LoadBalanceSettings(
@@ -196,7 +227,8 @@ public class LoadBalanceSettings {
             String urlPassword,
             Map<String, String> propagatedOptions,
             MetricsConfig metricsConfig,
-            LbLogConfig lbLogConfig) {
+            LbLogConfig lbLogConfig,
+            ConnectionProperties statementCacheOptions) {
         this.roPhysicalFailoverToRw = DEFAULT_RO_PHYSICAL_FAILOVER_TO_RW;
         this.sqlClassifyCacheMaxEntries = DEFAULT_SQL_CLASSIFY_CACHE_MAX_ENTRIES;
         this.rtFailoverEnabled = DEFAULT_RT_FAILOVER_ENABLED;
@@ -221,6 +253,7 @@ public class LoadBalanceSettings {
                         : Collections.<String, String>emptyMap();
         this.metricsConfig = metricsConfig != null ? metricsConfig : MetricsConfig.DISABLED;
         this.lbLogConfig = lbLogConfig != null ? lbLogConfig : LbLogConfig.DEFAULTS;
+        this.statementCacheOptions = statementCacheOptions;
     }
 
     public int getSqlClassifyCacheMaxEntries() {
@@ -356,6 +389,15 @@ public class LoadBalanceSettings {
      */
     public MetricsConfig getMetricsConfig() {
         return metricsConfig;
+    }
+
+    /**
+     * Core's prepared-statement cache options. LB keeps the cache; the legs get none of them.
+     *
+     * @return the options, core defaults where neither the URL nor the properties set one
+     */
+    public ConnectionProperties getStatementCacheOptions() {
+        return statementCacheOptions;
     }
 
     /**

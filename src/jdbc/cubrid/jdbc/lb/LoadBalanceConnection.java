@@ -275,6 +275,10 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         super(CUBRIDDriver.maskUriUrlPassword(userUrl, info), userOf(config));
         this.urlAsWritten = userUrl;
         this.config = config;
+        // Core makes its statement cache in its constructor; LB keeps that one cache for the legs.
+        this.prepStmtCache =
+                new UPreparedStatementCache<String, PreparedStatement>(
+                        config.getStatementCacheOptions().getPrepStmtCacheSize());
         this.sqlClassifier = SqlClassifierRegistry.forConfig(config);
         this.sessionState = new SessionRoutingState();
         this.routingMetrics =
@@ -1598,17 +1602,8 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         return cacheable(sql) ? prepStmtCache.get(sql) : null;
     }
 
-    private boolean cacheable(final String sql) throws SQLException {
-        final UConnection socket = openLegSocket();
-        if (socket == null || !socket.isPrepStmtCache(sql)) {
-            return false;
-        }
-        if (prepStmtCache == null) {
-            prepStmtCache =
-                    new UPreparedStatementCache<String, PreparedStatement>(
-                            socket.getPrepStmtCacheSize());
-        }
-        return true;
+    private boolean cacheable(final String sql) {
+        return config.getStatementCacheOptions().isPrepStmtCache(sql);
     }
 
     /** Core's close leaves open a statement whose SQL its cache holds. */

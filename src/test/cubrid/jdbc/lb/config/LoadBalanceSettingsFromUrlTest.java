@@ -32,9 +32,11 @@ package cubrid.jdbc.lb.config;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import cubrid.jdbc.driver.ConnectionProperties;
 import java.sql.SQLException;
 import org.junit.Test;
 
@@ -154,6 +156,54 @@ public class LoadBalanceSettingsFromUrlTest {
                         .getMetricsConfig();
         assertTrue(m.isEnabled() && m.exportsCsv());
         assertEquals(9401, m.getPrometheusPort());
+    }
+
+    /** LB keeps the statement cache, so it refuses a bad cache value as a core connect does. */
+    @Test
+    public void statementCacheValuesAreRefusedAsCoreRefusesThem() {
+        for (String bad :
+                new String[] {
+                    "preparedStmtCacheSize=0",
+                    "preparedStmtCacheSqlLimit=x",
+                    "usePreparedStmtCache=maybe"
+                }) {
+            SQLException core = null;
+            try {
+                new ConnectionProperties().setProperties(bad);
+            } catch (SQLException e) {
+                core = e;
+            }
+            assertNotNull(bad, core);
+            try {
+                configOf("jdbc:cubrid:loadbalance://node1,node2/testdb:::?" + bad);
+                fail(bad + " must be refused");
+            } catch (SQLException lb) {
+                assertEquals(bad, core.getErrorCode(), lb.getErrorCode());
+                assertEquals(bad, core.getMessage(), lb.getMessage());
+            }
+        }
+    }
+
+    /** As core reads them: the URL, then the properties, and core's defaults for the rest. */
+    @Test
+    public void statementCacheOptionsInPropertiesWinOverTheUrl() throws SQLException {
+        java.util.Properties info = new java.util.Properties();
+        info.setProperty("preparedStmtCacheSize", "7");
+        ConnectionProperties cache =
+                LoadBalanceSettings.fromUrl(
+                                LoadBalanceUrlParser.parse(
+                                        "jdbc:cubrid:loadbalance://node1,node2/testdb:::"
+                                                + "?usePreparedStmtCache=true&preparedStmtCacheSize=2"),
+                                info)
+                        .getStatementCacheOptions();
+
+        assertTrue(cache.getPrepStmtCache());
+        assertEquals(7, cache.getPrepStmtCacheSize());
+        assertEquals(256, cache.getPrepStmtCacheSqlLimit());
+        assertFalse(
+                configOf("jdbc:cubrid:loadbalance://node1,node2/testdb:::")
+                        .getStatementCacheOptions()
+                        .getPrepStmtCache());
     }
 
     @Test

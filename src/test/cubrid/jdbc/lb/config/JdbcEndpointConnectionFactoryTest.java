@@ -115,6 +115,27 @@ public class JdbcEndpointConnectionFactoryTest {
         assertTrue("unrelated options still propagate", out.contains("charSet=utf-8"));
     }
 
+    /**
+     * LB keeps the statement cache. A leg cache of its own would hand one physical statement to two
+     * of LB's statements once LB's cache had evicted the first.
+     */
+    @Test
+    public void statementCacheOptionsStayOffTheLegs() throws SQLException {
+        Properties info = new Properties();
+        info.setProperty("preparedStmtCacheSqlLimit", "512");
+        JdbcPhyConnSpec spec =
+                spec(
+                        LB_BASE
+                                + "?usePreparedStmtCache=true&preparedStmtCacheSize=2&charSet=utf-8",
+                        info,
+                        new Endpoint("h", 1));
+
+        assertFalse(spec.getJdbcUrl().contains("usePreparedStmtCache"));
+        assertFalse(spec.getJdbcUrl().contains("preparedStmtCacheSize"));
+        assertTrue(spec.getJdbcUrl().contains("charSet=utf-8"));
+        assertFalse(spec.getConnectionProperties().containsKey("preparedStmtCacheSqlLimit"));
+    }
+
     private static String physicalPassword(final Properties info) throws SQLException {
         return spec("jdbc:cubrid:loadbalance://h:1/testdb:dba:urlpass:", info, new Endpoint("h", 1))
                 .getConnectionProperties()

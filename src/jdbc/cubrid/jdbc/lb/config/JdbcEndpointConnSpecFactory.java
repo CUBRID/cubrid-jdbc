@@ -119,11 +119,11 @@ final class JdbcEndpointConnSpecFactory {
     }
 
     /**
-     * Whether the broker URL carries {@code key}. LB-only keys (rwPort/..., metrics*, lbLog*) stay
-     * here: they configure the LB layer, and the broker would only leak them into logs.
+     * Whether the broker URL carries {@code key}. LB-only keys (rwPort/..., metrics*, lbLog*) and
+     * the statement cache options LB keeps stay here, as they do out of the leg Properties.
      */
     private static boolean isPropagated(final String key) {
-        return key != null && key.length() > 0 && !isLbTopologyOption(key);
+        return key != null && key.length() > 0 && !LoadBalanceOptionValidator.staysOffTheLegs(key);
     }
 
     /**
@@ -149,16 +149,6 @@ final class JdbcEndpointConnSpecFactory {
                         null);
             }
         }
-    }
-
-    private static boolean isLbTopologyOption(final String name) {
-        for (final String key : LoadBalanceOptionValidator.LOADBALANCE_ONLY) {
-            if (key.equalsIgnoreCase(name)) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private static String buildJdbcUrl(

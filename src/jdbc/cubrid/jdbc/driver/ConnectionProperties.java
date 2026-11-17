@@ -736,4 +736,9 @@ public class ConnectionProperties {
     public int getPrepStmtCacheSqlLimit() {
         return preparedStmtCacheSqlLimit.getValueAsInteger();
     }
+
+    /** Whether the prepared-statement cache keeps a statement of {@code sql}. */
+    public boolean isPrepStmtCache(String sql) {
+        return getPrepStmtCache() && sql.length() <= getPrepStmtCacheSqlLimit();
+    }
 }

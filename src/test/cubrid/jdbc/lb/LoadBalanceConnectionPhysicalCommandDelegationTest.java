@@ -289,6 +289,77 @@ public final class LoadBalanceConnectionPhysicalCommandDelegationTest {
     }
 
     @Test
+    public void assertGetSchemaDelegatesToMasterPhysical() throws Exception {
+        LoadBalanceConnection connection = createBoundConnection();
+        AtomicInteger masterGetSchemaCalls = new AtomicInteger();
+        AtomicInteger readOnlyGetSchemaCalls = new AtomicInteger();
+        Connection master =
+                newPhysicalConnection(
+                        7,
+                        "master_schema",
+                        new AtomicInteger(),
+                        new AtomicInteger(),
+                        new AtomicInteger(),
+                        new AtomicInteger(),
+                        masterGetSchemaCalls,
+                        new AtomicInteger(),
+                        new AtomicInteger());
+        Connection readOnly =
+                newPhysicalConnection(
+                        11,
+                        "readonly_schema",
+                        new AtomicInteger(),
+                        new AtomicInteger(),
+                        new AtomicInteger(),
+                        new AtomicInteger(),
+                        readOnlyGetSchemaCalls,
+                        new AtomicInteger(),
+                        new AtomicInteger());
+        bindPhysicalConnections(connection, master, readOnly);
+
+        String actual = connection.getSchema();
+
+        assertEquals("master_schema", actual);
+        assertEquals(1, masterGetSchemaCalls.get());
+        assertEquals(0, readOnlyGetSchemaCalls.get());
+    }
+
+    @Test
+    public void assertSetSchemaDelegatesToMasterPhysicalOnly() throws Exception {
+        LoadBalanceConnection connection = createBoundConnection();
+        AtomicInteger masterSetSchemaCalls = new AtomicInteger();
+        AtomicInteger readOnlySetSchemaCalls = new AtomicInteger();
+        Connection master =
+                newPhysicalConnection(
+                        7,
+                        "master_schema",
+                        new AtomicInteger(),
+                        new AtomicInteger(),
+                        new AtomicInteger(),
+                        masterSetSchemaCalls,
+                        new AtomicInteger(),
+                        new AtomicInteger(),
+                        new AtomicInteger());
+        Connection readOnly =
+                newPhysicalConnection(
+                        11,
+                        "readonly_schema",
+                        new AtomicInteger(),
+                        new AtomicInteger(),
+                        new AtomicInteger(),
+                        readOnlySetSchemaCalls,
+                        new AtomicInteger(),
+                        new AtomicInteger(),
+                        new AtomicInteger());
+        bindPhysicalConnections(connection, master, readOnly);
+
+        connection.setSchema("other_schema");
+
+        assertEquals(1, masterSetSchemaCalls.get());
+        assertEquals(0, readOnlySetSchemaCalls.get());
+    }
+
+    @Test
     public void assertCommandMetricsContainsActionableRouteFields() throws Exception {
         LoadBalanceConnection connection = createBoundConnectionWithMetrics();
         AtomicInteger masterGetIsolationCalls = new AtomicInteger();

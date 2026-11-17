@@ -62,7 +62,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.TimeZone;
 
-public class UStatement {
+public class UStatement implements AutoCloseable {
     public static final int CURSOR_SET = 0, CURSOR_CUR = 1, CURSOR_END = 2;
 
     public static final byte QUERY_INFO_PLAN = 0x01;

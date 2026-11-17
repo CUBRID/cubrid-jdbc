@@ -249,6 +249,90 @@ public final class BrokerDownOutsideExecuteTest {
         }
     }
 
+    /** Core's stored routine metadata now asks the server, so it rebinds the write leg too. */
+    @Test
+    public void getProceduresRebindsTheWriteLegWhenTheWriteBrokerIsDown() throws SQLException {
+        final List<String> asked = new ArrayList<String>();
+        LoadBalanceConnection conn =
+                sessionOverTwoWriteEndpoints(catalogQueryFactory("rw1", asked, "getProcedures"));
+
+        try {
+            conn.getMetaData().getProcedures(null, null, "p");
+            fail("Expected the original write-leg failure to be reported");
+        } catch (SQLException expected) {
+            assertEquals(UErrorCode.ER_COMMUNICATION, expected.getErrorCode());
+        }
+
+        assertTrue(hasFailoverEvent(conn));
+        conn.getMetaData().getProcedures(null, null, "p");
+
+        assertEquals(Arrays.asList("rw1", "rw2"), asked);
+        conn.close();
+    }
+
+    @Test
+    public void getProcedureColumnsRebindsTheWriteLegWhenTheWriteBrokerIsDown()
+            throws SQLException {
+        final List<String> asked = new ArrayList<String>();
+        LoadBalanceConnection conn =
+                sessionOverTwoWriteEndpoints(
+                        catalogQueryFactory("rw1", asked, "getProcedureColumns"));
+
+        try {
+            conn.getMetaData().getProcedureColumns(null, null, "p", null);
+            fail("Expected the original write-leg failure to be reported");
+        } catch (SQLException expected) {
+            assertEquals(UErrorCode.ER_COMMUNICATION, expected.getErrorCode());
+        }
+
+        assertTrue(hasFailoverEvent(conn));
+        conn.getMetaData().getProcedureColumns(null, null, "p", null);
+
+        assertEquals(Arrays.asList("rw1", "rw2"), asked);
+        conn.close();
+    }
+
+    @Test
+    public void getFunctionsRebindsTheWriteLegWhenTheWriteBrokerIsDown() throws SQLException {
+        final List<String> asked = new ArrayList<String>();
+        LoadBalanceConnection conn =
+                sessionOverTwoWriteEndpoints(catalogQueryFactory("rw1", asked, "getFunctions"));
+
+        try {
+            conn.getMetaData().getFunctions(null, null, "f");
+            fail("Expected the original write-leg failure to be reported");
+        } catch (SQLException expected) {
+            assertEquals(UErrorCode.ER_COMMUNICATION, expected.getErrorCode());
+        }
+
+        assertTrue(hasFailoverEvent(conn));
+        conn.getMetaData().getFunctions(null, null, "f");
+
+        assertEquals(Arrays.asList("rw1", "rw2"), asked);
+        conn.close();
+    }
+
+    @Test
+    public void getFunctionColumnsRebindsTheWriteLegWhenTheWriteBrokerIsDown() throws SQLException {
+        final List<String> asked = new ArrayList<String>();
+        LoadBalanceConnection conn =
+                sessionOverTwoWriteEndpoints(
+                        catalogQueryFactory("rw1", asked, "getFunctionColumns"));
+
+        try {
+            conn.getMetaData().getFunctionColumns(null, null, "f", null);
+            fail("Expected the original write-leg failure to be reported");
+        } catch (SQLException expected) {
+            assertEquals(UErrorCode.ER_COMMUNICATION, expected.getErrorCode());
+        }
+
+        assertTrue(hasFailoverEvent(conn));
+        conn.getMetaData().getFunctionColumns(null, null, "f", null);
+
+        assertEquals(Arrays.asList("rw1", "rw2"), asked);
+        conn.close();
+    }
+
     /** A session-property read is a physical command too, so it rebinds the write leg. */
     @Test
     public void isReadOnlyRebindsTheWriteLegWhenTheWriteBrokerIsDown() throws SQLException {

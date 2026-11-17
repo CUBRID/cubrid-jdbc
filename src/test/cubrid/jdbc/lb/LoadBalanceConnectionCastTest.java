@@ -279,7 +279,8 @@ public final class LoadBalanceConnectionCastTest {
                 "[closeConnection(), createCUBRIDException(UError),"
                         + " createCUBRIDException(int, String, Throwable),"
                         + " createCUBRIDException(int, Throwable), isSavepointTopologySupported(),"
-                        + " prepare(String, byte), removeStatement(Statement)]",
+                        + " isSchemaSupported(), prepare(String, byte),"
+                        + " removeStatement(Statement)]",
                 packagePrivate.toString());
     }
 

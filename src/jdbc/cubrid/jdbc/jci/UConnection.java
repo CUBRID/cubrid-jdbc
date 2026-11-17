@@ -1062,7 +1062,7 @@ public abstract class UConnection {
             if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR) return null;
 
             outBuffer.newRequest(output, UFunctionCode.NEW_LOB);
-            outBuffer.addInt(lob_type);
+            outBuffer.addInt(typeForBroker((byte) lob_type));
 
             UInputBuffer inBuffer;
             inBuffer = send_recv_msg();
@@ -2359,6 +2359,26 @@ public abstract class UConnection {
      * the external-file BLOB/CLOB, so the driver works with it as before them. */
     public boolean brokerSpeaksV13() {
         return protocolVersion >= PROTOCOL_V13;
+    }
+
+    /* A broker before V13 numbers its external-file BLOB/CLOB 23/24, which this driver keeps as
+     * BFILE/CFILE (35/36). Every type code read from or sent to such a broker swaps the two pairs. */
+    byte typeForBroker(byte type) {
+        if (brokerSpeaksV13()) {
+            return type;
+        }
+        switch (type) {
+            case UUType.U_TYPE_BLOB:
+                return UUType.U_TYPE_BFILE;
+            case UUType.U_TYPE_CLOB:
+                return UUType.U_TYPE_CFILE;
+            case UUType.U_TYPE_BFILE:
+                return UUType.U_TYPE_BLOB;
+            case UUType.U_TYPE_CFILE:
+                return UUType.U_TYPE_CLOB;
+            default:
+                return type;
+        }
     }
 
     /* BFILE/CFILE came with PROTOCOL_V13. An older broker's external LOB is its BLOB/CLOB, made by

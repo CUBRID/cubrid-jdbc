@@ -2307,7 +2307,7 @@ public class UStatement {
             collectionByte = inBuffer.readByte();
             if ((byte) (collectionByte & MASK_TYPE_HAS_2_BYTES) == 0) {
                 /* legacy protocol : we expect only simple type here */
-                typeInfo[0] = collectionByte;
+                typeInfo[0] = relatedConnection.typeForBroker(collectionByte);
                 typeInfo[2] = 1;
             } else {
                 byte typeInfoColumn[];
@@ -2315,7 +2315,7 @@ public class UStatement {
 
                 charset = (byte) (collectionByte & MASK_CHARSET_FROM_TYPE);
                 collectionByte = (byte) (collectionByte & MASK_COLLECTION_FROM_TYPE);
-                setType = inBuffer.readByte();
+                setType = relatedConnection.typeForBroker(inBuffer.readByte());
                 typeInfoColumn = UColumnInfo.confirmType(setType, collectionByte);
                 typeInfo[0] = typeInfoColumn[0];
                 typeInfo[1] = typeInfoColumn[1];
@@ -2410,6 +2410,7 @@ public class UStatement {
                     originalType = (byte) (fetchedType.byteValue() & MASK_TYPE_FROM_SINGLE_BYTE);
                 }
 
+                originalType = relatedConnection.typeForBroker(originalType);
                 realType = UColumnInfo.confirmType(originalType, collectionFlags);
                 tuples[index].setAttribute(1, new Short((short) realType[0]));
         }
@@ -2489,7 +2490,10 @@ public class UStatement {
             case UUType.U_TYPE_SEQUENCE:
                 {
                     CUBRIDArray aArray;
-                    aArray = new CUBRIDArray(inBuffer.readByte(), inBuffer.readInt());
+                    aArray =
+                            new CUBRIDArray(
+                                    relatedConnection.typeForBroker(inBuffer.readByte()),
+                                    inBuffer.readInt());
                     int baseType = aArray.getBaseType();
                     for (int i = 0; i < aArray.getLength(); i++) {
                         int eleSize = inBuffer.readInt();
@@ -2601,6 +2605,7 @@ public class UStatement {
                 collectionByte = (byte) (collectionByte & MASK_COLLECTION_FROM_TYPE);
                 type = inBuffer.readByte();
             }
+            type = relatedConnection.typeForBroker(type);
 
             scale = inBuffer.readShort();
             precision = inBuffer.readInt();

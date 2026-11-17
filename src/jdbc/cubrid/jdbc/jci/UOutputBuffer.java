@@ -115,6 +115,11 @@ class UOutputBuffer {
         return 5;
     }
 
+    /* a type code, in the broker's numbering */
+    int addType(byte type) throws IOException {
+        return addByte(u_con.typeForBroker(type));
+    }
+
     int addBytes(byte[] value) throws IOException {
         return addBytes(value, 0, value.length);
     }
@@ -590,7 +595,7 @@ class UOutputBuffer {
         Object[] values = (Object[]) data.getArray();
         if (values == null) {
             dataBuffer.writeInt(1);
-            dataBuffer.writeByte((byte) data.getBaseType());
+            dataBuffer.writeByte(u_con.typeForBroker((byte) data.getBaseType()));
             return 5;
         }
 
@@ -598,7 +603,7 @@ class UOutputBuffer {
         ByteArrayBuffer saveBuffer = dataBuffer;
         try {
             dataBuffer = new ByteArrayBuffer(false);
-            dataBuffer.writeByte((byte) data.getBaseType());
+            dataBuffer.writeByte(u_con.typeForBroker((byte) data.getBaseType()));
 
             switch (data.getBaseType()) {
                 case UUType.U_TYPE_BIT:

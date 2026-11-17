@@ -86,10 +86,10 @@ public abstract class UUType {
     public static final byte U_TYPE_RESULTSET = 20;
     public static final byte U_TYPE_BIGINT = 21;
     public static final byte U_TYPE_DATETIME = 22;
-    /* 0..34 are the same on every server; 23/24 are the external-file LOB, which a server before
-     * internal LOBs calls BLOB/CLOB */
-    public static final byte U_TYPE_BFILE = 23;
-    public static final byte U_TYPE_CFILE = 24;
+    /* as on 11.4/develop; a broker before V13 sends its external-file BLOB/CLOB as 23/24, which
+     * UConnection.typeForBroker() turns into BFILE/CFILE */
+    public static final byte U_TYPE_BLOB = 23;
+    public static final byte U_TYPE_CLOB = 24;
     public static final byte U_TYPE_ENUM = 25;
     public static final byte U_TYPE_USHORT = 26;
     public static final byte U_TYPE_UINT = 27;
@@ -100,8 +100,8 @@ public abstract class UUType {
     public static final byte U_TYPE_DATETIMELTZ = 32;
     public static final byte U_TYPE_TIMETZ = 33; /* unused */
     public static final byte U_TYPE_JSON = 34;
-    public static final byte U_TYPE_BLOB = 35;
-    public static final byte U_TYPE_CLOB = 36;
+    public static final byte U_TYPE_BFILE = 35;
+    public static final byte U_TYPE_CFILE = 36;
     static final byte U_TYPE_INTERNAL_BLOB_UPLOAD = 37;
     static final byte U_TYPE_INTERNAL_CLOB_UPLOAD = 38;
 

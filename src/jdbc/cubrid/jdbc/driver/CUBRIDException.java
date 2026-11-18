@@ -92,8 +92,8 @@ public class CUBRIDException extends SQLException {
 
     /*
      * Reason messages. The caller supplies the error code, so the pairing lives here:
-     * cannotStoreMessage goes with not_supported, cannotStoreAsMessage with not_supported or
-     * invalid_value, and the others with invalid_value.
+     * cannotStoreMessage and noParameterNamesMessage go with not_supported, cannotStoreAsMessage
+     * with not_supported or invalid_value, and the others with invalid_value.
      */
     static String cannotStoreMessage(Class<?> type) {
         return " - cannot store " + type.getName();
@@ -109,6 +109,10 @@ public class CUBRIDException extends SQLException {
         } catch (IllegalArgumentException e) {
             return String.valueOf(sqlType);
         }
+    }
+
+    static String noParameterNamesMessage() {
+        return " - parameter names need a direct connection to a protocol V13 or later broker";
     }
 
     static String cannotUnwrapMessage(Class<?> iface) {

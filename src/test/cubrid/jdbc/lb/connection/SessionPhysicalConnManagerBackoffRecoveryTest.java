@@ -54,7 +54,9 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -90,75 +92,177 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
         list.remove("trirw2:34141");
         list.remove("trirw3:34142");
         list.remove("triro:34143");
+        list.remove("clrw:34150");
+        list.remove("clsl1:34151");
+        list.remove("clsl2:34152");
+        list.remove("clsl3:34153");
+    }
+
+    private final Endpoint clRw = new Endpoint("clrw", 34150);
+    private final Endpoint sl1 = new Endpoint("clsl1", 34151);
+    private final Endpoint sl2 = new Endpoint("clsl2", 34152);
+    private final Endpoint sl3 = new Endpoint("clsl3", 34153);
+    private final EndpointTopology slaves =
+            new EndpointTopology(
+                    clRw, Arrays.asList(sl1, sl2, sl3), Collections.<Endpoint>emptyList());
+
+    // m38 rest (F1): the sibling tier has a budget of one dial, so the sibling it never reaches
+    // must keep its probe for another session.
+    @Test
+    public void recoverRoClaimsOnlyTheSiblingItDials() throws SQLException {
+        final Set<String> down = new HashSet<String>();
+        final Map<String, Integer> dials = new HashMap<String, Integer>();
+        RecoveryBackoff backoff = new RecoveryBackoff(3600000);
+        SessionPhysicalConnManager mgr = newManager(backoff, countingFactory(down, dials, 0));
+        try {
+            mgr.bindSession(clRw, sl1, slaves);
+            down.addAll(Arrays.asList(sl1.getId(), sl2.getId(), sl3.getId()));
+            UUnreachableHostList.getInstance().add(sl2.getId());
+            UUnreachableHostList.getInstance().add(sl3.getId());
+            dials.clear();
+
+            mgr.recoverRo(roCtx(sl1, slaves));
+
+            Endpoint skipped = dials.containsKey(sl2.getId()) ? sl3 : sl2;
+            assertEquals(dials.toString(), 1, dials.size());
+            assertTrue(backoff.tryClaimProbe(skipped.getId(), System.nanoTime()));
+        } finally {
+            mgr.releasePhysicalConnections();
+        }
+    }
+
+    // m38 rest (F1): a failback that comes home on the first rung leaves the rungs below unclaimed.
+    @Test
+    public void readFailbackClaimsOnlyTheRungsItDials() throws SQLException {
+        final Set<String> down = new HashSet<String>();
+        final Map<String, Integer> dials = new HashMap<String, Integer>();
+        RecoveryBackoff backoff = new RecoveryBackoff(3600000);
+        SessionPhysicalConnManager mgr = newManager(backoff, countingFactory(down, dials, 0));
+        try {
+            mgr.bindSession(clRw, sl1, slaves);
+            down.addAll(Arrays.asList(sl1.getId(), sl2.getId(), sl3.getId()));
+            mgr.recoverRo(roCtx(sl1, slaves));
+            // All back but still listed; their windows have passed.
+            down.clear();
+            for (Endpoint sl : Arrays.asList(sl1, sl2, sl3)) {
+                UUnreachableHostList.getInstance().add(sl.getId());
+                backoff.reset(sl.getId());
+            }
+            dials.clear();
+
+            assertEquals(sl1, mgr.restoreRoIfRecovered());
+
+            assertEquals(Collections.singletonMap(sl1.getId(), 1), dials);
+            assertTrue(backoff.tryClaimProbe(sl2.getId(), System.nanoTime()));
+            assertTrue(backoff.tryClaimProbe(sl3.getId(), System.nanoTime()));
+        } finally {
+            mgr.releasePhysicalConnections();
+        }
+    }
+
+    // m38 rest (F3): the failure lists the endpoint, so it must also start its window, or the next
+    // session takes the "first probe" and dials it again at once.
+    @Test
+    public void aFailedDialStartsTheWindowForTheNextSession() throws SQLException {
+        final Set<String> down = new HashSet<String>(Collections.singleton(sl1.getId()));
+        final Map<String, Integer> dials = new HashMap<String, Integer>();
+        RecoveryBackoff backoff = new RecoveryBackoff(3600000);
+        SessionPhysicalConnManager a = newManager(backoff, countingFactory(down, dials, 0));
+        SessionPhysicalConnManager b = newManager(backoff, countingFactory(down, dials, 0));
+        try {
+            a.bindSession(clRw, sl1, slaves);
+            b.bindSession(clRw, sl1, slaves);
+
+            assertEquals(Integer.valueOf(1), dials.get(sl1.getId()));
+        } finally {
+            a.releasePhysicalConnections();
+            b.releasePhysicalConnections();
+        }
+    }
+
+    // m38 rest (F3): a dial longer than the window used to find the window over when it failed.
+    @Test
+    public void aDialSlowerThanTheWindowHoldsTheNextSessionOff() throws SQLException {
+        final Set<String> down = new HashSet<String>(Collections.singleton(sl1.getId()));
+        final Map<String, Integer> dials = new HashMap<String, Integer>();
+        UUnreachableHostList.getInstance().add(sl1.getId());
+        RecoveryBackoff backoff = new RecoveryBackoff(500);
+        SessionPhysicalConnManager a = newManager(backoff, countingFactory(down, dials, 700));
+        SessionPhysicalConnManager b = newManager(backoff, countingFactory(down, dials, 700));
+        try {
+            a.bindSession(clRw, sl1, slaves);
+            b.bindSession(clRw, sl1, slaves);
+
+            assertEquals(Integer.valueOf(1), dials.get(sl1.getId()));
+        } finally {
+            a.releasePhysicalConnections();
+            b.releasePhysicalConnections();
+        }
     }
 
     @Test
-    public void softExcludedIdsIsEmptyWhenNoEndpointIsUnreachable() {
-        SessionPhysicalConnManager mgr = newManager(new RecoveryBackoff(3000));
+    public void anUnlistedEndpointIsDialedWithoutItsProbe() throws SQLException {
+        RecoveryBackoff backoff = new RecoveryBackoff(3600000);
+        assertTrue(backoff.tryClaimProbe(RO_ID, System.nanoTime()));
+        SessionPhysicalConnManager mgr = newManager(backoff, alwaysUpFactory());
+        try {
+            mgr.bindSession(rw, ro, topo);
 
-        assertTrue(mgr.softExcludedIds(topo, Arrays.asList(ro), 42L).isEmpty());
+            assertEquals("NONE", mgr.getRoFallbackReason());
+        } finally {
+            mgr.releasePhysicalConnections();
+        }
     }
 
     @Test
-    public void backoffDueUnreachableEndpointIsAllowedThrough() {
+    public void poolSharedBackoffElectsSingleProberAcrossManagers() throws SQLException {
         UUnreachableHostList.getInstance().add(RO_ID);
-        SessionPhysicalConnManager mgr = newManager(new RecoveryBackoff(3000));
-        long t0 = 42L;
+        final Map<String, Integer> dials = new HashMap<String, Integer>();
+        final Set<String> down = Collections.singleton(RO_ID);
+        RecoveryBackoff shared = new RecoveryBackoff(3600000);
+        SessionPhysicalConnManager mgrA = newManager(shared, countingFactory(down, dials, 0));
+        SessionPhysicalConnManager mgrB = newManager(shared, countingFactory(down, dials, 0));
+        try {
+            mgrA.bindSession(rw, ro, topo);
+            mgrB.bindSession(rw, ro, topo);
 
-        // First call claims the probe -> RO leaves the exclude set (gate bypass).
-        assertTrue(mgr.softExcludedIds(topo, Arrays.asList(ro), t0).isEmpty());
-        // Within the window the claim is spent -> RO is excluded as before.
-        assertEquals(
-                Collections.singleton(RO_ID), mgr.softExcludedIds(topo, Arrays.asList(ro), t0));
-        assertEquals(
-                Collections.singleton(RO_ID),
-                mgr.softExcludedIds(topo, Arrays.asList(ro), t0 + 2999 * MS));
-        // Window elapsed -> allowed through again.
-        assertTrue(mgr.softExcludedIds(topo, Arrays.asList(ro), t0 + 3000 * MS).isEmpty());
+            assertEquals(Integer.valueOf(1), dials.get(RO_ID));
+        } finally {
+            mgrA.releasePhysicalConnections();
+            mgrB.releasePhysicalConnections();
+        }
     }
 
     @Test
-    public void poolSharedBackoffElectsSingleProberAcrossManagers() {
+    public void aListedEndpointIsProbedAgainOnceItsWindowPasses() throws Exception {
         UUnreachableHostList.getInstance().add(RO_ID);
-        RecoveryBackoff shared = new RecoveryBackoff(3000);
-        SessionPhysicalConnManager mgrA = newManager(shared);
-        SessionPhysicalConnManager mgrB = newManager(shared);
-        long t0 = 42L;
+        final Map<String, Integer> dials = new HashMap<String, Integer>();
+        final Set<String> down = Collections.singleton(RO_ID);
+        RecoveryBackoff shared = new RecoveryBackoff(50);
+        SessionPhysicalConnManager[] sessions = new SessionPhysicalConnManager[3];
+        try {
+            for (int i = 0; i < sessions.length; i++) {
+                if (i == 2) {
+                    Thread.sleep(80);
+                }
+                sessions[i] = newManager(shared, countingFactory(down, dials, 0));
+                sessions[i].bindSession(rw, ro, topo);
+            }
 
-        assertTrue(mgrA.softExcludedIds(topo, Arrays.asList(ro), t0).isEmpty());
-        assertEquals(
-                Collections.singleton(RO_ID), mgrB.softExcludedIds(topo, Arrays.asList(ro), t0));
-    }
-
-    // m38: the claim is spent only on the endpoints the caller passes as candidates.
-    @Test
-    public void softExcludedIdsClaimsOnlyTheGivenCandidates() {
-        UUnreachableHostList.getInstance().add(RO_ID);
-        SessionPhysicalConnManager mgr = newManager(new RecoveryBackoff(3000));
-        long t0 = 42L;
-
-        assertEquals(
-                Collections.singleton(RO_ID), mgr.softExcludedIds(topo, Arrays.asList(rw), t0));
-        assertTrue(mgr.softExcludedIds(topo, Arrays.asList(ro), t0).isEmpty());
-    }
-
-    @Test
-    public void unionKeepsHardExcludesAndAddsSoft() {
-        Set<String> hard = new HashSet<String>(Arrays.asList("ctx-ep", "failed-ep"));
-        Set<String> soft = Collections.singleton(RO_ID);
-
-        Set<String> merged = SessionPhysicalConnManager.union(hard, soft);
-
-        assertEquals(new HashSet<String>(Arrays.asList("ctx-ep", "failed-ep", RO_ID)), merged);
-        // Soft set emptied by a probe claim -> hard excludes still apply.
-        assertEquals(hard, SessionPhysicalConnManager.union(hard, Collections.<String>emptySet()));
+            assertEquals("the second session falls in the window", 2, (int) dials.get(RO_ID));
+        } finally {
+            for (int i = 0; i < sessions.length; i++) {
+                if (sessions[i] != null) {
+                    sessions[i].releasePhysicalConnections();
+                }
+            }
+        }
     }
 
     @Test
-    public void roReadPathProbesAndRestoresDespiteJciListing() throws SQLException {
+    public void roReadPathProbesAndRestoresDespiteJciListing() throws Exception {
         final AtomicBoolean roUp = new AtomicBoolean(false);
-        SessionPhysicalConnManager mgr =
-                newManager(new RecoveryBackoff(3000), roGatedFactory(roUp));
+        SessionPhysicalConnManager mgr = newManager(new RecoveryBackoff(50), roGatedFactory(roUp));
 
         try {
             // Bind while RO is down -> roOnRw fallback, RO marked unreachable.
@@ -168,9 +272,11 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
                     mgr.getRoFallbackReason());
             assertTrue(UUnreachableHostList.getInstance().contains(RO_ID));
 
-            // Broker back up but the JCI list still holds RO (no 60s poll ran): the backoff-due
-            // probe must recover it anyway and markReachable must clear the list.
+            // Broker back up but the JCI list still holds RO (no 60s poll ran): once the window the
+            // bind failure started has passed, the probe must recover it anyway and markReachable
+            // must clear the list.
             roUp.set(true);
+            Thread.sleep(80);
             assertEquals(ro, mgr.restoreRoIfRecovered());
             assertEquals("NONE", mgr.getRoFallbackReason());
             assertFalse(UUnreachableHostList.getInstance().contains(RO_ID));
@@ -182,14 +288,14 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
     @Test
     public void roReadPathStaysSuppressedWithinBackoffWindow() throws SQLException {
         final AtomicBoolean roUp = new AtomicBoolean(false);
-        // Huge interval: only the first (creation) claim is granted within the test.
+        // Huge interval: the window the bind failure starts outlasts the test.
         SessionPhysicalConnManager mgr =
                 newManager(new RecoveryBackoff(3600000), roGatedFactory(roUp));
 
         try {
             mgr.bindSession(rw, ro, topo);
 
-            // First restore claims the probe, but the broker is still down -> stays roOnRw.
+            // The bind failure started the window, so no probe -> stays roOnRw.
             assertNull(mgr.restoreRoIfRecovered());
             assertEquals(
                     SessionPhysicalConnManager.RO_PHYSICAL_FAILOVER_REASON,
@@ -205,7 +311,7 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
     }
 
     @Test
-    public void stillDownHigherRungDoesNotStarveRecoveredLowerRung() throws SQLException {
+    public void stillDownHigherRungDoesNotStarveRecoveredLowerRung() throws Exception {
         // Regression (live: slave RO stopped + replica SO restarted): the backoff bypass lets a
         // still-down home rung through the soft gate every window; failback must fall past its
         // failed probe to the genuinely recovered lower rung instead of returning null forever.
@@ -229,7 +335,7 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
                     }
                 };
 
-        SessionPhysicalConnManager mgr = newManager(new RecoveryBackoff(3000), factory);
+        SessionPhysicalConnManager mgr = newManager(new RecoveryBackoff(50), factory);
         try {
             // Both RO rungs down at bind -> roOnRw, both JCI-listed.
             mgr.bindSession(bkRw, ro1, roTopo);
@@ -237,8 +343,10 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
                     SessionPhysicalConnManager.RO_PHYSICAL_FAILOVER_REASON,
                     mgr.getRoFallbackReason());
 
-            // ro2 comes back (list still stale); ro1 (the better rung) remains down.
+            // ro2 comes back (list still stale); ro1 (the better rung) remains down. Both windows
+            // the bind failures started have passed.
             ro2Up.set(true);
+            Thread.sleep(80);
             assertEquals(ro2, mgr.restoreRoIfRecovered());
             assertEquals("NONE", mgr.getRoFallbackReason());
             assertFalse(UUnreachableHostList.getInstance().contains(ro2.getId()));
@@ -521,12 +629,12 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
     }
 
     @Test
-    public void oneSessionRestoreImmediatelyPropagatesToOtherSessions() throws SQLException {
+    public void oneSessionRestoreImmediatelyPropagatesToOtherSessions() throws Exception {
         final AtomicBoolean roUp = new AtomicBoolean(false);
-        // One claim per session. B binds after A has listed RO, so B's bind spends B's claim on a
-        // probe while RO is still down; B can then come back only through A clearing the list.
-        SessionPhysicalConnManager mgrA =
-                newManager(new RecoveryBackoff(3600000), roGatedFactory(roUp));
+        // A backoff per session. B binds after A has listed RO, so B's bind spends B's claim on a
+        // probe while RO is still down and starts a window that outlasts the test; B can then come
+        // back only through A clearing the list once A's short window has passed.
+        SessionPhysicalConnManager mgrA = newManager(new RecoveryBackoff(50), roGatedFactory(roUp));
         SessionPhysicalConnManager mgrB =
                 newManager(new RecoveryBackoff(3600000), roGatedFactory(roUp));
 
@@ -539,6 +647,7 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
                     mgrB.getRoFallbackReason());
 
             roUp.set(true);
+            Thread.sleep(80);
 
             // Session A claims its probe and restores -> markReachable clears the list.
             assertEquals(ro, mgrA.restoreRoIfRecovered());
@@ -565,7 +674,7 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
 
         try {
             mgr.bindSession(rw, ro, topo);
-            assertNull(mgr.restoreRoIfRecovered()); // consumes the first claim while still down
+            assertNull(mgr.restoreRoIfRecovered()); // still down: held, or a failed probe
 
             roUp.set(true);
             long deadline = System.nanoTime() + 2000 * MS; // generous CI bound (>> interval)
@@ -711,17 +820,6 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
                 false);
     }
 
-    private static SessionPhysicalConnManager newManager(final RecoveryBackoff backoff) {
-        return newManager(
-                backoff,
-                new JdbcConnectionFactory() {
-                    public Connection getConnection(final String url, final Properties info)
-                            throws SQLException {
-                        throw new SQLException("no physical connect expected in soft-gate tests");
-                    }
-                });
-    }
-
     private static SessionPhysicalConnManager newManager(
             final RecoveryBackoff backoff, final JdbcConnectionFactory factory) {
         LoadBalanceSettings config = LbTestSettings.defaults();
@@ -751,6 +849,31 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
                     if (url.contains(":" + epId + ":")) {
                         throw new SQLException("down: " + epId, null, UErrorCode.ER_COMMUNICATION);
                     }
+                }
+                return connectionProxy();
+            }
+        };
+    }
+
+    /** Counts dials per {@code host:port}; a {@code down} one fails after {@code failAfterMs}. */
+    private static JdbcConnectionFactory countingFactory(
+            final Set<String> down, final Map<String, Integer> dials, final long failAfterMs) {
+        return new JdbcConnectionFactory() {
+            public Connection getConnection(final String url, final Properties info)
+                    throws SQLException {
+                final String[] parts = url.split(":");
+                final String epId = parts[2] + ":" + parts[3];
+                synchronized (dials) {
+                    final Integer n = dials.get(epId);
+                    dials.put(epId, n == null ? 1 : n + 1);
+                }
+                if (down.contains(epId)) {
+                    try {
+                        Thread.sleep(failAfterMs);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    throw new SQLException("down: " + epId, null, UErrorCode.ER_TIMEOUT);
                 }
                 return connectionProxy();
             }

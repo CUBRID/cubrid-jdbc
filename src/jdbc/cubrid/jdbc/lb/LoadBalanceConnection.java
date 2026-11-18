@@ -623,8 +623,8 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                 topology,
                 // ctx.excludeEndpointIds carries only caller-specific hard excludes (none here).
                 // The JCI unreachable set must NOT be merged in as a hard exclude: recoverRw and
-                // recoverRo already fold it in softly via softExcludedIds(), and hard-excluding it
-                // here would undo the backoff-bypass probe.
+                // recoverRo gate it on the probe window when they dial, and hard-excluding it here
+                // would undo the backoff-bypass probe.
                 Collections.<String>emptySet(),
                 hasUncommittedRwWork());
     }

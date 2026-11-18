@@ -618,7 +618,7 @@ public class LoadBalanceConnectionRecoverPhyBindingTest {
 
     /**
      * Regression (03 §M-1): buildRecoveryCtx must NOT fold the JCI unreachable set into the ctx's
-     * hard exclude. recoverRw/recoverRo already apply that set softly via softExcludedIds(), so
+     * hard exclude. recoverRw/recoverRo gate that set on the probe window when they dial, so
      * hard-excluding it here would re-add every backoff-eligible endpoint and defeat the
      * backoff-bypass probe. The ctx exclude carries only caller-specific excludes (none here).
      */

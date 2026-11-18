@@ -328,11 +328,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
 
             try {
                 BindResult roBind =
-                        openFirstReachable(
-                                roOrder,
-                                "RO",
-                                softExcludedIds(sessTopo, roOrder, System.nanoTime()),
-                                0);
+                        openFirstReachable(roOrder, "RO", Collections.<String>emptySet(), 0);
                 roConn = roBind.connection;
                 boundRo = roBind.endpoint;
             } catch (SQLException roFailure) {
@@ -450,15 +446,8 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
      * listed: the write leg has no fallback, so skipping it would fail getConnection() undialed.
      */
     private BindResult openRwForBind(final List<Endpoint> rwOrder) throws SQLException {
-        final Set<String> held = softExcludedIds(sessTopo, rwOrder, System.nanoTime());
-        final List<Endpoint> order = new ArrayList<Endpoint>(rwOrder.size());
-        final List<Endpoint> last = new ArrayList<Endpoint>();
-        for (int i = 0; i < rwOrder.size(); i++) {
-            final Endpoint ep = rwOrder.get(i);
-            (held.contains(ep.getId()) ? last : order).add(ep);
-        }
-        order.addAll(last);
-        return openFirstReachable(order, "RW", Collections.<String>emptySet(), 0);
+        return openFirstReachablePerGroup(
+                Collections.singletonList(rwOrder), "RW", Collections.<String>emptySet(), 0, true);
     }
 
     public synchronized void bindSessionWithReadTarget(
@@ -546,12 +535,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
 
         BindResult roBind;
         try {
-            roBind =
-                    openFirstReachable(
-                            targets,
-                            "RO",
-                            softExcludedIds(topology, targets, System.nanoTime()),
-                            0);
+            roBind = openFirstReachable(targets, "RO", Collections.<String>emptySet(), 0);
         } catch (SQLException noReadRung) {
             LbLog.warn(
                     LOGGER,
@@ -669,7 +653,11 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         }
 
         return openFirstReachablePerGroup(
-                Collections.singletonList(order), groupLabel, excludeEndpointIds, maxAttempts);
+                Collections.singletonList(order),
+                groupLabel,
+                excludeEndpointIds,
+                maxAttempts,
+                false);
     }
 
     /**
@@ -687,12 +675,17 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
      * broker that refuses the session (user, SSL mode, TLS) ends it with that error, as core's
      * reconnect() does. A refusing read candidate is passed over with a warning: core never dials
      * it.
+     *
+     * <p>A listed candidate is dialed only by the caller that claims its probe, and the claim is
+     * taken right before that dial: a candidate the loop never reaches keeps its window for another
+     * caller. With {@code dialHeldLast} a held one is dialed after the rest instead of skipped.
      */
     BindResult openFirstReachablePerGroup(
             final List<List<Endpoint>> groups,
             final String groupLabel,
             final Set<String> excludeEndpointIds,
-            final int maxAttemptsPerGroup)
+            final int maxAttemptsPerGroup,
+            final boolean dialHeldLast)
             throws SQLException {
         SQLException firstFailure = null;
 
@@ -701,9 +694,12 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         // is also listed as a sibling); dialing it twice would burn a second group's budget on a
         // host already known to be failing.
         Set<String> dialed = new HashSet<String>();
+        final List<Endpoint> held = new ArrayList<Endpoint>();
 
-        for (int g = 0; g < groups.size(); g++) {
-            final List<Endpoint> group = groups.get(g);
+        // The pass after the last group dials the held candidates, ungated.
+        for (int g = 0; g <= groups.size(); g++) {
+            final boolean heldPass = g == groups.size();
+            final List<Endpoint> group = heldPass ? held : groups.get(g);
             if (group == null || group.isEmpty()) {
                 continue;
             }
@@ -725,10 +721,20 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
                     break;
                 }
 
-                if (!dialed.add(ep.getId())) {
+                if (dialed.contains(ep.getId())) {
                     continue;
                 }
 
+                if (!heldPass
+                        && unreachFilter.isUnreachable(ep)
+                        && !backoff.tryClaimProbe(ep.getId(), System.nanoTime())) {
+                    if (dialHeldLast) {
+                        held.add(ep);
+                    }
+                    continue;
+                }
+
+                dialed.add(ep.getId());
                 attempts++;
 
                 if (tried.length() > 0) {
@@ -760,6 +766,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
                                         + LbLog.cause(ex));
                     } else {
                         unreachFilter.markUnreachable(ep, ex);
+                        backoff.startWindow(ep.getId(), System.nanoTime());
                         // Surface WHY this candidate was skipped (otherwise swallowed unless all
                         // fail), so a fallback onto a non-master RW is traceable to its root
                         // connect failure. FINE, not WARNING: skipping a candidate is the ladder
@@ -1443,26 +1450,6 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         backoff.reset(endpoint.getId());
     }
 
-    /**
-     * Recovery candidate exclude set: hard excludes ({@code ctx} ids + just-failed) always hold;
-     * the JCI-unreachable set goes through the soft gate ({@link #softExcludedIds}) for the
-     * candidates the hard excludes leave.
-     */
-    private Set<String> recoveryExcludedIds(
-            final PhysicalRecoveryContext ctx,
-            final Endpoint failed,
-            final EndpointTopology topology,
-            final List<Endpoint> candidates) {
-        final Set<String> hard = excludedIdsWith(ctx.getExcludeEndpointIds(), failed);
-        final List<Endpoint> dialable = new ArrayList<Endpoint>();
-        for (int i = 0; i < candidates.size(); i++) {
-            if (!hard.contains(candidates.get(i).getId())) {
-                dialable.add(candidates.get(i));
-            }
-        }
-        return union(hard, softExcludedIds(topology, dialable, System.nanoTime()));
-    }
-
     public synchronized PhysicalRecoveryResult recoverRw(final PhysicalRecoveryContext ctx)
             throws SQLException {
         if (ctx == null) {
@@ -1481,7 +1468,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         Endpoint failed = ctx.getFailedEndpoint();
         EndpointTopology topology = ctx.getTopology();
         List<Endpoint> order = failoverOrder(failed, topology, FailoverGroup.RW);
-        Set<String> exclude = recoveryExcludedIds(ctx, failed, topology, order);
+        Set<String> exclude = excludedIdsWith(ctx.getExcludeEndpointIds(), failed);
 
         // Single-RW topology: the failed endpoint is the only RW candidate, so hard-excluding it
         // leaves nothing and runtime recovery could never succeed - the session would depend on a
@@ -1546,16 +1533,11 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
                         ? readCandidateTiers(homeReadEp, topology)
                         : Collections.singletonList(
                                 failoverOrder(failed, topology, FailoverGroup.RO));
-        List<Endpoint> roCandidates = new ArrayList<Endpoint>();
-        for (int i = 0; i < roTiers.size(); i++) {
-            appendNew(roCandidates, roTiers.get(i));
-        }
-        // Same soft-gate split as recoverRw; the roOnRw fallback below is unaffected.
-        Set<String> exclude = recoveryExcludedIds(ctx, failed, topology, roCandidates);
+        Set<String> exclude = excludedIdsWith(ctx.getExcludeEndpointIds(), failed);
         try {
             BindResult bind =
                     openFirstReachablePerGroup(
-                            roTiers, "RO", exclude, config.getRuntimeFailoverMaxAttempts());
+                            roTiers, "RO", exclude, config.getRuntimeFailoverMaxAttempts(), false);
             replaceRoConn(failed, bind.endpoint, bind.connection, false);
             markRecovered(bind.endpoint);
             recordFailover("RO", failed.getId(), bind.endpoint.getId());
@@ -1606,13 +1588,11 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
             }
 
             List<Endpoint> rwOrder = failoverOrder(preferredRw, topology, FailoverGroup.RW);
-            // Through the soft gate (softExcludedIds), as recoverRw/recoverRo do. Without it, an
-            // all-RW-listed topology fails immediately even after the backoff window elapses.
             BindResult rwBind =
                     openFirstReachable(
                             rwOrder,
                             "RW",
-                            softExcludedIds(topology, rwOrder, System.nanoTime()),
+                            Collections.<String>emptySet(),
                             config.getRuntimeFailoverMaxAttempts());
             rwEndpoint = rwBind.endpoint;
             rwConn = rwBind.connection;
@@ -1647,7 +1627,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
      * no pool recycling.
      *
      * <p>LB-JDBC runs no health-check thread, so failback is observed lazily on the read path,
-     * through the soft gate ({@link #softExcludedIds}).
+     * through the probe gate of {@link #openFirstReachablePerGroup}.
      *
      * <p><b>Caller contract:</b> must not be called while a transaction is active - it can replace
      * the read connection and close the old one, destroying any open ResultSet. Unlike {@link
@@ -1670,26 +1650,15 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
 
         // Current rung index in the ladder; roOnRw ranks below every real read rung.
         final int curIdx = roOnRw ? order.size() : rungRankOf(order, sessRoEp);
-        // Through the soft gate (softExcludedIds), claiming only the rungs above the current one.
-        final Set<String> exclude =
-                softExcludedIds(
-                        sessTopo,
-                        order.subList(0, Math.min(curIdx, order.size())),
-                        System.nanoTime());
 
-        // All endpoints strictly better than the current one that the soft gate lets through. With
-        // the backoff bypass a candidate may still be down (a claimed probe, not a JCI-cleared
-        // recovery), so probe the whole sublist best-first: a single target would let a still-down
-        // higher endpoint starve a genuinely recovered lower one every window.
-        final List<Endpoint> targets = new ArrayList<Endpoint>();
-        for (int i = 0; i < curIdx && i < order.size(); i++) {
-            final Endpoint cand = order.get(i);
-            if (!exclude.contains(cand.getId())) {
-                targets.add(cand);
-            }
-        }
+        // All endpoints strictly better than the current one. With the backoff bypass a candidate
+        // may still be down (a claimed probe, not a JCI-cleared recovery), so probe the whole
+        // sublist best-first: a single target would let a still-down higher endpoint starve a
+        // genuinely recovered lower one every window.
+        final List<Endpoint> targets =
+                new ArrayList<Endpoint>(order.subList(0, Math.min(curIdx, order.size())));
         if (targets.isEmpty()) {
-            return null; // already at the best reachable rung
+            return null; // already at the best rung
         }
 
         // Master-read session: its read home IS the RW endpoint (see bindSessionRwOnly). Reuse the
@@ -1755,7 +1724,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
      * for its entire lifetime, and only connection pool recycling ({@code maxLifetime}, evict)
      * could restore it to the primary master.
      *
-     * <p>The reachability gate is the same soft gate as RO failback ({@link #softExcludedIds}).
+     * <p>The reachability gate is the same probe gate as RO failback.
      *
      * <p><b>Caller contract:</b> like {@link #restoreRoIfRecovered()}, this method replaces the
      * active physical connection and closes the previous one, terminating any active resources on
@@ -1786,12 +1755,6 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
             if (reused != null) {
                 return reused;
             }
-        }
-
-        // Through the soft gate (softExcludedIds): a backoff-due master is a candidate again.
-        if (softExcludedIds(sessTopo, Collections.singletonList(homeRwEp), System.nanoTime())
-                .contains(homeRwEp.getId())) {
-            return null;
         }
 
         final BindResult bind;
@@ -2209,50 +2172,6 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         if (failedEndpoint != null) {
             merged.add(failedEndpoint.getId());
         }
-        return merged;
-    }
-
-    private Set<String> unreachableIds(final EndpointTopology topology) {
-        if (topology == null) {
-            return Collections.<String>emptySet();
-        }
-
-        return unreachFilter.collectUnreachableEndpointIds(topology);
-    }
-
-    /**
-     * The soft gate, used by every bind, recovery and failback path: the JCI-unreachable set
-     * ({@link #unreachableIds}) minus the {@code candidates} whose backoff window has elapsed AND
-     * for which this call won the pool-wide probe claim, so one session per backoff interval probes
-     * a down broker instead of every session waiting for core's 60s JCI poll. Only the endpoints
-     * the caller may dial are claimed: claiming one it skips wastes the window.
-     */
-    Set<String> softExcludedIds(
-            final EndpointTopology topology, final List<Endpoint> candidates, final long nowNanos) {
-        Set<String> unreachable = unreachableIds(topology);
-        if (unreachable.isEmpty()) {
-            return unreachable;
-        }
-
-        Set<String> soft = new HashSet<String>(unreachable);
-        for (int i = 0; i < candidates.size(); i++) {
-            final String epId = candidates.get(i).getId();
-            if (soft.contains(epId) && backoff.tryClaimProbe(epId, nowNanos)) {
-                soft.remove(epId); // this caller claimed the probe -> allow as candidate
-            }
-        }
-        return soft;
-    }
-
-    /**
-     * A new set holding every id from both inputs; neither input is modified. Nothing here is
-     * specific to soft gating - {@link #recoveryExcludedIds} decides which sets to combine and
-     * {@link #softExcludedIds} does the softening. Package-private so the exclude-set tests can use
-     * it directly.
-     */
-    static Set<String> union(final Set<String> first, final Set<String> second) {
-        Set<String> merged = new HashSet<String>(first);
-        merged.addAll(second);
         return merged;
     }
 

@@ -42,6 +42,7 @@ import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.connection.ConnectionTestAccess;
 import cubrid.jdbc.lb.connection.JdbcConnectionFactory;
 import cubrid.jdbc.lb.connection.SessionPhysicalConnManager;
+import cubrid.jdbc.lb.state.RecoveryBackoff;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
@@ -218,8 +219,10 @@ public class LbSessionRecordsTest {
                     }
                 };
 
+        // No probe window: these tests check the records, and a bind failure would otherwise hold
+        // the next probe for the default interval.
         return ConnectionTestAccess.newSessionPhysicalConnManager(
-                LOGICAL_URL, new Properties(), config, factory);
+                LOGICAL_URL, new Properties(), config, factory, new RecoveryBackoff(0));
     }
 
     private static Connection openConnectionProxy() {

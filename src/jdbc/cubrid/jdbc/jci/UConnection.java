@@ -1206,8 +1206,8 @@ public abstract class UConnection {
             inBuffer = send_recv_msg();
 
             /* The reply is the result code every CAS reply starts with, then
-             * a 64-bit count: rows for COPY and LOB DML, or the handle the
-             * server issues for what a result_is_handle kind staged. */
+             * a 64-bit count whose meaning the stream's kind defines: rows
+             * for COPY and LOB DML. */
             int res_code;
             res_code = inBuffer.getResCode();
             if (res_code < 0) {

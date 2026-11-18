@@ -384,11 +384,11 @@ public class SessionPhysicalConnManagerRwFailbackTest {
             assertEquals(NODE1_RW, mgr.getSessionEndpoint(SessionLeg.RW));
             assertEquals(NODE1_RW, mgr.getSessionEndpoint(SessionLeg.RO));
 
-            // Master down: both legs move away — RW to the sibling RW, the read leg to the slave
-            // RO.
+            // Master down: RW failover moves both legs away — RW to the sibling RW, the read leg to
+            // the slave RO.
             markDown(down, NODE1_RW);
             assertEquals(NODE2_RW, mgr.recoverRw(rwFailure(NODE1_RW)).getBoundEndpoint());
-            assertEquals(NODE2_RO, mgr.recoverRo(roFailure(NODE1_RW)).getBoundEndpoint());
+            assertEquals(NODE2_RO, mgr.getSessionEndpoint(SessionLeg.RO));
 
             // Master back: the RW leg returns first.
             markUp(down, NODE1_RW);
@@ -413,22 +413,98 @@ public class SessionPhysicalConnManagerRwFailbackTest {
         }
     }
 
-    private static PhysicalRecoveryContext roFailure(final Endpoint failed) {
-        return new PhysicalRecoveryContext(
-                SessionLeg.RO,
-                failed,
-                RouteTarget.TO_READ_ONLY,
-                topology(),
-                Collections.<String>emptySet(),
-                false);
+    /**
+     * A master-read session's two legs share one connection. RW failover must move the read leg
+     * too, where a bind would put it with the write leg off the master: on a real read broker. Left
+     * behind, it pointed at the dead master and the next read dialed it again.
+     */
+    @Test
+    public void masterReadSessionMovesItsReadLegToAReadBrokerOnRwFailover() throws SQLException {
+        Set<String> down = new HashSet<String>();
+        SessionPhysicalConnManager mgr = newManager(down, UErrorCode.ER_COMMUNICATION);
+        try {
+            mgr.bindSessionWithReadTarget(NODE1_RW, NODE1_RW, true, topology());
+
+            markDown(down, NODE1_RW);
+            assertEquals(NODE2_RW, mgr.recoverRw(rwFailure(NODE1_RW)).getBoundEndpoint());
+
+            assertEquals(NODE2_RO, mgr.getSessionEndpoint(SessionLeg.RO));
+            assertEquals("read home stays the master", NODE1_RW, mgr.getHomeReadEndpoint());
+            assertEquals("a real read broker is not a fallback", "NONE", mgr.getRoFallbackReason());
+            assertNotSame(
+                    "the read leg has its own connection",
+                    mgr.getPhyConn(NODE2_RW),
+                    mgr.getPhyConn(mgr.getSessionEndpoint(SessionLeg.RO)));
+        } finally {
+            cleanup(mgr);
+        }
+    }
+
+    /** As above with no read broker reachable: the read leg shares the new RW connection. */
+    @Test
+    public void masterReadSessionWithNoLiveReadBrokerSharesTheNewRwConnection()
+            throws SQLException {
+        Set<String> down = new HashSet<String>();
+        SessionPhysicalConnManager mgr = newManager(down, UErrorCode.ER_COMMUNICATION);
+        try {
+            mgr.bindSessionWithReadTarget(NODE1_RW, NODE1_RW, true, topology());
+
+            markDown(down, NODE1_RW);
+            markDown(down, NODE2_RO);
+            assertEquals(NODE2_RW, mgr.recoverRw(rwFailure(NODE1_RW)).getBoundEndpoint());
+
+            assertEquals(NODE2_RW, mgr.getSessionEndpoint(SessionLeg.RO));
+            assertEquals("read home stays the master", NODE1_RW, mgr.getHomeReadEndpoint());
+            assertSame(
+                    mgr.getPhyConn(NODE2_RW),
+                    mgr.getPhyConn(mgr.getSessionEndpoint(SessionLeg.RO)));
+        } finally {
+            cleanup(mgr);
+        }
+    }
+
+    /**
+     * RW-only topology: there is no read broker, so the read leg and its home follow the write
+     * leg's connection, as RW failback moves them back.
+     */
+    @Test
+    public void rwOnlySessionReadLegFollowsTheWriteLegOnFailover() throws SQLException {
+        Set<String> down = new HashSet<String>();
+        SessionPhysicalConnManager mgr = newManager(down, UErrorCode.ER_COMMUNICATION);
+        try {
+            mgr.bindSessionWithReadTarget(NODE1_RW, NODE1_RW, true, topologyRwOnly());
+
+            markDown(down, NODE1_RW);
+            PhysicalRecoveryContext ctx = rwFailure(NODE1_RW, topologyRwOnly());
+            assertEquals(NODE2_RW, mgr.recoverRw(ctx).getBoundEndpoint());
+
+            assertEquals(NODE2_RW, mgr.getSessionEndpoint(SessionLeg.RO));
+            assertEquals(NODE2_RW, mgr.getHomeReadEndpoint());
+            assertEquals("its home, not a fallback", "NONE", mgr.getRoFallbackReason());
+            assertSame(
+                    mgr.getPhyConn(NODE2_RW),
+                    mgr.getPhyConn(mgr.getSessionEndpoint(SessionLeg.RO)));
+
+            markUp(down, NODE1_RW);
+            assertEquals(NODE1_RW, mgr.restoreRwIfRecovered());
+            assertEquals(NODE1_RW, mgr.getSessionEndpoint(SessionLeg.RO));
+            assertEquals(NODE1_RW, mgr.getHomeReadEndpoint());
+        } finally {
+            cleanup(mgr);
+        }
     }
 
     private static PhysicalRecoveryContext rwFailure(final Endpoint failed) {
+        return rwFailure(failed, topology());
+    }
+
+    private static PhysicalRecoveryContext rwFailure(
+            final Endpoint failed, final EndpointTopology topology) {
         return new PhysicalRecoveryContext(
                 SessionLeg.RW,
                 failed,
                 RouteTarget.TO_READ_WRITE,
-                topology(),
+                topology,
                 Collections.<String>emptySet(),
                 false);
     }

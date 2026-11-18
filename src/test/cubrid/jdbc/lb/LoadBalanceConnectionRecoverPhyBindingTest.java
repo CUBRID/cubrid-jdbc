@@ -156,6 +156,59 @@ public class LoadBalanceConnectionRecoverPhyBindingTest {
     }
 
     /**
+     * A master-read session's read leg shares the write leg's connection. RW failover moved only
+     * the write leg, so the next read dialed the dead master RW broker again before failing over on
+     * its own. The read leg moves with it, and the connection reads where the manager put it.
+     */
+    @Test
+    public void rwFailoverMovesTheReadsOfAMasterReadSessionOffTheDeadMaster() throws SQLException {
+        final AtomicBoolean masterDown = new AtomicBoolean();
+        final AtomicInteger masterDials = new AtomicInteger();
+        JdbcConnectionFactory factory =
+                new JdbcConnectionFactory() {
+                    public Connection getConnection(final String url, final Properties info)
+                            throws SQLException {
+                        if (url.contains("f2m:33000:") && masterDown.get()) {
+                            masterDials.incrementAndGet();
+                            throw new SQLException(
+                                    "master RW broker down", null, UErrorCode.ER_CONNECTION);
+                        }
+                        return executingConnection(new HashSet<Object>());
+                    }
+                };
+        // Read failback probes the master as the read home by design; off, so that only a dial
+        // from the read leg left on the failed endpoint is counted.
+        LoadBalanceSettings config =
+                LbTestSettings.with(
+                        LbTestSettings.fromUrl(
+                                "jdbc:cubrid:loadbalance://f2m,f2s/testdb:::"
+                                        + "?rwPort=33000&roPort=33001&readWeight=master:1"),
+                        "readFailbackEnabled",
+                        false);
+        SessionPhysicalConnManager mgr =
+                ConnectionTestAccess.newSessionPhysicalConnManager(
+                        LOGICAL_URL, new Properties(), config, factory);
+        LoadBalanceConnection conn = new LoadBalanceConnection(config);
+        conn.setConnectionManager(mgr);
+        conn.setSharedSelectorState(new SharedSelectorState());
+        try {
+            conn.initSessionBindings(config.buildEndpointTopology());
+            assertEquals("f2m:33000", conn.getCurrentEp(SessionLeg.RO).getId());
+
+            masterDown.set(true);
+            recoverWriteLeg(conn, brokerFailure());
+            conn.prepareStatement("SELECT a FROM t").executeQuery();
+
+            assertEquals("f2s:33000", conn.getCurrentEp(SessionLeg.RW).getId());
+            assertEquals("f2s:33001", conn.getCurrentEp(SessionLeg.RO).getId());
+            assertEquals("no read dialed the dead master RW broker", 0, masterDials.get());
+        } finally {
+            conn.close();
+            UUnreachableHostList.getInstance().remove("f2m:33000");
+        }
+    }
+
+    /**
      * A manual-commit session re-arms its transaction pin at every boundary, so its reads never
      * leave the write connection - and the recovery guard read that same pin. A session that had
      * just committed, with nothing left on the server to lose, could therefore never fail over;

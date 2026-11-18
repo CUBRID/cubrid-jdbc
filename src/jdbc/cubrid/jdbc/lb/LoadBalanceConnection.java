@@ -1097,6 +1097,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                 case RW:
                     result = mgr.recoverRw(ctx);
                     currentRwEndpoint = result.getBoundEndpoint();
+                    followReadLegOfRwMove(mgr);
                     break;
                 case RO:
                     result = mgr.recoverRo(ctx);
@@ -1171,6 +1172,18 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             boundReadEndpoint.setCurrentRoEndpoint(currentRoEndpoint);
         } else if (result.getBoundLeg() == SessionLeg.RW) {
             currentRwEndpoint = result.getBoundEndpoint();
+        }
+    }
+
+    /**
+     * A read riding on the RW connection moves when the RW leg fails over or back; re-read the RO
+     * binding so routing and metrics are not left on the node the RW leg left.
+     */
+    private void followReadLegOfRwMove(final EndpointConnManager mgr) {
+        Endpoint boundRo = mgr.getSessionEndpoint(SessionLeg.RO);
+        if (boundRo != null && !boundRo.equals(currentRoEndpoint)) {
+            currentRoEndpoint = boundRo;
+            boundReadEndpoint.setCurrentRoEndpoint(boundRo);
         }
     }
 
@@ -3666,13 +3679,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             Endpoint restoredRw = connMgr.restoreRwIfRecovered();
             if (restoredRw != null) {
                 currentRwEndpoint = restoredRw;
-                // A read riding on the RW connection moved with it; re-read the RO binding from the
-                // manager so the routing/metrics view is not left pointing at the stranded node.
-                Endpoint boundRo = connMgr.getSessionEndpoint(SessionLeg.RO);
-                if (boundRo != null && !boundRo.equals(currentRoEndpoint)) {
-                    currentRoEndpoint = boundRo;
-                    boundReadEndpoint.setCurrentRoEndpoint(boundRo);
-                }
+                followReadLegOfRwMove(connMgr);
                 invalidateMetaDataCache();
                 routingMetrics.recordRwFailback(restoredRw);
             }

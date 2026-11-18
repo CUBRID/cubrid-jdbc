@@ -150,8 +150,8 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
     private Endpoint sessRwEp;
     private Endpoint sessRoEp;
     // Immutable weighted read assignment (the ratio anchor). Failover moves sessRoEp/roOnRw but
-    // never homeReadEp; failback targets it, so the readWeight distribution self-heals without a
-    // pool recycle.
+    // never homeReadEp, except an RW-only home, which follows the RW leg; failback targets it, so
+    // the readWeight distribution self-heals without a pool recycle.
     private Endpoint homeReadEp;
     // Intended RW anchor: the master RW asked for at bind time, kept even when the bind or a later
     // failover landed on a sibling RW broker. RW failback targets it; RW failover never moves it.
@@ -469,22 +469,26 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         // master read: reuse the master RW physical connection — one physical connection.
         // Mechanically identical to RW-only: the RO role maps onto the RW endpoint/connection.
         bindSessionRwOnly(masterRw, topology);
+        placeReadRidingRw(masterRw, topology, "BIND");
+    }
 
-        if (sessRwEp == null
-                || sessRwEp.equals(masterRw)
-                || !hasReadEndpointOnAnotherHost(topology, masterRw)) {
+    /**
+     * Places the read leg of a session whose reads ride the RW endpoint (master read, RW-only) once
+     * its RW leg is bound or has failed over: on the RW connection, unless the RW leg is off the
+     * master and a read broker exists on another host. Through a sibling's RW broker, reads would
+     * reach the master DB with an extra hop, so they get their own connection on a real read
+     * broker, and the read home stays the master so failback rejoins the two legs.
+     */
+    private void placeReadRidingRw(
+            final Endpoint masterRw, final EndpointTopology topology, final String phase) {
+        sessRoEp = sessRwEp;
+        if (sessRwEp.equals(masterRw) || !hasReadEndpointOnAnotherHost(topology, masterRw)) {
+            homeReadEp = sessRwEp;
             return;
         }
 
-        // The RW bind was displaced onto a sibling. Sharing that connection would push this
-        // session's READS through the sibling's RW broker, whose CAS forwards them to the master
-        // DB:
-        // an extra hop, no local read, and unlike a session that existed before the outage, whose
-        // read leg fails over to a real read broker. So give the read leg its own connection on the
-        // best real read endpoint, and keep the read home at the master RW, so read failback
-        // collapses both legs back onto one socket once the master returns.
         homeReadEp = masterRw;
-        bindDisplacedMasterReadLeg(masterRw, topology);
+        bindDisplacedMasterReadLeg(masterRw, topology, phase);
     }
 
     /** Whether the topology offers a read endpoint on a host other than the master's. */
@@ -517,10 +521,13 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
      * node, master-fresh reads, no hop) before a sibling slave RO or a replica SO.
      *
      * <p>Best effort: when no read rung is reachable the session keeps reading on the displaced RW
-     * connection, which is the pre-existing behavior.
+     * connection, which is the pre-existing behavior. Logged per transition, as RW failover moves
+     * every master-read session of a pool at once.
+     *
+     * @param phase {@code BIND} or {@code FAILOVER}, for the log
      */
     private void bindDisplacedMasterReadLeg(
-            final Endpoint masterRw, final EndpointTopology topology) {
+            final Endpoint masterRw, final EndpointTopology topology, final String phase) {
         final List<Endpoint> rungs = readCandidateOrder(masterRw, topology);
         final List<Endpoint> targets = new ArrayList<Endpoint>();
         for (int i = 0; i < rungs.size(); i++) {
@@ -537,11 +544,14 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         try {
             roBind = openFirstReachable(targets, "RO", Collections.<String>emptySet(), 0);
         } catch (SQLException noReadRung) {
-            LbLog.warn(
+            LbLogDedup.warn(
                     LOGGER,
                     logContext,
-                    "LB BIND [RO]: master read displaced with no reachable read rung -> reads stay on"
-                            + " the RW connection at "
+                    "DISPLACED|" + phase + "|" + masterRw.getId() + "|" + sessRwEp.getId(),
+                    "LB "
+                            + phase
+                            + " [RO]: master read displaced with no reachable read rung -> reads"
+                            + " stay on the RW connection at "
                             + sessRwEp.getId());
             return;
         }
@@ -550,10 +560,13 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
             connsByEpId.put(roBind.endpoint.getId(), roBind.connection);
             sessRoEp = roBind.endpoint;
             setRoOnRw(false, sessRwEp.getId(), "read leg re-bound to " + roBind.endpoint.getId());
-            LbLog.warn(
+            LbLogDedup.warn(
                     LOGGER,
                     logContext,
-                    "LB BIND [RO]: master read displaced -> read leg temporarily on "
+                    "DISPLACED|" + phase + "|" + masterRw.getId() + "|" + roBind.endpoint.getId(),
+                    "LB "
+                            + phase
+                            + " [RO]: master read displaced -> read leg temporarily on "
                             + roBind.endpoint.getId()
                             + " (write leg on "
                             + sessRwEp.getId()
@@ -1489,7 +1502,14 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         // path already dials all RW candidates.
         BindResult bind = openFirstReachable(order, "RW", exclude, 0);
 
+        // A master-read or RW-only read leg shared the failed connection: place it as a bind would.
+        // Left on the failed endpoint, the next read dialed it again.
+        final boolean readRidesOnRwEp =
+                !roOnRw && sessRoEp != null && sessRoEp.getId().equals(failed.getId());
         replaceRwConn(failed, bind.endpoint, bind.connection);
+        if (readRidesOnRwEp) {
+            placeReadRidingRw(homeRwEp, topology, "FAILOVER");
+        }
         markRecovered(bind.endpoint);
         recordFailover("RW", failed.getId(), bind.endpoint.getId());
 

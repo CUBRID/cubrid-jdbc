@@ -139,14 +139,6 @@ public final class FailoverCoverageArchitectureTest {
 
         // --- EXEMPT: session-property propagation, both legs, per-leg error isolation ---
         {
-            "LoadBalanceConnection#forEachSessPhyConn",
-            "1",
-            "EXEMPT",
-            "the READ leg of a property setter: a read-leg failure is isolated and logged rather"
-                    + " than rebound, because the read path self-heals on the next statement. The"
-                    + " write leg goes through applyToWriteLegWithFailover"
-        },
-        {
             "LoadBalanceConnection#applyToWriteLegWithFailover",
             "1",
             "EXEMPT",
@@ -155,12 +147,16 @@ public final class FailoverCoverageArchitectureTest {
                     + " is the point of this method - wrapping it again would recurse"
         },
         {
-            "LoadBalanceConnection#applyCharset", "2",
-            "EXEMPT", "same family as forEachSessPhyConn"
+            "LoadBalanceConnection#applyCharset",
+            "1",
+            "EXEMPT",
+            "the write leg of a property setter; the read leg goes through applyToOpenReadLeg"
         },
         {
-            "LoadBalanceConnection#setCASChangeMode", "2",
-            "EXEMPT", "same family as forEachSessPhyConn"
+            "LoadBalanceConnection#setCASChangeMode",
+            "1",
+            "EXEMPT",
+            "the write leg of a property setter; the read leg goes through applyToOpenReadLeg"
         },
 
         // --- EXEMPT: recovery would be meaningless or self-defeating ---

@@ -52,15 +52,18 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Properties;
+import java.util.Set;
 import java.util.concurrent.Executor;
 import org.junit.Test;
 
 /**
  * Core supports {@code setNetworkTimeout} since APIS-1123: a read that outlasts it fails with
  * -21031 and closes the connection, and every later call fails as closed. A load-balanced
- * connection gives the value to each of its legs, and a leg closed that way is not reopened.
+ * connection gives the value to each of its legs. A write leg closed that way is not reopened; a
+ * read leg, on a node core never talks to, is replaced.
  */
 public class LoadBalanceConnectionNetworkTimeoutTest {
 
@@ -71,6 +74,11 @@ public class LoadBalanceConnectionNetworkTimeoutTest {
             "jdbc:cubrid:loadbalance://nt1,nt2/testdb:::"
                     + "?rwPort=33000&roPort=33001&readWeight=slave:1";
 
+    // Reads on the master, which reuses its RW connection for them.
+    private static final String MASTER_READS_URL =
+            "jdbc:cubrid:loadbalance://nt1,nt2/testdb:::"
+                    + "?rwPort=33000&roPort=33001&readWeight=master:1";
+
     private static final Executor EXECUTOR =
             new Executor() {
                 public void execute(final Runnable command) {
@@ -79,6 +87,8 @@ public class LoadBalanceConnectionNetworkTimeoutTest {
             };
 
     private final List<Leg> opened = new ArrayList<Leg>();
+    // host:port whose broker refuses new connections.
+    private final Set<String> refused = new HashSet<String>();
 
     @Test
     public void theTimeoutReachesBothLegsAndALegOpenedLater() throws SQLException {
@@ -140,20 +150,112 @@ public class LoadBalanceConnectionNetworkTimeoutTest {
         }
     }
 
-    /** As core's one connection: a read leg that timed out leaves the whole connection closed. */
+    /**
+     * Core never reads from the slave, so its node hanging must not fail the read: the read leg
+     * fails over and the read runs once more, as when its broker is down.
+     */
     @Test
-    public void aReadLegClosedByItsTimeoutClosesTheConnection() throws SQLException {
+    public void aReadThatTimedOutOnTheReadLegFailsOverAndRuns() throws SQLException {
+        LoadBalanceConnection conn = newConnection();
+        try {
+            conn.prepareStatement("SELECT a FROM t").executeQuery();
+            leg("nt2:33001").timesOutNext = true;
+
+            conn.prepareStatement("SELECT a FROM t").executeQuery();
+
+            assertTrue(leg("nt2:33001").closed);
+            assertFalse(conn.isClosed());
+            conn.prepareStatement("UPDATE t SET a = 1").executeUpdate();
+        } finally {
+            conn.close();
+        }
+    }
+
+    /**
+     * A read leg closed outside a statement (a fetch that timed out) is replaced by the next read.
+     * It holds no transaction: a transaction keeps every statement on RW.
+     */
+    @Test
+    public void aReadLegClosedByItsTimeoutReopensForTheNextRead() throws SQLException {
+        LoadBalanceConnection conn = newConnection();
+        try {
+            conn.prepareStatement("SELECT a FROM t").executeQuery();
+            Leg timedOut = leg("nt2:33001");
+            timedOut.closed = true;
+
+            assertFalse(conn.isClosed());
+            conn.prepareStatement("SELECT a FROM t").executeQuery();
+
+            assertTrue("a new read leg", leg("nt2:33001") != timedOut);
+        } finally {
+            conn.close();
+        }
+    }
+
+    /** A read on the write leg's connection is on core's one connection: it closes them all. */
+    @Test
+    public void aReadOnTheWriteLegThatTimedOutClosesTheConnection() throws SQLException {
+        LoadBalanceConnection conn = newConnection(MASTER_READS_URL);
+        try {
+            conn.prepareStatement("SELECT a FROM t").executeQuery();
+            leg("nt1:33000").timesOutNext = true;
+            int legs = opened.size();
+
+            try {
+                conn.prepareStatement("SELECT a FROM t").executeQuery();
+                fail("timed out");
+            } catch (SQLException e) {
+                assertEquals(UErrorCode.ER_NETWORK_TIMEOUT, e.getErrorCode());
+            }
+
+            assertTrue(conn.isClosed());
+            assertFailsAsClosed(conn, "SELECT a FROM t");
+            assertEquals("no leg was reopened", legs, opened.size());
+        } finally {
+            conn.close();
+        }
+    }
+
+    /**
+     * Core never reaches a read node, so a setter does not open a read leg that is gone: the leg
+     * gets the value from the session state when a read reopens it.
+     */
+    @Test
+    public void aSetterDoesNotReopenALostReadLeg() throws SQLException {
+        LoadBalanceConnection conn = newConnection();
+        try {
+            conn.prepareStatement("SELECT a FROM t").executeQuery();
+            leg("nt2:33001").refusesAutoCommit = true;
+            conn.setAutoCommit(false); // the read leg refuses it and is dropped
+            refused.add("nt2:33001");
+            int legs = opened.size();
+
+            conn.setNetworkTimeout(EXECUTOR, 3000);
+
+            assertEquals(3000, conn.getNetworkTimeout());
+            assertEquals("[3000]", leg("nt1:33000").timeouts.toString());
+            assertEquals("no leg was opened", legs, opened.size());
+        } finally {
+            conn.close();
+        }
+    }
+
+    /** A setter drops a read leg its timeout closed rather than failing the call. */
+    @Test
+    public void aSetterDropsAReadLegItsTimeoutClosed() throws SQLException {
         LoadBalanceConnection conn = newConnection();
         try {
             conn.prepareStatement("SELECT a FROM t").executeQuery();
             leg("nt2:33001").closed = true;
+            refused.add("nt2:33001");
             int legs = opened.size();
 
-            assertFailsAsClosed(conn, "SELECT a FROM t");
-            assertFailsAsClosed(conn, "UPDATE t SET a = 1");
+            conn.setNetworkTimeout(EXECUTOR, 3000);
 
-            assertEquals("no leg was reopened", legs, opened.size());
-            assertTrue(conn.isClosed());
+            assertEquals(3000, conn.getNetworkTimeout());
+            assertEquals("[3000]", leg("nt1:33000").timeouts.toString());
+            assertEquals("no leg was opened", legs, opened.size());
+            assertFalse(conn.isClosed());
         } finally {
             conn.close();
         }
@@ -180,10 +282,23 @@ public class LoadBalanceConnectionNetworkTimeoutTest {
     }
 
     private LoadBalanceConnection newConnection() throws SQLException {
-        LoadBalanceSettings config = LbTestSettings.fromUrl(URL);
+        return newConnection(URL);
+    }
+
+    private LoadBalanceConnection newConnection(final String lbUrl) throws SQLException {
+        LoadBalanceSettings config = LbTestSettings.fromUrl(lbUrl);
         JdbcConnectionFactory factory =
                 new JdbcConnectionFactory() {
-                    public Connection getConnection(final String url, final Properties info) {
+                    public Connection getConnection(final String url, final Properties info)
+                            throws SQLException {
+                        for (String hostPort : refused) {
+                            if (url.contains(":" + hostPort + ":")) {
+                                throw new SQLException(
+                                        "Cannot connect to a broker",
+                                        null,
+                                        UErrorCode.ER_CONNECTION);
+                            }
+                        }
                         Leg leg = new Leg(url);
                         opened.add(leg);
                         return leg.connection;
@@ -216,6 +331,10 @@ public class LoadBalanceConnectionNetworkTimeoutTest {
         final String url;
         final List<Integer> timeouts = new ArrayList<Integer>();
         volatile boolean closed;
+        // The next execute outlasts the timeout: core fails it with -21031 and closes the leg.
+        volatile boolean timesOutNext;
+        // The broker is gone: setting autocommit fails as a lost connection does.
+        volatile boolean refusesAutoCommit;
         final Connection connection;
 
         Leg(final String url) {
@@ -251,6 +370,12 @@ public class LoadBalanceConnectionNetworkTimeoutTest {
             if ("close".equals(name)) {
                 closed = true;
                 return null;
+            }
+            if (("setNetworkTimeout".equals(name) || "setAutoCommit".equals(name)) && closed) {
+                throw new CUBRIDException(CUBRIDJDBCErrorCode.connection_closed);
+            }
+            if ("setAutoCommit".equals(name) && refusesAutoCommit) {
+                throw new SQLException("broker gone", null, UErrorCode.ER_COMMUNICATION);
             }
             if ("setNetworkTimeout".equals(name)) {
                 int milliseconds = ((Integer) args[1]).intValue();
@@ -289,6 +414,14 @@ public class LoadBalanceConnectionNetworkTimeoutTest {
                                     }
                                     if ("getConnection".equals(name)) {
                                         return owner;
+                                    }
+                                    if (name.startsWith("execute") && timesOutNext) {
+                                        timesOutNext = false;
+                                        closed = true;
+                                        throw new SQLException(
+                                                "Network timeout expired.",
+                                                null,
+                                                UErrorCode.ER_NETWORK_TIMEOUT);
                                     }
                                     if (name.startsWith("execute") && closed) {
                                         throw new CUBRIDException(

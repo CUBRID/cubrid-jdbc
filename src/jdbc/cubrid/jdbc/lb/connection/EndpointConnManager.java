@@ -250,10 +250,10 @@ public interface EndpointConnManager extends PhysicalResourceReleaser {
     boolean isBoundRwSocketOpen();
 
     /**
-     * Whether a bound leg was closed under this session rather than by it: core closes a connection
-     * whose network timeout expired, and then reports it closed. Once seen, it stays so.
+     * Whether the write leg was closed under this session rather than by it: core closes a
+     * connection whose network timeout expired, and then reports it closed. Once seen, it stays so.
      *
-     * @return whether a leg of this session was closed under it
+     * @return whether the write leg of this session was closed under it
      */
     boolean isLegClosedUnderneath();
 

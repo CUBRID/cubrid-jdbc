@@ -1497,8 +1497,9 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     /**
-     * Core asks this for the closed state; this session has no single socket to ask. A leg its
-     * network timeout closed leaves the session closed, as core's one connection is.
+     * Core asks this for the closed state; this session has no single socket to ask. The write leg
+     * closed by its network timeout leaves the session closed, as core's one connection is; a read
+     * leg on its own connection is replaced instead.
      */
     @Override
     protected boolean isClosedWithoutLock() {
@@ -1791,11 +1792,10 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             return 0;
         }
 
-        Connection rwPhysical = null;
         SQLException rwFailure = null;
         int previousMode = 0;
         try {
-            rwPhysical = getPhysicalConnForCmd(SessionLeg.RW);
+            Connection rwPhysical = getPhysicalConnForCmd(SessionLeg.RW);
             previousMode = extConn(rwPhysical, "setCASChangeMode").setCASChangeMode(mode);
         } catch (SQLException failure) {
             rwFailure = failure;
@@ -1803,10 +1803,14 @@ public class LoadBalanceConnection extends CUBRIDConnection {
 
         SQLException roFailure = null;
         try {
-            Connection roPhysical = getPhysicalConnForCmd(SessionLeg.RO);
-            if (rwPhysical != roPhysical) {
-                extConn(roPhysical, "setCASChangeMode").setCASChangeMode(mode);
-            }
+            requireConnMgr()
+                    .applyToOpenReadLeg(
+                            "setCASChangeMode",
+                            new EndpointConnManager.SessionStateApplier() {
+                                public void applyTo(final Connection physical) throws SQLException {
+                                    extConn(physical, "setCASChangeMode").setCASChangeMode(mode);
+                                }
+                            });
         } catch (SQLException failure) {
             roFailure = failure;
             if (rwFailure != null) {
@@ -1876,10 +1880,20 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             throw failure;
         }
 
-        Connection roPhysical = getPhysicalConnForCmd(SessionLeg.RO);
-        if (rwPhysical != roPhysical) {
-            extConn(roPhysical, "setCharset").setCharset(charsetName);
-        }
+        requireConnMgr()
+                .applyToOpenReadLeg(
+                        "setCharset",
+                        new EndpointConnManager.SessionStateApplier() {
+                            public void applyTo(final Connection physical) throws SQLException {
+                                try {
+                                    extConn(physical, "setCharset").setCharset(charsetName);
+                                } catch (UnsupportedEncodingException rejected) {
+                                    // The write leg took the name, so this one cannot refuse it.
+                                    throw LbExceptions.invalidValue(
+                                            "setCharset(" + charsetName + "): " + rejected);
+                                }
+                            }
+                        });
         recordRwCmd("setCharset");
     }
 
@@ -2908,10 +2922,12 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     /**
-     * Applies {@code action} to the RW physical connection and, when the RO endpoint is bound to a
-     * distinct physical connection, to the RO connection too. Single home for the "apply to every
-     * physical connection backing this session" pattern shared by the property setters and the
-     * {@code apply*()} re-application helpers, so the reapply target list lives in one place.
+     * Applies {@code action} to the RW physical connection and, when the read leg has its own open
+     * connection, to that one too. A read leg that is gone is not opened for this, as core never
+     * reaches a read node: it gets the value from the session state when a read reopens it, and one
+     * lost while applying is dropped ({@code applyToOpenReadLeg}). Single home for the "apply to
+     * every physical connection backing this session" pattern shared by the property setters and
+     * the {@code apply*()} re-application helpers, so the reapply target list lives in one place.
      * Caller owns the {@link #isSessionInitialized()} guard and any command-routing metrics.
      *
      * <p>The read leg is attempted even when the write leg failed, and the failures are returned
@@ -2923,20 +2939,23 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      * is attached to it as suppressed, and logged.
      */
     private LegOutcome forEachSessPhyConn(final PhyConnAction action) {
-        Connection rwPhysical = null;
         SQLException rwFailure = null;
         try {
-            rwPhysical = applyToWriteLegWithFailover(action);
+            applyToWriteLegWithFailover(action);
         } catch (SQLException failure) {
             rwFailure = failure;
         }
 
         SQLException roFailure = null;
         try {
-            Connection roPhysical = getPhysicalConnForCmd(SessionLeg.RO);
-            if (rwPhysical != roPhysical) {
-                action.apply(roPhysical);
-            }
+            requireConnMgr()
+                    .applyToOpenReadLeg(
+                            "a session property change",
+                            new EndpointConnManager.SessionStateApplier() {
+                                public void applyTo(final Connection physical) throws SQLException {
+                                    action.apply(physical);
+                                }
+                            });
         } catch (SQLException failure) {
             roFailure = failure;
             if (rwFailure != null) {

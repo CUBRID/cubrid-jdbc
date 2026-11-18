@@ -89,6 +89,17 @@ public final class ExecuteFailoverHandler {
         return ex.getErrorCode() == UErrorCode.ER_ILLEGAL_DATA_SIZE;
     }
 
+    /**
+     * Whether core closed a read leg on its own connection because its network timeout expired.
+     * Core never reads from that node, so the leg fails over as a dead broker's does and the read
+     * runs again. On the write leg's connection the timeout closes the session, as on core's one.
+     */
+    private static boolean isReadLegNetworkTimeout(
+            final RouteTarget failedLeg, final SQLException ex) {
+        return failedLeg == RouteTarget.TO_READ_ONLY
+                && ex.getErrorCode() == UErrorCode.ER_NETWORK_TIMEOUT;
+    }
+
     <T> T executeWithFailover(
             final LoadBalanceConnection connection,
             final RouteTarget routeTarget,
@@ -176,7 +187,8 @@ public final class ExecuteFailoverHandler {
         try {
             return timedRun(connection, routeTarget, timed, execution);
         } catch (SQLException ex) {
-            if (!isBrokerFailure(ex)) {
+            RouteTarget failedLeg = connection.failedLegTarget(routeTarget);
+            if (!isBrokerFailure(ex) && !isReadLegNetworkTimeout(failedLeg, ex)) {
                 // Not a broker failure: the statement itself failed and no leg is rebound.
                 // Recorded, so a log showing no failover after an error is explained rather than
                 // silent.
@@ -195,7 +207,6 @@ public final class ExecuteFailoverHandler {
             // time), so recomputing the routing preview here cannot mark the wrong node.
             // Whether to replay is still decided by routeTarget below: a read stays a read.
             try {
-                RouteTarget failedLeg = connection.failedLegTarget(routeTarget);
                 Endpoint failedEp = connection.resolveFailedExecEndpoint(failedLeg);
                 PhysicalRecoveryContext ctx = connection.buildRecoveryCtx(failedLeg, failedEp);
                 connection.recoverPhyBinding(ctx, ex);

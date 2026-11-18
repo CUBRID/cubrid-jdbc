@@ -162,7 +162,8 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
 
     private EndpointTopology sessTopo;
     private boolean roOnRw;
-    // A leg closed under this session (core's network timeout): never reopened, see ensureConn.
+    // The write leg closed under this session (core's network timeout): never reopened, see
+    // ensureConn.
     private volatile boolean legClosedUnderneath;
     private final UnreachableEndpoints unreachFilter = new UnreachableEndpoints();
     // Pool-shared probe scheduler for backoff-bypass recovery; injected via openFromSettings.
@@ -928,15 +929,17 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
      * {@inheritDoc}
      *
      * <p>Every connection this session closes leaves {@code connsByEpId} first, so a closed one
-     * still there was closed under it.
+     * still there was closed under it. Only the write leg's connection counts, as the one core has;
+     * a read leg on its own connection is replaced instead (see ensureConn).
      */
     public boolean isLegClosedUnderneath() {
         if (legClosedUnderneath) {
             return true;
         }
         synchronized (this) {
-            for (Connection each : connsByEpId.values()) {
-                noteIfClosedUnderneath(each);
+            Connection rwPhysical = sessRwEp == null ? null : connsByEpId.get(sessRwEp.getId());
+            if (rwPhysical != null) {
+                noteIfClosedUnderneath(rwPhysical);
             }
         }
         return legClosedUnderneath;
@@ -1235,13 +1238,21 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
 
     private Connection ensureConn(final Endpoint endpoint) throws SQLException {
         Connection physical = connsByEpId.get(endpoint.getId());
-        if (physical != null) {
+        if (physical != null && sessRwEp != null && physical == connsByEpId.get(sessRwEp.getId())) {
             noteIfClosedUnderneath(physical);
         }
-        // Core fails every call on a connection its network timeout closed. Reopening the leg ran
-        // the next statement in a new server session, a transaction seeming to go on (ISSUE-24).
+        // Core fails every call on a connection its network timeout closed. Reopening the write
+        // leg ran the next statement in a new server session, a transaction seeming to go on
+        // (ISSUE-24).
         if (legClosedUnderneath) {
             throw LbExceptions.connectionClosed();
+        }
+        // A read leg on its own connection is on a node core never reads from, and holds no
+        // transaction (one keeps every statement on RW), so a closed one is replaced.
+        if (physical != null && physical.isClosed()) {
+            connsByEpId.remove(endpoint.getId());
+            dropPrepForEp(endpoint.getId());
+            physical = null;
         }
         if (physical != null) {
             return physical;
@@ -1290,7 +1301,6 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         try {
             roPhysical.setAutoCommit(autoCommit);
         } catch (SQLException refused) {
-            noteIfClosedUnderneath(roPhysical);
             connsByEpId.remove(sessRoEp.getId());
             dropPrepForEp(sessRoEp.getId());
             if (!connInUseElsewhere(roPhysical)) {
@@ -1323,10 +1333,10 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
             op.applyTo(roPhysical);
         } catch (SQLException refused) {
             if (!UnreachableEndpoints.shouldMarkUnreachable(refused)
-                    && !UnreachableEndpoints.isTimeout(refused)) {
+                    && !UnreachableEndpoints.isTimeout(refused)
+                    && !roPhysical.isClosed()) {
                 throw refused;
             }
-            noteIfClosedUnderneath(roPhysical);
             connsByEpId.remove(sessRoEp.getId());
             try {
                 dropPrepForEp(sessRoEp.getId());
@@ -1387,7 +1397,6 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
             try {
                 op.apply(roPhysical);
             } catch (SQLException roFailure) {
-                noteIfClosedUnderneath(roPhysical);
                 if (rwFailure == null) {
                     connsByEpId.remove(sessRoEp.getId());
                     dropPrepForEp(sessRoEp.getId());

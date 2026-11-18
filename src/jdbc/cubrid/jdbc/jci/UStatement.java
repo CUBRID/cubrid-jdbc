@@ -133,11 +133,6 @@ public class UStatement implements AutoCloseable {
     private boolean isAutoCommit = false;
     private boolean isGeneratedKeys = false;
 
-    /*
-     * 3.0 private int resultset_index; private int resultset_index_flag;
-     * private UParameterInfo parameterInfo[]; private int pramNumber;
-     */
-
     public int result_cache_lifetime;
     private boolean result_cacheable = false;
     private UStmtCache stmt_cache;
@@ -209,11 +204,6 @@ public class UStatement implements AutoCloseable {
 
         if (commandTypeIs == CUBRIDCommandType.CUBRID_STMT_CALL_SP)
             columnNumber = parameterNumber + 1;
-
-        /*
-         * 3.0 resultset_index = 0; resultset_index_flag =
-         * java.sql.Statement.CLOSE_CURRENT_RESULT;
-         */
     }
 
     public void initToReuse() throws UJciException {
@@ -256,11 +246,6 @@ public class UStatement implements AutoCloseable {
         realFetched = false;
         isUpdatable = false;
         isClosed = false;
-
-        /*
-         * 3.0 resultset_index = 0; resultset_index_flag =
-         * java.sql.Statement.CLOSE_CURRENT_RESULT;
-         */
     }
 
     UStatement(
@@ -290,11 +275,6 @@ public class UStatement implements AutoCloseable {
         realFetched = false;
         isUpdatable = false;
         isClosed = false;
-
-        /*
-         * 3.0 resultset_index = 0; resultset_index_flag =
-         * java.sql.Statement.CLOSE_CURRENT_RESULT;
-         */
     }
 
     public UStatement(UConnection u_con, long id) throws UJciException, IOException {
@@ -2061,23 +2041,67 @@ public class UStatement implements AutoCloseable {
         return commandTypeIs;
     }
 
-    /*
-     * 3.0 synchronized public UParameterInfo[] getParameterInfo() {
-     * UInputBuffer inBuffer;
-     *
-     * errorHandler = new UError(); if (isClosed == true) {
-     * errorHandler.setErrorCode(UErrorCode.ER_IS_CLOSED); return null; } try {
-     * synchronized (relatedConnection) {
-     * outBuffer.newRequest(UFunctionCode.PARAMETER_INFO);
-     * outBuffer.addInt(serverHandler);
-     *
-     * inBuffer = relatedConnection.send_recv_msg(); }
-     *
-     * pramNumber = inBuffer.getResCode(); return readParameterInfo(); } catch
-     * (UJciException e) { e.toUError(errorHandler); } catch (IOException e) {
-     * errorHandler.setErrorCode(UErrorCode.ER_COMMUNICATION); } return null; }
-     * 3.0
-     */
+    private String[] getParameterNamesInternal() throws UJciException, IOException {
+        errorHandler.clear();
+        synchronized (relatedConnection) {
+            outBuffer.newRequest(UFunctionCode.PARAMETER_INFO);
+            outBuffer.addInt(serverHandler);
+            UInputBuffer inBuffer = relatedConnection.send_recv_msg();
+            return UParameterInfo.readNames(
+                    inBuffer, inBuffer.getResCode(), relatedConnection.getCharset());
+        }
+    }
+
+    public synchronized String[] getParameterNames() {
+        errorHandler = new UError(relatedConnection);
+        if (isClosed) {
+            if (relatedConnection.brokerInfoStatementPooling()) {
+                try {
+                    reset((byte) 0);
+                } catch (UJciException e) {
+                    e.toUError(errorHandler);
+                    return null;
+                }
+            } else {
+                errorHandler.setErrorCode(UErrorCode.ER_IS_CLOSED);
+                return null;
+            }
+        }
+
+        boolean isFirstRequestInTran = !relatedConnection.isActive();
+
+        try {
+            return getParameterNamesInternal();
+        } catch (UJciException e) {
+            relatedConnection.logException(e);
+            e.toUError(errorHandler);
+        } catch (IOException e) {
+            relatedConnection.logException(e);
+            errorHandler.setErrorCode(UErrorCode.ER_COMMUNICATION);
+        }
+
+        if (relatedConnection.isErrorToReconnect(errorHandler.getJdbcErrorCode())) {
+            if (!relatedConnection.isActive() || isFirstRequestInTran) {
+                if (!relatedConnection.brokerInfoReconnectWhenServerDown()
+                        || relatedConnection.isErrorCommunication(
+                                errorHandler.getJdbcErrorCode())) {
+                    relatedConnection.clientSocketClose();
+                }
+
+                try {
+                    reset((byte) 0);
+                    return getParameterNamesInternal();
+                } catch (UJciException e) {
+                    relatedConnection.logException(e);
+                    e.toUError(errorHandler);
+                } catch (IOException e) {
+                    relatedConnection.logException(e);
+                    errorHandler.setErrorCode(UErrorCode.ER_COMMUNICATION);
+                }
+            }
+        }
+        return null;
+    }
 
     public synchronized String getQueryplan() {
         String plan = null;
@@ -2586,17 +2610,6 @@ public class UStatement implements AutoCloseable {
     public int getServerHandle() {
         return serverHandler;
     }
-
-    /*
-     * 3.0 private UParameterInfo[] readParameterInfo() throws UJciException {
-     * byte mode; byte type; short scale; int precision;
-     *
-     * UParameterInfo localParameterInfo[] = new UParameterInfo[pramNumber]; for
-     * (int i=0; i < pramNumber ; i++) { mode = inBuffer.readByte(); type =
-     * inBuffer.readByte(); scale = inBuffer.readShort(); precision =
-     * inBuffer.readInt(); localParameterInfo[i] = new UParameterInfo(mode,
-     * type, scale, precision); } return localParameterInfo; }
-     */
 
     /*
      * public UStatementCacheData makeCacheData() { if (fetchedTupleNumber <

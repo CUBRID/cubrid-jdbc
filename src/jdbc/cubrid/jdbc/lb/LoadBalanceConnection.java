@@ -189,6 +189,9 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     private String catalog = null;
     private Integer lockTimeout = null;
     private String charset = null;
+    // setNetworkTimeout: null until the application sets one, as core starts at 0.
+    private Executor networkTimeoutExecutor = null;
+    private int networkTimeout = 0;
 
     private DatabaseMetaData rwMetaForCmd = null;
     // One per connection, as core keeps one; closed with the connection.
@@ -681,6 +684,8 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      */
     private Endpoint routeStatement(final RouteTarget target, final String rawSql)
             throws SQLException {
+        // Before failback, which would replace a leg core closed with a new one.
+        checkClosed();
         maybeRestoreRoBinding(target);
         failbackRwIfStatementAllows(target);
         EndpointSelection endpointSelection = selectionForTarget(target);
@@ -1488,13 +1493,16 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     public boolean isClosed() throws SQLException {
-        return closed;
+        return isClosedWithoutLock();
     }
 
-    /** Core asks this for the closed state; this session has no single socket to ask. */
+    /**
+     * Core asks this for the closed state; this session has no single socket to ask. A leg its
+     * network timeout closed leaves the session closed, as core's one connection is.
+     */
     @Override
     protected boolean isClosedWithoutLock() {
-        return closed;
+        return closed || (connMgr != null && connMgr.isLegClosedUnderneath());
     }
 
     private void closeOpenStatements() {
@@ -2100,12 +2108,38 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         throw LbExceptions.featureNotSupported();
     }
 
-    public void setNetworkTimeout(Executor executor, int milliseconds) throws SQLException {
-        throw LbExceptions.featureNotSupported();
+    /**
+     * Gives the timeout to every leg, now and opened later. Core checks the arguments on the write
+     * leg, and a value it refused is not kept.
+     */
+    public void setNetworkTimeout(final Executor executor, final int milliseconds)
+            throws SQLException {
+        checkClosed();
+        final Executor previousExecutor = networkTimeoutExecutor;
+        final int previous = networkTimeout;
+        networkTimeoutExecutor = executor;
+        networkTimeout = milliseconds;
+        if (!isSessionInitialized()) {
+            return;
+        }
+        LegOutcome outcome =
+                forEachSessPhyConn(
+                        new PhyConnAction() {
+                            public void apply(Connection physical) throws SQLException {
+                                physical.setNetworkTimeout(executor, milliseconds);
+                            }
+                        });
+        if (outcome.rwFailed()) {
+            networkTimeoutExecutor = previousExecutor;
+            networkTimeout = previous;
+        }
+        outcome.rethrow();
+        recordRwCmd("setNetworkTimeout");
     }
 
     public int getNetworkTimeout() throws SQLException {
-        throw LbExceptions.featureNotSupported();
+        checkClosed();
+        return networkTimeout;
     }
 
     /**
@@ -2397,7 +2431,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         if (timeout < 0) {
             return super.isValid(timeout); // core's own argument check
         }
-        if (closed) {
+        if (isClosedWithoutLock()) {
             return false;
         }
 
@@ -2671,7 +2705,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
 
     /* ===== Internal =====*/
     private void checkClosed() throws SQLException {
-        if (closed) {
+        if (isClosedWithoutLock()) {
             throw LbExceptions.connectionClosed();
         }
     }
@@ -3108,6 +3142,9 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      */
     private void applySessionStateTo(final Connection physical) throws SQLException {
         claimValueObjectOwnership(physical);
+        if (networkTimeoutExecutor != null) {
+            physical.setNetworkTimeout(networkTimeoutExecutor, networkTimeout);
+        }
         physical.setAutoCommit(sessionState.isAutoCommit());
         if (transactionIsolation != null) {
             physical.setTransactionIsolation(transactionIsolation.intValue());

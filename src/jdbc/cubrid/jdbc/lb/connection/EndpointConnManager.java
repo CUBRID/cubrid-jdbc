@@ -250,6 +250,14 @@ public interface EndpointConnManager extends PhysicalResourceReleaser {
     boolean isBoundRwSocketOpen();
 
     /**
+     * Whether a bound leg was closed under this session rather than by it: core closes a connection
+     * whose network timeout expired, and then reports it closed. Once seen, it stays so.
+     *
+     * @return whether a leg of this session was closed under it
+     */
+    boolean isLegClosedUnderneath();
+
+    /**
      * Whether the server's last reply on the bound write connection said a transaction is open
      * there. CUBRID reports it in every reply, so it also covers work LB never saw - a {@code CALL}
      * on a handed-out CallableStatement, an updatable result set, an OID write. Answers {@code

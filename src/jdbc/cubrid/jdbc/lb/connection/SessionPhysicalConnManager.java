@@ -162,6 +162,8 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
 
     private EndpointTopology sessTopo;
     private boolean roOnRw;
+    // A leg closed under this session (core's network timeout): never reopened, see ensureConn.
+    private volatile boolean legClosedUnderneath;
     private final UnreachableEndpoints unreachFilter = new UnreachableEndpoints();
     // Pool-shared probe scheduler for backoff-bypass recovery; injected via openFromSettings.
     private final RecoveryBackoff backoff;
@@ -923,6 +925,34 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
     }
 
     /**
+     * {@inheritDoc}
+     *
+     * <p>Every connection this session closes leaves {@code connsByEpId} first, so a closed one
+     * still there was closed under it.
+     */
+    public boolean isLegClosedUnderneath() {
+        if (legClosedUnderneath) {
+            return true;
+        }
+        synchronized (this) {
+            for (Connection each : connsByEpId.values()) {
+                noteIfClosedUnderneath(each);
+            }
+        }
+        return legClosedUnderneath;
+    }
+
+    private void noteIfClosedUnderneath(final Connection physical) {
+        try {
+            if (physical.isClosed()) {
+                legClosedUnderneath = true;
+            }
+        } catch (SQLException e) {
+            legClosedUnderneath = true;
+        }
+    }
+
+    /**
      * The physical connection as the vendor describes itself — {@code CUBRIDConnection.toString()}
      * is {@code (casIp:casPort, casId, casProcessId)}, the identity the broker matches on. Falls
      * back to the class name rather than printing a bare "null" for a stub/proxy whose {@code
@@ -1205,10 +1235,13 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
 
     private Connection ensureConn(final Endpoint endpoint) throws SQLException {
         Connection physical = connsByEpId.get(endpoint.getId());
-        if (physical != null && physical.isClosed()) {
-            connsByEpId.remove(endpoint.getId());
-            dropPrepForEp(endpoint.getId());
-            physical = null;
+        if (physical != null) {
+            noteIfClosedUnderneath(physical);
+        }
+        // Core fails every call on a connection its network timeout closed. Reopening the leg ran
+        // the next statement in a new server session, a transaction seeming to go on (ISSUE-24).
+        if (legClosedUnderneath) {
+            throw LbExceptions.connectionClosed();
         }
         if (physical != null) {
             return physical;
@@ -1257,6 +1290,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         try {
             roPhysical.setAutoCommit(autoCommit);
         } catch (SQLException refused) {
+            noteIfClosedUnderneath(roPhysical);
             connsByEpId.remove(sessRoEp.getId());
             dropPrepForEp(sessRoEp.getId());
             if (!connInUseElsewhere(roPhysical)) {
@@ -1292,6 +1326,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
                     && !UnreachableEndpoints.isTimeout(refused)) {
                 throw refused;
             }
+            noteIfClosedUnderneath(roPhysical);
             connsByEpId.remove(sessRoEp.getId());
             try {
                 dropPrepForEp(sessRoEp.getId());
@@ -1352,6 +1387,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
             try {
                 op.apply(roPhysical);
             } catch (SQLException roFailure) {
+                noteIfClosedUnderneath(roPhysical);
                 if (rwFailure == null) {
                     connsByEpId.remove(sessRoEp.getId());
                     dropPrepForEp(sessRoEp.getId());

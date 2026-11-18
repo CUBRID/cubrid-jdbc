@@ -41,7 +41,7 @@ public final class LbExceptions {
 
     private LbExceptions() {}
 
-    static CUBRIDException connectionClosed() {
+    public static CUBRIDException connectionClosed() {
         return new CUBRIDException(CUBRIDJDBCErrorCode.connection_closed);
     }
 

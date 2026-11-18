@@ -353,6 +353,10 @@ public final class SimpleEndpointConnManager implements EndpointConnManager {
         return true;
     }
 
+    public boolean isLegClosedUnderneath() {
+        return false;
+    }
+
     public Endpoint restoreRoIfRecovered() throws SQLException {
         return null;
     }

@@ -38,6 +38,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import cubrid.jdbc.driver.CUBRIDException;
+import cubrid.jdbc.driver.CUBRIDJDBCErrorCode;
 import cubrid.jdbc.jci.UErrorCode;
 import cubrid.jdbc.jci.UUnreachableHostList;
 import cubrid.jdbc.lb.LbTestAccess;
@@ -703,8 +704,12 @@ public class JdbcBrokerConnectionManagerTest {
         mgr.releasePhysicalConnections();
     }
 
+    /**
+     * A leg closed under the session, as core closes one whose network timeout expired, is not
+     * reopened: core fails every later call on it as closed (ISSUE-24).
+     */
     @Test
-    public void prepareStatementEvictsCachedStatementWhenConnectionClosed() throws SQLException {
+    public void aLegClosedUnderTheSessionIsNotReopened() throws SQLException {
         final AtomicInteger prepareCalls = new AtomicInteger();
         final AtomicInteger openCalls = new AtomicInteger();
         JdbcConnectionFactory factory =
@@ -727,10 +732,15 @@ public class JdbcBrokerConnectionManagerTest {
         assertEquals(1, prepareCalls.get());
         ps1.getConnection().close();
 
-        PreparedStatement ps2 = mgr.prepareStatement(m, "SELECT 1");
-        assertEquals(3, openCalls.get());
-        assertEquals(2, prepareCalls.get());
-        assertNotSame(ps1, ps2);
+        try {
+            mgr.prepareStatement(m, "SELECT 1");
+            fail("a leg closed under the session is not reopened");
+        } catch (SQLException e) {
+            assertEquals(CUBRIDJDBCErrorCode.connection_closed, e.getErrorCode());
+        }
+        assertEquals(2, openCalls.get());
+        assertEquals(1, prepareCalls.get());
+        assertTrue(mgr.isLegClosedUnderneath());
         mgr.releasePhysicalConnections();
     }
 

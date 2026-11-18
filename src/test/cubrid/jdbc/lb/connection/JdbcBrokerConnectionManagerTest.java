@@ -38,6 +38,8 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import cubrid.jdbc.driver.CUBRIDException;
+import cubrid.jdbc.jci.UErrorCode;
+import cubrid.jdbc.jci.UUnreachableHostList;
 import cubrid.jdbc.lb.LbTestAccess;
 import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.SessionLeg;
@@ -68,6 +70,9 @@ import org.junit.Test;
 public class JdbcBrokerConnectionManagerTest {
 
     private static final String LOGICAL_URL = "jdbc:cubrid:localhost:30000:testdb:public::";
+
+    /** base/error_code.h: an RW client reached a server that cannot take updates. */
+    private static final int ER_NET_HS_INCOMPAT_RW_MODE = -1139;
 
     @Test
     public void bindSessionOpensTwoConnectionsWithBrokerHostsInUrls() throws SQLException {
@@ -110,7 +115,7 @@ public class JdbcBrokerConnectionManagerTest {
                     public Connection getConnection(final String url, final Properties info)
                             throws SQLException {
                         if (url.contains("bad-rw:30000")) {
-                            throw new SQLException("bad rw down");
+                            throw new SQLException("bad rw down", null, UErrorCode.ER_CONNECTION);
                         }
                         return newConnectionProxy(new AtomicInteger());
                     }
@@ -122,6 +127,7 @@ public class JdbcBrokerConnectionManagerTest {
         assertEquals(okRw, mgr.getSessionEndpoint(SessionLeg.RW));
         assertEquals(ro, mgr.getSessionEndpoint(SessionLeg.RO));
         mgr.releasePhysicalConnections();
+        UUnreachableHostList.getInstance().remove(badRw.getId());
     }
 
     @Test
@@ -169,7 +175,7 @@ public class JdbcBrokerConnectionManagerTest {
                 new JdbcConnectionFactory() {
                     public Connection getConnection(final String url, final Properties info)
                             throws SQLException {
-                        throw new SQLException("unreachable");
+                        throw new SQLException("unreachable", null, UErrorCode.ER_CONNECTION);
                     }
                 };
         SessionPhysicalConnManager mgr =
@@ -184,6 +190,114 @@ public class JdbcBrokerConnectionManagerTest {
             assertTrue(e.getMessage().contains("group=RW"));
         }
         mgr.releasePhysicalConnections();
+        UUnreachableHostList.getInstance().remove(rw1.getId());
+        UUnreachableHostList.getInstance().remove(rw2.getId());
+    }
+
+    /** Core's reconnect() goes to the next host only when the broker is down, as here for w1. */
+    @Test
+    public void rwBindStopsAtABrokerThatRefusesTheSessionAsCoreDoes() throws SQLException {
+        final Endpoint down = new Endpoint("refuse-w1", 1);
+        Endpoint refusing = new Endpoint("refuse-w2", 2);
+        Endpoint up = new Endpoint("refuse-w3", 3);
+        Endpoint ro = new Endpoint("refuse-r", 4);
+        EndpointTopology topo =
+                new EndpointTopology(
+                        Arrays.asList(down, refusing, up),
+                        Arrays.asList(ro),
+                        new ArrayList<Endpoint>());
+        final SQLException invalidUser = new SQLException("User is invalid", null, -165);
+        final List<String> dialed = new ArrayList<String>();
+        JdbcConnectionFactory factory =
+                new JdbcConnectionFactory() {
+                    public Connection getConnection(final String url, final Properties info)
+                            throws SQLException {
+                        dialed.add(url);
+                        if (url.contains("refuse-w1:1")) {
+                            throw new SQLException("down", null, UErrorCode.ER_CONNECTION);
+                        }
+                        if (url.contains("refuse-w2:2")) {
+                            throw invalidUser;
+                        }
+                        return newConnectionProxy(new AtomicInteger());
+                    }
+                };
+        SessionPhysicalConnManager mgr =
+                new SessionPhysicalConnManager(
+                        LOGICAL_URL, new Properties(), sessionConfigFailoverTopology(), factory);
+        try {
+            mgr.bindSession(down, ro, topo);
+            fail("Expected the refusal");
+        } catch (SQLException e) {
+            assertSame(invalidUser, e);
+        } finally {
+            UUnreachableHostList.getInstance().remove(down.getId());
+            mgr.releasePhysicalConnections();
+        }
+        assertEquals("refuse-w3 is not dialed: " + dialed, 2, dialed.size());
+    }
+
+    /** An RW broker whose CAS cannot attach to an active server is passed over, unlike core. */
+    @Test
+    public void rwBindMovesOnFromAnHaRoleRejection() throws SQLException {
+        final Endpoint rejecting = new Endpoint("role-w1", 1);
+        Endpoint up = new Endpoint("role-w2", 2);
+        Endpoint ro = new Endpoint("role-r", 3);
+        EndpointTopology topo =
+                new EndpointTopology(
+                        Arrays.asList(rejecting, up), Arrays.asList(ro), new ArrayList<Endpoint>());
+        JdbcConnectionFactory factory =
+                new JdbcConnectionFactory() {
+                    public Connection getConnection(final String url, final Properties info)
+                            throws SQLException {
+                        if (url.contains("role-w1:1")) {
+                            throw new SQLException(
+                                    "incompatible rw mode", null, ER_NET_HS_INCOMPAT_RW_MODE);
+                        }
+                        return newConnectionProxy(new AtomicInteger());
+                    }
+                };
+        SessionPhysicalConnManager mgr =
+                new SessionPhysicalConnManager(
+                        LOGICAL_URL, new Properties(), sessionConfigFailoverTopology(), factory);
+        try {
+            mgr.bindSession(rejecting, ro, topo);
+            assertEquals(up, mgr.getSessionEndpoint(SessionLeg.RW));
+        } finally {
+            UUnreachableHostList.getInstance().remove(rejecting.getId());
+            mgr.releasePhysicalConnections();
+        }
+    }
+
+    /** Core never dials a read broker, so one that refuses must not fail or narrow the session. */
+    @Test
+    public void readBindMovesOnFromABrokerThatRefusesTheSession() throws SQLException {
+        Endpoint rw = new Endpoint("ssl-w", 1);
+        Endpoint refusing = new Endpoint("ssl-r1", 2);
+        Endpoint up = new Endpoint("ssl-r2", 3);
+        EndpointTopology topo =
+                new EndpointTopology(
+                        Arrays.asList(rw), Arrays.asList(refusing, up), new ArrayList<Endpoint>());
+        JdbcConnectionFactory factory =
+                new JdbcConnectionFactory() {
+                    public Connection getConnection(final String url, final Properties info)
+                            throws SQLException {
+                        if (url.contains("ssl-r1:2")) {
+                            throw new SQLException(
+                                    "", null, UErrorCode.CAS_ER_SSL_TYPE_NOT_ALLOWED);
+                        }
+                        return newConnectionProxy(new AtomicInteger());
+                    }
+                };
+        SessionPhysicalConnManager mgr =
+                new SessionPhysicalConnManager(
+                        LOGICAL_URL, new Properties(), sessionConfigFailoverTopology(), factory);
+        try {
+            mgr.bindSession(rw, refusing, topo);
+            assertEquals(up, mgr.getSessionEndpoint(SessionLeg.RO));
+        } finally {
+            mgr.releasePhysicalConnections();
+        }
     }
 
     @Test
@@ -1087,7 +1201,7 @@ public class JdbcBrokerConnectionManagerTest {
                 new JdbcConnectionFactory() {
                     public Connection getConnection(final String url, final Properties info)
                             throws SQLException {
-                        throw new SQLException("fail");
+                        throw new SQLException("fail", null, UErrorCode.ER_CONNECTION);
                     }
                 };
         SessionPhysicalConnManager mgr =
@@ -1105,5 +1219,6 @@ public class JdbcBrokerConnectionManagerTest {
             assertTrue(e.getMessage().indexOf("b:2") < 0);
             assertNotNull(e.getCause());
         }
+        UUnreachableHostList.getInstance().remove("a:1");
     }
 }

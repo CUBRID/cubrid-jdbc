@@ -175,6 +175,35 @@ public class LbSessionRecordsTest {
                 allMatching("LB READ ON RW:").size());
     }
 
+    /** A refusal is a configuration to fix, not a broker going down, so FINE would hide it. */
+    @Test
+    public void aReadBrokerThatRefusesTheSessionIsWarnedOncePerWindow() throws SQLException {
+        EndpointTopology topo =
+                new EndpointTopology(RW, Arrays.asList(RO), Collections.<Endpoint>emptyList());
+        JdbcConnectionFactory refusingRo =
+                new JdbcConnectionFactory() {
+                    public Connection getConnection(final String url, final Properties info)
+                            throws SQLException {
+                        if (url.contains(RO.getHost() + ":")) {
+                            throw new SQLException(
+                                    "", null, UErrorCode.CAS_ER_SSL_TYPE_NOT_ALLOWED);
+                        }
+                        return openConnectionProxy();
+                    }
+                };
+
+        for (int i = 0; i < 2; i++) {
+            ConnectionTestAccess.newSessionPhysicalConnManager(
+                            LOGICAL_URL, new Properties(), LbTestSettings.defaults(), refusingRo)
+                    .bindSession(RW, RO, topo);
+        }
+
+        String refused = onlyMatching("LB CONNECT REFUSED [RO]");
+        assertTrue(refused, refused.indexOf("endpoint=ronode:34001") >= 0);
+        assertTrue(refused, refused.indexOf("errorCode=-10103") >= 0);
+        assertEquals(Level.WARNING, recordOf("LB CONNECT REFUSED [RO]").getLevel());
+    }
+
     private static SessionPhysicalConnManager newManager(final AtomicBoolean roUp) {
         LoadBalanceSettings config = LbTestSettings.defaults();
 
@@ -237,6 +266,16 @@ public class LbSessionRecordsTest {
             }
         }
         return out;
+    }
+
+    private LogRecord recordOf(final String needle) {
+        for (int i = 0; i < captured.records.size(); i++) {
+            LogRecord record = captured.records.get(i);
+            if (record.getMessage() != null && record.getMessage().indexOf(needle) >= 0) {
+                return record;
+            }
+        }
+        return null;
     }
 
     private String contextOf(final String needle) {

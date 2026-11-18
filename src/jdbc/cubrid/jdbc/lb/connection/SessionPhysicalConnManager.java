@@ -682,6 +682,11 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
      * <p>Note {@code maxAttemptsPerGroup} counts DIALS, not candidates: an excluded endpoint is
      * skipped for free, which is why an endpoint another session already flagged unreachable does
      * not consume the budget.
+     *
+     * <p>Only a fault ({@link UnreachableEndpoints#shouldMarkUnreachable}) moves the RW group on; a
+     * broker that refuses the session (user, SSL mode, TLS) ends it with that error, as core's
+     * reconnect() does. A refusing read candidate is passed over with a warning: core never dials
+     * it.
      */
     BindResult openFirstReachablePerGroup(
             final List<List<Endpoint>> groups,
@@ -695,7 +700,6 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         // One endpoint can legitimately appear in two tiers (a degenerate topology, or a home that
         // is also listed as a sibling); dialing it twice would burn a second group's budget on a
         // host already known to be failing.
-        // already known to be failing.
         Set<String> dialed = new HashSet<String>();
 
         for (int g = 0; g < groups.size(); g++) {
@@ -737,23 +741,40 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
                     unreachFilter.markReachable(ep);
                     return new BindResult(ep, conn);
                 } catch (SQLException ex) {
-                    unreachFilter.markUnreachable(ep, ex);
-                    // Surface WHY this candidate was skipped (otherwise swallowed unless all fail),
-                    // so a fallback onto a non-master RW is traceable to its root connect failure.
-                    // FINE, not WARNING: skipping a candidate is the ladder working as designed,
-                    // and
-                    // the outcome that matters - which endpoint the session ended up on - is
-                    // already
-                    // a WARNING from the BIND/FAILOVER record.
-                    LbLog.fine(
-                            LOGGER,
-                            logContext,
-                            "LB CONNECT FAILED ["
-                                    + groupLabel
-                                    + "] endpoint="
-                                    + ep.getId()
-                                    + " -> trying next candidate | cause: "
-                                    + LbLog.cause(ex));
+                    final boolean refused = !UnreachableEndpoints.shouldMarkUnreachable(ex);
+                    if (refused && "RW".equals(groupLabel)) {
+                        throw ex;
+                    }
+                    if (refused) {
+                        // Per endpoint and code: every new session dials it again.
+                        LbLogDedup.warn(
+                                LOGGER,
+                                logContext,
+                                "CONNECT_REFUSED|" + ep.getId() + "|" + ex.getErrorCode(),
+                                "LB CONNECT REFUSED ["
+                                        + groupLabel
+                                        + "] endpoint="
+                                        + ep.getId()
+                                        + " is up but refused the session -> trying next"
+                                        + " candidate | cause: "
+                                        + LbLog.cause(ex));
+                    } else {
+                        unreachFilter.markUnreachable(ep, ex);
+                        // Surface WHY this candidate was skipped (otherwise swallowed unless all
+                        // fail), so a fallback onto a non-master RW is traceable to its root
+                        // connect failure. FINE, not WARNING: skipping a candidate is the ladder
+                        // working as designed, and the outcome that matters - which endpoint the
+                        // session ended up on - is already a WARNING from the BIND/FAILOVER record.
+                        LbLog.fine(
+                                LOGGER,
+                                logContext,
+                                "LB CONNECT FAILED ["
+                                        + groupLabel
+                                        + "] endpoint="
+                                        + ep.getId()
+                                        + " -> trying next candidate | cause: "
+                                        + LbLog.cause(ex));
+                    }
                     if (firstFailure == null) {
                         firstFailure = ex;
                     }

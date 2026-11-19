@@ -433,7 +433,7 @@ public final class SessionSetStatement {
         }
         return callsLogin(stmt, body)
                 ? replayOrPin(LOGIN_KEY, stmt.substring(body).trim())
-                : NONE_RESULT;
+                : parseExecStatistics(stmt, body, false);
     }
 
     private static boolean startsWithSet(final String sql, final int pos) {
@@ -496,39 +496,52 @@ public final class SessionSetStatement {
         }
         // SET @collect_exec_stats pins or releases; other SET @var and SET TRIGGER ...: not
         // tracked.
-        return parseExecStatistics(stmt, pos);
+        return parseExecStatistics(stmt, pos, true);
     }
 
-    /** An assignment list from {@code pos} that may switch {@link #COLLECT_EXEC_STATS}. */
-    private static SessionSetStatement parseExecStatistics(final String stmt, final int pos) {
+    /**
+     * What a statement's last assignment to {@link #COLLECT_EXEC_STATS} does: a pin, a release, or
+     * nothing when it assigns another variable or none. The variable is read as the server reads
+     * it, past comments and quotes: {@code SET @v = ..} at the top level of a SET, or {@code @v :=
+     * ..} anywhere. Only a bare 0 turns collection off; any other value, a bound one included,
+     * turns it on.
+     */
+    private static SessionSetStatement parseExecStatistics(
+            final String stmt, final int pos, final boolean inSet) {
+        if (stmt.indexOf('@', pos) < 0) {
+            return NONE_RESULT;
+        }
         Boolean collects = null;
-        int start = pos;
         int depth = 0;
         int i = pos;
-        while (i <= stmt.length()) {
-            if (i < stmt.length()) {
-                final int after = SqlLexer.skipCommentOrQuoted(stmt, i);
-                if (after != i) {
-                    i = after;
-                    continue;
-                }
-                final char c = stmt.charAt(i);
-                if (c == '(') {
-                    depth++;
-                } else if (c == ')') {
-                    depth--;
-                }
-                if (c != ',' || depth != 0) {
-                    i++;
-                    continue;
-                }
+        while (i < stmt.length()) {
+            final int after = SqlLexer.skipCommentOrQuoted(stmt, i);
+            if (after != i) {
+                i = after;
+                continue;
             }
-            final Boolean assigned = execStatsValue(stmt.substring(start, i));
-            if (assigned != null) {
-                collects = assigned;
+            final char c = stmt.charAt(i);
+            if (c == '(') {
+                depth++;
+            } else if (c == ')') {
+                depth--;
             }
-            start = i + 1;
-            i++;
+            if (c != '@') {
+                i++;
+                continue;
+            }
+            final int nameEnd = variableEnd(stmt, i + 1);
+            final int op = SqlLexer.skipWhitespaceAndComments(stmt, nameEnd);
+            int value = -1;
+            if (stmt.startsWith(":=", op)) {
+                value = op + 2;
+            } else if (inSet && depth == 0 && op < stmt.length() && stmt.charAt(op) == '=') {
+                value = op + 1;
+            }
+            if (value >= 0 && isCollectExecStats(stmt, i + 1, nameEnd)) {
+                collects = Boolean.valueOf(!isBareZero(stmt, value));
+            }
+            i = Math.max(nameEnd, i + 1);
         }
         if (collects == null) {
             return NONE_RESULT;
@@ -536,24 +549,22 @@ public final class SessionSetStatement {
         return collects.booleanValue() ? pin(EXEC_STATS_PIN) : unpin(EXEC_STATS_PIN);
     }
 
-    /**
-     * Whether {@code assignment} turns collection on, or {@code null} when it sets another
-     * variable. Only a bare 0 turns it off; any other value, a bound one included, turns it on.
-     */
-    private static Boolean execStatsValue(final String assignment) {
-        final int eq = assignment.indexOf('=');
-        if (eq < 0
-                || !COLLECT_EXEC_STATS.equalsIgnoreCase(
-                        assignment.substring(0, eq).replace(":", "").trim())) {
-            return null;
+    private static boolean isCollectExecStats(final String stmt, final int start, final int end) {
+        final String name =
+                start < end && KeywordSqlClassifier.isQuotedIdentifierStart(stmt.charAt(start))
+                        ? KeywordSqlClassifier.extractQuotedIdentifierUpper(stmt, start, end)
+                        : stmt.substring(start, end);
+        return COLLECT_EXEC_STATS.substring(1).equalsIgnoreCase(name);
+    }
+
+    /** A 0 with nothing after it in its assignment. */
+    private static boolean isBareZero(final String stmt, final int pos) {
+        final int value = SqlLexer.skipWhitespaceAndComments(stmt, pos);
+        if (value >= stmt.length() || stmt.charAt(value) != '0') {
+            return false;
         }
-        final int value = SqlLexer.skipWhitespaceAndComments(assignment, eq + 1);
-        final boolean zero =
-                value < assignment.length()
-                        && assignment.charAt(value) == '0'
-                        && SqlLexer.skipWhitespaceAndComments(assignment, value + 1)
-                                >= assignment.length();
-        return Boolean.valueOf(!zero);
+        final int after = SqlLexer.skipWhitespaceAndComments(stmt, value + 1);
+        return after >= stmt.length() || stmt.charAt(after) == ',';
     }
 
     /**

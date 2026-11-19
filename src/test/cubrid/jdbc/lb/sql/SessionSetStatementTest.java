@@ -263,6 +263,28 @@ public class SessionSetStatementTest {
         assertUntracked("SET @collect_exec_statsx = 1, @v = '@collect_exec_stats'");
     }
 
+    /** The variable is the same one however it is written: with a comment, quoted, or by :=. */
+    @Test
+    public void execStatisticsSwitchIsReadInEveryFormTheServerTakes() {
+        final Set<String> stats = only(SessionSetStatement.EXEC_STATS_PIN);
+        final String[] on = {
+            "SET /*c*/ @collect_exec_stats = 1",
+            "SET\n-- turn on\n@collect_exec_stats = 1",
+            "SET @collect_exec_stats /*on*/ = 1",
+            "SET @a = 1, /*c*/ @collect_exec_stats = 1",
+            "SET @\"collect_exec_stats\" = 1",
+            "SELECT @collect_exec_stats := 1 FROM db_root",
+            "SELECT 1 FROM db_root; SELECT @collect_exec_stats := 1 FROM db_root",
+        };
+        for (String sql : on) {
+            assertEquals(sql, stats, pins(sql));
+        }
+        assertEquals(stats, unpins("SET /*c*/ @collect_exec_stats = 0"));
+        assertUntracked("SELECT @collect_exec_stats FROM db_root");
+        assertUntracked("SELECT 1 FROM t WHERE @collect_exec_stats = 1");
+        assertUntracked("SET @a = (SELECT 1 FROM db_root WHERE @collect_exec_stats = 1)");
+    }
+
     @Test
     public void otherStatementsAreNotTracked() {
         assertUntracked("SET @v = 1");

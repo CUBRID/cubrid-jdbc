@@ -123,6 +123,25 @@ public final class RowCountRoutingTest {
     }
 
     /**
+     * A prepare that did not run leaves an autocommit transaction open on RW, which keeps reads
+     * there. ROW_COUNT() reads no data: it stays with the statement before it, as on core.
+     */
+    @Test
+    public void rowCountStaysOnThePreviousLegWhileRwHoldsAnOpenTransaction() throws SQLException {
+        final SimpleEndpointConnManager manager = new SimpleEndpointConnManager();
+        final List<RouteTarget> targets = new ArrayList<RouteTarget>();
+        LBStatement statement = recordingStatement(createBoundSessionConnection(manager), targets);
+
+        statement.executeUpdate("UPDATE t SET v = v + 1");
+        statement.executeQuery("SELECT v FROM t");
+        manager.setRwTxReportedOpen(true);
+        statement.executeQuery("SELECT ROW_COUNT()");
+        statement.executeQuery("SELECT v FROM t");
+
+        assertEquals(Arrays.asList(RW, RO, RO, RW), targets);
+    }
+
+    /**
      * m21: a batch whose rows partly failed still ran on RW, where core's ROW_COUNT() reports its
      * last row. Recorded only on success, the read went to the leg of the statement before it.
      */
@@ -288,8 +307,13 @@ public final class RowCountRoutingTest {
     }
 
     private static LoadBalanceConnection createBoundSessionConnection() throws SQLException {
+        return createBoundSessionConnection(new SimpleEndpointConnManager());
+    }
+
+    private static LoadBalanceConnection createBoundSessionConnection(
+            final SimpleEndpointConnManager manager) throws SQLException {
         LoadBalanceConnection connection = new LoadBalanceConnection(LbTestSettings.defaults());
-        connection.setConnectionManager(new SimpleEndpointConnManager());
+        connection.setConnectionManager(manager);
         connection.setSharedSelectorState(new SharedSelectorState());
         List<Endpoint> ro = new ArrayList<Endpoint>();
         ro.add(new Endpoint("ro1", 33000));

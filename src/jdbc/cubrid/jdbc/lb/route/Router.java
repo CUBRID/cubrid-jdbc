@@ -80,7 +80,8 @@ public final class Router {
      * hint. Outside one a hint decides, except that a {@code TO_RO} string that changes the session
      * runs on RW, as core runs it in its one session. With no hint, a session read pin, an
      * updatable result and the classification decide; a read then stays on RW to follow a variable
-     * the session created there, or while core left an autocommit transaction open there.
+     * the session created there, or while core left an autocommit transaction open there, unless it
+     * only reports on the statement before it.
      *
      * @param sql the statement
      * @param updatableResults whether the statement makes updatable result sets
@@ -133,7 +134,9 @@ public final class Router {
         if (!variables.isEmpty() && IntoVariables.isReferencedIn(sql.getText(), variables)) {
             return rw(RouteRule.SESSION_VARIABLE, sql);
         }
-        if (rwTransactionOpen.getAsBoolean()) {
+        // A read that reports on the statement before it reads no data, so it has nothing to see
+        // of the work that transaction holds; its own end on the read leg ends the transaction.
+        if (!followsPrevious && rwTransactionOpen.getAsBoolean()) {
             return rw(RouteRule.RW_TRANSACTION_OPEN, sql);
         }
         return ro(followsPrevious ? RouteRule.PREVIOUS_STATEMENT : RouteRule.CLASSIFICATION, sql);

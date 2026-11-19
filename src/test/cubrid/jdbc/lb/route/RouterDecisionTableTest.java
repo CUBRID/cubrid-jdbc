@@ -112,7 +112,11 @@ public final class RouterDecisionTableTest {
         if (in.classification == SqlClassification.READ_ON_PREVIOUS_LEG && !in.previousOnReadLeg) {
             return RW;
         }
-        if (in.readsRwVariable || in.rwTransactionOpen) {
+        if (in.readsRwVariable) {
+            return RW;
+        }
+        // A read that reports on the statement before it reads no data the transaction holds.
+        if (in.rwTransactionOpen && in.classification == SqlClassification.READ) {
             return RW;
         }
         return RO;
@@ -181,7 +185,7 @@ public final class RouterDecisionTableTest {
         if (in.readsRwVariable) {
             return RouteRule.SESSION_VARIABLE;
         }
-        if (in.rwTransactionOpen) {
+        if (in.rwTransactionOpen && !previous) {
             return RouteRule.RW_TRANSACTION_OPEN;
         }
         return previous ? RouteRule.PREVIOUS_STATEMENT : RouteRule.CLASSIFICATION;

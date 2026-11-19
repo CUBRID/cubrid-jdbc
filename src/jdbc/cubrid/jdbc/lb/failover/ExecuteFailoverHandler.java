@@ -78,9 +78,10 @@ public final class ExecuteFailoverHandler {
     }
 
     /**
-     * Whether core reported a reply it could not read. Core reconnects for one itself where it
-     * does, so when this reaches LB core still holds a connection and its session; one that cannot
-     * reach the broker reports a connection error instead.
+     * Whether core reported a reply it could not read. Core reconnects for one itself where it may;
+     * one that reaches LB came where core does not, a transaction being open, or after its
+     * reconnect. LB keeps the leg as core keeps its connection, though the CAS behind it, and its
+     * session, may be gone. One that cannot reach the broker reports a connection error instead.
      *
      * @param ex the failure to classify
      * @return whether the failure is a malformed reply

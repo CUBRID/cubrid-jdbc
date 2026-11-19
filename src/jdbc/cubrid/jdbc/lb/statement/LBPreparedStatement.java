@@ -40,6 +40,7 @@ import cubrid.jdbc.lb.failover.ExecuteFailoverHandler;
 import cubrid.jdbc.lb.failover.ExecuteFailoverHandler.SqlExecution;
 import cubrid.jdbc.lb.failover.UnreachableEndpoints;
 import cubrid.jdbc.lb.route.RoutedSql;
+import cubrid.jdbc.lb.route.Router.RouteDecision;
 import cubrid.jdbc.lb.route.Router.RouteTarget;
 import cubrid.jdbc.lb.sql.SqlClassifier;
 import cubrid.sql.CUBRIDOID;
@@ -211,13 +212,14 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     public ResultSet executeQuery() throws SQLException {
         checkIsOpen();
 
-        final RouteTarget target = resolveRouteTarget();
+        final RouteDecision route = resolveRoute();
+        final RouteTarget target = route.getTarget();
         // Stamped with this prepared statement, not with statementDelegate: the delegate is an
         // implementation detail the application never received.
         return LBStatement.stampProducer(
                 statementDelegate.executeWithFailover(
                         sql,
-                        target,
+                        route,
                         new SqlExecution<ResultSet>() {
                             public ResultSet run() throws SQLException {
                                 PreparedStatement physicalStatement = physicalPsWithParams(target);
@@ -232,11 +234,12 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     public int executeUpdate() throws SQLException {
         checkIsOpen();
 
-        final RouteTarget target = resolveRouteTarget();
+        final RouteDecision route = resolveRoute();
+        final RouteTarget target = route.getTarget();
         return statementDelegate
                 .executeWithFailover(
                         sql,
-                        target,
+                        route,
                         new SqlExecution<Integer>() {
                             public Integer run() throws SQLException {
                                 PreparedStatement physicalStatement = physicalPsWithParams(target);
@@ -251,11 +254,12 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     public boolean execute() throws SQLException {
         checkIsOpen();
 
-        final RouteTarget target = resolveRouteTarget();
+        final RouteDecision route = resolveRoute();
+        final RouteTarget target = route.getTarget();
         return statementDelegate
                 .executeWithFailover(
                         sql,
-                        target,
+                        route,
                         new SqlExecution<Boolean>() {
                             public Boolean run() throws SQLException {
                                 PreparedStatement physicalStatement = physicalPsWithParams(target);
@@ -643,10 +647,11 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     public CUBRIDOID executeInsert() throws SQLException {
         checkIsOpen();
 
-        final RouteTarget target = resolveRouteTarget();
+        final RouteDecision route = resolveRoute();
+        final RouteTarget target = route.getTarget();
         return statementDelegate.executeWithFailover(
                 sql,
-                target,
+                route,
                 new SqlExecution<CUBRIDOID>() {
                     public CUBRIDOID run() throws SQLException {
                         return invokeExecInsert(physicalPsWithParams(target));
@@ -1103,8 +1108,12 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         setObject(parameterIndex, x, checkSqlType(targetSqlType), scaleOrLength);
     }
 
-    private RouteTarget resolveRouteTarget() {
+    private RouteDecision resolveRoute() {
         return statementDelegate.routeFor(sqlCaches.routed);
+    }
+
+    private RouteTarget resolveRouteTarget() {
+        return resolveRoute().getTarget();
     }
 
     private PreparedStatement physicalPsWithParams(final RouteTarget target) throws SQLException {

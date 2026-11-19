@@ -57,8 +57,7 @@ public final class ExecutionPathArchitectureTest {
     // A member declared at class level: four spaces, a name, an opening parenthesis, no semicolon.
     private static final Pattern METHOD =
             Pattern.compile("^ {4}(?=\\S)[\\w<>\\[\\], ]*?(\\w+)\\([^;]*$");
-    private static final List<String> EXECUTE_PATH =
-            Arrays.asList("executeWithFailover", "runBatch");
+    private static final List<String> EXECUTE_PATH = Arrays.asList("runStatement", "runBatch");
 
     private static final String[] SOURCE_ROOTS = {
         "src/jdbc/cubrid/jdbc/lb",

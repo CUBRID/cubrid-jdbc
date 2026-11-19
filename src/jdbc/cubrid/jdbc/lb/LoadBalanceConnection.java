@@ -60,6 +60,8 @@ import cubrid.jdbc.lb.metrics.RuntimeMetrics;
 import cubrid.jdbc.lb.report.LbDistLog;
 import cubrid.jdbc.lb.report.LbTopologyLog;
 import cubrid.jdbc.lb.route.RoleReadSelector;
+import cubrid.jdbc.lb.route.RoutedSql;
+import cubrid.jdbc.lb.route.Router;
 import cubrid.jdbc.lb.route.Router.RouteTarget;
 import cubrid.jdbc.lb.sql.HintParser;
 import cubrid.jdbc.lb.sql.IntoVariables;
@@ -112,6 +114,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.BooleanSupplier;
 import java.util.logging.Logger;
 
 /**
@@ -220,6 +223,14 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     // with RO_WRITE_REJECTED rather than NONE.
     // Why a read the read leg could not serve is running again on RW, or null when none is.
     private volatile String rejectedReadReason = null;
+    // The routing decision of the statement the execute path is running, or null outside it.
+    private Router.RouteDecision statementRoute;
+    private final BooleanSupplier rwTransactionOpen =
+            new BooleanSupplier() {
+                public boolean getAsBoolean() {
+                    return isRwTxOpenInAutoCommit();
+                }
+            };
     private static final Logger LOGGER = Logger.getLogger(LoadBalanceConnection.class.getName());
     /** CUBRID ER_DB_NO_MODIFICATIONS: a read-only broker refused to write. */
     private static final int ER_DB_NO_MODIFICATIONS = -581;
@@ -690,14 +701,23 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         // fails, on the RW leg: the records and failover name that leg.
         lastExecOnRwConn = FallbackReason.RO_PHYSICAL.equals(fallbackReason);
         lastExecRanOn = lastExecOnRwConn ? currentOrManagerEndpoint(SessionLeg.RW) : endpoint;
+        // The execute path's decision; a batch and a metadata call have none and are read here.
+        final Router.RouteDecision decision =
+                statementRoute != null
+                        ? statementRoute
+                        : Router.decide(
+                                RoutedSql.of(rawSql, sqlClassifier),
+                                false,
+                                sessionState,
+                                rwTransactionOpen);
         if (target == RouteTarget.TO_READ_WRITE) {
             fallbackReason =
                     rejectedReadReason != null
                             ? rejectedReadReason
-                            : readPinReason(rawSql, fallbackReason);
+                            : readFallbackReason(decision, fallbackReason);
         }
         routingMetrics.recordStatementRoute(rawSql, target, lastExecRanOn, fallbackReason);
-        routingMetrics.logRoute(rawSql, target, lastExecRanOn, fallbackReason);
+        routingMetrics.logRoute(decision, target, lastExecRanOn, fallbackReason);
         // Rides here rather than inside logRoute: that record is FINE and this one is INFO, so
         // gating it on the routing record's level would silence it at the default level.
         LbDistLog.onStatementRouted();
@@ -3418,6 +3438,20 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         rejectedReadReason = null;
     }
 
+    /**
+     * Gives the routing records the decision of the statement the execute path is about to run,
+     * until {@link #endStatementRoute()}, so they name the rule that decided.
+     *
+     * @param decision the statement's routing decision
+     */
+    public void beginStatementRoute(final Router.RouteDecision decision) {
+        statementRoute = decision;
+    }
+
+    public void endStatementRoute() {
+        statementRoute = null;
+    }
+
     /** Why the read leg cannot serve the failed read, or {@code null} if the failure is its own. */
     private static String readLegRefusal(final SQLException failure) {
         for (SQLException e = failure; e != null; e = e.getNextException()) {
@@ -3443,28 +3477,27 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     /**
-     * RW route of a READ that only the session read pin or a session variable moved there, or
-     * {@code reason}.
+     * Why a read the session would otherwise send to the read leg runs on RW, from the rule that
+     * decided, or {@code reason}. A read pin is named for a READ only: any other statement runs on
+     * RW with or without it.
      */
-    private String readPinReason(final String rawSql, final String reason) {
-        final boolean pinned = sessionState.isReadsPinnedToRw();
-        final boolean rwTxOpen = isRwTxOpenInAutoCommit();
-        if (!FallbackReason.NONE.equals(reason)
-                || (!pinned && !rwTxOpen && sessionState.getSessionVariables().isEmpty())
-                || sessionState.isTransactionActive()
-                || HintParser.parse(rawSql).hasTargetHint()
-                || sqlClassifier.classify(rawSql) != SqlClassification.READ) {
+    private static String readFallbackReason(
+            final Router.RouteDecision decision, final String reason) {
+        if (!FallbackReason.NONE.equals(reason)) {
             return reason;
         }
-        if (pinned) {
-            return FallbackReason.SESSION_SET_PIN;
+        switch (decision.getRule()) {
+            case READ_PIN:
+                return decision.getSql().getClassification() == SqlClassification.READ
+                        ? FallbackReason.SESSION_SET_PIN
+                        : reason;
+            case SESSION_VARIABLE:
+                return FallbackReason.SESSION_VARIABLE;
+            case RW_TRANSACTION_OPEN:
+                return FallbackReason.RW_TX_OPEN;
+            default:
+                return reason;
         }
-        if (rwTxOpen) {
-            return FallbackReason.RW_TX_OPEN;
-        }
-        return IntoVariables.isReferencedIn(rawSql, sessionState.getSessionVariables())
-                ? FallbackReason.SESSION_VARIABLE
-                : reason;
     }
 
     private String sqlForLog(final String sql) {

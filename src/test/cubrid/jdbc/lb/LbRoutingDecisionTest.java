@@ -45,6 +45,7 @@ import java.lang.reflect.Proxy;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import org.junit.Test;
 
@@ -141,6 +142,31 @@ public final class LbRoutingDecisionTest {
         executePrepared(connection, "SELECT * FROM t WHERE id = ?");
         String third = lastSqlEvent(connection.getRuntimeMetrics());
         assertTrue(third.contains("routeTarget=TO_READ_ONLY"));
+    }
+
+    /** The record names the rule that kept a read on RW, for a read with a TO_RO hint too. */
+    @Test
+    public void recordNamesTheOpenRwTransactionThatKeptAHintedReadOnRw() throws Exception {
+        BoundConnection bound = createBoundSessionConnectionWithPhysicals();
+        bound.manager.setRwTxReportedOpen(true);
+        executePrepared(bound.connection, "SELECT /*+ TO_RO */ * FROM t WHERE id = ?");
+        String event = lastSqlEvent(bound.connection.getRuntimeMetrics());
+
+        assertTrue(event.contains("routeTarget=TO_READ_WRITE"));
+        assertTrue(event.contains("fallbackReason=RW_TX_OPEN"));
+    }
+
+    /** A read that follows its variable to RW is recorded so, whatever else holds on RW. */
+    @Test
+    public void recordNamesTheVariableAReadFollowedToRw() throws Exception {
+        BoundConnection bound = createBoundSessionConnectionWithPhysicals();
+        bound.connection.getSessionState().addSessionVariables(Collections.singleton("V"));
+        bound.manager.setRwTxReportedOpen(true);
+        executePrepared(bound.connection, "SELECT v FROM t WHERE id = ?");
+        String event = lastSqlEvent(bound.connection.getRuntimeMetrics());
+
+        assertTrue(event.contains("routeTarget=TO_READ_WRITE"));
+        assertTrue(event.contains("fallbackReason=SESSION_VARIABLE"));
     }
 
     @Test
@@ -247,7 +273,7 @@ public final class LbRoutingDecisionTest {
                 connection.getCurrentEp(SessionLeg.RW), newCommandConnectionProxy());
         manager.setPhysicalConnection(
                 connection.getCurrentEp(SessionLeg.RO), newCommandConnectionProxy());
-        return new BoundConnection(connection);
+        return new BoundConnection(connection, manager);
     }
 
     private static EndpointTopology createTopology() {
@@ -356,9 +382,12 @@ public final class LbRoutingDecisionTest {
 
     private static final class BoundConnection {
         private final LoadBalanceConnection connection;
+        private final SimpleEndpointConnManager manager;
 
-        private BoundConnection(final LoadBalanceConnection connection) {
+        private BoundConnection(
+                final LoadBalanceConnection connection, final SimpleEndpointConnManager manager) {
             this.connection = connection;
+            this.manager = manager;
         }
     }
 }

@@ -319,6 +319,21 @@ public class KeywordSqlClassifierTest {
     }
 
     /**
+     * A backslash is an escape inside a string only. In a double-quoted identifier the server reads
+     * it as a plain character whatever no_backslash_escapes is, so the identifier closes at its
+     * quote and what follows it is live.
+     */
+    @Test
+    public void assertBackslashInAQuotedIdentifierDoesNotHideWhatFollows() {
+        final String sql = "SELECT 1 AS \"a\\\", 'b\\'', LAST_INSERT_ID() FROM db_root";
+        assertEquals(SqlClassification.UNKNOWN, classifier.classify(sql + " -- \""));
+        assertEquals(SqlClassification.UNKNOWN, classifier.classify(sql));
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify("SELECT 1 AS \"a\\\", 'b' FROM db_root"));
+    }
+
+    /**
      * Spring Data JPA writes {@code like ? escape '\'}. With backslash escapes that literal never
      * closes, which is a syntax error on such a server, so the default reading decides.
      */

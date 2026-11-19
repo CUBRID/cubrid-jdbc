@@ -87,7 +87,9 @@ final class SqlLexer {
         int i = 0;
         while (i < len) {
             final char quote = text[i];
-            if (quote != '\'' && quote != '"') {
+            // Only a string: the server reads a backslash in a quoted identifier as a plain
+            // character, so the default scan already reads it as that server does.
+            if (quote != '\'') {
                 final int after = skipCommentOrQuoted(sql, i);
                 i = after == i ? i + 1 : after;
                 continue;

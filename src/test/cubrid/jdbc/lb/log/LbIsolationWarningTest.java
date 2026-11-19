@@ -139,6 +139,46 @@ public class LbIsolationWarningTest {
         conn.close();
     }
 
+    /** The level is the session's whoever set it: a SQL SET counts as the JDBC setter does. */
+    @Test
+    public void aLevelSetBySqlIsRecordedToo() throws SQLException {
+        LoadBalanceConnection conn = session();
+        conn.createStatement().execute("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE");
+
+        conn.createStatement().executeQuery("SELECT 1");
+
+        List<String> lines = matching("LB ISOLATION:");
+        assertEquals(1, lines.size());
+        assertTrue(lines.get(0), lines.get(0).indexOf("isolation=SERIALIZABLE") >= 0);
+        conn.close();
+    }
+
+    @Test
+    public void aLevelNumberSetBySqlIsRecordedToo() throws SQLException {
+        LoadBalanceConnection conn = session();
+        conn.createStatement().execute("set transaction isolation level /* rr */ 5");
+
+        conn.createStatement().executeQuery("SELECT 1");
+
+        List<String> lines = matching("LB ISOLATION:");
+        assertEquals(1, lines.size());
+        assertTrue(lines.get(0), lines.get(0).indexOf("isolation=REPEATABLE_READ") >= 0);
+        conn.close();
+    }
+
+    /** The later of the two decides: a SQL SET back to READ COMMITTED ends the setter's level. */
+    @Test
+    public void aSqlSetBackToReadCommittedIsSilent() throws SQLException {
+        LoadBalanceConnection conn = session();
+        conn.setTransactionIsolation(Connection.TRANSACTION_REPEATABLE_READ);
+        conn.createStatement().execute("SET TRANSACTION ISOLATION LEVEL READ COMMITTED");
+
+        conn.createStatement().executeQuery("SELECT 1");
+
+        assertTrue(matching("LB ISOLATION:").isEmpty());
+        conn.close();
+    }
+
     /* ===== harness ===== */
 
     private static LoadBalanceConnection session() throws SQLException {

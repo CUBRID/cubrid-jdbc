@@ -376,4 +376,34 @@ public class SessionSetStatementTest {
             assertFalse(sql, SessionSetStatement.assignsUserVariable(sql));
         }
     }
+
+    @Test
+    public void isolationLevelOfASetTransactionIsRead() {
+        final int rr = java.sql.Connection.TRANSACTION_REPEATABLE_READ;
+        final int ser = java.sql.Connection.TRANSACTION_SERIALIZABLE;
+        assertEquals(
+                ser,
+                SessionSetStatement.isolationAboveReadCommitted(
+                        "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE"));
+        assertEquals(
+                rr,
+                SessionSetStatement.isolationAboveReadCommitted(
+                        "set transaction isolation level repeatable read"));
+        assertEquals(
+                rr,
+                SessionSetStatement.isolationAboveReadCommitted(
+                        "SET TRANSACTION ISOLATION LEVEL /* rr */ 5"));
+        assertEquals(
+                ser,
+                SessionSetStatement.isolationAboveReadCommitted(
+                        "SET TRANSACTION ISOLATION LEVEL 6"));
+        assertEquals(
+                0,
+                SessionSetStatement.isolationAboveReadCommitted(
+                        "SET TRANSACTION ISOLATION LEVEL READ COMMITTED"));
+        assertEquals(
+                0,
+                SessionSetStatement.isolationAboveReadCommitted(
+                        "SET TRANSACTION ISOLATION LEVEL 4"));
+    }
 }

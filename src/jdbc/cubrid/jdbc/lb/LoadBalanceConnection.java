@@ -3591,19 +3591,17 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      * @param readEndpoint the node this read is about to run on
      */
     private void warnIfIsolationCannotHoldAcrossNodes(final Endpoint readEndpoint) {
-        final Integer isolation = transactionIsolation;
-        if (isolationSpreadWarned
-                || isolation == null
-                || (isolation.intValue() != TRANSACTION_REPEATABLE_READ
-                        && isolation.intValue() != TRANSACTION_SERIALIZABLE)) {
+        if (isolationSpreadWarned) {
+            return;
+        }
+        final int isolation = sessionIsolation();
+        if (isolation != TRANSACTION_REPEATABLE_READ && isolation != TRANSACTION_SERIALIZABLE) {
             return;
         }
 
         isolationSpreadWarned = true;
         final String level =
-                isolation.intValue() == TRANSACTION_SERIALIZABLE
-                        ? "SERIALIZABLE"
-                        : "REPEATABLE_READ";
+                isolation == TRANSACTION_SERIALIZABLE ? "SERIALIZABLE" : "REPEATABLE_READ";
         LbLogDedup.warn(
                 LOGGER,
                 LbLog.conn(connectionId),
@@ -3617,6 +3615,23 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                         + " distribution assumes READ COMMITTED with autocommit on; use /*+ TO_RW"
                         + " */ on the statements that must see the level, or readWeight master:1"
                         + " alone to stop distributing");
+    }
+
+    /**
+     * The level the application gave this session, by the JDBC setter or by a SQL SET, whichever
+     * came later: the setter drops the SQL SET it replaces. 0 when it gave none, or one a read on
+     * another node honours.
+     */
+    private int sessionIsolation() {
+        final String bySql;
+        synchronized (sessionSets) {
+            bySql = sessionSets.get(SessionSetStatement.ISOLATION_LEVEL_KEY);
+        }
+        if (bySql != null) {
+            return SessionSetStatement.isolationAboveReadCommitted(bySql);
+        }
+        final Integer bySetter = transactionIsolation;
+        return bySetter == null ? 0 : bySetter.intValue();
     }
 
     private EndpointSelection withPhysicalFallbackReason(final Endpoint logicalRoEndpoint)

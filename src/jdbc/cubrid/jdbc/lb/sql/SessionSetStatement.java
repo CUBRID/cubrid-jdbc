@@ -716,6 +716,31 @@ public final class SessionSetStatement {
     }
 
     /**
+     * The level a {@code SET TRANSACTION ISOLATION LEVEL} statement sets, when a read on another
+     * node cannot honour it.
+     *
+     * @param sql the statement, as kept for replay
+     * @return {@link java.sql.Connection#TRANSACTION_REPEATABLE_READ} or {@link
+     *     java.sql.Connection#TRANSACTION_SERIALIZABLE}, or 0 for any other level
+     */
+    public static int isolationAboveReadCommitted(final String sql) {
+        int pos = 0;
+        while (pos < sql.length() && !"LEVEL".equals(wordAt(sql, pos))) {
+            final int next = skipWord(sql, pos);
+            pos = next > pos ? next : pos + 1;
+        }
+        final int level = SqlLexer.skipWhitespaceAndComments(sql, skipWord(sql, pos));
+        final String name = wordAt(sql, level);
+        if ("SERIALIZABLE".equals(name) || sql.startsWith("6", level)) {
+            return java.sql.Connection.TRANSACTION_SERIALIZABLE;
+        }
+        if ("REPEATABLE".equals(name) || sql.startsWith("5", level)) {
+            return java.sql.Connection.TRANSACTION_REPEATABLE_READ;
+        }
+        return 0;
+    }
+
+    /**
      * Whether {@code sql} assigns a user variable: {@code SET @v = ..}, or {@code @v := ..} in any
      * statement. The variable then exists only in the session of the leg that ran the string, and
      * reads of it go to RW.

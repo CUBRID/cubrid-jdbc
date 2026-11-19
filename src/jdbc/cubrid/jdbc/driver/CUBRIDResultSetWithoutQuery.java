@@ -1372,12 +1372,10 @@ class CUBRIDResultSetWithoutQuery implements ResultSet {
         return value == null ? null : value.toLocalDateTime();
     }
 
-    /* Which columns a java.time type may be read from follows CUBRIDResultSet. */
     private void checkJavaTimeColumn(int columnIndex, Class<?> type) throws SQLException {
         beforeGetValue(columnIndex);
 
-        if (CUBRIDResultSet.isJavaTimeConversionSupported(
-                (byte) this.type[columnIndex - 1], type)) {
+        if (JavaTimeRules.canRead((byte) this.type[columnIndex - 1], type)) {
             return;
         }
 

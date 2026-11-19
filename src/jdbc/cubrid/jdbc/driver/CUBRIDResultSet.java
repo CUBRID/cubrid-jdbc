@@ -35,7 +35,6 @@ import cubrid.jdbc.jci.UColumnInfo;
 import cubrid.jdbc.jci.UError;
 import cubrid.jdbc.jci.UErrorCode;
 import cubrid.jdbc.jci.UStatement;
-import cubrid.jdbc.jci.UUType;
 import cubrid.sql.CUBRIDOID;
 import java.io.Closeable;
 import java.io.IOException;
@@ -63,13 +62,13 @@ import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
-import java.time.format.DateTimeFormatter;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.HashMap;
 import java.util.Iterator;
-import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.TimeZone;
 
 /**
@@ -78,13 +77,6 @@ import java.util.TimeZone;
  * @version 2.0
  */
 public class CUBRIDResultSet implements ResultSet {
-    private static final DateTimeFormatter DATE_LITERAL =
-            DateTimeFormatter.ofPattern("MM/dd/uuuu", Locale.ROOT);
-    private static final DateTimeFormatter TIME_LITERAL =
-            DateTimeFormatter.ofPattern("HH:mm:ss", Locale.ROOT);
-    private static final DateTimeFormatter DATETIME_LITERAL =
-            DateTimeFormatter.ofPattern("MM/dd/uuuu HH:mm:ss.SSS", Locale.ROOT);
-
     public boolean complete_on_close;
 
     private CUBRIDConnection con;
@@ -1814,11 +1806,24 @@ public class CUBRIDResultSet implements ResultSet {
         return value;
     }
 
+    private OffsetDateTime getOffsetDateTime(int columnIndex) throws SQLException {
+        checkJavaTimeColumn(columnIndex, OffsetDateTime.class);
+
+        OffsetDateTime value;
+        synchronized (u_stmt) {
+            value = u_stmt.getOffsetDateTime(columnIndex - 1);
+            error = u_stmt.getRecentError();
+        }
+
+        checkGetXXXError();
+        return value;
+    }
+
     private void checkJavaTimeColumn(int columnIndex, Class<?> type) throws SQLException {
         checkRowIsValidForGet();
         checkColumnIsValid(columnIndex);
 
-        if (isJavaTimeConversionSupported(column_info[columnIndex - 1].getColumnType(), type)) {
+        if (JavaTimeRules.canRead(column_info[columnIndex - 1].getColumnType(), type)) {
             return;
         }
 
@@ -1826,23 +1831,6 @@ public class CUBRIDResultSet implements ResultSet {
                 CUBRIDJDBCErrorCode.invalid_value,
                 CUBRIDException.cannotConvertMessage(type),
                 null);
-    }
-
-    static boolean isJavaTimeConversionSupported(byte columnType, Class<?> type) {
-        switch (columnType) {
-            case UUType.U_TYPE_DATE:
-                return type == LocalDate.class || type == LocalDateTime.class;
-            case UUType.U_TYPE_TIME:
-                return type == LocalTime.class || type == LocalDateTime.class;
-            case UUType.U_TYPE_TIMESTAMP:
-            case UUType.U_TYPE_DATETIME:
-                return true;
-            case UUType.U_TYPE_NULL:
-                /* The server did not declare a type, so the decoded value carries its own. */
-                return true;
-            default:
-                return false;
-        }
     }
 
     private void beforeGetValue(int columnIndex) throws SQLException {
@@ -1875,14 +1863,18 @@ public class CUBRIDResultSet implements ResultSet {
         }
     }
 
-    private void updateValue(int columnIndex, Object value) throws SQLException {
+    private void checkCanUpdate(int columnIndex) throws SQLException {
         checkIsOpen();
         checkIsUpdatable();
         checkRowIsValidForUpdate();
         checkColumnIsValid(columnIndex);
         checkColumnIsUpdatable(columnIndex);
+    }
 
-        if (CUBRIDPreparedStatement.isUnsupportedJavaTime(value)) {
+    private void updateValue(int columnIndex, Object value) throws SQLException {
+        checkCanUpdate(columnIndex);
+
+        if (JavaTimeRules.isUnsupported(value)) {
             throw CUBRIDException.notSupported(
                     CUBRIDException.cannotStoreMessage(value.getClass()));
         }
@@ -1939,14 +1931,13 @@ public class CUBRIDResultSet implements ResultSet {
             return "null";
         }
 
+        Optional<String> javaTimeLiteral = JavaTimeRules.literalOf(value);
+        if (javaTimeLiteral.isPresent()) {
+            return javaTimeLiteral.get();
+        }
+
         String strvalue = null;
-        if (value instanceof LocalTime) {
-            strvalue = "'" + TIME_LITERAL.format((LocalTime) value) + "'";
-        } else if (value instanceof LocalDate) {
-            strvalue = "'" + DATE_LITERAL.format((LocalDate) value) + "'";
-        } else if (value instanceof LocalDateTime) {
-            strvalue = "'" + DATETIME_LITERAL.format((LocalDateTime) value) + "'";
-        } else if (value instanceof java.sql.Time) {
+        if (value instanceof java.sql.Time) {
             java.text.SimpleDateFormat format = new java.text.SimpleDateFormat("HH:mm:ss");
             strvalue = "'" + format.format((java.util.Date) value) + "'";
         } else if (value instanceof java.sql.Date) {
@@ -2378,6 +2369,9 @@ public class CUBRIDResultSet implements ResultSet {
         if (type == LocalDateTime.class) {
             return type.cast(getLocalDateTime(columnIndex));
         }
+        if (type == OffsetDateTime.class) {
+            return type.cast(getOffsetDateTime(columnIndex));
+        }
 
         throw con.createCUBRIDException(
                 CUBRIDJDBCErrorCode.invalid_value,
@@ -2392,39 +2386,51 @@ public class CUBRIDResultSet implements ResultSet {
 
     // ------------------------- JDBC 4.2 -----------------------------------
 
-    private void checkSqlType(SQLType targetSqlType) throws SQLException {
+    private int checkSqlType(SQLType targetSqlType) throws SQLException {
         if (targetSqlType == null) {
             throw con.createCUBRIDException(
                     CUBRIDJDBCErrorCode.invalid_value, " - targetSqlType is null", null);
         }
-        if (targetSqlType.getVendorTypeNumber() == null) {
+        Integer vendorTypeNumber = targetSqlType.getVendorTypeNumber();
+        if (vendorTypeNumber == null) {
             throw con.createCUBRIDException(
                     CUBRIDJDBCErrorCode.invalid_value,
                     " - targetSqlType has no vendor type number: " + targetSqlType.getName(),
                     null);
         }
+        return vendorTypeNumber;
+    }
+
+    /* An OffsetDateTime follows the setObject rule of the target type; other values ignore it. */
+    private Object valueToUpdate(Object x, int targetSqlType) throws SQLException {
+        if (!(x instanceof OffsetDateTime)) {
+            return x;
+        }
+        return JavaTimeRules.valueToSend((OffsetDateTime) x, targetSqlType, con);
     }
 
     @Override
     public synchronized void updateObject(int columnIndex, Object x, SQLType targetSqlType)
             throws SQLException {
-        checkSqlType(targetSqlType);
-        updateObject(columnIndex, x);
+        int target = checkSqlType(targetSqlType);
+        checkCanUpdate(columnIndex);
+        updateObject(columnIndex, valueToUpdate(x, target));
     }
 
     @Override
     public synchronized void updateObject(
             int columnIndex, Object x, SQLType targetSqlType, int scaleOrLength)
             throws SQLException {
-        checkSqlType(targetSqlType);
-        updateObject(columnIndex, x, scaleOrLength);
+        int target = checkSqlType(targetSqlType);
+        checkCanUpdate(columnIndex);
+        updateObject(columnIndex, valueToUpdate(x, target), scaleOrLength);
     }
 
     @Override
     public synchronized void updateObject(String columnLabel, Object x, SQLType targetSqlType)
             throws SQLException {
         checkSqlType(targetSqlType);
-        updateObject(columnLabel, x);
+        updateObject(findColumn(columnLabel), x, targetSqlType);
     }
 
     @Override
@@ -2432,6 +2438,6 @@ public class CUBRIDResultSet implements ResultSet {
             String columnLabel, Object x, SQLType targetSqlType, int scaleOrLength)
             throws SQLException {
         checkSqlType(targetSqlType);
-        updateObject(columnLabel, x, scaleOrLength);
+        updateObject(findColumn(columnLabel), x, targetSqlType, scaleOrLength);
     }
 }

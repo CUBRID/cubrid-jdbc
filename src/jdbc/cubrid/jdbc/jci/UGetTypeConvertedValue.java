@@ -337,7 +337,7 @@ public abstract class UGetTypeConvertedValue {
     }
 
     private static Object inZone(Object data, TimeZone zone) {
-        return data instanceof UDateTimeFields ? ((UDateTimeFields) data).toSqlValue(zone) : data;
+        return data instanceof UDateTimeValue ? ((UDateTimeValue) data).toSqlValue(zone) : data;
     }
 
     /*

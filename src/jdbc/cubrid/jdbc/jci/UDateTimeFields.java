@@ -53,7 +53,7 @@ import java.util.TimeZone;
  * them directly. The epoch is kept as well because the java.sql getters answer with it and have to
  * keep their old behaviour.
  */
-final class UDateTimeFields {
+final class UDateTimeFields implements UDateTimeValue {
     private static final int NANOS_PER_MILLI = 1000000;
     static final LocalDate TIME_BASE_DATE = LocalDate.of(1970, 1, 1);
     private static final LocalDateTime ROUNDED_DATETIME = LocalDateTime.of(1, 1, 1, 0, 0, 0);
@@ -140,6 +140,10 @@ final class UDateTimeFields {
         }
     }
 
+    UDateTimeTzFields atTimezone(String timezone) {
+        return new UDateTimeTzFields(this, timezone);
+    }
+
     private boolean hasDate() {
         return type != UUType.U_TYPE_TIME;
     }
@@ -152,12 +156,8 @@ final class UDateTimeFields {
         return hasDate() && year == 0 && month == 0 && day == 0;
     }
 
-    /* Answers the java.sql value when o carries wire fields, and o itself otherwise. */
-    static Object sqlValueOf(Object o) {
-        return o instanceof UDateTimeFields ? ((UDateTimeFields) o).toSqlValue() : o;
-    }
-
-    private Object toSqlValue() {
+    @Override
+    public Object toSqlValue() {
         switch (type) {
             case UUType.U_TYPE_DATE:
                 return new Date(epoch);
@@ -170,7 +170,8 @@ final class UDateTimeFields {
         }
     }
 
-    Object toSqlValue(TimeZone zone) {
+    @Override
+    public Object toSqlValue(TimeZone zone) {
         return new UDateTimeFields(
                         type, epochIn(zone), year, month, day, hour, minute, second, millisecond)
                 .toSqlValue();

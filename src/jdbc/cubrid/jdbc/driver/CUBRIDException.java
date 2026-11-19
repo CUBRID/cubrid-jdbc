@@ -32,6 +32,7 @@
 package cubrid.jdbc.driver;
 
 import cubrid.jdbc.jci.UError;
+import java.sql.JDBCType;
 import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
 
@@ -90,11 +91,24 @@ public class CUBRIDException extends SQLException {
     }
 
     /*
-     * Reason messages. The caller supplies the error code, so the pairing lives here: the store
-     * message goes with not_supported, the other three with invalid_value.
+     * Reason messages. The caller supplies the error code, so the pairing lives here:
+     * cannotStoreMessage goes with not_supported, cannotStoreAsMessage with not_supported or
+     * invalid_value, and the others with invalid_value.
      */
     static String cannotStoreMessage(Class<?> type) {
         return " - cannot store " + type.getName();
+    }
+
+    static String cannotStoreAsMessage(Class<?> type, int targetSqlType) {
+        return " - cannot store " + type.getName() + " as " + typeName(targetSqlType);
+    }
+
+    private static String typeName(int sqlType) {
+        try {
+            return JDBCType.valueOf(sqlType).getName();
+        } catch (IllegalArgumentException e) {
+            return String.valueOf(sqlType);
+        }
     }
 
     static String cannotUnwrapMessage(Class<?> iface) {

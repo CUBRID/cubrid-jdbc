@@ -175,9 +175,12 @@ public class CUBRIDDriver implements Driver {
      * rewritten to, reporting {@code userUrl} (password-masked) instead in JDBC errors and the CAS
      * DB_INFO handshake, so they show what the user wrote.
      *
+     * <p>For the driver's own URI and load-balance paths, which are in another package; it is not
+     * an API for applications. {@code userUrl} is reported as given, so the caller masks it.
+     *
      * @param url the classic URL to open
      * @param info the connection properties
-     * @param userUrl the URL to report, or null to report {@code url}
+     * @param userUrl the URL to report, already masked, or null to report {@code url}
      * @param usePropFile whether the {@code CUBRID_JDBC_PROP} file replaces the URL's options;
      *     false for a load-balanced leg, whose URL already holds the file's options it may take
      * @return the connection

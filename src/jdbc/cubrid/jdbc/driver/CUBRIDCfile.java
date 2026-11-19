@@ -59,6 +59,8 @@ public class CUBRIDCfile implements Clob {
      * =======================================================================
      */
     private CUBRIDConnection conn;
+    /* the handle holds its server's DB type: only a broker of the same kind can read it */
+    private boolean fromV13Broker;
     private boolean isWritable;
     private boolean isLobLocator;
     private CUBRIDLobHandle lobHandle;
@@ -89,6 +91,7 @@ public class CUBRIDCfile implements Clob {
         byte[] packedLobHandle = conn.lobNew(UUType.U_TYPE_CFILE);
 
         this.conn = conn;
+        fromV13Broker = conn.u_con.brokerSpeaksV13();
         isWritable = true;
         isLobLocator = true;
         lobHandle = new CUBRIDLobHandle(UUType.U_TYPE_CFILE, packedLobHandle, isLobLocator);
@@ -109,6 +112,7 @@ public class CUBRIDCfile implements Clob {
         }
 
         this.conn = conn;
+        fromV13Broker = conn.u_con.brokerSpeaksV13();
         isWritable = false;
         this.isLobLocator = isLobLocator;
         lobHandle = new CUBRIDLobHandle(UUType.U_TYPE_CFILE, packedLobHandle, isLobLocator);
@@ -554,5 +558,9 @@ public class CUBRIDCfile implements Clob {
         } else {
             throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.lob_is_not_writable, null);
         }
+    }
+
+    boolean isFromV13Broker() {
+        return fromV13Broker;
     }
 }

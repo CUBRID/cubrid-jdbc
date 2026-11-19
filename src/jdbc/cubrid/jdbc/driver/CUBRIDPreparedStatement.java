@@ -653,6 +653,11 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
             return;
         }
         if (x instanceof CUBRIDBfile || !u_con.brokerSpeaksV13()) {
+            if (x instanceof CUBRIDBfile
+                    && ((CUBRIDBfile) x).isFromV13Broker() != u_con.brokerSpeaksV13()) {
+                /* a handle made through a broker of the other kind: its server would store NULL */
+                throw con.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
+            }
             synchronized (u_stmt) {
                 u_stmt.bindBfile(parameterIndex - 1, x);
                 error = u_stmt.getRecentError();
@@ -671,6 +676,10 @@ public class CUBRIDPreparedStatement extends CUBRIDStatement implements Prepared
             return;
         }
         if (x instanceof CUBRIDCfile || !u_con.brokerSpeaksV13()) {
+            if (x instanceof CUBRIDCfile
+                    && ((CUBRIDCfile) x).isFromV13Broker() != u_con.brokerSpeaksV13()) {
+                throw con.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
+            }
             synchronized (u_stmt) {
                 u_stmt.bindCfile(parameterIndex - 1, x);
                 error = u_stmt.getRecentError();

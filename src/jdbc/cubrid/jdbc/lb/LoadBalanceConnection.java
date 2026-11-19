@@ -1512,6 +1512,10 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         if (LIVE_CONNECTIONS.decrementAndGet() == 0) {
             LbLogDedup.drain();
             LbDistLog.drainFinal();
+            // A connection opened meanwhile found the shutdown flush that drain has now removed.
+            if (LIVE_CONNECTIONS.get() > 0) {
+                LbDistLog.configure(config);
+            }
         }
     }
 

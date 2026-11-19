@@ -30,6 +30,7 @@
 
 package cubrid.jdbc.lb.log;
 
+import cubrid.jdbc.jci.UErrorCode;
 import java.sql.SQLException;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
@@ -126,7 +127,9 @@ public final class LbLog {
 
     /**
      * Renders a driver exception for a log line: SQLState, vendor code, and the leading trimmed
-     * part of the message. A {@code null} cause yields {@code ""}.
+     * part of the message. A server error is rendered by its code alone: its message quotes the
+     * statement, values included, which {@code lbLogSql} keeps out of the log. A {@code null} cause
+     * yields {@code ""}.
      *
      * @param cause exception to render, or {@code null}
      * @return the rendered cause, or {@code ""}
@@ -135,12 +138,14 @@ public final class LbLog {
         if (cause == null) {
             return "";
         }
+        final int code = cause.getErrorCode();
+        // The driver's own codes and the CAS's lie at and below CAS_ER_DBMS; the server's above.
+        final boolean fromServer = code < 0 && code > UErrorCode.CAS_ER_DBMS;
         return "SQLState="
                 + cause.getSQLState()
                 + " errorCode="
-                + cause.getErrorCode()
-                + " msg="
-                + shortMessage(cause.getMessage());
+                + code
+                + (fromServer ? "" : " msg=" + shortMessage(cause.getMessage()));
     }
 
     /**

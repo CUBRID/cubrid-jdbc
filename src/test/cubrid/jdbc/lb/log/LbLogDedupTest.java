@@ -148,6 +148,18 @@ public class LbLogDedupTest {
                 rendered);
     }
 
+    /** A server message quotes the statement, values included; the driver's and CAS's do not. */
+    @Test
+    public void aServerErrorIsQuotedByItsCodeAlone() {
+        SQLException syntax =
+                new SQLException(
+                        "Syntax: before '  FROMM t WHERE ssn = '860101-1234567''", null, -493);
+        SQLException cas = new SQLException("Communication error", null, -10003);
+
+        assertEquals("SQLState=null errorCode=-493", LbLog.cause(syntax));
+        assertEquals("SQLState=null errorCode=-10003 msg=Communication error", LbLog.cause(cas));
+    }
+
     @Test
     public void quotedDriverMessageIsCappedAndKeptToOneLine() {
         StringBuilder longMessage = new StringBuilder();

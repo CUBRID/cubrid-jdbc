@@ -711,6 +711,30 @@ public class ReadLegSafetyTest {
         assertEquals(0, legs.count("rw", "SET NAMES euckr"));
     }
 
+    /**
+     * Reads of a user variable go to RW, so a string that assigns one runs there whatever its hint:
+     * on the read leg alone the variable would be missing where it is read.
+     */
+    @Test
+    public void hintedReadStringThatSetsAVariableRunsOnRw() throws SQLException {
+        Statement st = conn.createStatement();
+        st.executeQuery("SELECT 1");
+        st.execute("SELECT /*+ TO_RO */ 2; SET @a = 5");
+        st.executeQuery("SELECT /*+ TO_RO */ @a := 7");
+
+        assertEquals(1, legs.count("rw", "SELECT /*+ TO_RO */ 2; SET @a = 5"));
+        assertEquals(1, legs.count("rw", "SELECT /*+ TO_RO */ @a := 7"));
+        assertEquals(Arrays.asList("SELECT 1"), legs.log("ro"));
+    }
+
+    /** A hinted read of a variable stays the application's choice. */
+    @Test
+    public void hintedReadOfAVariableRunsOnTheReadLeg() throws SQLException {
+        conn.createStatement().executeQuery("SELECT /*+ TO_RO */ @a");
+
+        assertEquals(Arrays.asList("SELECT /*+ TO_RO */ @a"), legs.log("ro"));
+    }
+
     /** Core runs the whole string in its one session, so a TO_RO hint does not take a SET away. */
     @Test
     public void hintedReadStringWithASetRunsOnRwAndIsReplayed() throws SQLException {

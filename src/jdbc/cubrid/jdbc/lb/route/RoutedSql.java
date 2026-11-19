@@ -63,10 +63,11 @@ public final class RoutedSql {
         final HintSet hints = HintParser.parse(text);
         final HintSet.TargetHint hint = hints.hasTargetHint() ? hints.getTargetHint() : null;
         // Only a TO_RO string is asked: a change made on the read leg alone would reach neither RW
-        // nor the read legs opened later.
+        // nor the read legs opened later, and a variable assigned there is read on RW.
         final boolean changesSession =
                 hint == HintSet.TargetHint.TO_RO
-                        && SessionSetStatement.parse(text).changesSession();
+                        && (SessionSetStatement.parse(text).changesSession()
+                                || SessionSetStatement.assignsUserVariable(text));
         return new RoutedSql(text, classifier, hint, changesSession);
     }
 
@@ -79,7 +80,7 @@ public final class RoutedSql {
         return hint;
     }
 
-    /** Whether this is a {@code TO_RO} string that changes the session. */
+    /** Whether this is a {@code TO_RO} string that changes the session or assigns a variable. */
     public boolean changesSession() {
         return changesSession;
     }

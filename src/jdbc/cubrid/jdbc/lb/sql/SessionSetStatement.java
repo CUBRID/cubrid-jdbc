@@ -715,6 +715,60 @@ public final class SessionSetStatement {
                 Collections.<String>emptySet());
     }
 
+    /**
+     * Whether {@code sql} assigns a user variable: {@code SET @v = ..}, or {@code @v := ..} in any
+     * statement. The variable then exists only in the session of the leg that ran the string, and
+     * reads of it go to RW.
+     *
+     * @param sql the statement string
+     * @return whether it assigns one
+     */
+    public static boolean assignsUserVariable(final String sql) {
+        if (sql == null || sql.indexOf('@') < 0) {
+            return false;
+        }
+        boolean atStatementStart = true;
+        boolean inSet = false;
+        int i = 0;
+        while (i < sql.length()) {
+            final int skipped = SqlLexer.skipCommentOrQuoted(sql, i);
+            if (skipped != i) {
+                i = skipped;
+                continue;
+            }
+            final char c = sql.charAt(i);
+            if (c == ';') {
+                atStatementStart = true;
+                inSet = false;
+            } else if (atStatementStart && !Character.isWhitespace(c)) {
+                atStatementStart = false;
+                inSet = startsWithSet(sql, i);
+            }
+            if (c == '@') {
+                final int next = SqlLexer.skipWhitespaceAndComments(sql, variableEnd(sql, i + 1));
+                if (sql.startsWith(":=", next)
+                        || (inSet && next < sql.length() && sql.charAt(next) == '=')) {
+                    return true;
+                }
+            }
+            i++;
+        }
+        return false;
+    }
+
+    /** Position just after the variable name that starts at {@code pos}, quoted or not. */
+    private static int variableEnd(final String sql, final int pos) {
+        if (pos < sql.length() && KeywordSqlClassifier.isQuotedIdentifierStart(sql.charAt(pos))) {
+            return SqlLexer.skipCommentOrQuoted(sql, pos);
+        }
+        int end = pos;
+        while (end < sql.length()
+                && (Character.isLetterOrDigit(sql.charAt(end)) || sql.charAt(end) == '_')) {
+            end++;
+        }
+        return end;
+    }
+
     /** Upper-cased ASCII word starting at {@code pos} after whitespace/comments, or "". */
     private static String wordAt(final String sql, final int pos) {
         final int start = SqlLexer.skipWhitespaceAndComments(sql, pos);

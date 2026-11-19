@@ -343,4 +343,37 @@ public class SessionSetStatementTest {
                 "SET SYSTEM PARAMETERS 'intl_date_lang=it''s'",
                 replay("set system parameters 'intl_date_lang=it''s'").get("PARAM:INTL_DATE_LANG"));
     }
+
+    @Test
+    public void assignmentOfAUserVariableIsRecognized() {
+        final String[] assign = {
+            "SET @a = 5",
+            "set @a := 5",
+            "SET /* c */ @a = 5",
+            "SET @x = 1, @a = 5",
+            "SET @\"a\" = 5",
+            "SELECT 1 FROM db_root; SET @a = 5",
+            "SELECT @a := 5 FROM db_root",
+            "SELECT @a /* c */ := @a + 1 FROM db_root",
+        };
+        for (String sql : assign) {
+            assertTrue(sql, SessionSetStatement.assignsUserVariable(sql));
+        }
+    }
+
+    @Test
+    public void readOfAUserVariableIsNotAnAssignment() {
+        final String[] read = {
+            "SELECT @a FROM db_root",
+            "SELECT 1 FROM t WHERE @a = 5",
+            "UPDATE t SET v = 1 WHERE k = @a",
+            "SET NAMES utf8; SELECT 1 FROM t WHERE @a = 5",
+            "SELECT '@a := 5' FROM db_root",
+            "SELECT 1 /* SET @a = 5 */ FROM db_root",
+            "SELECT 1 FROM db_root",
+        };
+        for (String sql : read) {
+            assertFalse(sql, SessionSetStatement.assignsUserVariable(sql));
+        }
+    }
 }

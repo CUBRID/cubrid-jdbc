@@ -817,12 +817,14 @@ public class LBStatement extends CUBRIDStatement {
         }
 
         final RouteTarget target = routeFor(sql);
-        Statement statement = createPhyStmt(sql, target);
-
-        CUBRIDOID result = invokeExecInsert(statement, sql);
-        lbConnection.afterStatementSucceeded(sql, target);
-
-        return result;
+        return executeWithFailover(
+                sql,
+                target,
+                new SqlExecution<CUBRIDOID>() {
+                    public CUBRIDOID run() throws SQLException {
+                        return invokeExecInsert(createPhyStmt(sql, target), sql);
+                    }
+                });
     }
 
     private CUBRIDOID invokeExecInsert(final Statement statement, final String sql)

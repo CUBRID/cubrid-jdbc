@@ -658,12 +658,14 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         checkIsOpen();
 
         final RouteTarget target = resolveRouteTarget();
-        PreparedStatement physicalStatement = physicalPsWithParams(target);
-
-        CUBRIDOID oid = invokeExecInsert(physicalStatement);
-        ownerConn.afterStatementSucceeded(sql, target);
-
-        return oid;
+        return statementDelegate.executeWithFailover(
+                sql,
+                target,
+                new SqlExecution<CUBRIDOID>() {
+                    public CUBRIDOID run() throws SQLException {
+                        return invokeExecInsert(physicalPsWithParams(target));
+                    }
+                });
     }
 
     /**

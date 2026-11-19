@@ -231,8 +231,10 @@ public final class ExecuteFailoverHandler {
             // Rebind the endpoint (done above) but do NOT re-run when re-execution is unsafe:
             //  - writes (TO_READ_WRITE): the server may have already applied the statement before
             //    the connection dropped, so replaying risks a duplicate INSERT / double UPDATE.
-            //    Unless connecting failed (ER_CONNECTION): nothing was sent, and core, which
-            //    reconnects before it sends, runs the write on the next host.
+            //    Unless core reports a connect failure (ER_CONNECTION). Core gives that when it
+            //    could not send, and also when an autocommit statement lost its answer and the
+            //    reconnect was refused; with altHosts core sends the request to the next host
+            //    either way, and so does this.
             //  - retrySafe == false: a consumed stream/reader parameter cannot be replayed.
             // In both cases propagate the original exception so the caller decides.
             if (!connection.getLbConfig().isRuntimeFailoverRetryOnce()

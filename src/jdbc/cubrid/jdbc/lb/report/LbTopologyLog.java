@@ -83,7 +83,8 @@ public final class LbTopologyLog {
     private LbTopologyLog() {}
 
     /**
-     * Writes the three records for {@code config} unless an identical URL was already declared.
+     * Writes the three records for {@code config} unless the same URL with the same configuration
+     * was already declared.
      *
      * <p>Never throws: this is a diagnostic aid and must not be able to fail a {@code
      * getConnection}.
@@ -100,26 +101,30 @@ public final class LbTopologyLog {
 
         try {
             String masked = CUBRIDDriver.maskUriUrlPassword(url, info);
-            if (!claim(masked)) {
+            // A property configures LB as a URL option does, so the URL alone does not tell two
+            // configurations apart.
+            String resolved = resolved(config);
+            String options = effectiveOptionsLine(config);
+            if (!claim(masked + '|' + resolved + '|' + options)) {
                 return;
             }
 
             LbLog.info(LOGGER, null, "LB TOPOLOGY: url=" + masked);
-            LbLog.info(LOGGER, null, "LB TOPOLOGY: " + resolved(config));
-            LbLog.info(LOGGER, null, "LB TOPOLOGY: " + effectiveOptionsLine(config));
+            LbLog.info(LOGGER, null, "LB TOPOLOGY: " + resolved);
+            LbLog.info(LOGGER, null, "LB TOPOLOGY: " + options);
         } catch (Exception e) {
             LOGGER.warning("LB TOPOLOGY: cannot render the configuration: " + e);
         }
     }
 
-    private static synchronized boolean claim(final String masked) {
-        if (SEEN.contains(masked)) {
+    private static synchronized boolean claim(final String declared) {
+        if (SEEN.contains(declared)) {
             return false;
         }
         if (SEEN.size() >= MAX_SEEN) {
             SEEN.clear();
         }
-        SEEN.add(masked);
+        SEEN.add(declared);
         return true;
     }
 

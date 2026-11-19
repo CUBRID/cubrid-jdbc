@@ -142,7 +142,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
                 new ParameterBinder(
                         new ParameterBinder.BindCheck() {
                             public PreparedStatement statement() throws SQLException {
-                                return phyPsProvider.preparedForBindCheck();
+                                return bindCheckStatement();
                             }
                         });
         this.sqlCaches = SqlCaches.compute(sql, lbConnection.sqlClassifier());
@@ -171,15 +171,31 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     }
 
     public void prepareEagerly() throws SQLException {
+        prepareEagerly(false);
+    }
+
+    private void prepareEagerly(final boolean forBindCheck) throws SQLException {
         RouteTarget target = resolveRouteTarget();
         if (RouteTarget.TO_READ_ONLY == target) {
-            prepareTolerantOfUnreachable(true);
+            prepareTolerantOfUnreachable(true, forBindCheck);
 
             return;
         }
 
         // RW/UNKNOWN path: prepare on RW only to avoid replica schema lag failures.
-        prepareTolerantOfUnreachable(false);
+        prepareTolerantOfUnreachable(false, forBindCheck);
+    }
+
+    /**
+     * The physical statement a setter or {@code addBatch()} is checked on. One closed under this
+     * statement, as replacing its leg does, is prepared again here, once. A failure of that prepare
+     * is the execution's to report: the check waits for it, as after a deferred prepare.
+     */
+    private PreparedStatement bindCheckStatement() throws SQLException {
+        if (phyPsProvider.takeClosedBindCheck()) {
+            prepareEagerly(true);
+        }
+        return phyPsProvider.preparedForBindCheck();
     }
 
     /**
@@ -188,7 +204,8 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
      * over. Swallow "host down" errors and let the first execute re-prepare through the failover
      * path; any other error still propagates as before.
      */
-    private void prepareTolerantOfUnreachable(final boolean onReadLeg) throws SQLException {
+    private void prepareTolerantOfUnreachable(final boolean onReadLeg, final boolean forBindCheck)
+            throws SQLException {
         ownerConn.settleReadLegRollback(false);
         try {
             if (onReadLeg) {
@@ -198,11 +215,13 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
             }
             rememberPrepared(phyPsProvider.preparedForBindCheck());
         } catch (SQLException ex) {
-            // A malformed reply is core's to report, as its prepareStatement does.
+            // A malformed reply is core's to report, as its prepareStatement does. A setter
+            // reports none of them.
             final boolean reported =
-                    ExecuteFailoverHandler.isMalformedReply(ex)
-                            || !ReconnectPolicy.isRetriableSqlException(ex)
-                                    && !UnreachableEndpoints.shouldMarkUnreachable(ex);
+                    !forBindCheck
+                            && (ExecuteFailoverHandler.isMalformedReply(ex)
+                                    || !ReconnectPolicy.isRetriableSqlException(ex)
+                                            && !UnreachableEndpoints.shouldMarkUnreachable(ex));
             ownerConn.settleReadLegRollback(reported);
             if (reported) {
                 throw ex;
@@ -290,7 +309,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
      * again; {@code executeBatch()} rebuilds the physical batch anyway.
      */
     private void checkAllBound() throws SQLException {
-        final PreparedStatement target = phyPsProvider.preparedForBindCheck();
+        final PreparedStatement target = bindCheckStatement();
         if (target == null) {
             return;
         }
@@ -1293,6 +1312,17 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
          */
         default PreparedStatement preparedForBindCheck() throws SQLException {
             return null;
+        }
+
+        /**
+         * Whether the statement last prepared was closed under this one, which replacing its leg's
+         * connection does. True once for each such statement.
+         *
+         * @return whether a prepare now replaces a closed statement
+         * @throws SQLException if its state cannot be read
+         */
+        default boolean takeClosedBindCheck() throws SQLException {
+            return false;
         }
 
         void closePrepStmts() throws SQLException;

@@ -823,6 +823,14 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                 return lastPrepared != null && !lastPrepared.isClosed() ? lastPrepared : null;
             }
 
+            public boolean takeClosedBindCheck() throws SQLException {
+                if (lastPrepared == null || !lastPrepared.isClosed()) {
+                    return false;
+                }
+                lastPrepared = null;
+                return true;
+            }
+
             public void closePrepStmts() throws SQLException {
                 if (connMgr == null) {
                     return;

@@ -146,6 +146,9 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
                             }
                         });
         this.sqlCaches = SqlCaches.compute(sql, lbConnection.sqlClassifier());
+        if (lbConnection.getSessionState().isReadsPinnedToRw()) {
+            statementDelegate.markPreparedUnderReadPin();
+        }
     }
 
     String getSql() {
@@ -675,12 +678,14 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
 
     /**
      * Prepares this statement on the read leg if it can run there and has no physical statement
-     * there yet; see {@link LoadBalanceConnection#beforeSessionSet}. One that cannot prepares at
-     * its first run there.
+     * there yet; see {@link LoadBalanceConnection#beforeSessionSet}. Not while reads are pinned:
+     * the read leg lacks a session setting then, and every statement that can run there was
+     * prepared there before the pin.
      */
     public void prepareOnReadLeg() {
         try {
             if (!statementDelegate.isClosed()
+                    && !ownerConn.getSessionState().isReadsPinnedToRw()
                     && statementDelegate.mayRunOnReadLeg(sqlCaches.routed)) {
                 phyPsProvider.prepareOnBoundReadEndpoint(sql);
             }

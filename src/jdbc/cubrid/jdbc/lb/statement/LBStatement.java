@@ -102,6 +102,8 @@ public class LBStatement extends CUBRIDStatement {
     // Takes the connection manager's lock, so the router asks only for a statement that would
     // otherwise leave RW.
     private final BooleanSupplier rwTransactionOpen;
+    // Set for a prepared statement made while reads were pinned to RW; see Router.decide.
+    private boolean preparedUnderReadPin;
 
     public LBStatement(LoadBalanceConnection lbConnection) throws SQLException {
         this(lbConnection, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
@@ -1111,7 +1113,15 @@ public class LBStatement extends CUBRIDStatement {
     /** The leg of a statement whose SQL is already read, as a prepared statement's is. */
     RouteDecision routeFor(final RoutedSql sql) {
         return Router.decide(
-                sql, producesUpdatableResults(), lbConnection.getSessionState(), rwTransactionOpen);
+                sql,
+                producesUpdatableResults(),
+                preparedUnderReadPin,
+                lbConnection.getSessionState(),
+                rwTransactionOpen);
+    }
+
+    void markPreparedUnderReadPin() {
+        preparedUnderReadPin = true;
     }
 
     /**
@@ -1121,7 +1131,13 @@ public class LBStatement extends CUBRIDStatement {
     boolean mayRunOnReadLeg(final RoutedSql sql) {
         final SessionRoutingState free = new SessionRoutingState();
         free.setLastStatementOnReadLeg(true);
-        return Router.decide(sql, producesUpdatableResults(), free, NO_RW_TRANSACTION).getTarget()
+        return Router.decide(
+                                sql,
+                                producesUpdatableResults(),
+                                preparedUnderReadPin,
+                                free,
+                                NO_RW_TRANSACTION)
+                        .getTarget()
                 == RouteTarget.TO_READ_ONLY;
     }
 

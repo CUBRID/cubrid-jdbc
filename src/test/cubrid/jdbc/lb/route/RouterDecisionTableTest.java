@@ -59,6 +59,7 @@ public final class RouterDecisionTableTest {
         boolean updatable;
         boolean transactionActive;
         boolean readsPinned;
+        boolean preparedUnderReadPin;
         boolean readsRwVariable;
         boolean previousOnReadLeg;
         boolean rwTransactionOpen;
@@ -77,6 +78,8 @@ public final class RouterDecisionTableTest {
                     + transactionActive
                     + " pinned="
                     + readsPinned
+                    + " preparedUnderPin="
+                    + preparedUnderReadPin
                     + " rwVariable="
                     + readsRwVariable
                     + " previousOnReadLeg="
@@ -102,7 +105,7 @@ public final class RouterDecisionTableTest {
             }
             return RO;
         }
-        if (in.transactionActive || in.readsPinned || in.updatable) {
+        if (in.transactionActive || in.readsPinned || in.preparedUnderReadPin || in.updatable) {
             return RW;
         }
         if (in.classification == SqlClassification.WRITE
@@ -128,7 +131,7 @@ public final class RouterDecisionTableTest {
         for (TargetHint hint : HINTS) {
             for (boolean changesSession : BOTH) {
                 for (SqlClassification classification : SqlClassification.values()) {
-                    for (int flags = 0; flags < 64; flags++) {
+                    for (int flags = 0; flags < 128; flags++) {
                         final Input in = new Input();
                         in.hint = hint;
                         in.changesSession = changesSession;
@@ -139,6 +142,7 @@ public final class RouterDecisionTableTest {
                         in.readsRwVariable = (flags & 8) != 0;
                         in.previousOnReadLeg = (flags & 16) != 0;
                         in.rwTransactionOpen = (flags & 32) != 0;
+                        in.preparedUnderReadPin = (flags & 64) != 0;
 
                         final Router.RouteDecision decision = decide(in);
                         assertEquals(in.toString(), expected(in), decision.getTarget());
@@ -148,7 +152,7 @@ public final class RouterDecisionTableTest {
                 }
             }
         }
-        assertEquals(1536, combinations);
+        assertEquals(3072, combinations);
     }
 
     /** The line of the table that decides. */
@@ -168,7 +172,7 @@ public final class RouterDecisionTableTest {
         if (in.transactionActive) {
             return RouteRule.TRANSACTION;
         }
-        if (in.readsPinned) {
+        if (in.readsPinned || in.preparedUnderReadPin) {
             return RouteRule.READ_PIN;
         }
         if (in.updatable) {
@@ -217,6 +221,7 @@ public final class RouterDecisionTableTest {
                             }
                         }),
                 in.updatable,
+                in.preparedUnderReadPin,
                 session,
                 new BooleanSupplier() {
                     public boolean getAsBoolean() {

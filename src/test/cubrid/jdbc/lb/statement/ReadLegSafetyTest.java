@@ -426,18 +426,25 @@ public class ReadLegSafetyTest {
                 "ro", "SELECT * FROM t WHERE s = ?", "SET NAMES utf8 COLLATE utf8_bin");
     }
 
-    /** The same when reads were pinned to RW at the prepare and a later SET releases the pin. */
+    /**
+     * While reads are pinned the read leg lacks a session setting, so a statement prepared then
+     * cannot be compiled there as core compiled it. It stays on RW after the pin is released.
+     */
     @Test
-    public void readStatementPreparedWhileReadsWerePinnedIsPreparedOnTheReadLegBeforeASet()
-            throws SQLException {
+    public void readStatementPreparedWhileReadsWerePinnedStaysOnRw() throws SQLException {
         conn.createStatement().executeQuery("SELECT 1");
         PreparedStatement bound = conn.prepareStatement("SET TIMEZONE ?");
         bound.setString(1, "UTC");
         bound.execute();
-        conn.prepareStatement("SELECT * FROM t WHERE s = ?");
+        PreparedStatement read = conn.prepareStatement("SELECT * FROM t WHERE s = ?");
         conn.createStatement().execute("SET TIMEZONE 'UTC'");
+        read.setString(1, "a");
+        read.executeQuery();
+        conn.createStatement().executeQuery("SELECT 2");
 
-        assertPreparedBefore("ro", "SELECT * FROM t WHERE s = ?", "SET TIMEZONE 'UTC'");
+        assertEquals(1, legs.count("rw", "SELECT * FROM t WHERE s = ?"));
+        assertEquals(-1, legs.timeline("ro").indexOf("prepare SELECT * FROM t WHERE s = ?"));
+        assertEquals(1, legs.count("ro", "SELECT 2"));
     }
 
     /** A statement that never runs on the read leg is not prepared there. */

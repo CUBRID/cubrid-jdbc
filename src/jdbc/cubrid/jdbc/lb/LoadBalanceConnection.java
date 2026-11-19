@@ -708,6 +708,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                         : Router.decide(
                                 RoutedSql.of(rawSql, sqlClassifier),
                                 false,
+                                false,
                                 sessionState,
                                 rwTransactionOpen);
         if (target == RouteTarget.TO_READ_WRITE) {

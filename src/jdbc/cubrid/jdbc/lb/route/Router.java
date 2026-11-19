@@ -85,6 +85,8 @@ public final class Router {
      *
      * @param sql the statement
      * @param updatableResults whether the statement makes updatable result sets
+     * @param preparedUnderReadPin whether the statement was prepared while reads were pinned: the
+     *     read leg lacked a session setting then, and cannot compile it as core did
      * @param session the session routing state
      * @param rwTransactionOpen whether the write leg holds an open autocommit transaction; asked
      *     only for a statement that would otherwise leave RW
@@ -93,6 +95,7 @@ public final class Router {
     public static RouteDecision decide(
             final RoutedSql sql,
             final boolean updatableResults,
+            final boolean preparedUnderReadPin,
             final SessionRoutingState session,
             final BooleanSupplier rwTransactionOpen) {
         final HintSet.TargetHint hint = sql.getHint();
@@ -115,7 +118,7 @@ public final class Router {
         if (session.shouldRouteToRw()) {
             return rw(RouteRule.TRANSACTION, sql);
         }
-        if (session.isReadsPinnedToRw()) {
+        if (session.isReadsPinnedToRw() || preparedUnderReadPin) {
             return rw(RouteRule.READ_PIN, sql);
         }
         if (updatableResults) {

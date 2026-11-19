@@ -38,7 +38,10 @@ public enum RouteRule {
     HINT,
     /** A {@code TO_RO} string that changes the session runs on RW. */
     SESSION_SET_IN_HINTED_STRING,
-    /** A session change the read leg does not have keeps reads on RW. */
+    /**
+     * A session change the read leg does not have keeps reads on RW, and a statement prepared under
+     * one for as long as it lives.
+     */
     READ_PIN,
     /** An updatable result set writes through its statement. */
     UPDATABLE_RESULT,

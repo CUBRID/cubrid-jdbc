@@ -143,6 +143,6 @@ public class HintChecklistTest {
 
     private static Router.RouteDecision decide(
             final String sql, final SessionRoutingState state, final SqlClassifier classifier) {
-        return Router.decide(RoutedSql.of(sql, classifier), false, state, NOT_OPEN);
+        return Router.decide(RoutedSql.of(sql, classifier), false, false, state, NOT_OPEN);
     }
 }

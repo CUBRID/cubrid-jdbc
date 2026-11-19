@@ -66,7 +66,6 @@ public class LBPreparedStatementTest {
                 (LBPreparedStatement) conn.prepareStatement("SELECT id FROM t WHERE id = ?");
         assertEquals("SELECT id FROM t WHERE id = ?", ps.getSql());
         assertSame(conn, ps.getOwnerConn());
-        assertNotNull(ps.getSessState());
         assertNotNull(ps.getParameterBinder());
     }
 

@@ -39,9 +39,9 @@ import cubrid.jdbc.lb.LbExceptions;
 import cubrid.jdbc.lb.LoadBalanceConnection;
 import cubrid.jdbc.lb.failover.ExecuteFailoverHandler;
 import cubrid.jdbc.lb.failover.ExecuteFailoverHandler.SqlExecution;
+import cubrid.jdbc.lb.route.RoutedSql;
 import cubrid.jdbc.lb.route.Router;
 import cubrid.jdbc.lb.route.Router.RouteTarget;
-import cubrid.jdbc.lb.sql.SqlClassification;
 import cubrid.sql.CUBRIDOID;
 import java.sql.BatchUpdateException;
 import java.sql.Connection;
@@ -52,6 +52,7 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.BooleanSupplier;
 
 /**
  * Logical Statement that delegates SQL execution to a physical statement on the connection the
@@ -89,6 +90,9 @@ public class LBStatement extends CUBRIDStatement {
     private PhysicalStmtProvider stmtProvider = new UnsupportedStmtProvider();
     // True while a READ the read-only broker refused runs again on RW (see executeWithFailover).
     private boolean rejectedReadRetry = false;
+    // Takes the connection manager's lock, so the router asks only for a statement that would
+    // otherwise leave RW.
+    private final BooleanSupplier rwTransactionOpen;
 
     public LBStatement(LoadBalanceConnection lbConnection) throws SQLException {
         this(lbConnection, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
@@ -112,6 +116,12 @@ public class LBStatement extends CUBRIDStatement {
             throws SQLException {
         super(lbConnection, resultSetType, resultSetConcurrency);
         this.lbConnection = lbConnection;
+        this.rwTransactionOpen =
+                new BooleanSupplier() {
+                    public boolean getAsBoolean() {
+                        return lbConnection.isRwTxOpenInAutoCommit();
+                    }
+                };
         this.resultSetType = resultSetType;
         this.resultSetConcurrency = resultSetConcurrency;
         this.resultSetHoldability = lbConnection.statementHoldability(resultSetHoldability);
@@ -1062,30 +1072,17 @@ public class LBStatement extends CUBRIDStatement {
     }
 
     private RouteTarget routeFor(final String sql) {
-        return lbConnection.keepReadOnRwWhileTxOpen(
-                Router.decide(
-                                sql,
-                                lbConnection.getSessionState(),
-                                new Router.DefaultRouteAdvisor() {
-                                    public RouteTarget defaultTarget(final String rawSql) {
-                                        if (producesUpdatableResults()) {
-                                            return RouteTarget.TO_READ_WRITE;
-                                        }
-                                        SqlClassification classification =
-                                                lbConnection.sqlClassifier().classify(rawSql);
-                                        if (SqlClassification.READ == classification) {
-                                            return RouteTarget.TO_READ_ONLY;
-                                        }
-                                        if (SqlClassification.READ_ON_PREVIOUS_LEG
-                                                == classification) {
-                                            return Router.previousStatementLeg(
-                                                    lbConnection.getSessionState());
-                                        }
+        return routeFor(RoutedSql.of(sql, lbConnection.sqlClassifier()));
+    }
 
-                                        return RouteTarget.TO_READ_WRITE;
-                                    }
-                                })
-                        .getTarget());
+    /** The leg of a statement whose SQL is already read, as a prepared statement's is. */
+    RouteTarget routeFor(final RoutedSql sql) {
+        return Router.decide(
+                        sql,
+                        producesUpdatableResults(),
+                        lbConnection.getSessionState(),
+                        rwTransactionOpen)
+                .getTarget();
     }
 
     private void closePhyStmts() throws SQLException {

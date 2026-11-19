@@ -39,13 +39,9 @@ import cubrid.jdbc.lb.LoadBalanceConnection;
 import cubrid.jdbc.lb.failover.ExecuteFailoverHandler;
 import cubrid.jdbc.lb.failover.ExecuteFailoverHandler.SqlExecution;
 import cubrid.jdbc.lb.failover.UnreachableEndpoints;
-import cubrid.jdbc.lb.route.Router;
+import cubrid.jdbc.lb.route.RoutedSql;
 import cubrid.jdbc.lb.route.Router.RouteTarget;
-import cubrid.jdbc.lb.sql.HintParser;
-import cubrid.jdbc.lb.sql.HintSet;
-import cubrid.jdbc.lb.sql.SqlClassification;
 import cubrid.jdbc.lb.sql.SqlClassifier;
-import cubrid.jdbc.lb.state.SessionRoutingState;
 import cubrid.sql.CUBRIDOID;
 import cubrid.sql.CUBRIDTimestamptz;
 import java.io.InputStream;
@@ -97,7 +93,6 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     private final LoadBalanceConnection ownerConn;
     // What core's prepare reports in hasResultSet(); core keeps it after close, so this does too.
     private boolean firstResultType;
-    private final SessionRoutingState sessState;
     private final ParameterBinder parameterBinder;
     private final List<ParameterBinder> batchedBinders = new ArrayList<ParameterBinder>();
     private PhysicalPsProvider phyPsProvider = new UnsupportedPsProvider();
@@ -142,7 +137,6 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         this.statementDelegate = statementDelegate;
         this.sql = sql;
         this.ownerConn = lbConnection;
-        this.sessState = lbConnection.getSessionState();
         this.parameterBinder =
                 new ParameterBinder(
                         new ParameterBinder.BindCheck() {
@@ -150,11 +144,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
                                 return phyPsProvider.preparedForBindCheck();
                             }
                         });
-        this.sqlCaches =
-                SqlCaches.compute(
-                        sql,
-                        lbConnection.sqlClassifier(),
-                        statementDelegate.producesUpdatableResults());
+        this.sqlCaches = SqlCaches.compute(sql, lbConnection.sqlClassifier());
     }
 
     String getSql() {
@@ -163,10 +153,6 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
 
     LoadBalanceConnection getOwnerConn() {
         return ownerConn;
-    }
-
-    SessionRoutingState getSessState() {
-        return sessState;
     }
 
     ParameterBinder getParameterBinder() {
@@ -1118,15 +1104,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     }
 
     private RouteTarget resolveRouteTarget() {
-        // Routing precedence lives in Router.decide(); this only supplies the per-instance caches
-        // (hint and classification precomputed at prepare time) so the hot execute path avoids
-        // re-running HintParser.parse() and SqlClassifier.classify().
-        final RouteTarget defaultTarget =
-                sqlCaches.followsPreviousStatement
-                        ? Router.previousStatementLeg(sessState)
-                        : sqlCaches.defaultTarget;
-        return ownerConn.keepReadOnRwWhileTxOpen(
-                Router.decide(sqlCaches.targetFromHint, defaultTarget, sessState, sql));
+        return statementDelegate.routeFor(sqlCaches.routed);
     }
 
     private PreparedStatement physicalPsWithParams(final RouteTarget target) throws SQLException {
@@ -1203,42 +1181,17 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     }
 
     private static final class SqlCaches {
-        final RouteTarget targetFromHint;
-
-        final RouteTarget defaultTarget;
-
-        /** Whether the default target is the leg the previous statement ran on, at execution. */
-        final boolean followsPreviousStatement;
+        final RoutedSql routed;
 
         final int expectedParameterCount;
 
-        private SqlCaches(
-                final RouteTarget targetFromHint,
-                final RouteTarget defaultTarget,
-                final boolean followsPreviousStatement,
-                final int expectedParameterCount) {
-            this.targetFromHint = targetFromHint;
-            this.defaultTarget = defaultTarget;
-            this.followsPreviousStatement = followsPreviousStatement;
+        private SqlCaches(final RoutedSql routed, final int expectedParameterCount) {
+            this.routed = routed;
             this.expectedParameterCount = expectedParameterCount;
         }
 
-        static SqlCaches compute(
-                final String sql, final SqlClassifier classifier, final boolean updatable) {
-            final HintSet hints = HintParser.parse(sql);
-
-            final RouteTarget targetFromHint =
-                    hints.hasTargetHint() ? Router.mapTargetHint(hints.getTargetHint(), sql) : null;
-            final SqlClassification classification = classifier.classify(sql);
-
-            final RouteTarget defaultTarget =
-                    SqlClassification.READ == classification && !updatable
-                            ? RouteTarget.TO_READ_ONLY
-                            : RouteTarget.TO_READ_WRITE;
-            final boolean followsPrevious =
-                    SqlClassification.READ_ON_PREVIOUS_LEG == classification && !updatable;
-            return new SqlCaches(
-                    targetFromHint, defaultTarget, followsPrevious, countParamPlaceholders(sql));
+        static SqlCaches compute(final String sql, final SqlClassifier classifier) {
+            return new SqlCaches(RoutedSql.of(sql, classifier), countParamPlaceholders(sql));
         }
     }
 

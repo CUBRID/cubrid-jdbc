@@ -284,7 +284,7 @@ final class RoutingMetricsRecorder {
             if (sessionState.isTransactionActive() && HintSet.TargetHint.TO_RO == hint) {
                 return "txPin(hint=" + hint + ")";
             }
-            // So is one on a string that changes the session (Router.mapTargetHint).
+            // So is one on a string that changes the session (RoutedSql.changesSession).
             if (HintSet.TargetHint.TO_RO == hint
                     && SessionSetStatement.parse(sql).changesSession()) {
                 return "sessionSet(hint=" + hint + ")";

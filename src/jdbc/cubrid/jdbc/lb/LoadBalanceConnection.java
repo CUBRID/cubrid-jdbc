@@ -653,16 +653,9 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      * next statement on that connection completes. While the write leg's CAS reports one, a read
      * runs there too, so core ends it as it would on its single connection.
      *
-     * @param target the target the statement's routing chose
-     * @return {@code TO_READ_WRITE} for such a read, otherwise {@code target}
+     * @return whether the write leg reports an open transaction in autocommit
      */
-    public RouteTarget keepReadOnRwWhileTxOpen(final RouteTarget target) {
-        return target == RouteTarget.TO_READ_ONLY && rwHoldsOpenAutoCommitTx()
-                ? RouteTarget.TO_READ_WRITE
-                : target;
-    }
-
-    private boolean rwHoldsOpenAutoCommitTx() {
+    public boolean isRwTxOpenInAutoCommit() {
         return sessionState.isAutoCommit()
                 && isSessionInitialized()
                 && connMgr != null
@@ -3455,7 +3448,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      */
     private String readPinReason(final String rawSql, final String reason) {
         final boolean pinned = sessionState.isReadsPinnedToRw();
-        final boolean rwTxOpen = rwHoldsOpenAutoCommitTx();
+        final boolean rwTxOpen = isRwTxOpenInAutoCommit();
         if (!FallbackReason.NONE.equals(reason)
                 || (!pinned && !rwTxOpen && sessionState.getSessionVariables().isEmpty())
                 || sessionState.isTransactionActive()

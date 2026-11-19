@@ -30,27 +30,18 @@
 
 package cubrid.jdbc.lb.route;
 
-import cubrid.jdbc.lb.sql.HintParser;
 import cubrid.jdbc.lb.sql.HintSet;
 import cubrid.jdbc.lb.sql.IntoVariables;
-import cubrid.jdbc.lb.sql.SessionSetStatement;
+import cubrid.jdbc.lb.sql.SqlClassification;
 import cubrid.jdbc.lb.state.SessionRoutingState;
 import java.util.Set;
+import java.util.function.BooleanSupplier;
 
 /**
- * SQL routing with fixed precedence: {@code Transaction > Hint > Session read pin > Default}.
+ * Decides the leg of one statement. {@link #decide} is the whole precedence, top to bottom, and the
+ * {@link RouteRule} it returns names the line that decided.
  *
- * <p>A target hint decides the route, except while a transaction is active: then every target hint
- * is overridden to RW, because a transaction must not leave the bound RW connection. That makes
- * {@code TO_RO} invalid inside a transaction; for {@code TO_RW} the override changes nothing. A
- * {@code TO_RO} string that changes the session runs on RW too ({@link #mapTargetHint}). With no
- * hint, an active transaction or a session read pin ({@link SessionRoutingState#isReadsPinnedToRw})
- * sends the statement to RW, otherwise the default advisor (READ/WRITE classification) decides. A
- * read naming a variable an {@code INTO/TO} clause left on the write leg ({@link
- * SessionRoutingState#getSessionVariables}) goes to RW, where it lives.
- *
- * <p>Routing is stateless: {@link SessionRoutingState} is only read, and the input SQL is returned
- * verbatim on the decision.
+ * <p>Routing is stateless: {@link SessionRoutingState} is only read.
  */
 public final class Router {
     public enum RouteTarget {
@@ -60,13 +51,12 @@ public final class Router {
 
     public static final class RouteDecision {
         private final RouteTarget target;
-        private final String sql;
+        private final RouteRule rule;
+        private final RoutedSql sql;
 
-        private RouteDecision(RouteTarget target, String sql) {
-            if (target == null) {
-                throw new IllegalArgumentException("RouteTarget must not be null");
-            }
+        private RouteDecision(final RouteTarget target, final RouteRule rule, final RoutedSql sql) {
             this.target = target;
+            this.rule = rule;
             this.sql = sql;
         }
 
@@ -74,132 +64,86 @@ public final class Router {
             return target;
         }
 
-        String getSql() {
+        public RouteRule getRule() {
+            return rule;
+        }
+
+        public RoutedSql getSql() {
             return sql;
         }
     }
 
-    public interface DefaultRouteAdvisor {
-        RouteTarget defaultTarget(String sql);
-    }
-
     private Router() {}
 
-    public static RouteDecision decide(
-            final String sql,
-            final SessionRoutingState session,
-            final DefaultRouteAdvisor defaultAdvisor) {
-        if (session == null) {
-            throw new IllegalArgumentException("SessionRoutingState must not be null");
-        }
-        if (defaultAdvisor == null) {
-            throw new IllegalArgumentException("DefaultRouteAdvisor must not be null");
-        }
-
-        final String effectiveSql = sql == null ? "" : sql;
-
-        final HintSet hints = HintParser.parse(effectiveSql);
-
-        if (hints.hasTargetHint()) {
-            final RouteTarget mapped = mapTargetHint(hints.getTargetHint(), effectiveSql);
-            // An active transaction overrides every target hint: the statement must not leave the
-            // bound RW connection. Testing the transaction rather than the target keeps this
-            // fail-closed if another target is ever added; for TO_RW the override is a no-op.
-            if (session.isTransactionActive()) {
-                return new RouteDecision(RouteTarget.TO_READ_WRITE, effectiveSql);
-            }
-            return new RouteDecision(mapped, effectiveSql);
-        }
-
-        if (session.shouldRouteToRw() || session.isReadsPinnedToRw()) {
-            return new RouteDecision(RouteTarget.TO_READ_WRITE, effectiveSql);
-        }
-
-        return new RouteDecision(
-                followSessionVariables(
-                        defaultAdvisor.defaultTarget(effectiveSql), effectiveSql, session),
-                effectiveSql);
-    }
-
     /**
-     * Same precedence as {@link #decide(String, SessionRoutingState, DefaultRouteAdvisor)}, but
-     * from values the caller already parsed and cached. A hot execute path (e.g. {@code
-     * LBPreparedStatement}) can then skip {@link HintParser} and the classifier while the routing
-     * rule stays defined in one place.
+     * The leg {@code sql} runs on. A transaction does not leave its RW connection, whatever the
+     * hint. Outside one a hint decides, except that a {@code TO_RO} string that changes the session
+     * runs on RW, as core runs it in its one session. With no hint, a session read pin, an
+     * updatable result and the classification decide; a read then stays on RW to follow a variable
+     * the session created there, or while core left an autocommit transaction open there.
      *
-     * @param targetFromHint target-hint already mapped via {@link #mapTargetHint}, or {@code null}
-     * @param defaultTarget target to use when there is no hint and no active transaction
-     * @param session the session routing state consulted for an active transaction
-     * @param sql the statement, checked for session variables only when the session has some
-     * @return the resolved route target
-     */
-    public static RouteTarget decide(
-            final RouteTarget targetFromHint,
-            final RouteTarget defaultTarget,
-            final SessionRoutingState session,
-            final String sql) {
-        if (session == null) {
-            throw new IllegalArgumentException("SessionRoutingState must not be null");
-        }
-
-        if (targetFromHint != null) {
-            if (session.isTransactionActive()) {
-                return RouteTarget.TO_READ_WRITE;
-            }
-            return targetFromHint;
-        }
-
-        if (session.shouldRouteToRw() || session.isReadsPinnedToRw()) {
-            return RouteTarget.TO_READ_WRITE;
-        }
-
-        return followSessionVariables(defaultTarget, sql, session);
-    }
-
-    /** RW for a read that names a variable the session created on the write leg. */
-    private static RouteTarget followSessionVariables(
-            final RouteTarget target, final String sql, final SessionRoutingState session) {
-        final Set<String> variables = session.getSessionVariables();
-        if (target == RouteTarget.TO_READ_ONLY
-                && !variables.isEmpty()
-                && IntoVariables.isReferencedIn(sql, variables)) {
-            return RouteTarget.TO_READ_WRITE;
-        }
-        return target;
-    }
-
-    /**
-     * The default target of a read that reports on the statement before it ({@code
-     * READ_ON_PREVIOUS_LEG}): the leg that statement ran on.
-     *
+     * @param sql the statement
+     * @param updatableResults whether the statement makes updatable result sets
      * @param session the session routing state
-     * @return the leg the session's last successful statement ran on
+     * @param rwTransactionOpen whether the write leg holds an open autocommit transaction; asked
+     *     only for a statement that would otherwise leave RW
+     * @return the leg and the rule that chose it
      */
-    public static RouteTarget previousStatementLeg(final SessionRoutingState session) {
-        return session.isLastStatementOnReadLeg()
-                ? RouteTarget.TO_READ_ONLY
-                : RouteTarget.TO_READ_WRITE;
+    public static RouteDecision decide(
+            final RoutedSql sql,
+            final boolean updatableResults,
+            final SessionRoutingState session,
+            final BooleanSupplier rwTransactionOpen) {
+        final HintSet.TargetHint hint = sql.getHint();
+        if (hint != null) {
+            if (session.isTransactionActive()) {
+                return rw(RouteRule.TRANSACTION, sql);
+            }
+            if (hint == HintSet.TargetHint.TO_RW) {
+                return rw(RouteRule.HINT, sql);
+            }
+            if (sql.changesSession()) {
+                return rw(RouteRule.SESSION_SET_IN_HINTED_STRING, sql);
+            }
+            if (rwTransactionOpen.getAsBoolean()) {
+                return rw(RouteRule.RW_TRANSACTION_OPEN, sql);
+            }
+            return ro(RouteRule.HINT, sql);
+        }
+
+        if (session.shouldRouteToRw()) {
+            return rw(RouteRule.TRANSACTION, sql);
+        }
+        if (session.isReadsPinnedToRw()) {
+            return rw(RouteRule.READ_PIN, sql);
+        }
+        if (updatableResults) {
+            return rw(RouteRule.UPDATABLE_RESULT, sql);
+        }
+
+        final SqlClassification classification = sql.getClassification();
+        final boolean followsPrevious = classification == SqlClassification.READ_ON_PREVIOUS_LEG;
+        if (classification != SqlClassification.READ && !followsPrevious) {
+            return rw(RouteRule.CLASSIFICATION, sql);
+        }
+        if (followsPrevious && !session.isLastStatementOnReadLeg()) {
+            return rw(RouteRule.PREVIOUS_STATEMENT, sql);
+        }
+        final Set<String> variables = session.getSessionVariables();
+        if (!variables.isEmpty() && IntoVariables.isReferencedIn(sql.getText(), variables)) {
+            return rw(RouteRule.SESSION_VARIABLE, sql);
+        }
+        if (rwTransactionOpen.getAsBoolean()) {
+            return rw(RouteRule.RW_TRANSACTION_OPEN, sql);
+        }
+        return ro(followsPrevious ? RouteRule.PREVIOUS_STATEMENT : RouteRule.CLASSIFICATION, sql);
     }
 
-    /**
-     * The target a hint asks for. A {@code TO_RO} string that changes the session runs on RW: core
-     * runs it in its one session, and a change made on the read leg alone would reach neither RW
-     * nor the read legs opened later.
-     *
-     * @param hint the target hint
-     * @param sql the statement carrying it
-     * @return the target
-     */
-    public static RouteTarget mapTargetHint(final HintSet.TargetHint hint, final String sql) {
-        switch (hint) {
-            case TO_RW:
-                return RouteTarget.TO_READ_WRITE;
-            case TO_RO:
-                return SessionSetStatement.parse(sql).changesSession()
-                        ? RouteTarget.TO_READ_WRITE
-                        : RouteTarget.TO_READ_ONLY;
-            default:
-                throw new IllegalArgumentException("Unsupported target hint: " + hint);
-        }
+    private static RouteDecision rw(final RouteRule rule, final RoutedSql sql) {
+        return new RouteDecision(RouteTarget.TO_READ_WRITE, rule, sql);
+    }
+
+    private static RouteDecision ro(final RouteRule rule, final RoutedSql sql) {
+        return new RouteDecision(RouteTarget.TO_READ_ONLY, rule, sql);
     }
 }

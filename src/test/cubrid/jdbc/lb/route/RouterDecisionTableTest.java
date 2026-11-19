@@ -35,8 +35,10 @@ import static org.junit.Assert.assertEquals;
 import cubrid.jdbc.lb.route.Router.RouteTarget;
 import cubrid.jdbc.lb.sql.HintSet.TargetHint;
 import cubrid.jdbc.lb.sql.SqlClassification;
+import cubrid.jdbc.lb.sql.SqlClassifier;
 import cubrid.jdbc.lb.state.SessionRoutingState;
 import java.util.Collections;
+import java.util.function.BooleanSupplier;
 import org.junit.Test;
 
 /**
@@ -134,7 +136,9 @@ public final class RouterDecisionTableTest {
                         in.previousOnReadLeg = (flags & 16) != 0;
                         in.rwTransactionOpen = (flags & 32) != 0;
 
-                        assertEquals(in.toString(), expected(in), decide(in));
+                        final Router.RouteDecision decision = decide(in);
+                        assertEquals(in.toString(), expected(in), decision.getTarget());
+                        assertEquals(in.toString(), rule(in), decision.getRule());
                         combinations++;
                     }
                 }
@@ -143,7 +147,47 @@ public final class RouterDecisionTableTest {
         assertEquals(1536, combinations);
     }
 
-    private static RouteTarget decide(final Input in) {
+    /** The line of the table that decides. */
+    private static RouteRule rule(final Input in) {
+        if (in.hint != null) {
+            if (in.transactionActive) {
+                return RouteRule.TRANSACTION;
+            }
+            if (in.hint == TargetHint.TO_RW) {
+                return RouteRule.HINT;
+            }
+            if (in.changesSession) {
+                return RouteRule.SESSION_SET_IN_HINTED_STRING;
+            }
+            return in.rwTransactionOpen ? RouteRule.RW_TRANSACTION_OPEN : RouteRule.HINT;
+        }
+        if (in.transactionActive) {
+            return RouteRule.TRANSACTION;
+        }
+        if (in.readsPinned) {
+            return RouteRule.READ_PIN;
+        }
+        if (in.updatable) {
+            return RouteRule.UPDATABLE_RESULT;
+        }
+        if (in.classification == SqlClassification.WRITE
+                || in.classification == SqlClassification.UNKNOWN) {
+            return RouteRule.CLASSIFICATION;
+        }
+        final boolean previous = in.classification == SqlClassification.READ_ON_PREVIOUS_LEG;
+        if (previous && !in.previousOnReadLeg) {
+            return RouteRule.PREVIOUS_STATEMENT;
+        }
+        if (in.readsRwVariable) {
+            return RouteRule.SESSION_VARIABLE;
+        }
+        if (in.rwTransactionOpen) {
+            return RouteRule.RW_TRANSACTION_OPEN;
+        }
+        return previous ? RouteRule.PREVIOUS_STATEMENT : RouteRule.CLASSIFICATION;
+    }
+
+    private static Router.RouteDecision decide(final Input in) {
         final SessionRoutingState session = new SessionRoutingState();
         if (in.transactionActive) {
             session.setAutoCommit(false);
@@ -160,27 +204,20 @@ public final class RouterDecisionTableTest {
                         + (in.readsRwVariable ? "v" : "1")
                         + " FROM t"
                         + (in.changesSession ? "; SET NAMES utf8" : "");
-        final RouteTarget target =
-                Router.decide(
-                                sql,
-                                session,
-                                new Router.DefaultRouteAdvisor() {
-                                    public RouteTarget defaultTarget(final String rawSql) {
-                                        if (in.updatable) {
-                                            return RW;
-                                        }
-                                        if (in.classification == SqlClassification.READ) {
-                                            return RO;
-                                        }
-                                        if (in.classification
-                                                == SqlClassification.READ_ON_PREVIOUS_LEG) {
-                                            return Router.previousStatementLeg(session);
-                                        }
-                                        return RW;
-                                    }
-                                })
-                        .getTarget();
-        // As LoadBalanceConnection.keepReadOnRwWhileTxOpen, which needs a bound connection.
-        return target == RO && in.rwTransactionOpen ? RW : target;
+        return Router.decide(
+                RoutedSql.of(
+                        sql,
+                        new SqlClassifier() {
+                            public SqlClassification classify(final String text) {
+                                return in.classification;
+                            }
+                        }),
+                in.updatable,
+                session,
+                new BooleanSupplier() {
+                    public boolean getAsBoolean() {
+                        return in.rwTransactionOpen;
+                    }
+                });
     }
 }

@@ -3271,9 +3271,10 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     /**
-     * Records a batch the server answered with a {@link java.sql.BatchUpdateException}. Its leg is
-     * where a following {@code ROW_COUNT()} goes, as on core, and each entry whose count is not
-     * {@link Statement#EXECUTE_FAILED} changed the session as it would have alone.
+     * Records a batch the server answered with a {@link java.sql.BatchUpdateException}. Each entry
+     * whose count is not {@link Statement#EXECUTE_FAILED} changed the session as it would have
+     * alone, and is the statement a following {@code ROW_COUNT()} reports on; a batch in which
+     * every entry failed leaves that with the statement before it, as on core.
      *
      * @param sqls the batch entries, in order
      * @param counts the update counts the server answered, possibly {@code null}
@@ -3281,7 +3282,6 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      */
     public void afterBatchAnswered(
             final List<String> sqls, final int[] counts, final RouteTarget ranOn) {
-        sessionState.setLastStatementOnReadLeg(ranOn == RouteTarget.TO_READ_ONLY);
         final int answered = counts == null ? 0 : Math.min(sqls.size(), counts.length);
         for (int i = 0; i < answered; i++) {
             if (counts[i] == Statement.EXECUTE_FAILED) {

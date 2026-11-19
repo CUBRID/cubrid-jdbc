@@ -177,6 +177,8 @@ public final class RowCountRoutingTest {
         statement.executeQuery("SELECT v FROM t");
         insert.setInt(1, 1);
         insert.addBatch();
+        insert.setInt(1, 2);
+        insert.addBatch();
         try {
             insert.executeBatch();
             fail("expected the batch's BatchUpdateException");
@@ -185,6 +187,66 @@ public final class RowCountRoutingTest {
         statement.executeQuery("SELECT ROW_COUNT()");
 
         assertEquals(Arrays.asList(RO, RW), targets);
+    }
+
+    /**
+     * Core's ROW_COUNT() reports the last statement that ran, so a batch in which every entry
+     * failed leaves it with the statement before the batch, on that statement's leg.
+     */
+    @Test
+    public void rowCountDoesNotFollowABatchWhoseEntriesAllFailed() throws SQLException {
+        final List<RouteTarget> targets = new ArrayList<RouteTarget>();
+        LBStatement statement = recordingStatement(createBoundSessionConnection(), targets);
+
+        statement.executeQuery("SELECT v FROM t");
+        statement.addBatch("INSERT INTO no_such VALUES (1)");
+        try {
+            statement.executeBatch();
+            fail("expected the batch's BatchUpdateException");
+        } catch (BatchUpdateException expected) {
+        }
+        statement.executeQuery("SELECT ROW_COUNT()");
+
+        assertEquals(Arrays.asList(RO, RW, RO), targets);
+    }
+
+    /**
+     * Core sends no batch for a prepared statement without parameters and answers no counts, so
+     * that batch is not the statement before a ROW_COUNT().
+     */
+    @Test
+    public void rowCountDoesNotFollowAPreparedBatchCoreDidNotSend() throws SQLException {
+        LoadBalanceConnection connection = createBoundSessionConnection();
+        final List<RouteTarget> targets = new ArrayList<RouteTarget>();
+        LBStatement statement = recordingStatement(connection, targets);
+        LBPreparedStatement insert =
+                new LBPreparedStatement(connection, "INSERT INTO t VALUES (1)");
+        insert.setPsProvider(
+                new LBPreparedStatement.PhysicalPsProvider() {
+                    public PreparedStatement getPreparedStatement(
+                            final RouteTarget target, final String rawSql) {
+                        return new FakePhysicalPreparedStatement() {
+                            @Override
+                            protected Object dispatch(final String name, final Object[] args) {
+                                return "executeBatch".equals(name) ? new int[0] : null;
+                            }
+                        };
+                    }
+
+                    public void prepareOnBoundReadEndpoint(final String rawSql) {}
+
+                    public void prepareOnWriteEndpoint(final String rawSql) {}
+
+                    public void closePrepStmts() {}
+                });
+
+        statement.executeUpdate("UPDATE t SET v = v + 1");
+        statement.executeQuery("SELECT v FROM t");
+        insert.addBatch();
+        assertEquals(0, insert.executeBatch().length);
+        statement.executeQuery("SELECT ROW_COUNT()");
+
+        assertEquals(Arrays.asList(RW, RO, RO), targets);
     }
 
     private static BatchUpdateException partlyFailedBatch() {
@@ -209,7 +271,13 @@ public final class RowCountRoutingTest {
                                     throw new SQLException("nope is not defined", null, -494);
                                 }
                                 if ("executeBatch".equals(name)) {
-                                    throw partlyFailedBatch();
+                                    throw rawSql.contains("no_such")
+                                            ? new BatchUpdateException(
+                                                    "no such table",
+                                                    null,
+                                                    -493,
+                                                    new int[] {Statement.EXECUTE_FAILED})
+                                            : partlyFailedBatch();
                                 }
                                 return null;
                             }

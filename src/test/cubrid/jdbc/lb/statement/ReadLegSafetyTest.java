@@ -622,13 +622,16 @@ public class ReadLegSafetyTest {
         assertEquals(Arrays.asList("SELECT 1", "SET NAMES euckr", "SELECT 2"), legs.log("ro"));
     }
 
+    /** A prepared batch is sent only with values, and a SET with a bound value pins. */
     @Test
-    public void setThatRanInAFailedPreparedBatchIsReplayed() throws SQLException {
+    public void setThatRanInAFailedPreparedBatchPins() throws SQLException {
         conn.createStatement().executeQuery("SELECT 1");
-        PreparedStatement ps = conn.prepareStatement("SET NAMES euckr");
+        PreparedStatement ps = conn.prepareStatement("SET TIMEZONE ?");
+        ps.setString(1, "UTC");
         ps.addBatch();
+        ps.setString(1, "UTC");
         ps.addBatch();
-        legs.refuseOnceOnRw("euckr", -493);
+        legs.refuseOnceOnRw("TIMEZONE", -493);
         try {
             ps.executeBatch();
             fail("the batch failure must reach the caller");
@@ -637,8 +640,25 @@ public class ReadLegSafetyTest {
                     Arrays.toString(new int[] {Statement.EXECUTE_FAILED, 0}),
                     Arrays.toString(expected.getUpdateCounts()));
         }
+        conn.createStatement().executeQuery("SELECT 2");
 
-        assertEquals(Arrays.asList("SELECT 1", "SET NAMES euckr"), legs.log("ro"));
+        assertEquals(1, legs.count("rw", "SELECT 2"));
+        assertTrue(lastRouteEvent().contains("fallbackReason=SESSION_SET_PIN"));
+    }
+
+    /**
+     * Core sends no batch for a prepared statement without parameters, so its SET did not run and
+     * the read leg is not given it.
+     */
+    @Test
+    public void setInAPreparedBatchCoreDoesNotSendIsNotReplayed() throws SQLException {
+        conn.createStatement().executeQuery("SELECT 1");
+        PreparedStatement ps = conn.prepareStatement("SET NAMES euckr");
+        ps.addBatch();
+
+        assertEquals(0, ps.executeBatch().length);
+        assertEquals(Arrays.asList("SELECT 1"), legs.log("ro"));
+        assertEquals(0, legs.count("rw", "SET NAMES euckr"));
     }
 
     /** Core runs the whole string in its one session, so a TO_RO hint does not take a SET away. */
@@ -977,7 +997,10 @@ public class ReadLegSafetyTest {
                     throws SQLException {
                 String name = m.getName();
                 if ("addBatch".equals(name)) {
-                    batch.add(prepared != null ? prepared : (String) args[0]);
+                    // Core keeps no batch row for a prepared statement without parameters.
+                    if (prepared == null || prepared.indexOf('?') >= 0) {
+                        batch.add(prepared != null ? prepared : (String) args[0]);
+                    }
                     return null;
                 }
                 if ("clearBatch".equals(name)) {

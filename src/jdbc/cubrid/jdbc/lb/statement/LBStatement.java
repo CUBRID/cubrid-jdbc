@@ -729,8 +729,11 @@ public class LBStatement extends CUBRIDStatement {
             throw failure;
         }
         lbConnection.settleReadLegRollback(false);
-        for (String each : sqls) {
-            lbConnection.afterStatementSucceeded(each, target);
+        // Core sends no batch for a prepared statement without parameters: no counts, nothing ran.
+        if (counts.length > 0) {
+            for (String each : sqls) {
+                lbConnection.afterStatementSucceeded(each, target);
+            }
         }
         return counts;
     }

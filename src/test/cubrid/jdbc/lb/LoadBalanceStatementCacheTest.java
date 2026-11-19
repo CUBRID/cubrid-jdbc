@@ -32,6 +32,7 @@ package cubrid.jdbc.lb;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertSame;
 
@@ -52,6 +53,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Properties;
+import java.util.concurrent.CountDownLatch;
 import org.junit.After;
 import org.junit.Test;
 
@@ -67,6 +69,7 @@ public final class LoadBalanceStatementCacheTest {
     private static final String S = "SELECT a FROM t WHERE p = ?";
 
     private final List<String> prepared = Collections.synchronizedList(new ArrayList<String>());
+    private volatile CountDownLatch holdPrepares;
     private LoadBalanceConnection conn;
 
     @After
@@ -105,6 +108,49 @@ public final class LoadBalanceStatementCacheTest {
 
         assertNotSame(first, conn.prepareStatement(S));
         assertFalse(first.isClosed());
+    }
+
+    /** Core's prepareStatement is synchronized: two threads asking at once get one statement. */
+    @Test
+    public void twoThreadsPreparingTheSameSqlGetTheSameStatement() throws Exception {
+        conn = open(URL + CACHE);
+        holdPrepares = new CountDownLatch(1);
+        final PreparedStatement[] got = new PreparedStatement[2];
+        final Thread[] threads = new Thread[2];
+        for (int i = 0; i < threads.length; i++) {
+            final int n = i;
+            threads[i] =
+                    new Thread() {
+                        @Override
+                        public void run() {
+                            try {
+                                got[n] = conn.prepareStatement(S);
+                            } catch (SQLException failed) {
+                                // got[n] stays null
+                            }
+                        }
+                    };
+        }
+
+        threads[0].start();
+        final long deadline = System.currentTimeMillis() + 5000;
+        while (prepared.isEmpty() && System.currentTimeMillis() < deadline) {
+            Thread.sleep(5);
+        }
+        threads[1].start();
+        // The second waits for the first, or prepares a statement of its own.
+        while (prepared.size() < 2
+                && threads[1].getState() != Thread.State.BLOCKED
+                && System.currentTimeMillis() < deadline) {
+            Thread.sleep(5);
+        }
+        holdPrepares.countDown();
+        threads[0].join();
+        threads[1].join();
+
+        assertNotNull(got[0]);
+        assertSame(got[0], got[1]);
+        assertEquals(Arrays.asList("ro|" + S), prepared);
     }
 
     @Test
@@ -154,11 +200,23 @@ public final class LoadBalanceStatementCacheTest {
                             }
                             if ("prepareStatement".equals(name)) {
                                 prepared.add(host + "|" + a[0]);
+                                awaitRelease();
                                 return statement();
                             }
                             return defaultValue(m.getReturnType());
                         }
                     });
+        }
+
+        private void awaitRelease() {
+            final CountDownLatch hold = holdPrepares;
+            try {
+                if (hold != null) {
+                    hold.await();
+                }
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            }
         }
 
         private PreparedStatement statement() {

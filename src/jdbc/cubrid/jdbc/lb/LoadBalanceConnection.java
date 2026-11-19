@@ -177,6 +177,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     private boolean writeTxLost = false;
     private EndpointTopology sessionTopology = null;
     private final Object recoveryLock = new Object();
+    private final Object statementCacheLock = new Object();
     private boolean sessionInitialized;
     private long lastReadFailbackAttemptMs = 0L;
     private long lastRwFailbackAttemptMs = 0L;
@@ -1629,13 +1630,25 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             final LBPreparedStatement.PhysicalPsProvider provider)
             throws SQLException {
         ps.setPsProvider(provider);
-        ps.prepareEagerly();
-        trackStatement(ps);
-        if (cacheable(sql)) {
-            prepStmtCache.put(sql, ps);
-        }
+        if (!cacheable(sql)) {
+            ps.prepareEagerly();
+            trackStatement(ps);
 
-        return ps;
+            return ps;
+        }
+        // Core's prepareStatement is synchronized: of two threads preparing one SQL, the second
+        // gets the first's statement. Taken by a prepare alone, and before any other lock.
+        synchronized (statementCacheLock) {
+            final PreparedStatement first = prepStmtCache.get(sql);
+            if (first != null) {
+                return first;
+            }
+            ps.prepareEagerly();
+            trackStatement(ps);
+            prepStmtCache.put(sql, ps);
+
+            return ps;
+        }
     }
 
     /**

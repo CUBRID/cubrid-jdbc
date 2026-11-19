@@ -106,6 +106,25 @@ public final class MetricsConfig {
     }
 
     /**
+     * Refuses an empty value given as a connection property for a boolean or integer option, as
+     * core refuses one for such a property. Only a URL's {@code key=} is dropped for the default.
+     *
+     * @param name the property name
+     * @param value its value
+     * @throws SQLException if the option is a boolean or integer one and the value is empty
+     */
+    static void refuseEmptyProperty(final String name, final String value) throws SQLException {
+        if (value.length() != 0) {
+            return;
+        }
+        for (String option : new String[] {OPT_ENABLED, OPT_PROMETHEUS_PORT, OPT_INTERVAL_SEC}) {
+            if (option.equalsIgnoreCase(name)) {
+                throw LbExceptions.optionValueIncompatible(option, value);
+            }
+        }
+    }
+
+    /**
      * Parse metrics options from a URL's option map. Returns {@link #DISABLED} unless {@code
      * metricsEnabled=true}, but checks every value first, as core checks its properties whether or
      * not the feature is on: an invalid value refuses the URL.

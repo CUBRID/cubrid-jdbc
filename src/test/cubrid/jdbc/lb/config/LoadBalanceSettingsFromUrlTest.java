@@ -158,6 +158,36 @@ public class LoadBalanceSettingsFromUrlTest {
         assertEquals(9401, m.getPrometheusPort());
     }
 
+    /**
+     * Core drops {@code key=} from a URL for the default, but refuses an empty value given as a
+     * connection property for a boolean or integer property. A text property takes it.
+     */
+    @Test
+    public void emptyMetricsValueInPropertiesIsRefusedAsCoreRefusesIt() throws SQLException {
+        final String url = "jdbc:cubrid:loadbalance://node1,node2/testdb:::";
+        for (String name :
+                new String[] {"metricsEnabled", "metricsPrometheusPort", "metricsIntervalSec"}) {
+            java.util.Properties info = new java.util.Properties();
+            info.setProperty(name, "");
+            try {
+                LoadBalanceSettings.fromUrl(LoadBalanceUrlParser.parse(url), info);
+                fail("an empty " + name + " property must be refused");
+            } catch (SQLException expected) {
+                assertTrue(
+                        expected.getMessage(),
+                        expected.getMessage().contains("'' uncompitable value for the " + name));
+            }
+        }
+
+        java.util.Properties text = new java.util.Properties();
+        text.setProperty("metricsExport", "");
+        text.setProperty("metricsPrometheusBind", "");
+        assertFalse(
+                LoadBalanceSettings.fromUrl(LoadBalanceUrlParser.parse(url), text)
+                        .getMetricsConfig()
+                        .isEnabled());
+    }
+
     /** LB keeps the statement cache, so it refuses a bad cache value as a core connect does. */
     @Test
     public void statementCacheValuesAreRefusedAsCoreRefusesThem() {

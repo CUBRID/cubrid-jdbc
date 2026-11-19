@@ -172,6 +172,7 @@ public class LoadBalanceSettings {
         if (info != null) {
             for (String name : info.stringPropertyNames()) {
                 if (LoadBalanceOptionValidator.staysOffTheLegs(name)) {
+                    MetricsConfig.refuseEmptyProperty(name, info.getProperty(name));
                     options.remove(OptionKeys.findKeyIgnoreCase(options, name));
                     options.put(name, info.getProperty(name));
                 }

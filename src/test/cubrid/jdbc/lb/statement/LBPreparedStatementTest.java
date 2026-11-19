@@ -32,6 +32,8 @@ package cubrid.jdbc.lb.statement;
 
 import static org.junit.Assert.*;
 
+import cubrid.jdbc.driver.CUBRIDException;
+import cubrid.jdbc.driver.CUBRIDJDBCErrorCode;
 import cubrid.jdbc.driver.CUBRIDPreparedStatement;
 import cubrid.jdbc.driver.CUBRIDStatement;
 import cubrid.jdbc.lb.LbTestAccess;
@@ -41,6 +43,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.SQLType;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -175,6 +178,29 @@ public class LBPreparedStatementTest {
             fail("expected SQLException: this connection was never bound to a session");
         } catch (SQLException expected) {
             assertEquals(LbTestAccess.lb_internal_state, expected.getErrorCode());
+        }
+    }
+
+    /** The check of the SQLType is core's own, so its answer is core's too. */
+    @Test
+    public void setObjectRefusesANullSqlTypeAsCoreDoes() throws Exception {
+        PreparedStatement ps = conn.prepareStatement("SELECT ? FROM db_root");
+        SQLException core =
+                new CUBRIDException(
+                        CUBRIDJDBCErrorCode.invalid_value, " - targetSqlType is null", null);
+
+        for (int form = 0; form < 2; form++) {
+            try {
+                if (form == 0) {
+                    ps.setObject(1, Integer.valueOf(5), (SQLType) null);
+                } else {
+                    ps.setObject(1, Integer.valueOf(5), (SQLType) null, 0);
+                }
+                fail("a null SQLType is refused");
+            } catch (SQLException refused) {
+                assertEquals(core.getErrorCode(), refused.getErrorCode());
+                assertEquals(core.getMessage(), refused.getMessage());
+            }
         }
     }
 

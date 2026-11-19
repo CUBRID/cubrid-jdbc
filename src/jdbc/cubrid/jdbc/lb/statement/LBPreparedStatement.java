@@ -1103,28 +1103,6 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     @Override
     protected void checkBindError() throws SQLException {}
 
-    /**
-     * Same mapping as the inherited version, but reported through {@link LbExceptions}. The
-     * inherited one goes through the package-private {@code
-     * CUBRIDConnection.createCUBRIDException(int, String, Throwable)}, which dereferences a null
-     * {@code u_con} on a load-balanced connection, giving an NPE instead of the intended
-     * SQLException. That method cannot be overridden from this package, so its caller is.
-     */
-    @Override
-    protected int checkSqlType(final SQLType targetSqlType) throws SQLException {
-        if (targetSqlType == null) {
-            throw LbExceptions.invalidValue("setObject requires a non-null targetSqlType");
-        }
-
-        Integer vendorTypeNumber = targetSqlType.getVendorTypeNumber();
-        if (vendorTypeNumber == null) {
-            throw LbExceptions.invalidValue(
-                    "targetSqlType has no vendor type number: " + targetSqlType.getName());
-        }
-
-        return vendorTypeNumber.intValue();
-    }
-
     /* ===== SQLType parameter setters =====*/
 
     /**

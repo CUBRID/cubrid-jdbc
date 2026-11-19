@@ -204,10 +204,12 @@ public class LBStatementCastTest {
         }
     }
 
-    // Inherited on purpose: it reads only is_closed and con, which close() keeps, and gives core's
-    // own closed-PreparedStatement error.
+    // Inherited on purpose: they read only is_closed and con, which close() keeps, and give core's
+    // own errors for a closed PreparedStatement and for an SQLType it refuses.
     private static final List<String> USED_AS_CORE =
-            Arrays.asList("CUBRIDPreparedStatement.checkIsOpen()");
+            Arrays.asList(
+                    "CUBRIDPreparedStatement.checkIsOpen()",
+                    "CUBRIDPreparedStatement.checkSqlType(SQLType)");
 
     private static void assertNothingInherited(final Class<?> logical, final Class<?> vendor) {
         List<String> missing = new ArrayList<String>();

@@ -3210,8 +3210,9 @@ public class LoadBalanceConnection extends CUBRIDConnection {
 
     /**
      * Core prepared every open statement on its one session before a session {@code SET}, and the
-     * server keeps what a statement was compiled under. One with no physical statement on RW yet is
-     * prepared there now, or its first run on RW would compile under the new setting.
+     * server keeps what a statement was compiled under. One with no physical statement yet on a leg
+     * it can run on is prepared there now, before the SET reaches that leg, or its first run there
+     * would compile under the new setting.
      *
      * @param sql the statement about to run
      */
@@ -3225,7 +3226,9 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         }
         for (Statement each : open) {
             if (each instanceof LBPreparedStatement) {
-                ((LBPreparedStatement) each).prepareOnWriteLeg();
+                final LBPreparedStatement prepared = (LBPreparedStatement) each;
+                prepared.prepareOnWriteLeg();
+                prepared.prepareOnReadLeg();
             }
         }
     }

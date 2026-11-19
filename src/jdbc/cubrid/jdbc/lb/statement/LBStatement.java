@@ -43,6 +43,7 @@ import cubrid.jdbc.lb.route.RoutedSql;
 import cubrid.jdbc.lb.route.Router;
 import cubrid.jdbc.lb.route.Router.RouteDecision;
 import cubrid.jdbc.lb.route.Router.RouteTarget;
+import cubrid.jdbc.lb.state.SessionRoutingState;
 import cubrid.sql.CUBRIDOID;
 import java.sql.BatchUpdateException;
 import java.sql.Connection;
@@ -62,6 +63,13 @@ import java.util.function.BooleanSupplier;
  * rebind does not lose them.
  */
 public class LBStatement extends CUBRIDStatement {
+    private static final BooleanSupplier NO_RW_TRANSACTION =
+            new BooleanSupplier() {
+                public boolean getAsBoolean() {
+                    return false;
+                }
+            };
+
     private final LoadBalanceConnection lbConnection;
     private final int resultSetType;
     private final int resultSetConcurrency;
@@ -1104,6 +1112,17 @@ public class LBStatement extends CUBRIDStatement {
     RouteDecision routeFor(final RoutedSql sql) {
         return Router.decide(
                 sql, producesUpdatableResults(), lbConnection.getSessionState(), rwTransactionOpen);
+    }
+
+    /**
+     * Whether {@code sql} runs on the read leg when nothing in the session holds it on RW: what the
+     * router decides for a session with no transaction, pin or variable.
+     */
+    boolean mayRunOnReadLeg(final RoutedSql sql) {
+        final SessionRoutingState free = new SessionRoutingState();
+        free.setLastStatementOnReadLeg(true);
+        return Router.decide(sql, producesUpdatableResults(), free, NO_RW_TRANSACTION).getTarget()
+                == RouteTarget.TO_READ_ONLY;
     }
 
     private void closePhyStmts() throws SQLException {

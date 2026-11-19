@@ -673,6 +673,22 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         }
     }
 
+    /**
+     * Prepares this statement on the read leg if it can run there and has no physical statement
+     * there yet; see {@link LoadBalanceConnection#beforeSessionSet}. One that cannot prepares at
+     * its first run there.
+     */
+    public void prepareOnReadLeg() {
+        try {
+            if (!statementDelegate.isClosed()
+                    && statementDelegate.mayRunOnReadLeg(sqlCaches.routed)) {
+                phyPsProvider.prepareOnBoundReadEndpoint(sql);
+            }
+        } catch (SQLException notNow) {
+            // as before this existed
+        }
+    }
+
     @Override
     public void close() throws SQLException {
         if (statementDelegate.isClosed() || ownerConn.isStatementCached(sql)) {

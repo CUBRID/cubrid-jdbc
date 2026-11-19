@@ -408,6 +408,49 @@ public class ReadLegSafetyTest {
         assertPreparedOnRwBefore("SELECT * FROM t WHERE s = ?", "SET NAMES utf8 COLLATE utf8_bin");
     }
 
+    /**
+     * A read statement prepared while every statement runs on RW has no physical statement on the
+     * read leg. It is prepared there too before a SET reaches that leg, or its first run there
+     * would compile under the new setting.
+     */
+    @Test
+    public void readStatementPreparedInATransactionIsPreparedOnTheReadLegBeforeASet()
+            throws SQLException {
+        conn.createStatement().executeQuery("SELECT 1");
+        conn.setAutoCommit(false);
+        conn.prepareStatement("SELECT * FROM t WHERE s = ?");
+        conn.setAutoCommit(true);
+        conn.createStatement().execute("SET NAMES utf8 COLLATE utf8_bin");
+
+        assertPreparedBefore(
+                "ro", "SELECT * FROM t WHERE s = ?", "SET NAMES utf8 COLLATE utf8_bin");
+    }
+
+    /** The same when reads were pinned to RW at the prepare and a later SET releases the pin. */
+    @Test
+    public void readStatementPreparedWhileReadsWerePinnedIsPreparedOnTheReadLegBeforeASet()
+            throws SQLException {
+        conn.createStatement().executeQuery("SELECT 1");
+        PreparedStatement bound = conn.prepareStatement("SET TIMEZONE ?");
+        bound.setString(1, "UTC");
+        bound.execute();
+        conn.prepareStatement("SELECT * FROM t WHERE s = ?");
+        conn.createStatement().execute("SET TIMEZONE 'UTC'");
+
+        assertPreparedBefore("ro", "SELECT * FROM t WHERE s = ?", "SET TIMEZONE 'UTC'");
+    }
+
+    /** A statement that never runs on the read leg is not prepared there. */
+    @Test
+    public void writeStatementIsNotPreparedOnTheReadLegBeforeASet() throws SQLException {
+        conn.createStatement().executeQuery("SELECT 1");
+        conn.prepareStatement("INSERT INTO t VALUES (?)");
+        conn.createStatement().execute("SET NAMES utf8 COLLATE utf8_bin");
+
+        assertEquals(-1, legs.timeline("ro").indexOf("prepare INSERT INTO t VALUES (?)"));
+        assertEquals(1, legs.count("ro", "SET NAMES utf8 COLLATE utf8_bin"));
+    }
+
     /** The read leg logs in as the same user, so reads stay distributed. */
     @Test
     public void loginIsReplayedOnTheReadLeg() throws SQLException {
@@ -834,9 +877,13 @@ public class ReadLegSafetyTest {
     }
 
     private void assertPreparedOnRwBefore(final String sql, final String set) {
-        List<String> rw = legs.timeline("rw");
-        int prepared = rw.indexOf("prepare " + sql);
-        assertTrue(rw.toString(), prepared >= 0 && prepared < rw.indexOf(set));
+        assertPreparedBefore("rw", sql, set);
+    }
+
+    private void assertPreparedBefore(final String role, final String sql, final String set) {
+        List<String> timeline = legs.timeline(role);
+        int prepared = timeline.indexOf("prepare " + sql);
+        assertTrue(timeline.toString(), prepared >= 0 && prepared < timeline.indexOf(set));
     }
 
     /** Fake RW ("rw" host) and RO ("ro" host) brokers that log every statement they run. */

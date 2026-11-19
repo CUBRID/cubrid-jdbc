@@ -1,6 +1,10 @@
 output/
+build/
+.gradle/
 *.class
 *.jar
+!gradle/wrapper/gradle-wrapper.jar
+*.asc
 .classpath
 .project
 .vscode/

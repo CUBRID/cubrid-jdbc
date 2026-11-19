@@ -32,6 +32,19 @@ Below You will see the brief list of sections to guide You to easily get started
   ./build.sh 
   ```
 
+### Building and testing with Gradle
+The Gradle wrapper in this repository (`gradlew`) builds and tests the driver without Ant: JDK 8 to
+21 runs it, and the driver is compiled and tested with JDK 8 (Gradle uses an installed JDK 8 or
+downloads one). The first build downloads Gradle itself. The CUBRID engine build, `build.sh` and
+`build.bat` still use Ant, and the two builds produce jars with the same classes and resources
+(only the manifest and the javadoc pages differ).
+
+| Command | Does |
+|---|---|
+| `./gradlew buildJdbc` | builds the three jars in the repository root (version `VERSION` plus the number of git commits since 2021-03-30) |
+| `./gradlew test` | runs the unit tests: every test class in `src/test` but the `*IT` ones |
+| `./gradlew integrationTest` | runs the load-balance ITs against a live cluster, see `src/test/cubrid/jdbc/lb/it/README.md` |
+
 ### CUBRID JDBC Driver 
 - implements an interface to enable access 
   from applications in Java to CUBRID database server. 

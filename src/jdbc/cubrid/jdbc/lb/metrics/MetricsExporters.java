@@ -402,8 +402,8 @@ public final class MetricsExporters {
                     .append('\n');
         }
 
-        // Read-leg movements. failover_total rising = something went down; failback_total catching
-        // up = it recovered and the weighted distribution self-healed.
+        // Leg movements, RW and read. failover_total rising = something went down; failback_total
+        // catching up = it recovered and the legs are back where they belong.
         appendTransitions(
                 sb,
                 "lb_failover_total",
@@ -412,7 +412,8 @@ public final class MetricsExporters {
         appendTransitions(
                 sb,
                 "lb_failback_total",
-                "Displaced read legs that climbed back towards their weighted home endpoint",
+                "Displaced RW or read legs that moved back towards their home endpoint (RW: the"
+                        + " master, read: the weighted home)",
                 MetricsRegistry.failbacks());
 
         // Sessions reading over the RW connection (roOnRw) — by design for master-role weight, or
@@ -433,8 +434,8 @@ public final class MetricsExporters {
     }
 
     /**
-     * Emits one counter family for read-leg movements, labelled {@code role}, {@code from}, {@code
-     * to}.
+     * Emits one counter family for leg movements, labelled {@code role} (RW or RO), {@code from},
+     * {@code to}.
      */
     private static void appendTransitions(
             final StringBuilder sb,

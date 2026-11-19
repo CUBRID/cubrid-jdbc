@@ -76,8 +76,9 @@ public final class MetricsRegistry {
     private static final ConcurrentHashMap<String, String> ROLE =
             new ConcurrentHashMap<String, String>();
 
-    // Read-leg movements, keyed "role|from|to". Failover = displaced off the weighted home;
-    // failback = climbed back towards it. JVM-wide rather than per-connection: these are rare
+    // Leg movements, RW and read, keyed "role|from|to". Failover = displaced off the home (RW: the
+    // master, read: the weighted home); failback = moved back towards it. JVM-wide rather than
+    // per-connection: these are rare
     // events an operator correlates with an incident, and they must outlive the connection that
     // saw them. Guarded by each map's own monitor.
     private static final Map<String, long[]> FAILOVERS = new LinkedHashMap<String, long[]>();

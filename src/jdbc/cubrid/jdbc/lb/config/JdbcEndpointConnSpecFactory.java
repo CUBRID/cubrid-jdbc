@@ -92,9 +92,7 @@ final class JdbcEndpointConnSpecFactory {
 
         String physicalQuery = buildPropagatedQuery(config.getPropagatedOptions());
 
-        String urlUser = user != null ? user : "";
-
-        String jdbcUrl = buildJdbcUrl(variant, endpoint, db, urlUser, physicalQuery);
+        String jdbcUrl = buildJdbcUrl(variant, endpoint, db, physicalQuery);
 
         return new JdbcPhyConnSpec(jdbcUrl, merged);
     }
@@ -152,11 +150,7 @@ final class JdbcEndpointConnSpecFactory {
     }
 
     private static String buildJdbcUrl(
-            String variant,
-            Endpoint endpoint,
-            String db,
-            String userSegment,
-            String physicalQuery) {
+            String variant, Endpoint endpoint, String db, String physicalQuery) {
         StringBuilder sb = new StringBuilder();
         sb.append("jdbc:cubrid");
         sb.append(variant);
@@ -166,13 +160,11 @@ final class JdbcEndpointConnSpecFactory {
         sb.append(endpoint.getPort());
         sb.append(':');
         sb.append(db);
-        sb.append(':');
-        sb.append(userSegment == null ? "" : userSegment);
-        sb.append(':');
-        // The password is left out of the physical URL on purpose. It travels in the connect
-        // Properties, which the core driver prefers over URL segments, so it cannot leak through
-        // logs or error messages that echo the URL.
-        sb.append(':');
+        // The user and the password are left out of the physical URL on purpose. They travel in
+        // the connect Properties, which the core driver prefers over URL segments: a password
+        // cannot leak through what echoes the URL, and a user name the URL cannot carry (one with
+        // ':') connects as on core.
+        sb.append(":::");
         if (physicalQuery != null && physicalQuery.length() > 0) {
             sb.append(physicalQuery);
         }

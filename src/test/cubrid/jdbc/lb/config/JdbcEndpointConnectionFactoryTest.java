@@ -47,14 +47,14 @@ public class JdbcEndpointConnectionFactoryTest {
     public void physicalUrlReplacesHostPortForRwMasterEndpoint() throws SQLException {
         Endpoint master = new Endpoint("master-broker", 33000);
         JdbcPhyConnSpec spec = spec(LB_BASE, null, master);
-        assertEquals("jdbc:cubrid:master-broker:33000:testdb:public::", spec.getJdbcUrl());
+        assertEquals("jdbc:cubrid:master-broker:33000:testdb:::", spec.getJdbcUrl());
     }
 
     @Test
     public void physicalUrlReplacesHostPortForRoEndpoint() throws SQLException {
         Endpoint ro = new Endpoint("slave-ro", 33001);
         JdbcPhyConnSpec spec = spec(LB_BASE, null, ro);
-        assertEquals("jdbc:cubrid:slave-ro:33001:testdb:public::", spec.getJdbcUrl());
+        assertEquals("jdbc:cubrid:slave-ro:33001:testdb:::", spec.getJdbcUrl());
     }
 
     @Test
@@ -66,10 +66,23 @@ public class JdbcEndpointConnectionFactoryTest {
         Properties p = spec.getConnectionProperties();
         assertEquals("appuser", p.getProperty("user"));
         assertEquals("secret", p.getProperty("password"));
-        assertTrue(spec.getJdbcUrl().contains("appuser"));
         // Password is carried in the connection Properties only; it must not leak into the URL
         // string (which can surface in logs / exception messages).
         assertFalse(spec.getJdbcUrl().contains("secret"));
+    }
+
+    /**
+     * The user travels in the Properties, which core reads first. A name the classic URL cannot
+     * carry, one with ':', connects on core and so must on a leg.
+     */
+    @Test
+    public void userNameIsNotWrittenIntoThePhysicalUrl() throws SQLException {
+        Properties info = new Properties();
+        info.setProperty("user", "app:ro");
+        JdbcPhyConnSpec spec = spec(LB_BASE, info, new Endpoint("h", 1));
+
+        assertEquals("jdbc:cubrid:h:1:testdb:::", spec.getJdbcUrl());
+        assertEquals("app:ro", spec.getConnectionProperties().getProperty("user"));
     }
 
     /**

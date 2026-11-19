@@ -321,6 +321,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
 
         // As in LBStatement.executeBatch, every batch runs on RW, under failover.
         final RouteTarget target = RouteTarget.TO_READ_WRITE;
+        ownerConn.beforeSessionSet(sql);
 
         final int[] result;
         try {

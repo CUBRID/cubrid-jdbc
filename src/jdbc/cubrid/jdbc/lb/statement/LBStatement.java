@@ -194,6 +194,9 @@ public class LBStatement extends CUBRIDStatement {
         // Core runs a batch in its one session, where a routine behind a view can write; the read
         // leg would refuse it and a batch is not run again, so every batch runs on RW.
         final RouteTarget target = RouteTarget.TO_READ_WRITE;
+        for (String each : batchedSql) {
+            lbConnection.beforeSessionSet(each);
+        }
 
         try {
             // Under failover like any write: the leg is rebound, and the batch runs again only

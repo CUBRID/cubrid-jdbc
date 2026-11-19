@@ -362,6 +362,52 @@ public class ReadLegSafetyTest {
         assertTrue(lastRouteEvent().contains("fallbackReason=SESSION_SET_PIN"));
     }
 
+    /**
+     * Core compiled an open statement before a later SET, which leaves it as compiled. One prepared
+     * only on the read leg is prepared on RW before a SET sent in a batch, as before a single one.
+     */
+    @Test
+    public void openStatementIsPreparedOnRwBeforeASetInAStatementBatch() throws SQLException {
+        conn.prepareStatement("SELECT * FROM t WHERE s = ?");
+        Statement st = conn.createStatement();
+        st.addBatch("SET NAMES utf8 COLLATE utf8_bin");
+        st.executeBatch();
+
+        assertPreparedOnRwBefore("SELECT * FROM t WHERE s = ?", "SET NAMES utf8 COLLATE utf8_bin");
+    }
+
+    /** A login, which changes how names resolve; core sends a prepared batch only with values. */
+    @Test
+    public void openStatementIsPreparedOnRwBeforeASetInAPreparedBatch() throws SQLException {
+        conn.prepareStatement("SELECT * FROM t WHERE s = ?");
+        PreparedStatement login = conn.prepareStatement("CALL login(?, ?) ON CLASS db_user");
+        login.setString(1, "u2");
+        login.setString(2, "pw");
+        login.addBatch();
+        login.executeBatch();
+
+        assertPreparedOnRwBefore(
+                "SELECT * FROM t WHERE s = ?", "CALL login(?, ?) ON CLASS db_user");
+    }
+
+    /** The server keeps a SET that ran before a failed entry, so it is prepared before it too. */
+    @Test
+    public void openStatementIsPreparedOnRwBeforeASetInAFailedBatch() throws SQLException {
+        legs.refuseOnRw("no_such", -493);
+        conn.prepareStatement("SELECT * FROM t WHERE s = ?");
+        Statement st = conn.createStatement();
+        st.addBatch("SET NAMES utf8 COLLATE utf8_bin");
+        st.addBatch("INSERT INTO no_such VALUES (1)");
+        try {
+            st.executeBatch();
+            fail("the failed entry must reach the caller");
+        } catch (BatchUpdateException expected) {
+            assertEquals(-493, expected.getErrorCode());
+        }
+
+        assertPreparedOnRwBefore("SELECT * FROM t WHERE s = ?", "SET NAMES utf8 COLLATE utf8_bin");
+    }
+
     /** The read leg logs in as the same user, so reads stay distributed. */
     @Test
     public void loginIsReplayedOnTheReadLeg() throws SQLException {
@@ -767,6 +813,12 @@ public class ReadLegSafetyTest {
         return null;
     }
 
+    private void assertPreparedOnRwBefore(final String sql, final String set) {
+        List<String> rw = legs.timeline("rw");
+        int prepared = rw.indexOf("prepare " + sql);
+        assertTrue(rw.toString(), prepared >= 0 && prepared < rw.indexOf(set));
+    }
+
     /** Fake RW ("rw" host) and RO ("ro" host) brokers that log every statement they run. */
     private static final class Legs implements JdbcConnectionFactory {
         final AtomicInteger roOpens = new AtomicInteger();
@@ -827,6 +879,21 @@ public class ReadLegSafetyTest {
             return Collections.frequency(log(role), sql);
         }
 
+        /** {@code role}'s statements in order, with each prepare on it as "prepare <sql>". */
+        List<String> timeline(final String role) {
+            List<String> out = new ArrayList<String>();
+            synchronized (entries) {
+                for (String e : entries) {
+                    if (e.startsWith(role + "|")) {
+                        out.add(e.substring(role.length() + 1));
+                    } else if (e.startsWith(role + "+prepare|")) {
+                        out.add("prepare " + e.substring(role.length() + "+prepare|".length()));
+                    }
+                }
+            }
+            return out;
+        }
+
         public Connection getConnection(final String url, final Properties info) {
             final String role = url.indexOf(":ro:") >= 0 ? "ro" : "rw";
             if ("ro".equals(role)) {
@@ -881,6 +948,7 @@ public class ReadLegSafetyTest {
                     return proxy(Statement.class, new StatementHandler(role, null));
                 }
                 if (name.startsWith("prepareStatement")) {
+                    entries.add(role + "+prepare|" + args[0]);
                     return proxy(
                             PreparedStatement.class, new StatementHandler(role, (String) args[0]));
                 }

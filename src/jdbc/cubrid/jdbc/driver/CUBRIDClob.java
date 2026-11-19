@@ -165,15 +165,63 @@ public class CUBRIDClob implements Clob {
      * java.sql.Clob interface
      * =======================================================================
      */
-    /* A value read back is measured in bytes, as the server's CLOB_LENGTH is: a character count would
-     * cost a full read.  A value being written counts the characters written, the unit setString's
-     * position takes. */
-    public long length() throws SQLException {
+    /* Characters, as JDBC counts them.  A value read back knows only its byte length: for a multi-byte
+     * charset the first call reads the whole value once to count them, and the count is kept. */
+    public synchronized long length() throws SQLException {
         checkFreed();
         if (upload != null) {
             return charsWritten;
         }
-        return internalLength;
+        if (internalContent == null && isSingleByteCharset()) {
+            return internalLength;
+        }
+        if (knownChars < 0) {
+            readAll(null);
+        }
+        return knownChars;
+    }
+
+    /* The whole value read once (getString): no buffer sized by its byte length. */
+    synchronized String readAll() throws SQLException {
+        StringBuilder sb = new StringBuilder();
+        readAll(sb);
+        return sb.toString();
+    }
+
+    /* Reads the value to its end, into sb when given, and keeps its character count. */
+    private void readAll(StringBuilder sb) throws SQLException {
+        checkReadable();
+        if (internalContent != null) {
+            String whole = new String(internalContent, Charset.forName(charsetName));
+            if (sb != null) {
+                sb.append(whole);
+            }
+            knownChars = whole.length();
+            return;
+        }
+        if (internalLength == 0) {
+            knownChars = 0;
+            return;
+        }
+        Reader in = openReader(1);
+        char[] buf = new char[(int) Math.min(Math.max(internalLength, 1), CLOB_MAX_IO_CHARS)];
+        long count = 0;
+        try {
+            for (int got; (got = in.read(buf)) > 0; ) {
+                count += got;
+                if (sb != null) {
+                    sb.append(buf, 0, got);
+                }
+            }
+        } catch (IOException e) {
+            if (e.getCause() instanceof SQLException) {
+                throw (SQLException) e.getCause();
+            }
+            throw conn.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
+        } finally {
+            closeQuietly(in);
+        }
+        knownChars = count;
     }
 
     /* Reads a window of the value by streaming to it.  pos counts characters, so for a multi-byte charset
@@ -299,8 +347,9 @@ public class CUBRIDClob implements Clob {
         }
     }
 
+    /* to the end of the value, without counting its characters first */
     public Reader getCharacterStream() throws SQLException {
-        return getCharacterStream(1, length());
+        return getCharacterStream(1, Long.MAX_VALUE);
     }
 
     /* JDK 1.6 */

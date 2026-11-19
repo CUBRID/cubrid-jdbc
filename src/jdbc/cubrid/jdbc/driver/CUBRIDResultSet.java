@@ -352,6 +352,10 @@ public class CUBRIDResultSet implements ResultSet {
         }
         if (obj != null && obj instanceof Clob) {
             checkGetXXXError();
+            if (obj instanceof CUBRIDClob) {
+                /* one read: length () of a multi-byte value would read it once more */
+                return ((CUBRIDClob) obj).readAll();
+            }
             Clob clob = (Clob) obj;
             int length;
             if (clob.length() > (long) Integer.MAX_VALUE) {

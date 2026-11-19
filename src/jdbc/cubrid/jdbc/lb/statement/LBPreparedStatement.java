@@ -73,7 +73,6 @@ import java.sql.Time;
 import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.Calendar;
-import java.util.Collections;
 import java.util.List;
 
 /**
@@ -319,34 +318,23 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
             return new int[0];
         }
 
-        // As in LBStatement.executeBatch, every batch runs on RW, under failover.
-        final RouteTarget target = RouteTarget.TO_READ_WRITE;
-        ownerConn.beforeSessionSet(sql);
-
         final int[] result;
         try {
             result =
-                    ownerConn
-                            .getExecuteFailoverHandler()
-                            .executeWithFailover(
-                                    ownerConn,
-                                    target,
-                                    sql,
-                                    true,
-                                    new SqlExecution<int[]>() {
-                                        public int[] run() throws SQLException {
-                                            return runBatchOn(physicalPsForTarget(target));
-                                        }
-                                    });
+                    statementDelegate.executeBatchWithFailover(
+                            sql,
+                            batchedBinders.size(),
+                            new SqlExecution<int[]>() {
+                                public int[] run() throws SQLException {
+                                    return runBatchOn(
+                                            physicalPsForTarget(RouteTarget.TO_READ_WRITE));
+                                }
+                            });
         } catch (BatchUpdateException answered) {
-            final int rows = batchedBinders.size();
             batchedBinders.clear();
-            ownerConn.afterBatchAnswered(
-                    Collections.nCopies(rows, sql), answered.getUpdateCounts(), target);
             throw answered;
         }
         batchedBinders.clear();
-        statementDelegate.afterBatchSucceeded(Collections.singletonList(sql), target);
 
         return result;
     }

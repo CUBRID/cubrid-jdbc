@@ -50,6 +50,7 @@ import java.sql.SQLException;
 import java.sql.SQLWarning;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -191,43 +192,22 @@ public class LBStatement extends CUBRIDStatement {
             return new int[0];
         }
 
-        // Core runs a batch in its one session, where a routine behind a view can write; the read
-        // leg would refuse it and a batch is not run again, so every batch runs on RW.
-        final RouteTarget target = RouteTarget.TO_READ_WRITE;
-        for (String each : batchedSql) {
-            lbConnection.beforeSessionSet(each);
-        }
-
         try {
-            // Under failover like any write: the leg is rebound, and the batch runs again only
-            // when connecting failed, as core sends it to the next host then.
-            int[] result =
-                    lbConnection
-                            .getExecuteFailoverHandler()
-                            .executeWithFailover(
-                                    lbConnection,
-                                    target,
-                                    batchedSql.get(0),
-                                    true,
-                                    new SqlExecution<int[]>() {
-                                        public int[] run() throws SQLException {
-                                            Statement statement =
-                                                    createPhyStmt(batchedSql.get(0), target);
-                                            // The leg's statement keeps a batch core kept after
-                                            // a failed request; this run sends this batch only.
-                                            statement.clearBatch();
-                                            for (int i = 0; i < batchedSql.size(); i++) {
-                                                statement.addBatch(batchedSql.get(i));
-                                            }
-                                            return statement.executeBatch();
-                                        }
-                                    });
-            afterBatchSucceeded(batchedSql, target);
-
-            return result;
-        } catch (BatchUpdateException answered) {
-            lbConnection.afterBatchAnswered(batchedSql, answered.getUpdateCounts(), target);
-            throw answered;
+            return executeBatchWithFailover(
+                    batchedSql,
+                    new SqlExecution<int[]>() {
+                        public int[] run() throws SQLException {
+                            Statement statement =
+                                    createPhyStmt(batchedSql.get(0), RouteTarget.TO_READ_WRITE);
+                            // The leg's statement keeps a batch core kept after a failed request;
+                            // this run sends this batch only.
+                            statement.clearBatch();
+                            for (int i = 0; i < batchedSql.size(); i++) {
+                                statement.addBatch(batchedSql.get(i));
+                            }
+                            return statement.executeBatch();
+                        }
+                    });
         } finally {
             // JDBC convention (matching CUBRIDStatement.executeBatch): the batch is consumed by an
             // executeBatch() attempt regardless of outcome, so clear it even when the physical
@@ -688,13 +668,71 @@ public class LBStatement extends CUBRIDStatement {
     }
 
     /**
-     * Records a batch that ran outside {@link #executeWithFailover}: a {@code SET} in it changed
-     * the session just as a single statement would.
+     * Runs a {@code Statement} batch through the steps of {@link #executeWithFailover}.
+     *
+     * @param sqls the batch's statements, in order
+     * @param execution the physical execution to run
+     * @return the update counts
+     * @throws SQLException if the batch fails and cannot be recovered or retried
      */
-    void afterBatchSucceeded(final List<String> sqls, final RouteTarget ranOn) {
+    int[] executeBatchWithFailover(final List<String> sqls, final SqlExecution<int[]> execution)
+            throws SQLException {
+        return runBatch(sqls, 0, execution);
+    }
+
+    /**
+     * Runs a {@code PreparedStatement} batch through the steps of {@link #executeWithFailover}.
+     *
+     * @param sql the prepared statement, which every row of the batch runs
+     * @param rows the number of rows in the batch
+     * @param execution the physical execution to run
+     * @return the update counts
+     * @throws SQLException if the batch fails and cannot be recovered or retried
+     */
+    int[] executeBatchWithFailover(
+            final String sql, final int rows, final SqlExecution<int[]> execution)
+            throws SQLException {
+        return runBatch(Collections.singletonList(sql), rows, execution);
+    }
+
+    /**
+     * Core runs a batch in its one session, where a routine behind a view can write; the read leg
+     * would refuse it and a batch is not run again, so every batch runs on RW. Under failover like
+     * any write: the leg is rebound, and the batch runs again only when connecting failed, as core
+     * sends it to the next host then. A prepared batch has one statement and {@code rows} rows that
+     * all answer for it; {@code rows} is 0 otherwise.
+     */
+    private int[] runBatch(
+            final List<String> sqls, final int rows, final SqlExecution<int[]> execution)
+            throws SQLException {
+        final RouteTarget target = RouteTarget.TO_READ_WRITE;
         for (String each : sqls) {
-            lbConnection.afterStatementSucceeded(each, ranOn);
+            lbConnection.beforeSessionSet(each);
         }
+        lbConnection.settleReadLegRollback(false);
+        final int[] counts;
+        try {
+            counts =
+                    lbConnection
+                            .getExecuteFailoverHandler()
+                            .executeWithFailover(
+                                    lbConnection, target, sqls.get(0), true, execution);
+        } catch (BatchUpdateException answered) {
+            lbConnection.settleReadLegRollback(true);
+            lbConnection.afterBatchAnswered(
+                    rows > 0 ? Collections.nCopies(rows, sqls.get(0)) : sqls,
+                    answered.getUpdateCounts(),
+                    target);
+            throw answered;
+        } catch (SQLException failure) {
+            lbConnection.settleReadLegRollback(true);
+            throw failure;
+        }
+        lbConnection.settleReadLegRollback(false);
+        for (String each : sqls) {
+            lbConnection.afterStatementSucceeded(each, target);
+        }
+        return counts;
     }
 
     /**

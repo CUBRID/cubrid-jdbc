@@ -53,6 +53,7 @@ import java.sql.SQLWarning;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 import java.util.function.BooleanSupplier;
 
@@ -828,6 +829,12 @@ public class LBStatement extends CUBRIDStatement {
         for (Statement each : phyStmts) {
             if (each == result) {
                 return result;
+            }
+        }
+        // A new one means a leg was replaced: the statements on its connection closed with it.
+        for (Iterator<Statement> held = phyStmts.iterator(); held.hasNext(); ) {
+            if (held.next().isClosed()) {
+                held.remove();
             }
         }
         phyStmts.add(result);

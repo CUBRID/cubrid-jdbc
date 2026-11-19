@@ -286,7 +286,7 @@ public final class RowCountRoutingTest {
                             @Override
                             protected Object dispatch(final String name, final Object[] args)
                                     throws SQLException {
-                                if (rawSql.contains("nope")) {
+                                if (rawSql.contains("nope") && name.startsWith("execute")) {
                                     throw new SQLException("nope is not defined", null, -494);
                                 }
                                 if ("executeBatch".equals(name)) {

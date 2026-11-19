@@ -39,12 +39,14 @@ import cubrid.jdbc.lb.LbTestAccess;
 import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
 import cubrid.jdbc.lb.route.Router.RouteTarget;
+import java.lang.reflect.Field;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.Collections;
 import org.junit.Test;
 
 /**
@@ -78,6 +80,32 @@ public class LBStatementLegReplacedResultsTest {
         assertFalse(st.getMoreResults());
         assertEquals(-1, st.getUpdateCount()); // core's getMoreResults ends the results
         assertFalse(st.isClosed());
+    }
+
+    /** n7: a statement held across leg changes keeps the statements still open, not each one. */
+    @Test
+    public void physicalStatementsClosedWithTheirLegAreNotKept() throws Exception {
+        LoadBalanceConnection conn =
+                LbTestAccess.newLoadBalanceConnection(LbTestSettings.defaults());
+        LBStatement st = (LBStatement) conn.createStatement();
+        final CoreLikeStmt[] onLeg = {new CoreLikeStmt()};
+        st.setStatementProvider(
+                new LBStatement.PhysicalStmtProvider() {
+                    public Statement getStatement(final RouteTarget target, final String rawSql) {
+                        return onLeg[0];
+                    }
+                });
+
+        for (int legChange = 0; legChange < 5; legChange++) {
+            st.executeUpdate("UPDATE t SET a = 1");
+            onLeg[0].close();
+            onLeg[0] = new CoreLikeStmt();
+        }
+        st.executeUpdate("UPDATE t SET a = 1");
+
+        Field held = LBStatement.class.getDeclaredField("phyStmts");
+        held.setAccessible(true);
+        assertEquals(Collections.singletonList(onLeg[0]), held.get(st));
     }
 
     /** Answers as core's CUBRIDStatement does: checkIsOpen() fails every getter once closed. */

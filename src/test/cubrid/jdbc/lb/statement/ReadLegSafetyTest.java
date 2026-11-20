@@ -36,10 +36,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-import cubrid.jdbc.driver.CUBRIDResultSetMetaData;
-import cubrid.jdbc.jci.UColumnInfo;
 import cubrid.jdbc.jci.UErrorCode;
-import cubrid.jdbc.jci.UUType;
 import cubrid.jdbc.lb.LbTestAccess;
 import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
@@ -50,7 +47,6 @@ import cubrid.jdbc.lb.connection.JdbcConnectionFactory;
 import cubrid.jdbc.lb.log.LbLogDedup;
 import cubrid.jdbc.lb.metrics.MetricsTestAccess;
 import cubrid.jdbc.lb.state.SharedSelectorState;
-import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -60,15 +56,12 @@ import java.sql.CallableStatement;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
-import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Handler;
@@ -88,8 +81,6 @@ public class ReadLegSafetyTest {
     private static final String LOGICAL_URL = "jdbc:cubrid:localhost:30000:testdb:public::";
     private static final int ER_DB_NO_MODIFICATIONS = -581;
     private static final int ER_SP_EXECUTE_ERROR = -889;
-    /** UColumnInfo's wire flag for a SET of the column type. */
-    private static final byte SET_FLAG = (byte) 0040;
 
     private Legs legs;
     private LoadBalanceConnection conn;
@@ -97,32 +88,27 @@ public class ReadLegSafetyTest {
     @Before
     public void setUp() throws SQLException {
         legs = new Legs();
-        conn = newSession(legs);
-    }
-
-    private static LoadBalanceConnection newSession(final Legs legs) throws SQLException {
-        LoadBalanceConnection session =
+        conn =
                 LbTestAccess.newLoadBalanceConnection(
                         LbTestSettings.forBinding(
                                 new Endpoint("rw", 33000), new Endpoint("ro", 33001)));
-        LbTestAccess.getRuntimeMetrics(session).setEnabled(true);
-        LbTestAccess.getRuntimeMetrics(session).setEventsEnabled(true);
+        LbTestAccess.getRuntimeMetrics(conn).setEnabled(true);
+        LbTestAccess.getRuntimeMetrics(conn).setEventsEnabled(true);
         LbTestAccess.setConnectionManager(
-                session,
+                conn,
                 ConnectionTestAccess.newSessionPhysicalConnManager(
                         LOGICAL_URL,
                         new Properties(),
                         LbTestSettings.forBinding(
                                 new Endpoint("rw", 33000), new Endpoint("ro", 33001)),
                         legs));
-        LbTestAccess.setSharedSelectorState(session, new SharedSelectorState());
+        LbTestAccess.setSharedSelectorState(conn, new SharedSelectorState());
         LbTestAccess.initSessionBindings(
-                session,
+                conn,
                 new EndpointTopology(
                         new Endpoint("rw", 33000),
                         Arrays.asList(new Endpoint("ro", 33001)),
                         Collections.<Endpoint>emptyList()));
-        return session;
     }
 
     @After
@@ -140,151 +126,6 @@ public class ReadLegSafetyTest {
         assertEquals(1, legs.count("rw", "SELECT * FROM v_seq"));
         assertTrue(lastRouteEvent().contains("routeTarget=TO_READ_WRITE"));
         assertTrue(lastRouteEvent().contains("fallbackReason=RO_WRITE_REJECTED"));
-    }
-
-    /** An OID names a row on the node that returned it, and OID calls go to the write leg. */
-    @Test
-    public void readThatReturnedOidsRunsAgainOnRwAndStartsThereNextTime() throws Exception {
-        legs.resultColumns("FROM tbl t", columns(UUType.U_TYPE_OBJECT, (byte) 0));
-
-        assertNotNull(conn.createStatement().executeQuery("SELECT t FROM tbl t"));
-
-        assertEquals(1, legs.count("ro", "SELECT t FROM tbl t"));
-        assertEquals(1, legs.count("rw", "SELECT t FROM tbl t"));
-        assertTrue(lastRouteEvent().contains("routeTarget=TO_READ_WRITE"));
-        assertTrue(lastRouteEvent().contains("fallbackReason=RO_OID_RESULT"));
-
-        assertNotNull(conn.createStatement().executeQuery("SELECT t FROM tbl t"));
-
-        assertEquals(1, legs.count("ro", "SELECT t FROM tbl t"));
-        assertEquals(2, legs.count("rw", "SELECT t FROM tbl t"));
-        assertTrue(lastRouteEvent().contains("fallbackReason=RO_OID_RESULT"));
-    }
-
-    /** The prepare tells the result's columns, so a prepared read never runs on the read leg. */
-    @Test
-    public void preparedReadReturningOidsRunsOnRwOnly() throws Exception {
-        legs.resultColumns("FROM tbl t", columns(UUType.U_TYPE_OBJECT, (byte) 0));
-        PreparedStatement ps = conn.prepareStatement("SELECT t FROM tbl t WHERE k = ?");
-        ps.setInt(1, 7);
-
-        assertNotNull(ps.executeQuery());
-        assertNotNull(ps.executeQuery());
-
-        assertEquals(0, legs.count("ro", "SELECT t FROM tbl t WHERE k = ?"));
-        assertEquals(2, legs.count("rw", "SELECT t FROM tbl t WHERE k = ?"));
-        assertTrue(lastRouteEvent().contains("fallbackReason=RO_OID_RESULT"));
-    }
-
-    @Test
-    public void oidReadPreparedAgainIsPreparedOnRwOnly() throws Exception {
-        legs.resultColumns("FROM tbl t", columns(UUType.U_TYPE_OBJECT, (byte) 0));
-        conn.prepareStatement("SELECT t FROM tbl t WHERE k = ?").close();
-
-        conn.prepareStatement("SELECT t FROM tbl t WHERE k = ?");
-
-        final String prepare = "prepare SELECT t FROM tbl t WHERE k = ?";
-        assertEquals(1, Collections.frequency(legs.timeline("ro"), prepare));
-        assertEquals(1, Collections.frequency(legs.timeline("rw"), prepare));
-    }
-
-    /** Its prepare waited for the execution, which ran on the read leg before the columns told. */
-    @Test
-    public void preparedOidReadWhosePrepareWasDeferredRunsAgainOnRw() throws Exception {
-        legs.resultColumns("FROM tbl t", columns(UUType.U_TYPE_OBJECT, (byte) 0));
-        legs.loseNextPrepareOnRo();
-        PreparedStatement ps = conn.prepareStatement("SELECT t FROM tbl t WHERE k = ?");
-        ps.setInt(1, 7);
-
-        assertNotNull(ps.executeQuery());
-        assertNotNull(ps.executeQuery());
-
-        assertEquals(1, legs.count("ro", "SELECT t FROM tbl t WHERE k = ?"));
-        assertEquals(2, legs.count("rw", "SELECT t FROM tbl t WHERE k = ?"));
-    }
-
-    @Test
-    public void executeThatReturnedOidsRunsAgainOnRw() throws Exception {
-        legs.resultColumns("FROM tbl t", columns(UUType.U_TYPE_OBJECT, (byte) 0));
-
-        assertTrue(conn.createStatement().execute("SELECT t FROM tbl t"));
-
-        assertEquals(1, legs.count("rw", "SELECT t FROM tbl t"));
-    }
-
-    @Test
-    public void collectionOfObjectsCarriesOids() throws Exception {
-        legs.resultColumns("FROM tbl", columns(UUType.U_TYPE_OBJECT, SET_FLAG));
-
-        conn.createStatement().executeQuery("SELECT refs FROM tbl");
-
-        assertEquals(1, legs.count("rw", "SELECT refs FROM tbl"));
-    }
-
-    @Test
-    public void readWithoutOidsStaysOnReadLeg() throws Exception {
-        legs.resultColumns("FROM tbl", columns(UUType.U_TYPE_INT, SET_FLAG));
-
-        conn.createStatement().executeQuery("SELECT ids FROM tbl");
-        conn.createStatement().executeQuery("SELECT ids FROM tbl");
-
-        assertEquals(2, legs.count("ro", "SELECT ids FROM tbl"));
-        assertEquals(0, legs.count("rw", "SELECT ids FROM tbl"));
-    }
-
-    /** The read leg was the application's choice. */
-    @Test
-    public void oidReadSentToReadLegByHintStaysThere() throws Exception {
-        legs.resultColumns("FROM tbl t", columns(UUType.U_TYPE_OBJECT, (byte) 0));
-
-        conn.createStatement().executeQuery("SELECT /*+ TO_RO */ t FROM tbl t");
-        conn.createStatement().executeQuery("SELECT /*+ TO_RO */ t FROM tbl t");
-
-        assertEquals(2, legs.count("ro", "SELECT /*+ TO_RO */ t FROM tbl t"));
-        assertEquals(0, legs.count("rw", "SELECT /*+ TO_RO */ t FROM tbl t"));
-    }
-
-    @Test
-    public void oidReadInTransactionRunsOnRwOnly() throws Exception {
-        legs.resultColumns("FROM tbl t", columns(UUType.U_TYPE_OBJECT, (byte) 0));
-        conn.setAutoCommit(false);
-
-        conn.createStatement().executeQuery("SELECT t FROM tbl t");
-
-        assertEquals(0, legs.count("ro", "SELECT t FROM tbl t"));
-        assertEquals(1, legs.count("rw", "SELECT t FROM tbl t"));
-    }
-
-    /** No read broker reachable: reads share the RW connection, whose OIDs are the master's. */
-    @Test
-    public void oidReadOnSharedRwConnectionIsNotRunAgain() throws Exception {
-        Legs noReadBroker = new Legs();
-        noReadBroker.refuseRoConnects();
-        noReadBroker.resultColumns("FROM tbl t", columns(UUType.U_TYPE_OBJECT, (byte) 0));
-        LoadBalanceConnection session = newSession(noReadBroker);
-        try {
-            session.createStatement().executeQuery("SELECT t FROM tbl t");
-
-            assertEquals(1, noReadBroker.count("rw", "SELECT t FROM tbl t"));
-        } finally {
-            session.close();
-        }
-    }
-
-    /** A session keeps the last hundred; one it forgot is found again by its result. */
-    @Test
-    public void forgottenOidReadIsFoundAgainByItsResult() throws Exception {
-        legs.resultColumns("SELECT t FROM", columns(UUType.U_TYPE_OBJECT, (byte) 0));
-        Statement st = conn.createStatement();
-        st.executeQuery("SELECT t FROM tbl t");
-        for (int k = 0; k < 100; k++) {
-            st.executeQuery("SELECT t FROM tbl t WHERE k = " + k);
-        }
-
-        st.executeQuery("SELECT t FROM tbl t");
-
-        assertEquals(2, legs.count("ro", "SELECT t FROM tbl t"));
-        assertEquals(2, legs.count("rw", "SELECT t FROM tbl t"));
     }
 
     /** {@code lbLogSql=off} keeps a statement out of the record of collapsed occurrences too. */
@@ -1111,19 +952,6 @@ public class ReadLegSafetyTest {
         assertEquals(1, legs.count("rw", "SELECT v FROM db_root"));
     }
 
-    /** Result columns as core describes them: one column of {@code type}, or a SET of it. */
-    private static ResultSetMetaData columns(final byte type, final byte collectionFlag)
-            throws Exception {
-        Constructor<UColumnInfo> info =
-                UColumnInfo.class.getDeclaredConstructor(
-                        byte.class, short.class, int.class, String.class, byte.class, String.class);
-        info.setAccessible(true);
-        return new CUBRIDResultSetMetaData(
-                new UColumnInfo[] {
-                    info.newInstance(type, (short) 0, 0, "c", collectionFlag, "utf-8")
-                }) {};
-    }
-
     private static List<String> tail(final List<String> list, final int n) {
         return list.subList(Math.max(0, list.size() - n), list.size());
     }
@@ -1161,35 +989,6 @@ public class ReadLegSafetyTest {
         private volatile boolean refuseRwOnce;
         private final AtomicInteger roSetRefusals = new AtomicInteger();
         private volatile int roSetRefusalCode;
-        private volatile boolean refuseRoConnects;
-        private volatile boolean loseNextPrepareOnRo;
-        private final Map<String, ResultSetMetaData> columns =
-                Collections.synchronizedMap(new LinkedHashMap<String, ResultSetMetaData>());
-
-        /** A query whose text contains {@code fragment} describes its result as {@code md}. */
-        void resultColumns(final String fragment, final ResultSetMetaData md) {
-            columns.put(fragment, md);
-        }
-
-        ResultSetMetaData columnsFor(final String sql) {
-            synchronized (columns) {
-                for (Map.Entry<String, ResultSetMetaData> e : columns.entrySet()) {
-                    if (sql != null && sql.indexOf(e.getKey()) >= 0) {
-                        return e.getValue();
-                    }
-                }
-            }
-            return null;
-        }
-
-        void refuseRoConnects() {
-            refuseRoConnects = true;
-        }
-
-        /** The next prepare on the read leg finds its broker gone. */
-        void loseNextPrepareOnRo() {
-            loseNextPrepareOnRo = true;
-        }
 
         void refuseOnRo(final String fragment, final int code, final String message) {
             refuseOnRo(fragment, code);
@@ -1253,14 +1052,10 @@ public class ReadLegSafetyTest {
             return out;
         }
 
-        public Connection getConnection(final String url, final Properties info)
-                throws SQLException {
+        public Connection getConnection(final String url, final Properties info) {
             final String role = url.indexOf(":ro:") >= 0 ? "ro" : "rw";
             if ("ro".equals(role)) {
                 roOpens.incrementAndGet();
-                if (refuseRoConnects) {
-                    throw new SQLException("connection refused", null, UErrorCode.ER_CONNECTION);
-                }
             }
             return (Connection) proxy(Connection.class, new ConnectionHandler(role));
         }
@@ -1308,27 +1103,19 @@ public class ReadLegSafetyTest {
                     return Boolean.TRUE;
                 }
                 if (name.startsWith("createStatement")) {
-                    return proxy(
-                            Statement.class, new StatementHandler(role, null, (Connection) proxy));
+                    return proxy(Statement.class, new StatementHandler(role, null));
                 }
                 if (name.startsWith("prepareStatement")) {
-                    if ("ro".equals(role) && loseNextPrepareOnRo) {
-                        loseNextPrepareOnRo = false;
-                        throw new SQLException("broker gone", null, UErrorCode.ER_CONNECTION);
-                    }
                     entries.add(role + "+prepare|" + args[0]);
                     return proxy(
-                            PreparedStatement.class,
-                            new StatementHandler(role, (String) args[0], (Connection) proxy));
+                            PreparedStatement.class, new StatementHandler(role, (String) args[0]));
                 }
                 if (name.startsWith("prepareCall")) {
                     final String sql = (String) args[0];
                     if ("rw".equals(role) && refuseRw != null && sql.indexOf(refuseRw) >= 0) {
                         throw new SQLException("prepare refused on rw", null, refuseRwCode);
                     }
-                    return proxy(
-                            CallableStatement.class,
-                            new StatementHandler(role, sql, (Connection) proxy));
+                    return proxy(CallableStatement.class, new StatementHandler(role, sql));
                 }
                 return defaultValue(m.getReturnType());
             }
@@ -1337,15 +1124,11 @@ public class ReadLegSafetyTest {
         private final class StatementHandler implements InvocationHandler {
             private final String role;
             private final String prepared;
-            private final Connection connection;
             private final List<String> batch = new ArrayList<String>();
-            private String lastSql;
 
-            StatementHandler(
-                    final String role, final String prepared, final Connection connection) {
+            StatementHandler(final String role, final String prepared) {
                 this.role = role;
                 this.prepared = prepared;
-                this.connection = connection;
             }
 
             public Object invoke(final Object proxy, final Method m, final Object[] args)
@@ -1368,9 +1151,8 @@ public class ReadLegSafetyTest {
                 if (name.startsWith("execute")) {
                     String sql = prepared != null ? prepared : (String) args[0];
                     run(role, sql);
-                    lastSql = sql;
                     if ("executeQuery".equals(name)) {
-                        return proxy(ResultSet.class, new ResultSetHandler(columnsFor(sql)));
+                        return proxy(ResultSet.class, new ResultSetHandler());
                     }
                     if ("executeUpdate".equals(name)) {
                         return Integer.valueOf(0);
@@ -1378,13 +1160,7 @@ public class ReadLegSafetyTest {
                     return Boolean.valueOf(sql.trim().toUpperCase().startsWith("SELECT"));
                 }
                 if ("getResultSet".equals(name)) {
-                    return proxy(ResultSet.class, new ResultSetHandler(columnsFor(lastSql)));
-                }
-                if ("getMetaData".equals(name)) {
-                    return columnsFor(prepared); // what the prepare told of the result
-                }
-                if ("getConnection".equals(name)) {
-                    return connection;
+                    return proxy(ResultSet.class, new ResultSetHandler());
                 }
                 if ("getUpdateCount".equals(name)) {
                     return Integer.valueOf(-1);
@@ -1414,16 +1190,7 @@ public class ReadLegSafetyTest {
         }
 
         private static final class ResultSetHandler implements InvocationHandler {
-            private final ResultSetMetaData md;
-
-            ResultSetHandler(final ResultSetMetaData md) {
-                this.md = md;
-            }
-
             public Object invoke(final Object proxy, final Method m, final Object[] args) {
-                if ("getMetaData".equals(m.getName())) {
-                    return md;
-                }
                 return defaultValue(m.getReturnType());
             }
         }

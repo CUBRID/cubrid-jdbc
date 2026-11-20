@@ -63,7 +63,6 @@ public final class RouterDecisionTableTest {
         boolean readsRwVariable;
         boolean previousOnReadLeg;
         boolean rwTransactionOpen;
-        boolean oidRead;
 
         @Override
         public String toString() {
@@ -86,9 +85,7 @@ public final class RouterDecisionTableTest {
                     + " previousOnReadLeg="
                     + previousOnReadLeg
                     + " rwTxOpen="
-                    + rwTransactionOpen
-                    + " oidRead="
-                    + oidRead;
+                    + rwTransactionOpen;
         }
     }
 
@@ -118,9 +115,6 @@ public final class RouterDecisionTableTest {
         if (in.classification == SqlClassification.READ_ON_PREVIOUS_LEG && !in.previousOnReadLeg) {
             return RW;
         }
-        if (in.oidRead) {
-            return RW; // its OIDs are used on the write leg
-        }
         if (in.readsRwVariable) {
             return RW;
         }
@@ -137,7 +131,7 @@ public final class RouterDecisionTableTest {
         for (TargetHint hint : HINTS) {
             for (boolean changesSession : BOTH) {
                 for (SqlClassification classification : SqlClassification.values()) {
-                    for (int flags = 0; flags < 256; flags++) {
+                    for (int flags = 0; flags < 128; flags++) {
                         final Input in = new Input();
                         in.hint = hint;
                         in.changesSession = changesSession;
@@ -149,7 +143,6 @@ public final class RouterDecisionTableTest {
                         in.previousOnReadLeg = (flags & 16) != 0;
                         in.rwTransactionOpen = (flags & 32) != 0;
                         in.preparedUnderReadPin = (flags & 64) != 0;
-                        in.oidRead = (flags & 128) != 0;
 
                         final Router.RouteDecision decision = decide(in);
                         assertEquals(in.toString(), expected(in), decision.getTarget());
@@ -159,7 +152,7 @@ public final class RouterDecisionTableTest {
                 }
             }
         }
-        assertEquals(6144, combinations);
+        assertEquals(3072, combinations);
     }
 
     /** The line of the table that decides. */
@@ -193,9 +186,6 @@ public final class RouterDecisionTableTest {
         if (previous && !in.previousOnReadLeg) {
             return RouteRule.PREVIOUS_STATEMENT;
         }
-        if (in.oidRead) {
-            return RouteRule.OID_RESULT;
-        }
         if (in.readsRwVariable) {
             return RouteRule.SESSION_VARIABLE;
         }
@@ -222,9 +212,6 @@ public final class RouterDecisionTableTest {
                         + (in.readsRwVariable ? "v" : "1")
                         + " FROM t"
                         + (in.changesSession ? "; SET NAMES utf8" : "");
-        if (in.oidRead) {
-            session.rememberOidRead(sql);
-        }
         return Router.decide(
                 RoutedSql.of(
                         sql,

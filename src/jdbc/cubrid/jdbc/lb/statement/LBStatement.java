@@ -31,7 +31,6 @@
 package cubrid.jdbc.lb.statement;
 
 import cubrid.jdbc.driver.CUBRIDResultSet;
-import cubrid.jdbc.driver.CUBRIDResultSetMetaData;
 import cubrid.jdbc.driver.CUBRIDStatement;
 import cubrid.jdbc.jci.CUBRIDCommandType;
 import cubrid.jdbc.jci.UBatchResult;
@@ -49,14 +48,11 @@ import cubrid.jdbc.lb.state.SessionRoutingState;
 import cubrid.sql.CUBRIDOID;
 import java.sql.BatchUpdateException;
 import java.sql.Connection;
-import java.sql.PreparedStatement;
 import java.sql.ResultSet;
-import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.SQLWarning;
 import java.sql.Statement;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
@@ -69,12 +65,6 @@ import java.util.function.BooleanSupplier;
  * rebind does not lose them.
  */
 public class LBStatement extends CUBRIDStatement {
-    /** Core's type name of an object column, and of a collection's objects. */
-    private static final String OBJECT_TYPE = "CLASS";
-
-    private static final List<String> COLLECTION_TYPES =
-            Arrays.asList("SET", "MULTISET", "SEQUENCE");
-
     private static final BooleanSupplier NO_RW_TRANSACTION =
             new BooleanSupplier() {
                 public boolean getAsBoolean() {
@@ -109,17 +99,13 @@ public class LBStatement extends CUBRIDStatement {
     private int lastUpdateCount = -1;
     private ResultSet lastKeys;
     private PhysicalStmtProvider stmtProvider = new UnsupportedStmtProvider();
-    // True while a READ the read leg refused, or answered with OIDs, runs again on RW (see
-    // executeWithFailover).
+    // True while a READ the read-only broker refused runs again on RW (see executeWithFailover).
     private boolean rejectedReadRetry = false;
     // Takes the connection manager's lock, so the router asks only for a statement that would
     // otherwise leave RW.
     private final BooleanSupplier rwTransactionOpen;
     // Set for a prepared statement made while reads were pinned to RW; see Router.decide.
     private boolean preparedUnderReadPin;
-    // Whether a prepared statement's result has OID columns, as its prepare told; null for a
-    // Statement, which finds it in each result.
-    private Boolean preparedReturnsOids;
 
     /**
      * The holdability a statement asking for {@code requested} reports on {@code socket}, by core's
@@ -669,9 +655,9 @@ public class LBStatement extends CUBRIDStatement {
 
     /**
      * Runs {@code execution} under failover. A READ the read leg cannot serve (a hidden write, or
-     * LOB content) runs once more on RW ({@link LoadBalanceConnection#mayRetryRejectedReadOnRw}),
-     * as does one it answered with OIDs; a statement that succeeds is reported to the connection,
-     * which tracks the session SETs and variables it created.
+     * LOB content) runs once more on RW ({@link LoadBalanceConnection#mayRetryRejectedReadOnRw}); a
+     * statement that succeeds is reported to the connection, which tracks the session SETs and
+     * variables it created.
      *
      * @param <T> the execution's result type
      * @param sql the statement as the application issued it
@@ -690,7 +676,7 @@ public class LBStatement extends CUBRIDStatement {
             throws SQLException {
         lbConnection.beginStatementRoute(route);
         try {
-            return runStatement(sql, route, retrySafe, execution);
+            return runStatement(sql, route.getTarget(), retrySafe, execution);
         } finally {
             lbConnection.endStatementRoute();
         }
@@ -698,20 +684,17 @@ public class LBStatement extends CUBRIDStatement {
 
     private <T> T runStatement(
             final String sql,
-            final RouteDecision route,
+            final RouteTarget target,
             final boolean retrySafe,
             final SqlExecution<T> execution)
             throws SQLException {
-        final RouteTarget target = route.getTarget();
+        final ExecuteFailoverHandler handler = lbConnection.getExecuteFailoverHandler();
         T result;
         RouteTarget ranOn = target;
         lbConnection.beforeSessionSet(sql);
         lbConnection.settleReadLegRollback(false);
         try {
-            result =
-                    lbConnection
-                            .getExecuteFailoverHandler()
-                            .executeWithFailover(lbConnection, target, sql, retrySafe, execution);
+            result = handler.executeWithFailover(lbConnection, target, sql, retrySafe, execution);
         } catch (SQLException failure) {
             final boolean runAgain =
                     retrySafe && lbConnection.mayRetryRejectedReadOnRw(target, sql, failure);
@@ -721,92 +704,20 @@ public class LBStatement extends CUBRIDStatement {
                 throw failure;
             }
             lbConnection.beginRejectedReadRetry(sql, failure);
+            rejectedReadRetry = true;
             ranOn = RouteTarget.TO_READ_WRITE;
             try {
-                result = runAgainOnRw(sql, retrySafe, execution);
+                result =
+                        handler.executeWithFailover(
+                                lbConnection, RouteTarget.TO_READ_WRITE, sql, retrySafe, execution);
             } finally {
+                rejectedReadRetry = false;
                 lbConnection.endRejectedReadRetry();
-            }
-        }
-        if (ranOn == RouteTarget.TO_READ_ONLY && returnedOids()) {
-            // Every OID call runs on the write leg, where the read leg's OIDs name other rows. The
-            // session remembers the statement, which starts on RW from now on; this run is done
-            // again there, unless a hint chose the read leg or that leg is the RW connection.
-            lbConnection.getSessionState().rememberOidRead(route.getSql().getText());
-            final RouteDecision onRw = routeFor(route.getSql());
-            if (retrySafe
-                    && onRw.getTarget() == RouteTarget.TO_READ_WRITE
-                    && !lbConnection.isOnWriteLeg(lastExecStmt)) {
-                lbConnection.beginStatementRoute(onRw);
-                ranOn = RouteTarget.TO_READ_WRITE;
-                result = runAgainOnRw(sql, retrySafe, execution);
             }
         }
         lbConnection.settleReadLegRollback(false);
         lbConnection.afterStatementSucceeded(sql, ranOn);
         return result;
-    }
-
-    private <T> T runAgainOnRw(
-            final String sql, final boolean retrySafe, final SqlExecution<T> execution)
-            throws SQLException {
-        rejectedReadRetry = true;
-        try {
-            return lbConnection
-                    .getExecuteFailoverHandler()
-                    .executeWithFailover(
-                            lbConnection, RouteTarget.TO_READ_WRITE, sql, retrySafe, execution);
-        } finally {
-            rejectedReadRetry = false;
-        }
-    }
-
-    /** Whether the result of the execution that just ran has OID columns. */
-    private boolean returnedOids() throws SQLException {
-        if (preparedReturnsOids != null) {
-            return preparedReturnsOids.booleanValue();
-        }
-        return lastRs != null && hasOidColumn(lastRs.getMetaData());
-    }
-
-    /**
-     * Whether {@code columns} has an object column or a collection of objects. A collection whose
-     * element type the server does not name is not seen.
-     */
-    private static boolean hasOidColumn(final ResultSetMetaData columns) throws SQLException {
-        if (columns == null) {
-            return false; // core's answer for a prepared statement without a result
-        }
-        for (int i = 1; i <= columns.getColumnCount(); i++) {
-            final String type = columns.getColumnTypeName(i);
-            if (OBJECT_TYPE.equals(type)
-                    || columns instanceof CUBRIDResultSetMetaData
-                            && COLLECTION_TYPES.contains(type)
-                            && OBJECT_TYPE.equals(
-                                    ((CUBRIDResultSetMetaData) columns).getElementTypeName(i))) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * Takes what a prepared statement's first prepare told of its result columns. One with OID
-     * columns is remembered by the session, and runs on RW from its first execution.
-     *
-     * @param sql the prepared statement
-     * @param physical a leg's statement prepared for it
-     * @throws SQLException if the leg's statement cannot describe its result
-     */
-    void learnPreparedColumns(final String sql, final PreparedStatement physical)
-            throws SQLException {
-        if (preparedReturnsOids != null) {
-            return;
-        }
-        preparedReturnsOids = Boolean.valueOf(hasOidColumn(physical.getMetaData()));
-        if (preparedReturnsOids.booleanValue()) {
-            lbConnection.getSessionState().rememberOidRead(sql);
-        }
     }
 
     /**

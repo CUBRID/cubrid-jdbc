@@ -49,6 +49,8 @@ public enum RouteRule {
     CLASSIFICATION,
     /** A read that reports on the statement before it runs on that statement's leg. */
     PREVIOUS_STATEMENT,
+    /** A read whose result has OID columns: an OID names a row on the node that returned it. */
+    OID_RESULT,
     /** A read names a variable the session created on RW. */
     SESSION_VARIABLE,
     /** Core left an autocommit transaction open on RW; the next statement there ends it. */

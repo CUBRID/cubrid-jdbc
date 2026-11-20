@@ -43,6 +43,7 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
 import org.junit.Before;
@@ -69,9 +70,16 @@ public final class LBResultSetIdentityTest {
     public void setUp() {
         // A real CUBRIDResultSet rather than a proxy: identity is only half the contract now — the
         // object must also name the logical statement as its producer, and only the real class
-        // carries that field. Constructing it with no socket is safe here; nothing reads one.
+        // carries that field. Constructing it with no socket is safe here; nothing reads one. LB
+        // reads the column types of a read leg's result (ISSUE-18): this one describes none.
         connection = LbTestAccess.newLoadBalanceConnection(LbTestSettings.defaults());
-        physicalRs = new CUBRIDResultSet(null, null);
+        physicalRs =
+                new CUBRIDResultSet(null, null) {
+                    @Override
+                    public ResultSetMetaData getMetaData() {
+                        return null;
+                    }
+                };
     }
 
     @Test

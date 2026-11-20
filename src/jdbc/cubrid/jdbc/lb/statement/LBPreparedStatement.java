@@ -211,7 +211,10 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
             } else {
                 phyPsProvider.prepareOnWriteEndpoint(sql);
             }
-            rememberPrepared(phyPsProvider.preparedForBindCheck());
+            final PreparedStatement prepared = phyPsProvider.preparedForBindCheck();
+            if (prepared != null) {
+                rememberPrepared(prepared);
+            }
         } catch (SQLException ex) {
             // A malformed reply is core's to report, as its prepareStatement does. A setter
             // reports none of them.
@@ -1162,10 +1165,11 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         return ps;
     }
 
-    private void rememberPrepared(final PreparedStatement physical) {
+    private void rememberPrepared(final PreparedStatement physical) throws SQLException {
         if (physical instanceof CUBRIDPreparedStatement) {
             firstResultType = ((CUBRIDPreparedStatement) physical).hasResultSet();
         }
+        statementDelegate.learnPreparedColumns(sql, physical);
     }
 
     private PreparedStatement physicalPsForMetadata(final RouteTarget target) throws SQLException {

@@ -33,13 +33,15 @@ package cubrid.jdbc.lb.state;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.Map;
 import java.util.Set;
 
 /**
  * Per-connection routing flags: autocommit, active transaction, the reasons a session SET the read
- * leg does not have keeps reads on the write leg, and the variables an INTO/TO clause created on
- * the write leg.
+ * leg does not have keeps reads on the write leg, the variables an INTO/TO clause created on the
+ * write leg, and the reads whose result had OID columns.
  *
  * <p>Thread contract: these fields are non-volatile and carry the same contract as the owning
  * {@link cubrid.jdbc.lb.LoadBalanceConnection}. A JDBC connection is not meant to be used
@@ -47,12 +49,28 @@ import java.util.Set;
  * publishes these fields.
  */
 public class SessionRoutingState {
+    /** How many reads {@link #rememberOidRead} keeps. */
+    static final int OID_READS_KEPT = 100;
+
     private boolean autoCommit = true;
     private boolean transactionActive = false;
     private Set<String> readPinReasons = Collections.emptySet();
     private Set<String> sessionVariables = Collections.emptySet();
     private Set<String> preparedCallVariables = Collections.emptySet();
     private boolean lastStatementOnReadLeg = false;
+    // By SQL text, least recently used first. Synchronized, unlike the fields above: a lookup
+    // reorders the map, and two at once would break it where a stale flag only misroutes.
+    private final Map<String, Boolean> oidReads =
+            Collections.synchronizedMap(
+                    new LinkedHashMap<String, Boolean>(16, 0.75f, true) {
+                        private static final long serialVersionUID = 1L;
+
+                        @Override
+                        protected boolean removeEldestEntry(
+                                final Map.Entry<String, Boolean> eldest) {
+                            return size() > OID_READS_KEPT;
+                        }
+                    });
 
     public boolean isAutoCommit() {
         return autoCommit;
@@ -188,6 +206,21 @@ public class SessionRoutingState {
         remaining.removeAll(upperNames);
         remaining.addAll(preparedCallVariables);
         this.sessionVariables = Collections.unmodifiableSet(remaining);
+    }
+
+    /**
+     * Records a read whose result had OID columns. An OID names a row on the node that returned it,
+     * and every OID call runs on the write leg, so the statement runs there from now on. The last
+     * {@value #OID_READS_KEPT} are kept; one forgotten is found again by its result.
+     *
+     * @param sql the statement as the application issued it
+     */
+    public void rememberOidRead(final String sql) {
+        oidReads.put(sql, Boolean.TRUE);
+    }
+
+    public boolean isOidRead(final String sql) {
+        return !oidReads.isEmpty() && oidReads.get(sql) != null;
     }
 
     /**

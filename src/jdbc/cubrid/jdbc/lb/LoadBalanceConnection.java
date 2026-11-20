@@ -3444,6 +3444,18 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     /**
+     * Whether {@code ranOn} is a statement of the write leg's connection. A read runs there when
+     * the session has no read connection of its own, and its OIDs are the master's already.
+     *
+     * @param ranOn the physical statement an execution ran on
+     * @return whether that statement belongs to the write leg's connection
+     * @throws SQLException if {@code ranOn} cannot report its connection
+     */
+    public boolean isOnWriteLeg(final Statement ranOn) throws SQLException {
+        return ranOn.getConnection() == connMgr.boundConnection(SessionLeg.RW);
+    }
+
+    /**
      * Gives the routing records the decision of the statement the execute path is about to run,
      * until {@link #endStatementRoute()}, so they name the rule that decided.
      *
@@ -3496,6 +3508,8 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                 return decision.getSql().getClassification() == SqlClassification.READ
                         ? FallbackReason.SESSION_SET_PIN
                         : reason;
+            case OID_RESULT:
+                return FallbackReason.RO_OID_RESULT;
             case SESSION_VARIABLE:
                 return FallbackReason.SESSION_VARIABLE;
             case RW_TRANSACTION_OPEN:

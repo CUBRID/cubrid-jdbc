@@ -58,6 +58,9 @@ public final class FallbackReason {
     /** A read touched LOB content, whose files HA does not replicate, and ran again on RW. */
     static final String RO_LOB_UNAVAILABLE = "RO_LOB_UNAVAILABLE";
 
+    /** A read whose result has OID columns, which name rows on the node that returned them. */
+    static final String RO_OID_RESULT = "RO_OID_RESULT";
+
     /** A session SET the read leg cannot replay keeps the session's reads on RW. */
     static final String SESSION_SET_PIN = "SESSION_SET_PIN";
 

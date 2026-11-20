@@ -120,8 +120,4 @@ public final class EndpointTopology {
     public boolean hasRwEndpoint() {
         return !rwEndpoints.isEmpty();
     }
-
-    boolean hasRoEndpoints() {
-        return !roEndpoints.isEmpty();
-    }
 }

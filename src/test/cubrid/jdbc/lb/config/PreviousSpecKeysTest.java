@@ -78,7 +78,7 @@ public class PreviousSpecKeysTest {
         for (int i = 0; i < FORMER_KEYS.length; i++) {
             String key = FORMER_KEYS[i];
             Result r = LoadBalanceOptionValidator.validate(Collections.singletonMap(key, "x"));
-            assertTrue(key + " was ignored", r.getIgnoredKeys().isEmpty());
+            assertTrue(key + " was ignored", ConfigTestAccess.getIgnoredKeys(r).isEmpty());
             assertEquals(key, "x", r.getRetainedOptions().get(key));
         }
     }

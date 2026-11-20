@@ -51,9 +51,9 @@ public class ParsedRoleTopologyTest {
         ParsedRoleTopology t =
                 topologyOf("jdbc:cubrid:loadbalance://node1,node2,node3;replica=rep1/testdb:::");
 
-        assertEquals("node1", t.getMasterHost());
-        assertEquals(Arrays.asList("node2", "node3"), t.getSlaveHosts());
-        assertEquals(Arrays.asList("rep1"), t.getReplicaHosts());
+        assertEquals("node1", ConfigTestAccess.getMasterHost(t));
+        assertEquals(Arrays.asList("node2", "node3"), ConfigTestAccess.getSlaveHosts(t));
+        assertEquals(Arrays.asList("rep1"), ConfigTestAccess.getReplicaHosts(t));
 
         assertTrue(t.hasSlaves());
         assertTrue(t.hasReplicas());
@@ -63,19 +63,19 @@ public class ParsedRoleTopologyTest {
     public void singleHostIsMasterOnly() throws SQLException {
         ParsedRoleTopology t = topologyOf("jdbc:cubrid:loadbalance://node1/testdb:::");
 
-        assertEquals("node1", t.getMasterHost());
+        assertEquals("node1", ConfigTestAccess.getMasterHost(t));
         assertFalse(t.hasSlaves());
         assertFalse(t.hasReplicas());
-        assertTrue(t.getSlaveHosts().isEmpty());
-        assertTrue(t.getReplicaHosts().isEmpty());
+        assertTrue(ConfigTestAccess.getSlaveHosts(t).isEmpty());
+        assertTrue(ConfigTestAccess.getReplicaHosts(t).isEmpty());
     }
 
     @Test
     public void hostsWithoutReplicaYieldNoReplicas() throws SQLException {
         ParsedRoleTopology t = topologyOf("jdbc:cubrid:loadbalance://node1,node2/testdb:::");
 
-        assertEquals("node1", t.getMasterHost());
-        assertEquals(Arrays.asList("node2"), t.getSlaveHosts());
+        assertEquals("node1", ConfigTestAccess.getMasterHost(t));
+        assertEquals(Arrays.asList("node2"), ConfigTestAccess.getSlaveHosts(t));
         assertFalse(t.hasReplicas());
     }
 
@@ -85,8 +85,8 @@ public class ParsedRoleTopologyTest {
                 topologyOf(
                         "jdbc:cubrid:loadbalance://node1,node2;replica=rep1,rep2,rep3/testdb:::");
 
-        assertEquals(Arrays.asList("node2"), t.getSlaveHosts());
-        assertEquals(Arrays.asList("rep1", "rep2", "rep3"), t.getReplicaHosts());
+        assertEquals(Arrays.asList("node2"), ConfigTestAccess.getSlaveHosts(t));
+        assertEquals(Arrays.asList("rep1", "rep2", "rep3"), ConfigTestAccess.getReplicaHosts(t));
     }
 
     /**

@@ -155,14 +155,6 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         return sql;
     }
 
-    LoadBalanceConnection getOwnerConn() {
-        return ownerConn;
-    }
-
-    ParameterBinder getParameterBinder() {
-        return parameterBinder;
-    }
-
     public void setPsProvider(PhysicalPsProvider provider) {
         if (provider == null) {
             throw new IllegalArgumentException("PhysicalPsProvider must not be null");

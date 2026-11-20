@@ -53,10 +53,6 @@ public class CurrentReadEndpointHolder {
         this.currentRoEndpoint = endpoint;
     }
 
-    boolean isBound() {
-        return currentRoEndpoint != null;
-    }
-
     public void clear() {
         this.currentRoEndpoint = null;
     }

@@ -62,7 +62,8 @@ public class LBStatementLegReplacedResultsTest {
                 LbTestAccess.newLoadBalanceConnection(LbTestSettings.defaults());
         LBStatement st = (LBStatement) conn.createStatement();
         final CoreLikeStmt rw = new CoreLikeStmt();
-        st.setStatementProvider(
+        StatementTestAccess.setStatementProvider(
+                st,
                 new LBStatement.PhysicalStmtProvider() {
                     public Statement getStatement(final RouteTarget target, final String rawSql) {
                         return rw;
@@ -89,7 +90,8 @@ public class LBStatementLegReplacedResultsTest {
                 LbTestAccess.newLoadBalanceConnection(LbTestSettings.defaults());
         LBStatement st = (LBStatement) conn.createStatement();
         final CoreLikeStmt[] onLeg = {new CoreLikeStmt()};
-        st.setStatementProvider(
+        StatementTestAccess.setStatementProvider(
+                st,
                 new LBStatement.PhysicalStmtProvider() {
                     public Statement getStatement(final RouteTarget target, final String rawSql) {
                         return onLeg[0];

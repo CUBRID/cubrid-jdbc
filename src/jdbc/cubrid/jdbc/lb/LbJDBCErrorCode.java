@@ -49,7 +49,6 @@ final class LbJDBCErrorCode {
     static final int lb_failover_exhausted = -23012;
     static final int lb_failover_ro_rw_fallback_failed = -23013;
 
-    static final int lb_stmt_no_execution_history = -23014;
     static final int lb_delegation_not_configured = -23015;
     static final int lb_physical_delegate_failed = -23016;
     static final int lb_unsupported_route = -23018;
@@ -91,9 +90,6 @@ final class LbJDBCErrorCode {
         messageString.put(
                 Integer.valueOf(lb_failover_ro_rw_fallback_failed), "RO failover to RW failed.");
 
-        messageString.put(
-                Integer.valueOf(lb_stmt_no_execution_history),
-                "No prior execution for this operation.");
         messageString.put(
                 Integer.valueOf(lb_delegation_not_configured),
                 "Physical statement delegation is not configured.");

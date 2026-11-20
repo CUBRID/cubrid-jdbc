@@ -240,15 +240,6 @@ public final class ReadWeight {
         return weightOf(NodeRole.MASTER) + weightOf(NodeRole.SLAVE) + weightOf(NodeRole.REPLICA);
     }
 
-    /**
-     * Whether any role has a non-zero read weight (otherwise reads have no distribution target).
-     *
-     * @return whether any role can serve reads
-     */
-    boolean hasReadTarget() {
-        return total() > 0;
-    }
-
     public String toString() {
         return "readWeight[slave="
                 + weightOf(NodeRole.SLAVE)

@@ -67,7 +67,7 @@ public final class RuntimeChecklistTest {
     @Test
     public void assertRC03TransactionMasterLockAndReturnToRo() throws Exception {
         LoadBalanceConnection connection = createBoundSessionConnection();
-        Endpoint pinnedRo = connection.resolveReadEndpoint(createTopology());
+        Endpoint pinnedRo = LbTestAccess.resolveReadEndpoint(connection, createTopology());
         connection.setAutoCommit(false);
         LBPreparedStatement statement =
                 (LBPreparedStatement) connection.prepareStatement("SELECT * FROM t WHERE id = ?");
@@ -76,9 +76,11 @@ public final class RuntimeChecklistTest {
         connection.commit();
         // CR-6/04 §C-1: manual-commit re-arms after commit, so reads stay RW-pinned until
         // auto-commit is restored; only then does the session return to the pinned RO.
-        Endpoint afterCommitStillManual = connection.resolveReadEndpoint(createTopology());
+        Endpoint afterCommitStillManual =
+                LbTestAccess.resolveReadEndpoint(connection, createTopology());
         connection.setAutoCommit(true);
-        Endpoint afterAutoCommitRestored = connection.resolveReadEndpoint(createTopology());
+        Endpoint afterAutoCommitRestored =
+                LbTestAccess.resolveReadEndpoint(connection, createTopology());
 
         assertEquals("rw", afterCommitStillManual.getHost());
         assertSame(pinnedRo, afterAutoCommitRestored);

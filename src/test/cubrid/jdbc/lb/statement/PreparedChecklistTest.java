@@ -62,7 +62,7 @@ public class PreparedChecklistTest {
         LBPreparedStatement statement =
                 (LBPreparedStatement) connection.prepareStatement("SELECT ?");
         statement.setInt(1, 1);
-        assertEquals(1, statement.getParameterBinder().size());
+        assertEquals(1, StatementTestAccess.getParameterBinder(statement).size());
     }
 
     @Test

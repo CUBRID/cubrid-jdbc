@@ -163,18 +163,5 @@ final class LoadBalanceOptionValidator {
         Map<String, String> getRetainedOptions() {
             return retainedOptions;
         }
-
-        /**
-         * Keys ignored as inapplicable or no longer read; each is also logged at WARN.
-         *
-         * @return the ignored keys, as an unmodifiable list
-         */
-        List<String> getIgnoredKeys() {
-            return ignoredKeys;
-        }
-
-        boolean hasIgnored() {
-            return !ignoredKeys.isEmpty();
-        }
     }
 }

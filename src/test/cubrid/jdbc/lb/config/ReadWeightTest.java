@@ -52,7 +52,7 @@ public class ReadWeightTest {
         assertEquals(10, w.weightOf(NodeRole.MASTER));
         assertEquals(50, w.weightOf(NodeRole.REPLICA));
         assertEquals(100, w.total());
-        assertTrue(w.hasReadTarget());
+        assertTrue(ConfigTestAccess.hasReadTarget(w));
     }
 
     @Test
@@ -83,7 +83,7 @@ public class ReadWeightTest {
 
     @Test
     public void allZeroHasNoReadTarget() throws SQLException {
-        assertFalse(ReadWeight.parse("master:0").hasReadTarget());
+        assertFalse(ConfigTestAccess.hasReadTarget(ReadWeight.parse("master:0")));
     }
 
     @Test

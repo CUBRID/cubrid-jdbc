@@ -183,9 +183,4 @@ public class SharedSelectorState {
     synchronized Map<String, Integer> getLiveHomeCounts() {
         return new HashMap<String, Integer>(liveHomeCounts);
     }
-
-    synchronized void resetAll() {
-        groupRoundRobinIndices.clear();
-        liveHomeCounts.clear();
-    }
 }

@@ -486,10 +486,6 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         return sessionState;
     }
 
-    CurrentReadEndpointHolder getBoundReadEndpoint() {
-        return boundReadEndpoint;
-    }
-
     void setSharedSelectorState(SharedSelectorState shared) {
         this.selState = shared;
     }
@@ -931,36 +927,6 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                 }
             }
         };
-    }
-
-    /**
-     * The endpoint a read would run on right now: the bound read endpoint, or the <b>RW</b>
-     * endpoint when the session is transaction-pinned ({@code shouldRouteToRw()}). Binds the
-     * session first if it is not bound yet.
-     *
-     * <p>Despite the name, this does not select an RO endpoint: the weighted read choice is made
-     * once at binding time by {@link #initSessionBindings}, and a pinned session legitimately
-     * answers with the write endpoint. It reads the same state the statement path uses, which is
-     * what makes it useful to a test.
-     *
-     * <p>Package-private on purpose: a test observation point, not part of the connection's API.
-     * Production read routing goes through the statement providers and {@code selectionForTarget}.
-     *
-     * @param topology the topology to bind with, when the session is not bound yet
-     * @return the endpoint a read would be routed to
-     * @throws SQLException if the connection is closed or the session cannot be bound
-     */
-    Endpoint resolveReadEndpoint(final EndpointTopology topology) throws SQLException {
-        checkClosed();
-        if (!sessionInitialized) {
-            initSessionBindings(topology);
-        }
-
-        if (sessionState.shouldRouteToRw()) {
-            return currentRwEndpoint;
-        }
-
-        return boundReadEndpoint.getCurrentRoEndpoint();
     }
 
     void initSessionBindings(final EndpointTopology topology) throws SQLException {
@@ -1592,12 +1558,6 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     public void untrackStatement(Statement stmt) {
         synchronized (openStatements) {
             openStatements.remove(stmt);
-        }
-    }
-
-    int getOpenStatementCount() {
-        synchronized (openStatements) {
-            return openStatements.size();
         }
     }
 

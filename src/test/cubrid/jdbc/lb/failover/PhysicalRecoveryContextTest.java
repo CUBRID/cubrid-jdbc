@@ -36,6 +36,7 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import cubrid.jdbc.lb.LbTestAccess;
+import cubrid.jdbc.lb.LbTestReflection;
 import cubrid.jdbc.lb.SessionLeg;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
@@ -71,7 +72,7 @@ public class PhysicalRecoveryContextTest {
 
         assertEquals(SessionLeg.RO, ctx.getFailedLeg());
         assertSame(failed, ctx.getFailedEndpoint());
-        assertEquals(RouteTarget.TO_READ_ONLY, ctx.getRouteTarget());
+        assertEquals(RouteTarget.TO_READ_ONLY, LbTestReflection.field(ctx, "routeTarget"));
         assertSame(topology, ctx.getTopology());
         assertFalse(ctx.isTxActive());
         assertEquals(1, ctx.getExcludeEndpointIds().size());

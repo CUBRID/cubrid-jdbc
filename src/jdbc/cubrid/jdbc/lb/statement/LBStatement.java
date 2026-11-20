@@ -157,13 +157,6 @@ public class LBStatement extends CUBRIDStatement {
                         resultSetType, resultSetConcurrency, this.resultSetHoldability);
     }
 
-    void setStatementProvider(final PhysicalStmtProvider provider) {
-        if (provider == null) {
-            throw new IllegalArgumentException("PhysicalStmtProvider must not be null");
-        }
-        this.stmtProvider = provider;
-    }
-
     public ResultSet executeQuery(String sql) throws SQLException {
         checkClosed();
 

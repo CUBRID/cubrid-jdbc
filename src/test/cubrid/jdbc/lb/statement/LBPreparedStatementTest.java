@@ -68,8 +68,8 @@ public class LBPreparedStatementTest {
         LBPreparedStatement ps =
                 (LBPreparedStatement) conn.prepareStatement("SELECT id FROM t WHERE id = ?");
         assertEquals("SELECT id FROM t WHERE id = ?", ps.getSql());
-        assertSame(conn, ps.getOwnerConn());
-        assertNotNull(ps.getParameterBinder());
+        assertSame(conn, StatementTestAccess.getOwnerConn(ps));
+        assertNotNull(StatementTestAccess.getParameterBinder(ps));
     }
 
     @Test
@@ -214,21 +214,21 @@ public class LBPreparedStatementTest {
     public void assertSetIntDoesNotThrow() throws Exception {
         LBPreparedStatement ps = (LBPreparedStatement) conn.prepareStatement("SELECT ?");
         ps.setInt(1, 42);
-        assertEquals(1, ps.getParameterBinder().size());
+        assertEquals(1, StatementTestAccess.getParameterBinder(ps).size());
     }
 
     @Test
     public void assertSetStringDoesNotThrow() throws Exception {
         LBPreparedStatement ps = (LBPreparedStatement) conn.prepareStatement("SELECT ?");
         ps.setString(1, "hello");
-        assertEquals(1, ps.getParameterBinder().size());
+        assertEquals(1, StatementTestAccess.getParameterBinder(ps).size());
     }
 
     @Test
     public void assertSetNullDoesNotThrow() throws Exception {
         LBPreparedStatement ps = (LBPreparedStatement) conn.prepareStatement("SELECT ?");
         ps.setNull(1, java.sql.Types.VARCHAR);
-        assertEquals(1, ps.getParameterBinder().size());
+        assertEquals(1, StatementTestAccess.getParameterBinder(ps).size());
     }
 
     @Test
@@ -236,9 +236,9 @@ public class LBPreparedStatementTest {
         LBPreparedStatement ps = (LBPreparedStatement) conn.prepareStatement("SELECT ?");
         ps.setInt(1, 7);
         ps.setString(1, "v");
-        assertEquals(1, ps.getParameterBinder().size());
+        assertEquals(1, StatementTestAccess.getParameterBinder(ps).size());
         ps.clearParameters();
-        assertEquals(0, ps.getParameterBinder().size());
+        assertEquals(0, StatementTestAccess.getParameterBinder(ps).size());
     }
 
     @Test(expected = SQLException.class)

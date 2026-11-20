@@ -30,6 +30,9 @@
 
 package cubrid.jdbc.lb.config;
 
+import cubrid.jdbc.lb.LbTestReflection;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -58,7 +61,7 @@ public final class ConfigTestAccess {
     }
 
     public static boolean hasRoEndpoints(final EndpointTopology topology) {
-        return topology.hasRoEndpoints();
+        return !topology.getRoEndpoints().isEmpty();
     }
 
     public static String getUrlPassword(final LoadBalanceSettings settings) {
@@ -71,7 +74,33 @@ public final class ConfigTestAccess {
     }
 
     public static boolean hasReadTarget(final ReadWeight weight) {
-        return weight.hasReadTarget();
+        return weight.total() > 0;
+    }
+
+    static String getMasterHost(final ParsedRoleTopology topology) {
+        return ((LoadBalanceUrlParser.HostToken) LbTestReflection.field(topology, "master"))
+                .getHost();
+    }
+
+    static List<String> getSlaveHosts(final ParsedRoleTopology topology) {
+        final List<String> hosts = new ArrayList<String>();
+        for (Object each : (List<?>) LbTestReflection.field(topology, "slaves")) {
+            hosts.add(((LoadBalanceUrlParser.HostToken) each).getHost());
+        }
+        return hosts;
+    }
+
+    static List<String> getReplicaHosts(final ParsedRoleTopology topology) {
+        final List<String> hosts = new ArrayList<String>();
+        for (Object each : (List<?>) LbTestReflection.field(topology, "replicas")) {
+            hosts.add(((LoadBalanceUrlParser.ReplicaToken) each).getHost());
+        }
+        return hosts;
+    }
+
+    @SuppressWarnings("unchecked")
+    static List<String> getIgnoredKeys(final LoadBalanceOptionValidator.Result result) {
+        return (List<String>) LbTestReflection.field(result, "ignoredKeys");
     }
 
     public static String getHost(final ResolvedRoleTopology.ResolvedNode node) {

@@ -81,7 +81,7 @@ public final class MetricsTestAccess {
     }
 
     public static boolean isEventsEnabled(final RuntimeMetrics metrics) {
-        return metrics.isEventsEnabled();
+        return ((Boolean) LbTestReflection.field(metrics, "eventsEnabled")).booleanValue();
     }
 
     /** {@code {read, write}} as {@code lb_endpoint_exec_total} reports them for one endpoint. */

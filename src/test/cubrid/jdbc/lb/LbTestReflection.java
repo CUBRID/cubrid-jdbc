@@ -54,6 +54,37 @@ public final class LbTestReflection {
         }
     }
 
+    /** The value of {@code target}'s private field, looked up through its superclasses. */
+    public static Object field(final Object target, final String name) {
+        try {
+            return instanceField(target, name).get(target);
+        } catch (IllegalAccessException e) {
+            throw new IllegalStateException(target.getClass().getSimpleName() + "." + name, e);
+        }
+    }
+
+    public static void setField(final Object target, final String name, final Object value) {
+        try {
+            instanceField(target, name).set(target, value);
+        } catch (IllegalAccessException e) {
+            throw new IllegalStateException(target.getClass().getSimpleName() + "." + name, e);
+        }
+    }
+
+    private static Field instanceField(final Object target, final String name) {
+        for (Class<?> c = target.getClass(); c != null; c = c.getSuperclass()) {
+            try {
+                Field f = c.getDeclaredField(name);
+                f.setAccessible(true);
+                return f;
+            } catch (NoSuchFieldException inASuperclass) {
+                // keep looking
+            }
+        }
+        throw new IllegalStateException(
+                target.getClass().getSimpleName() + " has no field " + name + " any more");
+    }
+
     private static Field field(final Class<?> owner, final String name) {
         try {
             Field f = owner.getDeclaredField(name);

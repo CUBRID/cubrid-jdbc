@@ -165,10 +165,6 @@ public final class LbExceptions {
         return withDetail(LbJDBCErrorCode.lb_physical_not_bound, "endpointId=" + endpointId, null);
     }
 
-    public static CUBRIDException noExecutionHistory(final String operation) {
-        return withDetail(LbJDBCErrorCode.lb_stmt_no_execution_history, operation, null);
-    }
-
     public static CUBRIDException delegationNotConfigured() {
         return withDetail(LbJDBCErrorCode.lb_delegation_not_configured, null, null);
     }

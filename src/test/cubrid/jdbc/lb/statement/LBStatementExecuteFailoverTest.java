@@ -94,7 +94,7 @@ public class LBStatementExecuteFailoverTest {
         LbTestAccess.initSessionBindings(conn, topo);
 
         LBStatement stmt = new LBStatement(conn);
-        stmt.setStatementProvider(conn.createStatementProvider(0, 0, 0));
+        StatementTestAccess.setStatementProvider(stmt, conn.createStatementProvider(0, 0, 0));
 
         ResultSet rs = stmt.executeQuery("SELECT 1");
         assertNotNull(rs);
@@ -141,7 +141,7 @@ public class LBStatementExecuteFailoverTest {
         LbTestAccess.initSessionBindings(conn, topo);
 
         LBStatement stmt = new LBStatement(conn);
-        stmt.setStatementProvider(conn.createStatementProvider(0, 0, 0));
+        StatementTestAccess.setStatementProvider(stmt, conn.createStatementProvider(0, 0, 0));
 
         stmt.executeQuery("SELECT 1");
         assertEquals(2, executeCalls.get());
@@ -189,7 +189,7 @@ public class LBStatementExecuteFailoverTest {
                         Collections.<Endpoint>emptyList()));
 
         LBStatement stmt = new LBStatement(conn);
-        stmt.setStatementProvider(conn.createStatementProvider(0, 0, 0));
+        StatementTestAccess.setStatementProvider(stmt, conn.createStatementProvider(0, 0, 0));
         stmt.addBatch("SELECT 1");
 
         try {
@@ -245,7 +245,7 @@ public class LBStatementExecuteFailoverTest {
                         Collections.<Endpoint>emptyList()));
 
         LBStatement stmt = new LBStatement(conn);
-        stmt.setStatementProvider(conn.createStatementProvider(0, 0, 0));
+        StatementTestAccess.setStatementProvider(stmt, conn.createStatementProvider(0, 0, 0));
 
         try {
             stmt.executeInsert("INSERT INTO t VALUES (1)");
@@ -308,7 +308,7 @@ public class LBStatementExecuteFailoverTest {
                         Collections.<Endpoint>emptyList()));
 
         LBStatement stmt = new LBStatement(conn);
-        stmt.setStatementProvider(conn.createStatementProvider(0, 0, 0));
+        StatementTestAccess.setStatementProvider(stmt, conn.createStatementProvider(0, 0, 0));
         stmt.addBatch("SELECT 1");
 
         try {
@@ -357,7 +357,7 @@ public class LBStatementExecuteFailoverTest {
         LbTestAccess.initSessionBindings(conn, topo);
 
         LBStatement stmt = new LBStatement(conn);
-        stmt.setStatementProvider(conn.createStatementProvider(0, 0, 0));
+        StatementTestAccess.setStatementProvider(stmt, conn.createStatementProvider(0, 0, 0));
 
         try {
             stmt.executeQuery("SELECT 1");

@@ -41,7 +41,7 @@ public final class StateTestAccess {
     private StateTestAccess() {}
 
     public static boolean isBound(final CurrentReadEndpointHolder holder) {
-        return holder.isBound();
+        return holder.getCurrentRoEndpoint() != null;
     }
 
     public static Map<String, Integer> getLiveHomeCounts(final SharedSelectorState state) {
@@ -53,7 +53,10 @@ public final class StateTestAccess {
     }
 
     public static void resetAll(final SharedSelectorState state) {
-        state.resetAll();
+        synchronized (state) {
+            ((Map<?, ?>) LbTestReflection.field(state, "groupRoundRobinIndices")).clear();
+            ((Map<?, ?>) LbTestReflection.field(state, "liveHomeCounts")).clear();
+        }
     }
 
     public static void clearForTests() {

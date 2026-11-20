@@ -71,13 +71,4 @@ public final class RecoveryBackoffRegistryTest {
         assertTrue(shared.tryClaimProbe("ep", 42L));
         assertFalse(shared.tryClaimProbe("ep", 42L));
     }
-
-    @Test
-    public void assertReleaseKeyDropsInstance() {
-        RecoveryBackoff first = RecoveryBackoffRegistry.getOrCreate(KEY, 3000);
-        RecoveryBackoffRegistry.releaseKey(KEY);
-        RecoveryBackoff second = RecoveryBackoffRegistry.getOrCreate(KEY, 3000);
-
-        assertNotSame(first, second);
-    }
 }

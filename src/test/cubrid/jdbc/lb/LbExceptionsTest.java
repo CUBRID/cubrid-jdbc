@@ -154,9 +154,6 @@ public class LbExceptionsTest {
                 LbJDBCErrorCode.lb_physical_not_bound,
                 LbExceptions.physicalNotBound("repl1:33000").getErrorCode());
         assertEquals(
-                LbJDBCErrorCode.lb_stmt_no_execution_history,
-                LbExceptions.noExecutionHistory("query plan").getErrorCode());
-        assertEquals(
                 LbJDBCErrorCode.lb_delegation_not_configured,
                 LbExceptions.delegationNotConfigured().getErrorCode());
         assertEquals(

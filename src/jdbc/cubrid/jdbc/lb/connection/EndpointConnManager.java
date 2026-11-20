@@ -276,6 +276,22 @@ public interface EndpointConnManager extends PhysicalResourceReleaser {
     boolean isRwTxReportedOpen();
 
     /**
+     * Whether reads are served away from the session's home read endpoint: on a sibling, another
+     * role, or the RW connection. Only then has {@link #restoreRoIfRecovered} anything to do.
+     *
+     * @return whether the read leg is displaced
+     */
+    boolean isReadDisplaced();
+
+    /**
+     * Whether the RW leg is bound away from the master RW endpoint. Only then has {@link
+     * #restoreRwIfRecovered} anything to do.
+     *
+     * @return whether the RW leg is displaced
+     */
+    boolean isRwDisplaced();
+
+    /**
      * Lazy RO failback: reconnect to the recovered home read endpoint when reads have been
      * displaced (e.g. roOnRw). Returns the restored endpoint, or {@code null} when nothing changed.
      * Managers without failback return {@code null}.

@@ -695,7 +695,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         // Before failback, which would replace a leg core closed with a new one.
         checkClosed();
         maybeRestoreRoBinding(target);
-        failbackRwIfStatementAllows(target);
+        failbackRwIfStatementAllows();
         EndpointSelection endpointSelection = selectionForTarget(target);
 
         Endpoint endpoint = endpointSelection.getEndpoint();
@@ -3703,11 +3703,14 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         }
 
         // Throttle: a displaced session re-probes for a recovered home at most once per interval.
-        // A session already at home returns inside restoreRoIfRecovered() without opening anything.
         long now = System.nanoTime();
         if (attemptedWithin(
                 lastReadFailbackAttemptNanos, now, config.getReadFailbackProbeIntervalMs())) {
             return;
+        }
+        if (!connMgr.isReadDisplaced()) {
+            lastReadFailbackAttemptNanos = Long.valueOf(now);
+            return; // at home: nothing to restore, and no statement to scan for a cursor
         }
         if (hasOpenCursorOn(connMgr.boundConnection(SessionLeg.RO))) {
             return; // retried on a later read, once the cursor is closed
@@ -3728,38 +3731,20 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     /**
-     * RW failback trigger on the statement path. Fires for a write, and also for a read that is
-     * served by the RW connection (roOnRw / RW-only / master-read sessions) — that read is on the
-     * stranded node too, so it is worth correcting.
+     * RW failback trigger on the statement path. Fires for every statement, a read on its own leg
+     * included: a session that only reads would otherwise keep a CAS of the sibling RW broker until
+     * its next write.
      *
      * <p>Only for a session with no transaction in progress. A manual-commit session is
      * transaction-pinned even between commits (see {@code
      * SessionRoutingState.onTransactionBoundary}), so for it this is always a no-op and the {@code
      * commit()}/{@code rollback()} hook does the work.
      */
-    private void failbackRwIfStatementAllows(final RouteTarget target) {
-        if (target != RouteTarget.TO_READ_WRITE && !readRidesOnRw()) {
-            return;
-        }
+    private void failbackRwIfStatementAllows() {
         if (sessionState.isTransactionActive()) {
             return;
         }
         attemptRwFailback();
-    }
-
-    /**
-     * Whether reads are currently served by the RW physical connection: either a failed-over read
-     * leg ({@code roOnRw}) or an RW-only / master-read session, where the read role is bound to the
-     * RW endpoint itself.
-     */
-    private boolean readRidesOnRw() {
-        if (connMgr == null) {
-            return false;
-        }
-        if (connMgr.isReadOnRwConnection()) {
-            return true;
-        }
-        return currentRoEndpoint != null && currentRoEndpoint.equals(currentRwEndpoint);
     }
 
     /**
@@ -3803,8 +3788,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
 
     /**
      * Attempts RW failback at a caller-verified safe boundary: no statement in flight and no
-     * transaction work since the last commit/rollback. Throttled per session; a session already on
-     * the master returns inside {@code restoreRwIfRecovered()} without opening anything.
+     * transaction work since the last commit/rollback. Throttled per session.
      */
     private void attemptRwFailback() {
         if (!sessionInitialized || connMgr == null) {
@@ -3818,6 +3802,15 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         if (attemptedWithin(
                 lastRwFailbackAttemptNanos, now, config.getWriteFailbackProbeIntervalMs())) {
             return;
+        }
+        if (!connMgr.isRwDisplaced()) {
+            lastRwFailbackAttemptNanos = Long.valueOf(now);
+            return; // on the master: nothing to restore, and no statement to scan for a cursor
+        }
+        // Core ends the autocommit transaction an OID write or a CALL left open when the next
+        // statement on that connection completes. Closing the connection first loses that work.
+        if (connMgr.isRwTxReportedOpen()) {
+            return; // retried at a later trigger, once it has ended
         }
         final Connection rw = connMgr.boundConnection(SessionLeg.RW);
         if (hasOpenCursorOn(rw) || hasOpenCallOn(rw)) {

@@ -370,6 +370,14 @@ public final class SimpleEndpointConnManager implements EndpointConnManager {
         return false;
     }
 
+    public boolean isReadDisplaced() {
+        return false;
+    }
+
+    public boolean isRwDisplaced() {
+        return false;
+    }
+
     public Endpoint restoreRoIfRecovered() throws SQLException {
         return null;
     }

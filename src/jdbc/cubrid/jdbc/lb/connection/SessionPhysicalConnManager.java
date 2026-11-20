@@ -1950,7 +1950,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
     }
 
     /** A session's RW leg is displaced when it is not bound to the master RW endpoint. */
-    private boolean isRwDisplaced() {
+    public synchronized boolean isRwDisplaced() {
         if (sessRwEp == null || homeRwEp == null) {
             return false;
         }
@@ -1967,7 +1967,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
     }
 
     /** A session is displaced when reads are not currently served by the weighted home endpoint. */
-    private boolean isReadDisplaced() {
+    public synchronized boolean isReadDisplaced() {
         if (roOnRw) {
             return true;
         }

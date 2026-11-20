@@ -34,16 +34,19 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import cubrid.jdbc.jci.UConnection;
 import cubrid.jdbc.jci.UErrorCode;
 import cubrid.jdbc.jci.UUnreachableHostList;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.connection.ConnectionTestAccess;
+import cubrid.jdbc.lb.connection.EndpointConnManager;
 import cubrid.jdbc.lb.connection.JdbcConnectionFactory;
 import cubrid.jdbc.lb.route.Router.RouteTarget;
 import cubrid.jdbc.lb.state.SharedSelectorState;
 import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.sql.Connection;
@@ -66,7 +69,8 @@ import org.junit.Test;
  * Where RW failback is triggered from, and where it must stay silent:
  *
  * <ul>
- *   <li>statement path — an autocommit session corrects itself on its next write;
+ *   <li>statement path — an autocommit session corrects itself on its next statement, a read on its
+ *       own leg included, unless the write leg still holds an open transaction;
  *   <li>transaction boundary — a manual-commit session (transaction-pinned even between commits)
  *       corrects itself on {@code commit()}/{@code rollback()}, never mid-transaction;
  *   <li>pool probe — only with the opt-in {@code write.failback.on.validate};
@@ -167,6 +171,32 @@ public class LoadBalanceConnectionRwFailbackTriggerTest {
         }
     }
 
+    /**
+     * Core leaves an autocommit transaction open after an OID write or a CALL, and ends it when the
+     * next statement on that connection completes. Failing back first closes the connection that
+     * holds it, and the server rolls the work back.
+     */
+    @Test
+    public void failbackWaitsWhileTheWriteLegHoldsAnOpenTransaction() throws SQLException {
+        final List<TxConnection> opened = new ArrayList<TxConnection>();
+        LoadBalanceConnection conn = displacedConnection(tuning(0), true, txFactory(opened));
+        try {
+            final TxConnection sibling = txOpenedFor(opened, NODE2_RW);
+            sibling.server.report(true);
+            markUp(NODE1_RW);
+
+            executeWrite(conn);
+            assertEquals(NODE2_RW, conn.getCurrentRwEndpoint());
+            assertFalse(sibling.closed);
+
+            sibling.server.report(false);
+            executeWrite(conn);
+            assertEquals(NODE1_RW, conn.getCurrentRwEndpoint());
+        } finally {
+            conn.close();
+        }
+    }
+
     @Test
     public void autocommitWriteTriggersFailback() throws SQLException {
         LoadBalanceConnection conn = displacedConnection(tuning(0));
@@ -177,6 +207,28 @@ public class LoadBalanceConnectionRwFailbackTriggerTest {
             executeWrite(conn);
 
             assertEquals(NODE1_RW, conn.getCurrentRwEndpoint());
+        } finally {
+            conn.close();
+        }
+    }
+
+    /** A session that only reads would keep a CAS of the sibling RW broker until its next write. */
+    @Test
+    public void readOnItsOwnLegTriggersFailback() throws SQLException {
+        LoadBalanceConnection conn = displacedConnection(tuning(0));
+        try {
+            assertEquals(NODE2_RW, conn.getCurrentRwEndpoint());
+            assertEquals(NODE2_RO, conn.getCurrentRoEndpoint());
+
+            markUp(NODE1_RW);
+            conn.createStatementProvider(
+                            ResultSet.TYPE_FORWARD_ONLY,
+                            ResultSet.CONCUR_READ_ONLY,
+                            ResultSet.HOLD_CURSORS_OVER_COMMIT)
+                    .getStatement(RouteTarget.TO_READ_ONLY, "SELECT 1 FROM db_root");
+
+            assertEquals(NODE1_RW, conn.getCurrentRwEndpoint());
+            assertEquals(NODE2_RO, conn.getCurrentRoEndpoint());
         } finally {
             conn.close();
         }
@@ -259,6 +311,55 @@ public class LoadBalanceConnectionRwFailbackTriggerTest {
             markUp(NODE1_RW);
             conn.isValid(0);
             assertEquals(NODE1_RW, conn.getCurrentRwEndpoint());
+        } finally {
+            conn.close();
+        }
+    }
+
+    /** A session at home has nothing to fail back: its statements are not scanned for a cursor. */
+    @Test
+    public void sessionAtHomeAsksOnlyWhetherItIsDisplaced() throws SQLException {
+        final List<String> asked = new ArrayList<String>();
+        LoadBalanceSettings config = LbTestSettings.forTopology(topology(true));
+        LbTestSettings.with(config, "writeFailbackProbeIntervalMs", Integer.valueOf(0));
+        LbTestSettings.with(config, "readFailbackProbeIntervalMs", Integer.valueOf(0));
+        final EndpointConnManager manager =
+                ConnectionTestAccess.newSessionPhysicalConnManager(
+                        LOGICAL_URL, new Properties(), config, factory());
+        LoadBalanceConnection conn = new LoadBalanceConnection(config);
+        conn.setConnectionManager(
+                (EndpointConnManager)
+                        Proxy.newProxyInstance(
+                                EndpointConnManager.class.getClassLoader(),
+                                new Class<?>[] {EndpointConnManager.class},
+                                new InvocationHandler() {
+                                    public Object invoke(
+                                            final Object proxy, final Method m, final Object[] a)
+                                            throws Throwable {
+                                        asked.add(m.getName());
+                                        try {
+                                            return m.invoke(manager, a);
+                                        } catch (InvocationTargetException failed) {
+                                            throw failed.getCause();
+                                        }
+                                    }
+                                }));
+        conn.setSharedSelectorState(new SharedSelectorState());
+        conn.initSessionBindings(topology(true));
+        try {
+            asked.clear();
+            conn.createStatementProvider(
+                            ResultSet.TYPE_FORWARD_ONLY,
+                            ResultSet.CONCUR_READ_ONLY,
+                            ResultSet.HOLD_CURSORS_OVER_COMMIT)
+                    .getStatement(RouteTarget.TO_READ_ONLY, "SELECT 1 FROM db_root");
+            executeWrite(conn);
+
+            assertTrue(asked.toString(), asked.contains("isReadDisplaced"));
+            assertTrue(asked.toString(), asked.contains("isRwDisplaced"));
+            assertFalse(asked.toString(), asked.contains("boundConnection"));
+            assertFalse(asked.toString(), asked.contains("restoreRoIfRecovered"));
+            assertFalse(asked.toString(), asked.contains("restoreRwIfRecovered"));
         } finally {
             conn.close();
         }
@@ -407,6 +508,78 @@ public class LoadBalanceConnectionRwFailbackTriggerTest {
                 return conn.proxy;
             }
         };
+    }
+
+    private JdbcConnectionFactory txFactory(final List<TxConnection> opened) {
+        return new JdbcConnectionFactory() {
+            public Connection getConnection(final String url, final Properties info)
+                    throws SQLException {
+                for (String epId : down) {
+                    if (url.contains(":" + epId + ":")) {
+                        throw new SQLException(
+                                "down: " + epId, null, UErrorCode.CAS_ER_FREE_SERVER);
+                    }
+                }
+                TxConnection conn = new TxConnection(url);
+                opened.add(conn);
+                return conn;
+            }
+        };
+    }
+
+    private static TxConnection txOpenedFor(final List<TxConnection> opened, final Endpoint ep) {
+        for (TxConnection conn : opened) {
+            if (conn.url.contains(":" + ep.getId() + ":")) {
+                return conn;
+            }
+        }
+        throw new AssertionError("no physical connection was opened to " + ep.getId());
+    }
+
+    /** What the server last reported on a connection: whether a transaction is open there. */
+    private static final class ServerTxStatus extends UConnection {
+        void report(final boolean txOpen) {
+            casInfo = new byte[] {(byte) (txOpen ? 1 : 0), 0, 0, 0};
+        }
+
+        public void endTransaction(final boolean type) {}
+
+        protected void closeInternal() {}
+
+        public void setAutoCommit(final boolean autoCommit) {}
+
+        public boolean getAutoCommit() {
+            return true;
+        }
+    }
+
+    /** A physical connection that reports its server's transaction status. */
+    private static final class TxConnection extends FakePhysicalConnection {
+        final String url;
+        final ServerTxStatus server = new ServerTxStatus();
+        boolean closed;
+
+        TxConnection(final String url) {
+            this.url = url;
+            server.report(false);
+        }
+
+        @Override
+        protected Object dispatch(final String name, final Object[] args) {
+            if ("getUConnection".equals(name)) {
+                return server;
+            }
+            if ("close".equals(name)) {
+                closed = true;
+            }
+            if ("isClosed".equals(name)) {
+                return Boolean.valueOf(closed);
+            }
+            if ("isValid".equals(name)) {
+                return Boolean.valueOf(!closed);
+            }
+            return null;
+        }
     }
 
     private static CursorConnection openedFor(

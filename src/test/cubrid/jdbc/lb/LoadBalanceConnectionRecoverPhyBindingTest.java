@@ -176,14 +176,18 @@ public class LoadBalanceConnectionRecoverPhyBindingTest {
                         return executingConnection(new HashSet<Object>());
                     }
                 };
-        // Read failback probes the master as the read home by design; off, so that only a dial
-        // from the read leg left on the failed endpoint is counted.
+        // Read failback probes the master as the read home by design, and a read is a trigger of
+        // RW failback too; both off, so that only a dial from the read leg left on the failed
+        // endpoint is counted.
         LoadBalanceSettings config =
                 LbTestSettings.with(
-                        LbTestSettings.fromUrl(
-                                "jdbc:cubrid:loadbalance://f2m,f2s/testdb:::"
-                                        + "?rwPort=33000&roPort=33001&readWeight=master:1"),
-                        "readFailbackEnabled",
+                        LbTestSettings.with(
+                                LbTestSettings.fromUrl(
+                                        "jdbc:cubrid:loadbalance://f2m,f2s/testdb:::"
+                                                + "?rwPort=33000&roPort=33001&readWeight=master:1"),
+                                "readFailbackEnabled",
+                                false),
+                        "writeFailbackEnabled",
                         false);
         SessionPhysicalConnManager mgr =
                 ConnectionTestAccess.newSessionPhysicalConnManager(

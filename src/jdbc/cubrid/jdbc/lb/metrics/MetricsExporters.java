@@ -51,6 +51,7 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -90,8 +91,9 @@ public final class MetricsExporters {
             };
     // An address:port that could not be bound is warned about once and not tried again for a
     // while; another pool's address:port is still tried at once.
-    private static final long BIND_RETRY_MS = 60000L;
-    private static final Map<String, Long> BIND_FAILED_AT_MS = new HashMap<String, Long>();
+    private static final long BIND_RETRY_NANOS = TimeUnit.SECONDS.toNanos(60L);
+    // System.nanoTime() of the failure: a wall clock set back would put the retry off.
+    private static final Map<String, Long> BIND_FAILED_AT_NANOS = new HashMap<String, Long>();
     // Every connection configures the exporters, so a conflicting value is warned about once too.
     private static final Set<String> WARNED_CONFLICTS = new HashSet<String>();
     private static boolean csvStarted;
@@ -183,8 +185,8 @@ public final class MetricsExporters {
             }
             return;
         }
-        Long failedAt = BIND_FAILED_AT_MS.get(at);
-        if (failedAt != null && System.currentTimeMillis() - failedAt < BIND_RETRY_MS) {
+        Long failedAt = BIND_FAILED_AT_NANOS.get(at);
+        if (failedAt != null && System.nanoTime() - failedAt < BIND_RETRY_NANOS) {
             return;
         }
         try {
@@ -216,7 +218,7 @@ public final class MetricsExporters {
                             + ":"
                             + port);
         } catch (IOException e) {
-            if (BIND_FAILED_AT_MS.put(at, System.currentTimeMillis()) == null) {
+            if (BIND_FAILED_AT_NANOS.put(at, System.nanoTime()) == null) {
                 LOGGER.warning(
                         "failed to start Prometheus exporter on "
                                 + at

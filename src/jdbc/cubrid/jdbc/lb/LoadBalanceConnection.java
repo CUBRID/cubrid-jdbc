@@ -251,10 +251,10 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     // True when this connection's RuntimeMetrics was registered for export; drives unregister
     // (flush of final counts) at close().
     private boolean metricsRegistered = false;
-    // Wall-clock birth of this logical connection, for the lifetime reported at close(). A pool
-    // discarding healthy connections shows up as a population of very short lifetimes, which cannot
-    // be seen from the close record alone.
-    private final long createdAtMs = System.currentTimeMillis();
+    // Birth of this logical connection, for the lifetime reported at close(). A pool discarding
+    // healthy connections shows up as a population of very short lifetimes, which cannot be seen
+    // from the close record alone.
+    private final long createdAtNanos = System.nanoTime();
 
     public interface PhysicalResourceReleaser {
 
@@ -1471,7 +1471,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                 LOGGER,
                 LbLog.conn(connectionId),
                 "LB CONN: closed after "
-                        + (System.currentTimeMillis() - createdAtMs)
+                        + TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - createdAtNanos)
                         + "ms"
                         + " | rw="
                         + (currentRwEndpoint == null ? "?" : currentRwEndpoint.getId())

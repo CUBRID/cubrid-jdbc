@@ -34,6 +34,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -82,14 +83,14 @@ public final class LbLogDedup {
     private LbLogDedup() {}
 
     private static final class Pending {
-        private long windowStartMs;
+        private long windowStartNanos;
         private long suppressed;
         private Logger logger;
         private String message;
         private Level level;
 
-        private Pending(final long windowStartMs) {
-            this.windowStartMs = windowStartMs;
+        private Pending(final long windowStartNanos) {
+            this.windowStartNanos = windowStartNanos;
         }
     }
 
@@ -171,7 +172,7 @@ public final class LbLogDedup {
             final String key,
             final String message,
             final long windowMs) {
-        long now = System.currentTimeMillis();
+        long now = System.nanoTime(); // a wall clock set back would stretch the window
         Pending pending = STATE.get(key);
 
         if (pending == null) {
@@ -192,14 +193,14 @@ public final class LbLogDedup {
         pending.message = message;
         pending.level = level;
 
-        if (now - pending.windowStartMs < windowMs) {
+        if (now - pending.windowStartNanos < TimeUnit.MILLISECONDS.toNanos(windowMs)) {
             pending.suppressed++;
             installShutdownHook();
             return null;
         }
 
         long held = pending.suppressed;
-        pending.windowStartMs = now;
+        pending.windowStartNanos = now;
         pending.suppressed = 0L;
 
         return held == 0L

@@ -43,6 +43,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -85,10 +86,11 @@ public final class LbDistLog {
     private static final int WRITE = 1;
     private static final int FALLBACK = 2;
 
-    private static final AtomicLong lastEmitMs = new AtomicLong();
+    // System.nanoTime() readings: a wall clock set back would hold the next record.
+    private static final AtomicLong lastEmitNanos = new AtomicLong();
 
     private static volatile boolean armed;
-    private static volatile long intervalMs;
+    private static volatile long intervalNanos;
     private static volatile LoadBalanceSettings target;
     // Removed by the drain on the last LB connection close, so it does not keep this driver's
     // class loader after an undeploy; the next connection installs it again.
@@ -121,9 +123,9 @@ public final class LbDistLog {
             return;
         }
 
-        intervalMs = sec * 1000L;
+        intervalNanos = TimeUnit.SECONDS.toNanos(sec);
         target = config;
-        lastEmitMs.set(System.currentTimeMillis());
+        lastEmitNanos.set(System.nanoTime());
         previous = MetricsRegistry.aggregateByEndpoint();
         armed = true;
 
@@ -146,18 +148,18 @@ public final class LbDistLog {
             return;
         }
 
-        final long now = System.currentTimeMillis();
-        final long prev = lastEmitMs.get();
-        if (now - prev < intervalMs) {
+        final long now = System.nanoTime();
+        final long prev = lastEmitNanos.get();
+        if (now - prev < intervalNanos) {
             return;
         }
         // Exactly one thread per window gets past this, so concurrent statements cannot each emit a
         // set of records for the same window.
-        if (!lastEmitMs.compareAndSet(prev, now)) {
+        if (!lastEmitNanos.compareAndSet(prev, now)) {
             return;
         }
 
-        emit((now - prev) / 1000L, false);
+        emit(TimeUnit.NANOSECONDS.toSeconds(now - prev), false);
     }
 
     /**
@@ -170,8 +172,8 @@ public final class LbDistLog {
             return;
         }
         // Restart the window: if connections are opened again, the next one starts from here.
-        long now = System.currentTimeMillis();
-        emit((now - lastEmitMs.getAndSet(now)) / 1000L, true);
+        long now = System.nanoTime();
+        emit(TimeUnit.NANOSECONDS.toSeconds(now - lastEmitNanos.getAndSet(now)), true);
         removeShutdownHook();
     }
 
@@ -511,9 +513,9 @@ public final class LbDistLog {
     /** Test hook: disarms and forgets the window state. */
     static synchronized void resetForTests() {
         armed = false;
-        intervalMs = 0L;
+        intervalNanos = 0L;
         target = null;
         previous = Collections.emptyMap();
-        lastEmitMs.set(0L);
+        lastEmitNanos.set(0L);
     }
 }

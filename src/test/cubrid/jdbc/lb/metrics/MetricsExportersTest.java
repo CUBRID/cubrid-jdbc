@@ -375,7 +375,7 @@ public class MetricsExportersTest {
         assertEquals(warnings.toString(), 1, count(warnings, "failed", portA));
         assertEquals(warnings.toString(), 1, count(warnings, "failed", portB));
         // Closed now, so a later test may be handed the same port numbers.
-        Field failedAt = MetricsExporters.class.getDeclaredField("BIND_FAILED_AT_MS");
+        Field failedAt = MetricsExporters.class.getDeclaredField("BIND_FAILED_AT_NANOS");
         failedAt.setAccessible(true);
         ((Map<?, ?>) failedAt.get(null)).clear();
     }

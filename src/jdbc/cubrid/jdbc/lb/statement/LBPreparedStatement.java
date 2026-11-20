@@ -203,10 +203,16 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
      * (e.g. the RO broker was stopped) it would throw here — before {@code executeQuery()} can fail
      * over. Swallow "host down" errors and let the first execute re-prepare through the failover
      * path; any other error still propagates as before.
+     *
+     * <p>Not while the write leg has an open transaction: core reconnects by itself only outside
+     * one, and reports the failure inside one, in autocommit too (after an OID write, a CALL, a LOB
+     * it created). The work in that transaction is lost, and the execution would otherwise run on
+     * another node and say nothing.
      */
     private void prepareTolerantOfUnreachable(final boolean onReadLeg, final boolean forBindCheck)
             throws SQLException {
         ownerConn.settleReadLegRollback(false);
+        final boolean writeTxOpen = !onReadLeg && ownerConn.isRwTxReportedOpen();
         try {
             if (onReadLeg) {
                 phyPsProvider.prepareOnBoundReadEndpoint(sql);
@@ -219,7 +225,8 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
             // reports none of them.
             final boolean reported =
                     !forBindCheck
-                            && (ExecuteFailoverHandler.isMalformedReply(ex)
+                            && (writeTxOpen
+                                    || ExecuteFailoverHandler.isMalformedReply(ex)
                                     || !ReconnectPolicy.isRetriableSqlException(ex)
                                             && !UnreachableEndpoints.shouldMarkUnreachable(ex));
             ownerConn.settleReadLegRollback(reported);

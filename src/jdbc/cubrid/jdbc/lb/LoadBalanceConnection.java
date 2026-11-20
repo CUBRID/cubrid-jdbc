@@ -671,10 +671,16 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      * @return whether the write leg reports an open transaction in autocommit
      */
     public boolean isRwTxOpenInAutoCommit() {
-        return sessionState.isAutoCommit()
-                && isSessionInitialized()
-                && connMgr != null
-                && connMgr.isRwTxReportedOpen();
+        return sessionState.isAutoCommit() && isRwTxReportedOpen();
+    }
+
+    /**
+     * Whether the write leg's last reply said a transaction is open there, in either commit mode.
+     *
+     * @return whether the write leg reports an open transaction
+     */
+    public boolean isRwTxReportedOpen() {
+        return isSessionInitialized() && connMgr != null && connMgr.isRwTxReportedOpen();
     }
 
     /**

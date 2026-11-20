@@ -78,15 +78,27 @@ public final class ExecuteFailoverHandler {
     }
 
     /**
-     * Whether core reported a reply it could not read. Core reconnects for one itself where it
-     * does, so when this reaches LB core still holds a connection and its session; one that cannot
-     * reach the broker reports a connection error instead.
+     * Whether core reported a reply it could not read. Core reconnects for one itself where it may;
+     * one that reaches LB came where core does not, a transaction being open, or after its
+     * reconnect. LB keeps the leg as core keeps its connection, though the CAS behind it, and its
+     * session, may be gone. One that cannot reach the broker reports a connection error instead.
      *
      * @param ex the failure to classify
      * @return whether the failure is a malformed reply
      */
     public static boolean isMalformedReply(final SQLException ex) {
         return ex.getErrorCode() == UErrorCode.ER_ILLEGAL_DATA_SIZE;
+    }
+
+    /**
+     * Whether core closed a read leg on its own connection because its network timeout expired.
+     * Core never reads from that node, so the leg fails over as a dead broker's does and the read
+     * runs again. On the write leg's connection the timeout closes the session, as on core's one.
+     */
+    private static boolean isReadLegNetworkTimeout(
+            final RouteTarget failedLeg, final SQLException ex) {
+        return failedLeg == RouteTarget.TO_READ_ONLY
+                && ex.getErrorCode() == UErrorCode.ER_NETWORK_TIMEOUT;
     }
 
     <T> T executeWithFailover(
@@ -176,7 +188,8 @@ public final class ExecuteFailoverHandler {
         try {
             return timedRun(connection, routeTarget, timed, execution);
         } catch (SQLException ex) {
-            if (!isBrokerFailure(ex)) {
+            RouteTarget failedLeg = connection.failedLegTarget(routeTarget);
+            if (!isBrokerFailure(ex) && !isReadLegNetworkTimeout(failedLeg, ex)) {
                 // Not a broker failure: the statement itself failed and no leg is rebound.
                 // Recorded, so a log showing no failover after an error is explained rather than
                 // silent.
@@ -193,9 +206,10 @@ public final class ExecuteFailoverHandler {
 
             // Recover the endpoint that was actually used for this execution (captured at execute
             // time), so recomputing the routing preview here cannot mark the wrong node.
+            // Whether to replay is still decided by routeTarget below: a read stays a read.
             try {
-                Endpoint failedEp = connection.resolveFailedExecEndpoint(routeTarget);
-                PhysicalRecoveryContext ctx = connection.buildRecoveryCtx(routeTarget, failedEp);
+                Endpoint failedEp = connection.resolveFailedExecEndpoint(failedLeg);
+                PhysicalRecoveryContext ctx = connection.buildRecoveryCtx(failedLeg, failedEp);
                 connection.recoverPhyBinding(ctx, ex);
             } catch (SQLException recoveryEx) {
                 // Recovery preparation failed. The original execution exception is the meaningful
@@ -218,8 +232,10 @@ public final class ExecuteFailoverHandler {
             // Rebind the endpoint (done above) but do NOT re-run when re-execution is unsafe:
             //  - writes (TO_READ_WRITE): the server may have already applied the statement before
             //    the connection dropped, so replaying risks a duplicate INSERT / double UPDATE.
-            //    Unless connecting failed (ER_CONNECTION): nothing was sent, and core, which
-            //    reconnects before it sends, runs the write on the next host.
+            //    Unless core reports a connect failure (ER_CONNECTION). Core gives that when it
+            //    could not send, and also when an autocommit statement lost its answer and the
+            //    reconnect was refused; with altHosts core sends the request to the next host
+            //    either way, and so does this.
             //  - retrySafe == false: a consumed stream/reader parameter cannot be replayed.
             // In both cases propagate the original exception so the caller decides.
             if (!connection.getLbConfig().isRuntimeFailoverRetryOnce()

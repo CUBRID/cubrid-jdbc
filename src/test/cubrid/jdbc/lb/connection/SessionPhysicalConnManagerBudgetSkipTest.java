@@ -78,7 +78,8 @@ public class SessionPhysicalConnManagerBudgetSkipTest {
         String outcome;
         try {
             SessionPhysicalConnManager.BindResult r =
-                    mgr.openFirstReachablePerGroup(tiers, "RO", Collections.<String>emptySet(), 1);
+                    mgr.openFirstReachablePerGroup(
+                            tiers, "RO", Collections.<String>emptySet(), 1, false);
             outcome = "bound to " + r.getEndpoint().getId();
         } catch (SQLException ex) {
             outcome = "FAILED: " + ex.getMessage();

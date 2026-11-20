@@ -149,7 +149,8 @@ public final class LbLogConfig {
             return v;
         }
         if (SQL_RAW.equals(v)) {
-            LOGGER.warning(
+            LoadBalanceOptionValidator.warnOnce(
+                    LOGGER,
                     "option '"
                             + OPT_SQL
                             + "=raw' records statements as issued -- values inlined by"
@@ -157,7 +158,8 @@ public final class LbLogConfig {
                             + " log file. Use 'masked' unless the raw text is required.");
             return SQL_RAW;
         }
-        LOGGER.warning(
+        LoadBalanceOptionValidator.warnOnce(
+                LOGGER,
                 "option '"
                         + OPT_SQL
                         + "' must be one of off/masked/raw ('"
@@ -185,10 +187,12 @@ public final class LbLogConfig {
             if (parsed >= 0) {
                 return parsed;
             }
-            LOGGER.warning(
+            LoadBalanceOptionValidator.warnOnce(
+                    LOGGER,
                     "option '" + key + "' must not be negative; using default " + defaultValue);
         } catch (NumberFormatException e) {
-            LOGGER.warning(
+            LoadBalanceOptionValidator.warnOnce(
+                    LOGGER,
                     "option '"
                             + key
                             + "' is not an integer ('"

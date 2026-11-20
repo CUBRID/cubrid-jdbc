@@ -47,14 +47,14 @@ public class JdbcEndpointConnectionFactoryTest {
     public void physicalUrlReplacesHostPortForRwMasterEndpoint() throws SQLException {
         Endpoint master = new Endpoint("master-broker", 33000);
         JdbcPhyConnSpec spec = spec(LB_BASE, null, master);
-        assertEquals("jdbc:cubrid:master-broker:33000:testdb:public::", spec.getJdbcUrl());
+        assertEquals("jdbc:cubrid:master-broker:33000:testdb:::", spec.getJdbcUrl());
     }
 
     @Test
     public void physicalUrlReplacesHostPortForRoEndpoint() throws SQLException {
         Endpoint ro = new Endpoint("slave-ro", 33001);
         JdbcPhyConnSpec spec = spec(LB_BASE, null, ro);
-        assertEquals("jdbc:cubrid:slave-ro:33001:testdb:public::", spec.getJdbcUrl());
+        assertEquals("jdbc:cubrid:slave-ro:33001:testdb:::", spec.getJdbcUrl());
     }
 
     @Test
@@ -66,10 +66,23 @@ public class JdbcEndpointConnectionFactoryTest {
         Properties p = spec.getConnectionProperties();
         assertEquals("appuser", p.getProperty("user"));
         assertEquals("secret", p.getProperty("password"));
-        assertTrue(spec.getJdbcUrl().contains("appuser"));
         // Password is carried in the connection Properties only; it must not leak into the URL
         // string (which can surface in logs / exception messages).
         assertFalse(spec.getJdbcUrl().contains("secret"));
+    }
+
+    /**
+     * The user travels in the Properties, which core reads first. A name the classic URL cannot
+     * carry, one with ':', connects on core and so must on a leg.
+     */
+    @Test
+    public void userNameIsNotWrittenIntoThePhysicalUrl() throws SQLException {
+        Properties info = new Properties();
+        info.setProperty("user", "app:ro");
+        JdbcPhyConnSpec spec = spec(LB_BASE, info, new Endpoint("h", 1));
+
+        assertEquals("jdbc:cubrid:h:1:testdb:::", spec.getJdbcUrl());
+        assertEquals("app:ro", spec.getConnectionProperties().getProperty("user"));
     }
 
     /**
@@ -113,6 +126,27 @@ public class JdbcEndpointConnectionFactoryTest {
         assertFalse(out.contains("metricsEnabled"));
         assertFalse(out.contains("metricsIntervalSec"));
         assertTrue("unrelated options still propagate", out.contains("charSet=utf-8"));
+    }
+
+    /**
+     * LB keeps the statement cache. A leg cache of its own would hand one physical statement to two
+     * of LB's statements once LB's cache had evicted the first.
+     */
+    @Test
+    public void statementCacheOptionsStayOffTheLegs() throws SQLException {
+        Properties info = new Properties();
+        info.setProperty("preparedStmtCacheSqlLimit", "512");
+        JdbcPhyConnSpec spec =
+                spec(
+                        LB_BASE
+                                + "?usePreparedStmtCache=true&preparedStmtCacheSize=2&charSet=utf-8",
+                        info,
+                        new Endpoint("h", 1));
+
+        assertFalse(spec.getJdbcUrl().contains("usePreparedStmtCache"));
+        assertFalse(spec.getJdbcUrl().contains("preparedStmtCacheSize"));
+        assertTrue(spec.getJdbcUrl().contains("charSet=utf-8"));
+        assertFalse(spec.getConnectionProperties().containsKey("preparedStmtCacheSqlLimit"));
     }
 
     private static String physicalPassword(final Properties info) throws SQLException {

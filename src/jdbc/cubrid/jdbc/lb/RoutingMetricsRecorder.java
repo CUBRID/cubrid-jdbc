@@ -39,7 +39,6 @@ import cubrid.jdbc.lb.log.LbLog;
 import cubrid.jdbc.lb.metrics.RuntimeMetrics;
 import cubrid.jdbc.lb.route.Router;
 import cubrid.jdbc.lb.route.Router.RouteTarget;
-import cubrid.jdbc.lb.sql.HintParser;
 import cubrid.jdbc.lb.sql.HintSet;
 import cubrid.jdbc.lb.sql.SqlClassification;
 import cubrid.jdbc.lb.sql.SqlClassifier;
@@ -216,24 +215,19 @@ final class RoutingMetricsRecorder {
      * hint asked for it; a manual-commit transaction has the session pinned; the classifier read
      * the statement as a write (a LOB function, a serial increment, an unrecognised routine); or
      * the read leg had fallen back onto the RW connection. The {@code by=} token names which one,
-     * following the precedence in {@link Router#decide}.
+     * from the rule {@link Router#decide} returned, so it cannot disagree with the decision.
      *
      * <p>Gated on FINE alone, deliberately not on {@code metricsEnabled}: the two answer different
      * needs. The gate is checked before any string work, so with FINE off the record costs one
      * boolean test, which matters because this runs on every statement.
      *
-     * <p>The hint is re-parsed here rather than threaded down from the statement layer. It is a
-     * pure function of the SQL, so the recomputation cannot disagree with the decision that was
-     * made, and it keeps the provider interfaces unchanged. Nothing is recomputed unless FINE is
-     * on.
-     *
-     * @param sql the statement as issued
-     * @param routeTarget the target the router resolved
+     * @param decision the statement's routing decision
+     * @param routeTarget the target the statement ran on
      * @param endpoint the endpoint the statement actually ran on
      * @param fallbackReason why the intended target was not used, or {@code null}
      */
     void logRoute(
-            final String sql,
+            final Router.RouteDecision decision,
             final RouteTarget routeTarget,
             final Endpoint endpoint,
             final String fallbackReason) {
@@ -241,16 +235,14 @@ final class RoutingMetricsRecorder {
             return;
         }
 
-        final HintSet.TargetHint hint = HintParser.parse(sql).getTargetHint();
-        final SqlClassification classification = sqlClassifier.classify(sql);
-
+        final String sql = decision.getSql().getText();
         StringBuilder b = new StringBuilder(160);
         b.append("LB ROUTE: ")
                 .append(shortTarget(routeTarget))
                 .append('@')
                 .append(endpoint == null ? "?" : endpoint.getId())
                 .append(" by=")
-                .append(decidedBy(hint, classification));
+                .append(ruleToken(decision));
 
         if (isFallback(fallbackReason)) {
             b.append(" fallback=").append(fallbackReason);
@@ -269,23 +261,25 @@ final class RoutingMetricsRecorder {
         LbLog.fine(LOGGER, LbLog.conn(connectionId), b.toString());
     }
 
-    /**
-     * The reason token, in {@link Router#decide}'s own precedence order: a hint wins unless an
-     * active transaction overrides it, then the transaction pin, then the classification.
-     */
-    private String decidedBy(
-            final HintSet.TargetHint hint, final SqlClassification classification) {
-        if (hint != null) {
-            // A read hint inside a live transaction is overridden, so the pin is the real reason.
-            if (sessionState.isTransactionActive() && HintSet.TargetHint.TO_RO == hint) {
-                return "txPin(hint=" + hint + ")";
-            }
-            return "hint(" + hint + ")";
+    /** The {@code by=} token of the rule that decided. */
+    private static String ruleToken(final Router.RouteDecision decision) {
+        final HintSet.TargetHint hint = decision.getSql().getHint();
+        switch (decision.getRule()) {
+            case TRANSACTION:
+                if (hint == null) {
+                    return "txPin(classify=" + decision.getSql().getClassification().name() + ")";
+                }
+                // A TO_RW hint asks for what the transaction does anyway.
+                return HintSet.TargetHint.TO_RO == hint
+                        ? "txPin(hint=" + hint + ")"
+                        : "hint(" + hint + ")";
+            case SESSION_SET_IN_HINTED_STRING:
+                return "sessionSet(hint=" + hint + ")";
+            default:
+                return hint != null
+                        ? "hint(" + hint + ")"
+                        : "classify(" + decision.getSql().getClassification().name() + ")";
         }
-        if (sessionState.shouldRouteToRw()) {
-            return "txPin(classify=" + classification.name() + ")";
-        }
-        return "classify(" + classification.name() + ")";
     }
 
     private static String shortTarget(final RouteTarget target) {

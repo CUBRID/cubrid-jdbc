@@ -31,6 +31,7 @@
 package cubrid.jdbc.lb.sql;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
 
 import org.junit.Test;
 
@@ -141,5 +142,15 @@ public class SqlLexerTest {
     public void assertLeadingUnterminatedCommentSkipsToEnd() {
         String s = "/* never closed SELECT";
         assertEquals(s.length(), SqlLexer.skipWhitespaceAndComments(s, 0));
+    }
+
+    /** Backslash escapes are rewritten inside strings; a quoted identifier is left as it is. */
+    @Test
+    public void backslashEscapesAreReadInsideStringsOnly() {
+        assertEquals("SELECT '__' FROM t", SqlLexer.withBackslashEscapes("SELECT '\\'' FROM t"));
+        assertEquals(
+                "SELECT 1 AS \"a\\\" FROM t",
+                SqlLexer.withBackslashEscapes("SELECT 1 AS \"a\\\" FROM t"));
+        assertNull(SqlLexer.withBackslashEscapes("SELECT 1 FROM t WHERE a LIKE ? ESCAPE '\\'"));
     }
 }

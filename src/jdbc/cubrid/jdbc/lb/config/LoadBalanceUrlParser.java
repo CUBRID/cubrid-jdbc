@@ -49,7 +49,7 @@ import java.util.regex.Pattern;
  *                       [ ";" "replica=" replica-list ] "/" db-cred [ "?" options ]
  *   host-token      ::= host [ ":" rw_port [ ":" ro_port ] ]
  *   replica-token   ::= host [ ":" so_port ]
- *   db-cred         ::= db [ ":" user ":" pw ":" ]
+ *   db-cred         ::= db ":" user ":" pw ":"
  *   options         ::= option { ("&amp;" | ";") option }
  * </pre>
  *
@@ -83,7 +83,7 @@ public final class LoadBalanceUrlParser {
         }
 
         // Every error below quotes the URL, and it reaches the logs: never with the password.
-        final String url = CUBRIDDriver.maskUriUrlPassword(rawUrl, null);
+        final String url = CUBRIDDriver.maskInvalidUriUrl(rawUrl);
         final String trimmed = rawUrl.trim();
 
         final int sep = trimmed.indexOf(SCHEME_SEPARATOR);
@@ -117,9 +117,23 @@ public final class LoadBalanceUrlParser {
 
         final List<HostToken> hosts = new ArrayList<HostToken>();
         final List<ReplicaToken> replicas = new ArrayList<ReplicaToken>();
-        parseSubname(subname, hosts, replicas, url);
-
-        final DbInfo dbInfo = parseDbInfo(dbInfoStr, url);
+        final DbInfo dbInfo;
+        try {
+            parseSubname(subname, hosts, replicas, url);
+            dbInfo = parseDbInfo(dbInfoStr, url);
+        } catch (SQLException quotesWhatItRead) {
+            // Both quote the part they could not read. With an '@' that may hold a password
+            // written as other drivers' user:password@host, a '/' in it moving some into the db.
+            if (beforeOptions.indexOf('@') >= 0) {
+                throw LbExceptions.invalidUrl(
+                        "the hosts or the database could not be read; the user and password go"
+                                + " after the database (/db:user:password:), not in front of a"
+                                + " host (user:password@host): "
+                                + url,
+                        null);
+            }
+            throw quotesWhatItRead;
+        }
         final Map<String, String> options = parseOptions(optionsStr, url);
 
         return new ParsedUrl(
@@ -318,10 +332,9 @@ public final class LoadBalanceUrlParser {
         }
 
         final String[] p = dbInfoStr.split(":", -1);
-        // db-info is db[:user[:pw[:]]] - at most 4 segments, and a 4th must be the empty trailing
-        // colon. core's classic-URL regex requires exactly db:user:pw:, so reject extras here too
-        // instead of dropping them.
-        if (p.length > 4 || (p.length == 4 && p[3].length() != 0)) {
+        // db-info is db:user:pw:, all of it, as core's classic-URL regex requires; user and
+        // password may be empty.
+        if (p.length != 4 || p[3].length() != 0) {
             throw LbExceptions.invalidUrlLikeCore(url);
         }
         final String db = p[0];
@@ -332,8 +345,8 @@ public final class LoadBalanceUrlParser {
             throw LbExceptions.invalidUrl("invalid database name '" + db + "': " + url, null);
         }
 
-        final String user = p.length > 1 ? emptyToNull(p[1]) : null;
-        final String password = p.length > 2 ? emptyToNull(p[2]) : null;
+        final String user = emptyToNull(p[1]);
+        final String password = emptyToNull(p[2]);
 
         return new DbInfo(db, user, password);
     }
@@ -377,8 +390,8 @@ public final class LoadBalanceUrlParser {
     }
 
     /**
-     * Database name and (optional) positional credentials — the result of parsing the URL's {@code
-     * db-cred} section ({@code db[:user:pw:]}).
+     * Database name and positional credentials, which may be empty — the result of parsing the
+     * URL's {@code db-cred} section ({@code db:user:pw:}).
      */
     private static final class DbInfo {
         private final String db;

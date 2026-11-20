@@ -43,8 +43,8 @@ import java.util.logging.Logger;
  * successful reconnect.
  *
  * <p>Timestamps are {@link System#nanoTime()} values (relative comparison only, immune to
- * wall-clock jumps). A failed probe needs no bookkeeping: the claim itself advanced the window, so
- * further probes stay suppressed until it elapses. Thread-safe.
+ * wall-clock jumps). A failed dial restarts the window ({@link #startWindow}), so the next probe
+ * waits a full interval from the failure even when the dial outlasted the window. Thread-safe.
  */
 public final class RecoveryBackoff {
     private static final long NANOS_PER_MILLI = 1000000L;
@@ -116,6 +116,20 @@ public final class RecoveryBackoff {
                             + " probe right");
         }
         return claimed;
+    }
+
+    /**
+     * A dial to {@code endpointId} failed: its window starts now, whether or not the dial was a
+     * claimed probe, so the next caller does not take the first probe and dial it again at once.
+     *
+     * @param endpointId the endpoint whose dial failed
+     * @param nowNanos the current {@code System.nanoTime()} reading
+     */
+    public void startWindow(String endpointId, long nowNanos) {
+        AtomicLong slot = lastProbeAt.putIfAbsent(endpointId, new AtomicLong(nowNanos));
+        if (slot != null) {
+            slot.set(nowNanos);
+        }
     }
 
     /**

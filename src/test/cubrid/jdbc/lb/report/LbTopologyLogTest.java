@@ -163,6 +163,26 @@ public class LbTopologyLogTest {
         assertEquals(1, allMatching("db=other").size());
     }
 
+    /** A property configures LB as a URL option does, so two pools on one URL can differ. */
+    @Test
+    public void theSameUrlWithOtherPropertiesIsDeclaredSeparately() throws SQLException {
+        final Properties first = new Properties();
+        first.setProperty("readWeight", "slave:1");
+        final Properties second = new Properties();
+        second.setProperty("readWeight", "master:3,slave:1");
+        for (int i = 0; i < 3; i++) {
+            for (Properties info : new Properties[] {first, second}) {
+                LbTopologyLog.declare(
+                        URL,
+                        info,
+                        LoadBalanceSettings.fromUrl(LoadBalanceUrlParser.parse(URL), info));
+            }
+        }
+
+        assertEquals(6, allMatching("LB TOPOLOGY:").size());
+        assertEquals(1, allMatching("master:3").size());
+    }
+
     private static void declare(final String url) throws SQLException {
         LbTopologyLog.declare(
                 url,

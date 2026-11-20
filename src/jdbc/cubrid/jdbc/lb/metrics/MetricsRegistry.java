@@ -76,8 +76,9 @@ public final class MetricsRegistry {
     private static final ConcurrentHashMap<String, String> ROLE =
             new ConcurrentHashMap<String, String>();
 
-    // Read-leg movements, keyed "role|from|to". Failover = displaced off the weighted home;
-    // failback = climbed back towards it. JVM-wide rather than per-connection: these are rare
+    // Leg movements, RW and read, keyed "role|from|to". Failover = displaced off the home (RW: the
+    // master, read: the weighted home); failback = moved back towards it. JVM-wide rather than
+    // per-connection: these are rare
     // events an operator correlates with an incident, and they must outlive the connection that
     // saw them. Guarded by each map's own monitor.
     private static final Map<String, long[]> FAILOVERS = new LinkedHashMap<String, long[]>();
@@ -194,13 +195,13 @@ public final class MetricsRegistry {
     }
 
     /**
-     * Records that a session's read leg moved <em>away</em> from its intended endpoint — a
-     * same-role sibling, a cross-role endpoint, or the RW connection. {@code toEndpointId} is where
-     * it landed.
+     * Records that a session's RW or read leg moved <em>away</em> from its intended endpoint — a
+     * sibling, a cross-role endpoint, or, for a read leg, the RW connection. The caller counts only
+     * a connection with metricsEnabled.
      *
-     * @param role the role of the read leg's home endpoint
-     * @param fromEndpointId the endpoint the read leg left
-     * @param toEndpointId the endpoint the read leg landed on
+     * @param role the leg that moved, {@code RW} or {@code RO}
+     * @param fromEndpointId the endpoint the leg left
+     * @param toEndpointId the endpoint the leg landed on
      */
     public static void recordFailover(
             final String role, final String fromEndpointId, final String toEndpointId) {
@@ -208,11 +209,11 @@ public final class MetricsRegistry {
     }
 
     /**
-     * Records that a displaced read leg climbed back towards its weighted home endpoint.
+     * Records that a displaced RW or read leg climbed back towards its home endpoint.
      *
-     * @param role the role of the read leg's home endpoint
-     * @param fromEndpointId the endpoint the read leg left
-     * @param toEndpointId the endpoint the read leg landed on
+     * @param role the leg that moved, {@code RW} or {@code RO}
+     * @param fromEndpointId the endpoint the leg left
+     * @param toEndpointId the endpoint the leg landed on
      */
     public static void recordFailback(
             final String role, final String fromEndpointId, final String toEndpointId) {

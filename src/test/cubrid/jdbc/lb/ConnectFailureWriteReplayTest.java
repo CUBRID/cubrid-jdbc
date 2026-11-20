@@ -59,11 +59,12 @@ import org.junit.Before;
 import org.junit.Test;
 
 /**
- * Core reconnects before it sends a request, so a write meeting a dead broker runs on the next
- * host. A failure to connect (-21013) means nothing was sent: LB runs the write, or the batch, once
- * more on the rebound leg. A write that may have been sent (-21003) is not run again.
+ * Core with altHosts sends a write to the next host when it reports a connect failure (-21013): it
+ * could not send, or an autocommit statement lost its answer and the reconnect was refused. LB runs
+ * the write, or the batch, once more on the rebound leg the same way. A failure core reports as a
+ * lost connection (-21003) is not run again.
  */
-public final class NotSentWriteFailoverTest {
+public final class ConnectFailureWriteReplayTest {
 
     private static final Endpoint NODE1 = new Endpoint("nsnode1", 33000);
     private static final Endpoint NODE2 = new Endpoint("nsnode2", 33000);

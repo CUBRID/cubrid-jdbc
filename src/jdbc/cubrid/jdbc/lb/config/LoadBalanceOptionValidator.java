@@ -59,8 +59,7 @@ final class LoadBalanceOptionValidator {
     private static final Logger LOGGER =
             Logger.getLogger(LoadBalanceOptionValidator.class.getName());
 
-    // LB-only option keys. They configure the LB layer, so
-    // JdbcEndpointConnSpecFactory.isLbTopologyOption keeps them off physical broker URLs.
+    // LB-only option keys. They configure the LB layer, so they never reach a leg.
     static final String[] LOADBALANCE_ONLY = {
         "rwPort",
         "roPort",
@@ -79,6 +78,14 @@ final class LoadBalanceOptionValidator {
     };
     private static final String[] CLASSIC_ONLY = {"altHosts", "loadBalance", "useLazyConnection"};
 
+    /**
+     * Core's prepared-statement cache options. LB keeps the one cache a core connection has; a leg
+     * cache would hand one physical statement to two of LB's once LB's cache evicted the first.
+     */
+    static final String[] STATEMENT_CACHE = {
+        "usePreparedStmtCache", "preparedStmtCacheSize", "preparedStmtCacheSqlLimit"
+    };
+
     private static final int MAX_WARNED = 64;
 
     // Configuration warnings already given: a pool parses its URL for every connection.
@@ -96,10 +103,14 @@ final class LoadBalanceOptionValidator {
         }
     }
 
-    /** Whether {@code key} configures LB or is classic-only: either way it never reaches a leg. */
+    /**
+     * Whether {@code key} configures LB, is classic-only, or is a statement cache option LB keeps:
+     * none of them reaches a leg.
+     */
     static boolean staysOffTheLegs(final String key) {
         return OptionKeys.containsIgnoreCase(LOADBALANCE_ONLY, key)
-                || OptionKeys.containsIgnoreCase(CLASSIC_ONLY, key);
+                || OptionKeys.containsIgnoreCase(CLASSIC_ONLY, key)
+                || OptionKeys.containsIgnoreCase(STATEMENT_CACHE, key);
     }
 
     /**

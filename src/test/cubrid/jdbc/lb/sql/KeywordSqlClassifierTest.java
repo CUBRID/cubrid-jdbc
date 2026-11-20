@@ -319,6 +319,21 @@ public class KeywordSqlClassifierTest {
     }
 
     /**
+     * A backslash is an escape inside a string only. In a double-quoted identifier the server reads
+     * it as a plain character whatever no_backslash_escapes is, so the identifier closes at its
+     * quote and what follows it is live.
+     */
+    @Test
+    public void assertBackslashInAQuotedIdentifierDoesNotHideWhatFollows() {
+        final String sql = "SELECT 1 AS \"a\\\", 'b\\'', LAST_INSERT_ID() FROM db_root";
+        assertEquals(SqlClassification.UNKNOWN, classifier.classify(sql + " -- \""));
+        assertEquals(SqlClassification.UNKNOWN, classifier.classify(sql));
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify("SELECT 1 AS \"a\\\", 'b' FROM db_root"));
+    }
+
+    /**
      * Spring Data JPA writes {@code like ? escape '\'}. With backslash escapes that literal never
      * closes, which is a syntax error on such a server, so the default reading decides.
      */
@@ -653,6 +668,16 @@ public class KeywordSqlClassifierTest {
      * {@code ROW_COUNT()} reports on the statement before it in its own session, so it runs on the
      * leg that statement ran on; anything else that keeps a statement off the read leg still does.
      */
+    /** SHOW TRACE reports the last query of its own session, so it runs where that query ran. */
+    @Test
+    public void assertShowTraceFollowsThePreviousStatement() {
+        final SqlClassification previous = SqlClassification.READ_ON_PREVIOUS_LEG;
+        assertEquals(previous, classifier.classify("SHOW TRACE"));
+        assertEquals(previous, classifier.classify("  show /* c */ trace;"));
+        assertEquals(SqlClassification.UNKNOWN, classifier.classify("SHOW TABLES"));
+        assertEquals(SqlClassification.UNKNOWN, classifier.classify("SHOW TRACES"));
+    }
+
     @Test
     public void assertRowCountReadFollowsThePreviousStatement() {
         final SqlClassification previous = SqlClassification.READ_ON_PREVIOUS_LEG;
@@ -1093,13 +1118,12 @@ public class KeywordSqlClassifierTest {
     }
 
     /**
-     * SHOW, DESC, EXPLAIN and VALUES stay on RW: SHOW TRACE reports the session's last query, and
-     * SHOW LOG HEADER and the like report the node they run on.
+     * SHOW, DESC, EXPLAIN and VALUES stay on RW: SHOW LOG HEADER and the like report the node they
+     * run on. SHOW TRACE follows the previous statement instead.
      */
     @Test
     public void assertShowDescExplainValuesAreNotReadOnly() {
         String[] sqls = {
-            "SHOW TRACE",
             "SHOW LOG HEADER",
             "SHOW COLUMNS FROM t",
             "DESC t",
@@ -1225,6 +1249,39 @@ public class KeywordSqlClassifierTest {
         for (String sql : read) {
             assertEquals(sql, SqlClassification.READ, classifier.classify(sql));
         }
+    }
+
+    /** UNIX_TIMESTAMP(d) converts d; only the empty call reads the node's clock. */
+    @Test
+    public void unixTimestampReadsTheClockOnlyWhenCalledEmpty() {
+        String[] rw = {
+            "SELECT UNIX_TIMESTAMP ( ) FROM db_root",
+            "SELECT UNIX_TIMESTAMP(/* now */) FROM db_root",
+            "SELECT \"UNIX_TIMESTAMP\"() FROM db_root",
+            "SELECT UNIX_TIMESTAMP(SYSDATE) FROM db_root"
+        };
+        for (String sql : rw) {
+            assertEquals(sql, SqlClassification.UNKNOWN, classifier.classify(sql));
+        }
+        String[] read = {
+            "SELECT UNIX_TIMESTAMP(created_at) FROM t",
+            "select unix_timestamp(?) from db_root",
+            "SELECT \"UNIX_TIMESTAMP\"(created_at) FROM t"
+        };
+        for (String sql : read) {
+            assertEquals(sql, SqlClassification.READ, classifier.classify(sql));
+        }
+    }
+
+    /** The engine evaluates a clock or USER column default on the node that runs DEFAULT(col). */
+    @Test
+    public void defaultOfAColumnRunsOnRw() {
+        assertEquals(
+                SqlClassification.UNKNOWN,
+                classifier.classify("SELECT DEFAULT(created_at) FROM t"));
+        assertEquals(
+                SqlClassification.UNKNOWN,
+                classifier.classify("select a from t where b = default(b)"));
     }
 
     /** No released server has these built-ins, so the name can only be a user routine. */

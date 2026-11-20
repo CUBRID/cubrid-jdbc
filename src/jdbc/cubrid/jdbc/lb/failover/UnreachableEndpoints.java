@@ -33,7 +33,6 @@ package cubrid.jdbc.lb.failover;
 import cubrid.jdbc.jci.UErrorCode;
 import cubrid.jdbc.jci.UUnreachableHostList;
 import cubrid.jdbc.lb.config.Endpoint;
-import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.log.LbLog;
 import cubrid.jdbc.lb.log.LbLogDedup;
 import java.io.IOException;
@@ -42,9 +41,7 @@ import java.sql.SQLException;
 import java.util.ArrayDeque;
 import java.util.Collections;
 import java.util.Deque;
-import java.util.HashSet;
 import java.util.IdentityHashMap;
-import java.util.List;
 import java.util.Set;
 import java.util.logging.Logger;
 
@@ -91,7 +88,14 @@ public final class UnreachableEndpoints {
         this.unreachableHostList = unreachableHostList;
     }
 
-    boolean isUnreachable(final Endpoint endpoint) {
+    /**
+     * Whether {@code endpoint} is on the JVM-wide unreachable list, so a dial to it needs the
+     * probe.
+     *
+     * @param endpoint the endpoint to check; may be {@code null}
+     * @return whether it is listed
+     */
+    public boolean isUnreachable(final Endpoint endpoint) {
         if (endpoint == null) {
             return false;
         }
@@ -252,18 +256,6 @@ public final class UnreachableEndpoints {
         }
     }
 
-    public Set<String> collectUnreachableEndpointIds(final EndpointTopology topology) {
-        Set<String> exclude = new HashSet<String>();
-        if (topology == null) {
-            return exclude;
-        }
-
-        collectFromList(topology.getRwEndpoints(), exclude);
-        collectFromList(topology.getRoEndpoints(), exclude);
-        collectFromList(topology.getReplEndpoints(), exclude);
-        return exclude;
-    }
-
     /**
      * Server-side handshake rejection: the broker answered, but its CAS could not attach to a DB
      * server acceptable for the broker's access mode. {@code ER_NET_SERVER_HAND_SHAKE} is the
@@ -310,19 +302,6 @@ public final class UnreachableEndpoints {
                 return true;
             default:
                 return isHandshakeRejection(errorCode);
-        }
-    }
-
-    private void collectFromList(final List<Endpoint> endpoints, final Set<String> exclude) {
-        if (endpoints == null) {
-            return;
-        }
-
-        for (int i = 0; i < endpoints.size(); i++) {
-            Endpoint endpoint = endpoints.get(i);
-            if (isUnreachable(endpoint)) {
-                exclude.add(endpoint.getId());
-            }
         }
     }
 }

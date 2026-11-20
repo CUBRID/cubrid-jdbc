@@ -206,13 +206,20 @@ final class ParameterBinder {
         add(new SetClobObjOp(parameterIndex, value));
     }
 
+    /**
+     * Core binds the caller's own array and changes it in place under {@code
+     * oracleStyleEmptyString}, so the caller's value goes to the prepared statement; the copy kept
+     * for replay is taken after. The same in every form below and in {@code setCollection}.
+     */
     void recordSetObject(final int parameterIndex, final Object value) throws SQLException {
-        add(new SetObjectOp(parameterIndex, snapshot(value)));
+        bindToCheck(new SetObjectOp(parameterIndex, value));
+        operations.add(new SetObjectOp(parameterIndex, snapshot(value)));
     }
 
     void recordSetObject(final int parameterIndex, final Object value, final int targetSqlType)
             throws SQLException {
-        add(new SetObjectTypeOp(parameterIndex, snapshot(value), targetSqlType));
+        bindToCheck(new SetObjectTypeOp(parameterIndex, value, targetSqlType));
+        operations.add(new SetObjectTypeOp(parameterIndex, snapshot(value), targetSqlType));
     }
 
     void recordSetObject(
@@ -221,13 +228,15 @@ final class ParameterBinder {
             final int targetSqlType,
             final int scaleOrLength)
             throws SQLException {
+        bindToCheck(new SetObjectTypeScaleOp(parameterIndex, value, targetSqlType, scaleOrLength));
         final Object recorded =
                 value instanceof Number
                                 && (targetSqlType == Types.NUMERIC
                                         || targetSqlType == Types.DECIMAL)
                         ? new BigDecimal(value.toString())
                         : snapshot(value);
-        add(new SetObjectTypeScaleOp(parameterIndex, recorded, targetSqlType, scaleOrLength));
+        operations.add(
+                new SetObjectTypeScaleOp(parameterIndex, recorded, targetSqlType, scaleOrLength));
     }
 
     void recordSetOID(final int parameterIndex, final cubrid.sql.CUBRIDOID value)
@@ -235,16 +244,8 @@ final class ParameterBinder {
         add(new SetOidOp(parameterIndex, value));
     }
 
-    /**
-     * Core binds the caller's own array and changes it in place under {@code
-     * oracleStyleEmptyString}, so that array goes to the prepared statement; the copy kept for
-     * replay is taken after.
-     */
     void recordSetCollection(final int parameterIndex, final Object[] value) throws SQLException {
-        final PreparedStatement target = bindCheck == null ? null : bindCheck.statement();
-        if (target != null) {
-            new SetCollectionOp(parameterIndex, value).apply(target);
-        }
+        bindToCheck(new SetCollectionOp(parameterIndex, value));
         operations.add(new SetCollectionOp(parameterIndex, snapshot(value)));
     }
 
@@ -265,11 +266,15 @@ final class ParameterBinder {
      * without one, the value fails only when it is replayed.
      */
     private void add(final ParameterOperation operation) throws SQLException {
+        bindToCheck(operation);
+        operations.add(operation);
+    }
+
+    private void bindToCheck(final ParameterOperation operation) throws SQLException {
         final PreparedStatement target = bindCheck == null ? null : bindCheck.statement();
         if (target != null) {
             operation.apply(target);
         }
-        operations.add(operation);
     }
 
     /* ===== snapshots: match what core captures at set time =====*/

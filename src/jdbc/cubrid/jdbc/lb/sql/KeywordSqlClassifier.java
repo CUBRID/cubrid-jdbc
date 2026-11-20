@@ -65,6 +65,8 @@ import java.util.Set;
  *       about itself.
  *   <li>the node's clock and configuration, called ({@code NOW()}, {@code VERSION()}) or bare
  *       ({@code SYSDATE}) - a read node would answer from its own.
+ *   <li>{@code SHOW TRACE} - it reports the last query of its own session, so it runs where that
+ *       query ran: {@link SqlClassification#READ_ON_PREVIOUS_LEG}.
  * </ul>
  *
  * <p>An explicit {@code TO_RO} hint still wins, because the {@code Router} resolves hints before it
@@ -232,9 +234,22 @@ final class KeywordSqlClassifier implements SqlClassifier {
             return classifyCte(normalized);
         }
 
+        if ("SHOW".equals(first) && "TRACE".equals(wordAt(normalized, first.length()))) {
+            return SqlClassification.READ_ON_PREVIOUS_LEG;
+        }
+
         final SqlClassification classified = LEADING_WRITE_KEYWORDS.get(first);
 
         return classified != null ? classified : SqlClassification.UNKNOWN;
+    }
+
+    /** The upper-cased word after whitespace and comments from {@code pos}, or "". */
+    private static String wordAt(final String sql, final int pos) {
+        final int start = SqlLexer.skipWhitespaceAndComments(sql, pos);
+        if (start >= sql.length() || !isIdentifierStart(sql.charAt(start))) {
+            return "";
+        }
+        return extractUpperAscii(sql, start, scanIdentifierEnd(sql, start));
     }
 
     /**
@@ -449,7 +464,8 @@ final class KeywordSqlClassifier implements SqlClassifier {
                     } else {
                         sawUnsafe = true;
                     }
-                } else if (NODE_LOCAL_TABLES.contains(name)) {
+                } else if (NODE_LOCAL_TABLES.contains(name)
+                        || isEmptyClockCallAt(name, sql, qend)) {
                     sawUnsafe = true;
                 }
                 prevWasFor = false;
@@ -540,7 +556,8 @@ final class KeywordSqlClassifier implements SqlClassifier {
                                 sawUnsafe = true;
                             }
                         } else if (NODE_LOCAL_TABLES.contains(name)
-                                || BuiltinFunctionCatalog.isNodeKeyword(name)) {
+                                || BuiltinFunctionCatalog.isNodeKeyword(name)
+                                || isEmptyClockCallAt(name, sql, end)) {
                             sawUnsafe = true;
                         }
                         prevWasFor = false;
@@ -704,6 +721,22 @@ final class KeywordSqlClassifier implements SqlClassifier {
         return true;
     }
 
+    /** Whether {@code name()} with nothing between the parentheses reads the node's clock. */
+    private static boolean isEmptyClockCallAt(
+            final String name, final String sql, final int afterIdentifier) {
+        if (!BuiltinFunctionCatalog.readsNodeClockWhenCalledEmpty(name)) {
+            return false;
+        }
+
+        final int paren = skipWhitespaceAndSkippable(sql, afterIdentifier);
+        if (paren >= sql.length() || sql.charAt(paren) != '(') {
+            return false;
+        }
+        final int close = skipWhitespaceAndSkippable(sql, paren + 1);
+
+        return close < sql.length() && sql.charAt(close) == ')';
+    }
+
     private static int skipWhitespaceAndSkippable(final String sql, int pos) {
         final int len = sql.length();
 
@@ -755,8 +788,7 @@ final class KeywordSqlClassifier implements SqlClassifier {
      * delimiter, end one past the closing delimiter), uppercased ASCII. Collapses {@code ""}
      * escapes for the double-quote form; brackets/backticks have no escape in this scanner.
      */
-    private static String extractQuotedIdentifierUpper(
-            final String sql, final int start, final int end) {
+    static String extractQuotedIdentifierUpper(final String sql, final int start, final int end) {
         if (end - start < 2) {
             return "";
         }

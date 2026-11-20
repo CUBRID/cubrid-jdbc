@@ -32,8 +32,11 @@ package cubrid.jdbc.lb.report;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import cubrid.jdbc.lb.LbTestAccess;
+import cubrid.jdbc.lb.LoadBalanceConnection;
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.config.LoadBalanceUrlParser;
 import cubrid.jdbc.lb.metrics.BindingView;
@@ -41,11 +44,15 @@ import cubrid.jdbc.lb.metrics.MetricsRegistry;
 import cubrid.jdbc.lb.metrics.MetricsTestAccess;
 import cubrid.jdbc.lb.metrics.RuntimeMetrics;
 import cubrid.jdbc.lb.sql.SqlClassification;
+import java.lang.reflect.Field;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
@@ -250,6 +257,77 @@ public class LbDistLogTest {
         emitAfterWindow();
 
         assertTrue(onlyMatching("LB DIST [query]").indexOf("total=20") >= 0);
+    }
+
+    /**
+     * The last connection's close removes the shutdown flush after writing the final window. A
+     * connection opened in between found the flush still installed, and must not lose it.
+     */
+    @Test
+    public void aConnectionOpenedWhileTheLastOneClosesKeepsTheShutdownFlush() throws Exception {
+        final Field live = LoadBalanceConnection.class.getDeclaredField("LIVE_CONNECTIONS");
+        live.setAccessible(true);
+        final AtomicInteger liveConnections = (AtomicInteger) live.get(null);
+        final int others = liveConnections.getAndSet(0); // connections other tests left open
+        final CountDownLatch writingFinal = new CountDownLatch(1);
+        final CountDownLatch opened = new CountDownLatch(1);
+        final Handler pause =
+                new Handler() {
+                    @Override
+                    public void publish(final LogRecord record) {
+                        if (String.valueOf(record.getMessage()).indexOf("(final)") < 0) {
+                            return;
+                        }
+                        writingFinal.countDown();
+                        try {
+                            opened.await();
+                        } catch (InterruptedException interrupted) {
+                            Thread.currentThread().interrupt();
+                        }
+                    }
+
+                    @Override
+                    public void flush() {}
+
+                    @Override
+                    public void close() {}
+                };
+        LoadBalanceConnection next = null;
+        try {
+            final LoadBalanceSettings settings = settings(1, twoSlaves());
+            LbDistLog.configure(settings);
+            final LoadBalanceConnection last = LbTestAccess.newLoadBalanceConnection(settings);
+            session(SLAVE1, 700);
+            lbLogger.addHandler(pause);
+            Thread closing =
+                    new Thread() {
+                        @Override
+                        public void run() {
+                            try {
+                                last.close();
+                            } catch (SQLException ignored) {
+                                // the hook below tells
+                            }
+                        }
+                    };
+
+            closing.start();
+            assertTrue(writingFinal.await(5, TimeUnit.SECONDS));
+            next = LbTestAccess.newLoadBalanceConnection(settings);
+            opened.countDown();
+            closing.join();
+
+            Field hook = LbDistLog.class.getDeclaredField("hook");
+            hook.setAccessible(true);
+            assertNotNull("a live connection has no shutdown flush", hook.get(null));
+        } finally {
+            opened.countDown();
+            lbLogger.removeHandler(pause);
+            if (next != null) {
+                next.close();
+            }
+            liveConnections.set(others);
+        }
     }
 
     /** Advances past the window and emits, without waiting on a real clock more than necessary. */

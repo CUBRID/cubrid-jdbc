@@ -60,6 +60,8 @@ import cubrid.jdbc.lb.metrics.RuntimeMetrics;
 import cubrid.jdbc.lb.report.LbDistLog;
 import cubrid.jdbc.lb.report.LbTopologyLog;
 import cubrid.jdbc.lb.route.RoleReadSelector;
+import cubrid.jdbc.lb.route.RoutedSql;
+import cubrid.jdbc.lb.route.Router;
 import cubrid.jdbc.lb.route.Router.RouteTarget;
 import cubrid.jdbc.lb.sql.HintParser;
 import cubrid.jdbc.lb.sql.IntoVariables;
@@ -112,6 +114,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.BooleanSupplier;
 import java.util.logging.Logger;
 
 /**
@@ -167,11 +170,14 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     // Where that statement ran: lastExecEndpoint, except a read on the shared RW connection
     // (roOnRw) ran on the RW endpoint. Metrics and logs report this one.
     private Endpoint lastExecRanOn = null;
+    // Whether that statement was a read on the shared RW connection (roOnRw).
+    private boolean lastExecOnRwConn = false;
     // Set only while endLostWriteTx rebinds the write leg: the transaction there is known to be
     // over, although the dead connection's last reply still says it is open.
     private boolean writeTxLost = false;
     private EndpointTopology sessionTopology = null;
     private final Object recoveryLock = new Object();
+    private final Object statementCacheLock = new Object();
     private boolean sessionInitialized;
     private long lastReadFailbackAttemptMs = 0L;
     private long lastRwFailbackAttemptMs = 0L;
@@ -187,6 +193,9 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     private String catalog = null;
     private Integer lockTimeout = null;
     private String charset = null;
+    // setNetworkTimeout: null until the application sets one, as core starts at 0.
+    private Executor networkTimeoutExecutor = null;
+    private int networkTimeout = 0;
 
     private DatabaseMetaData rwMetaForCmd = null;
     // One per connection, as core keeps one; closed with the connection.
@@ -215,6 +224,14 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     // with RO_WRITE_REJECTED rather than NONE.
     // Why a read the read leg could not serve is running again on RW, or null when none is.
     private volatile String rejectedReadReason = null;
+    // The routing decision of the statement the execute path is running, or null outside it.
+    private Router.RouteDecision statementRoute;
+    private final BooleanSupplier rwTransactionOpen =
+            new BooleanSupplier() {
+                public boolean getAsBoolean() {
+                    return isRwTxOpenInAutoCommit();
+                }
+            };
     private static final Logger LOGGER = Logger.getLogger(LoadBalanceConnection.class.getName());
     /** CUBRID ER_DB_NO_MODIFICATIONS: a read-only broker refused to write. */
     private static final int ER_DB_NO_MODIFICATIONS = -581;
@@ -224,6 +241,8 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     private static final int ER_ES_FILE_NOT_FOUND = -1020;
     /** CUBRID ER_TP_CANT_COERCE: how reading a LOB column's content fails on a read node. */
     private static final int ER_TP_CANT_COERCE = -181;
+    /** Read pin of a session change a prepared {@code CALL} makes; only closing releases it. */
+    private static final String PREPARED_CALL_PIN = "PREPARED_CALL";
 
     private ExecuteFailoverHandler executeFailoverHandler = new ExecuteFailoverHandler();
     // True when this connection's RuntimeMetrics was registered for export; drives unregister
@@ -271,6 +290,10 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         super(CUBRIDDriver.maskUriUrlPassword(userUrl, info), userOf(config));
         this.urlAsWritten = userUrl;
         this.config = config;
+        // Core makes its statement cache in its constructor; LB keeps that one cache for the legs.
+        this.prepStmtCache =
+                new UPreparedStatementCache<String, PreparedStatement>(
+                        config.getStatementCacheOptions().getPrepStmtCacheSize());
         this.sqlClassifier = SqlClassifierRegistry.forConfig(config);
         this.sessionState = new SessionRoutingState();
         this.routingMetrics =
@@ -577,6 +600,20 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         return endpointForTarget(target);
     }
 
+    /**
+     * The route target whose leg a failed execution recovers. A read on the shared RW connection
+     * (roOnRw) failed on the RW leg: recovered as a read, it climbed the RO ladder again and got
+     * the same dead RW connection back. Recovering the RW leg moves the read with it.
+     *
+     * @param target the route target of the failed execution
+     * @return {@code TO_READ_WRITE} for such a read, otherwise {@code target}
+     */
+    public RouteTarget failedLegTarget(final RouteTarget target) {
+        return target == RouteTarget.TO_READ_ONLY && lastExecOnRwConn
+                ? RouteTarget.TO_READ_WRITE
+                : target;
+    }
+
     public PhysicalRecoveryContext buildRecoveryCtx(
             final RouteTarget target, final Endpoint failedEp) throws SQLException {
         if (failedEp == null) {
@@ -601,8 +638,8 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                 topology,
                 // ctx.excludeEndpointIds carries only caller-specific hard excludes (none here).
                 // The JCI unreachable set must NOT be merged in as a hard exclude: recoverRw and
-                // recoverRo already fold it in softly via softExcludedIds(), and hard-excluding it
-                // here would undo the backoff-bypass probe.
+                // recoverRo gate it on the probe window when they dial, and hard-excluding it here
+                // would undo the backoff-bypass probe.
                 Collections.<String>emptySet(),
                 hasUncommittedRwWork());
     }
@@ -628,16 +665,9 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      * next statement on that connection completes. While the write leg's CAS reports one, a read
      * runs there too, so core ends it as it would on its single connection.
      *
-     * @param target the target the statement's routing chose
-     * @return {@code TO_READ_WRITE} for such a read, otherwise {@code target}
+     * @return whether the write leg reports an open transaction in autocommit
      */
-    public RouteTarget keepReadOnRwWhileTxOpen(final RouteTarget target) {
-        return target == RouteTarget.TO_READ_ONLY && rwHoldsOpenAutoCommitTx()
-                ? RouteTarget.TO_READ_WRITE
-                : target;
-    }
-
-    private boolean rwHoldsOpenAutoCommitTx() {
+    public boolean isRwTxOpenInAutoCommit() {
         return sessionState.isAutoCommit()
                 && isSessionInitialized()
                 && connMgr != null
@@ -659,6 +689,8 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      */
     private Endpoint routeStatement(final RouteTarget target, final String rawSql)
             throws SQLException {
+        // Before failback, which would replace a leg core closed with a new one.
+        checkClosed();
         maybeRestoreRoBinding(target);
         failbackRwIfStatementAllows(target);
         EndpointSelection endpointSelection = selectionForTarget(target);
@@ -666,20 +698,28 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         Endpoint endpoint = endpointSelection.getEndpoint();
         lastExecEndpoint = endpoint;
         String fallbackReason = endpointSelection.getFallbackReason();
-        // A read on the shared RW connection (roOnRw) stays bound to its RO endpoint, which is
-        // what failover recovers; the records name the endpoint it actually ran on.
-        lastExecRanOn =
-                FallbackReason.RO_PHYSICAL.equals(fallbackReason)
-                        ? currentOrManagerEndpoint(SessionLeg.RW)
-                        : endpoint;
+        // A read on the shared RW connection (roOnRw) stays bound to its RO endpoint but runs, and
+        // fails, on the RW leg: the records and failover name that leg.
+        lastExecOnRwConn = FallbackReason.RO_PHYSICAL.equals(fallbackReason);
+        lastExecRanOn = lastExecOnRwConn ? currentOrManagerEndpoint(SessionLeg.RW) : endpoint;
+        // The execute path's decision; a batch and a metadata call have none and are read here.
+        final Router.RouteDecision decision =
+                statementRoute != null
+                        ? statementRoute
+                        : Router.decide(
+                                RoutedSql.of(rawSql, sqlClassifier),
+                                false,
+                                false,
+                                sessionState,
+                                rwTransactionOpen);
         if (target == RouteTarget.TO_READ_WRITE) {
             fallbackReason =
                     rejectedReadReason != null
                             ? rejectedReadReason
-                            : readPinReason(rawSql, fallbackReason);
+                            : readFallbackReason(decision, fallbackReason);
         }
         routingMetrics.recordStatementRoute(rawSql, target, lastExecRanOn, fallbackReason);
-        routingMetrics.logRoute(rawSql, target, lastExecRanOn, fallbackReason);
+        routingMetrics.logRoute(decision, target, lastExecRanOn, fallbackReason);
         // Rides here rather than inside logRoute: that record is FINE and this one is INFO, so
         // gating it on the routing record's level would silence it at the default level.
         LbDistLog.onStatementRouted();
@@ -782,6 +822,14 @@ public class LoadBalanceConnection extends CUBRIDConnection {
 
             public PreparedStatement preparedForBindCheck() throws SQLException {
                 return lastPrepared != null && !lastPrepared.isClosed() ? lastPrepared : null;
+            }
+
+            public boolean takeClosedBindCheck() throws SQLException {
+                if (lastPrepared == null || !lastPrepared.isClosed()) {
+                    return false;
+                }
+                lastPrepared = null;
+                return true;
             }
 
             public void closePrepStmts() throws SQLException {
@@ -1077,6 +1125,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                 case RW:
                     result = mgr.recoverRw(ctx);
                     currentRwEndpoint = result.getBoundEndpoint();
+                    followReadLegOfRwMove(mgr);
                     break;
                 case RO:
                     result = mgr.recoverRo(ctx);
@@ -1151,6 +1200,18 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             boundReadEndpoint.setCurrentRoEndpoint(currentRoEndpoint);
         } else if (result.getBoundLeg() == SessionLeg.RW) {
             currentRwEndpoint = result.getBoundEndpoint();
+        }
+    }
+
+    /**
+     * A read riding on the RW connection moves when the RW leg fails over or back; re-read the RO
+     * binding so routing and metrics are not left on the node the RW leg left.
+     */
+    private void followReadLegOfRwMove(final EndpointConnManager mgr) {
+        Endpoint boundRo = mgr.getSessionEndpoint(SessionLeg.RO);
+        if (boundRo != null && !boundRo.equals(currentRoEndpoint)) {
+            currentRoEndpoint = boundRo;
+            boundReadEndpoint.setCurrentRoEndpoint(boundRo);
         }
     }
 
@@ -1451,17 +1512,25 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         if (LIVE_CONNECTIONS.decrementAndGet() == 0) {
             LbLogDedup.drain();
             LbDistLog.drainFinal();
+            // A connection opened meanwhile found the shutdown flush that drain has now removed.
+            if (LIVE_CONNECTIONS.get() > 0) {
+                LbDistLog.configure(config);
+            }
         }
     }
 
     public boolean isClosed() throws SQLException {
-        return closed;
+        return isClosedWithoutLock();
     }
 
-    /** Core asks this for the closed state; this session has no single socket to ask. */
+    /**
+     * Core asks this for the closed state; this session has no single socket to ask. The write leg
+     * closed by its network timeout leaves the session closed, as core's one connection is; a read
+     * leg on its own connection is replaced instead.
+     */
     @Override
     protected boolean isClosedWithoutLock() {
-        return closed;
+        return closed || (connMgr != null && connMgr.isLegClosedUnderneath());
     }
 
     private void closeOpenStatements() {
@@ -1565,13 +1634,25 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             final LBPreparedStatement.PhysicalPsProvider provider)
             throws SQLException {
         ps.setPsProvider(provider);
-        ps.prepareEagerly();
-        trackStatement(ps);
-        if (cacheable(sql)) {
-            prepStmtCache.put(sql, ps);
-        }
+        if (!cacheable(sql)) {
+            ps.prepareEagerly();
+            trackStatement(ps);
 
-        return ps;
+            return ps;
+        }
+        // Core's prepareStatement is synchronized: of two threads preparing one SQL, the second
+        // gets the first's statement. Taken by a prepare alone, and before any other lock.
+        synchronized (statementCacheLock) {
+            final PreparedStatement first = prepStmtCache.get(sql);
+            if (first != null) {
+                return first;
+            }
+            ps.prepareEagerly();
+            trackStatement(ps);
+            prepStmtCache.put(sql, ps);
+
+            return ps;
+        }
     }
 
     /**
@@ -1582,17 +1663,8 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         return cacheable(sql) ? prepStmtCache.get(sql) : null;
     }
 
-    private boolean cacheable(final String sql) throws SQLException {
-        final UConnection socket = openLegSocket();
-        if (socket == null || !socket.isPrepStmtCache(sql)) {
-            return false;
-        }
-        if (prepStmtCache == null) {
-            prepStmtCache =
-                    new UPreparedStatementCache<String, PreparedStatement>(
-                            socket.getPrepStmtCacheSize());
-        }
-        return true;
+    private boolean cacheable(final String sql) {
+        return config.getStatementCacheOptions().isPrepStmtCache(sql);
     }
 
     /** Core's close leaves open a statement whose SQL its cache holds. */
@@ -1759,11 +1831,10 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             return 0;
         }
 
-        Connection rwPhysical = null;
         SQLException rwFailure = null;
         int previousMode = 0;
         try {
-            rwPhysical = getPhysicalConnForCmd(SessionLeg.RW);
+            Connection rwPhysical = getPhysicalConnForCmd(SessionLeg.RW);
             previousMode = extConn(rwPhysical, "setCASChangeMode").setCASChangeMode(mode);
         } catch (SQLException failure) {
             rwFailure = failure;
@@ -1771,10 +1842,14 @@ public class LoadBalanceConnection extends CUBRIDConnection {
 
         SQLException roFailure = null;
         try {
-            Connection roPhysical = getPhysicalConnForCmd(SessionLeg.RO);
-            if (rwPhysical != roPhysical) {
-                extConn(roPhysical, "setCASChangeMode").setCASChangeMode(mode);
-            }
+            requireConnMgr()
+                    .applyToOpenReadLeg(
+                            "setCASChangeMode",
+                            new EndpointConnManager.SessionStateApplier() {
+                                public void applyTo(final Connection physical) throws SQLException {
+                                    extConn(physical, "setCASChangeMode").setCASChangeMode(mode);
+                                }
+                            });
         } catch (SQLException failure) {
             roFailure = failure;
             if (rwFailure != null) {
@@ -1844,10 +1919,20 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             throw failure;
         }
 
-        Connection roPhysical = getPhysicalConnForCmd(SessionLeg.RO);
-        if (rwPhysical != roPhysical) {
-            extConn(roPhysical, "setCharset").setCharset(charsetName);
-        }
+        requireConnMgr()
+                .applyToOpenReadLeg(
+                        "setCharset",
+                        new EndpointConnManager.SessionStateApplier() {
+                            public void applyTo(final Connection physical) throws SQLException {
+                                try {
+                                    extConn(physical, "setCharset").setCharset(charsetName);
+                                } catch (UnsupportedEncodingException rejected) {
+                                    // The write leg took the name, so this one cannot refuse it.
+                                    throw LbExceptions.invalidValue(
+                                            "setCharset(" + charsetName + "): " + rejected);
+                                }
+                            }
+                        });
         recordRwCmd("setCharset");
     }
 
@@ -2097,12 +2182,38 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         throw LbExceptions.featureNotSupported();
     }
 
-    public void setNetworkTimeout(Executor executor, int milliseconds) throws SQLException {
-        throw LbExceptions.featureNotSupported();
+    /**
+     * Gives the timeout to every leg, now and opened later. Core checks the arguments on the write
+     * leg, and a value it refused is not kept.
+     */
+    public void setNetworkTimeout(final Executor executor, final int milliseconds)
+            throws SQLException {
+        checkClosed();
+        final Executor previousExecutor = networkTimeoutExecutor;
+        final int previous = networkTimeout;
+        networkTimeoutExecutor = executor;
+        networkTimeout = milliseconds;
+        if (!isSessionInitialized()) {
+            return;
+        }
+        LegOutcome outcome =
+                forEachSessPhyConn(
+                        new PhyConnAction() {
+                            public void apply(Connection physical) throws SQLException {
+                                physical.setNetworkTimeout(executor, milliseconds);
+                            }
+                        });
+        if (outcome.rwFailed()) {
+            networkTimeoutExecutor = previousExecutor;
+            networkTimeout = previous;
+        }
+        outcome.rethrow();
+        recordRwCmd("setNetworkTimeout");
     }
 
     public int getNetworkTimeout() throws SQLException {
-        throw LbExceptions.featureNotSupported();
+        checkClosed();
+        return networkTimeout;
     }
 
     /**
@@ -2152,7 +2263,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                         new SqlExecution<CallableStatement>() {
                             public CallableStatement run() throws SQLException {
                                 final Connection rw = getPhysicalConnForCmd(SessionLeg.RW);
-                                return trackCall(rw.prepareCall(sql), rw);
+                                return afterCallPrepared(sql, trackCall(rw.prepareCall(sql), rw));
                             }
                         }));
     }
@@ -2164,6 +2275,23 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             openCalls.put(call, leg);
         }
 
+        return call;
+    }
+
+    /**
+     * LB does not see a CallableStatement run, so what its {@code CALL} changes in the session is
+     * assumed once it is prepared: a login keeps reads on RW, and reads naming the variables it
+     * assigns follow them there, both until the connection closes.
+     */
+    private CallableStatement afterCallPrepared(final String sql, final CallableStatement call) {
+        sessionState.addPreparedCallVariables(IntoVariables.assignedBy(sql));
+        if (SessionSetStatement.parse(sql).changesSession()) {
+            pinReads(
+                    sql,
+                    Collections.singleton(PREPARED_CALL_PIN),
+                    "a CALL prepared with prepareCall changes the session, and LB does not see it"
+                            + " run");
+        }
         return call;
     }
 
@@ -2220,9 +2348,12 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                         new SqlExecution<CallableStatement>() {
                             public CallableStatement run() throws SQLException {
                                 final Connection rw = getPhysicalConnForCmd(SessionLeg.RW);
-                                return trackCall(
-                                        rw.prepareCall(sql, resultSetType, resultSetConcurrency),
-                                        rw);
+                                return afterCallPrepared(
+                                        sql,
+                                        trackCall(
+                                                rw.prepareCall(
+                                                        sql, resultSetType, resultSetConcurrency),
+                                                rw));
                             }
                         }));
     }
@@ -2241,13 +2372,15 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                         new SqlExecution<CallableStatement>() {
                             public CallableStatement run() throws SQLException {
                                 final Connection rw = getPhysicalConnForCmd(SessionLeg.RW);
-                                return trackCall(
-                                        rw.prepareCall(
-                                                sql,
-                                                resultSetType,
-                                                resultSetConcurrency,
-                                                resultSetHoldability),
-                                        rw);
+                                return afterCallPrepared(
+                                        sql,
+                                        trackCall(
+                                                rw.prepareCall(
+                                                        sql,
+                                                        resultSetType,
+                                                        resultSetConcurrency,
+                                                        resultSetHoldability),
+                                                rw));
                             }
                         }));
     }
@@ -2372,7 +2505,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         if (timeout < 0) {
             return super.isValid(timeout); // core's own argument check
         }
-        if (closed) {
+        if (isClosedWithoutLock()) {
             return false;
         }
 
@@ -2646,7 +2779,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
 
     /* ===== Internal =====*/
     private void checkClosed() throws SQLException {
-        if (closed) {
+        if (isClosedWithoutLock()) {
             throw LbExceptions.connectionClosed();
         }
     }
@@ -2849,10 +2982,12 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     /**
-     * Applies {@code action} to the RW physical connection and, when the RO endpoint is bound to a
-     * distinct physical connection, to the RO connection too. Single home for the "apply to every
-     * physical connection backing this session" pattern shared by the property setters and the
-     * {@code apply*()} re-application helpers, so the reapply target list lives in one place.
+     * Applies {@code action} to the RW physical connection and, when the read leg has its own open
+     * connection, to that one too. A read leg that is gone is not opened for this, as core never
+     * reaches a read node: it gets the value from the session state when a read reopens it, and one
+     * lost while applying is dropped ({@code applyToOpenReadLeg}). Single home for the "apply to
+     * every physical connection backing this session" pattern shared by the property setters and
+     * the {@code apply*()} re-application helpers, so the reapply target list lives in one place.
      * Caller owns the {@link #isSessionInitialized()} guard and any command-routing metrics.
      *
      * <p>The read leg is attempted even when the write leg failed, and the failures are returned
@@ -2864,20 +2999,23 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      * is attached to it as suppressed, and logged.
      */
     private LegOutcome forEachSessPhyConn(final PhyConnAction action) {
-        Connection rwPhysical = null;
         SQLException rwFailure = null;
         try {
-            rwPhysical = applyToWriteLegWithFailover(action);
+            applyToWriteLegWithFailover(action);
         } catch (SQLException failure) {
             rwFailure = failure;
         }
 
         SQLException roFailure = null;
         try {
-            Connection roPhysical = getPhysicalConnForCmd(SessionLeg.RO);
-            if (rwPhysical != roPhysical) {
-                action.apply(roPhysical);
-            }
+            requireConnMgr()
+                    .applyToOpenReadLeg(
+                            "a session property change",
+                            new EndpointConnManager.SessionStateApplier() {
+                                public void applyTo(final Connection physical) throws SQLException {
+                                    action.apply(physical);
+                                }
+                            });
         } catch (SQLException failure) {
             roFailure = failure;
             if (rwFailure != null) {
@@ -3083,6 +3221,9 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      */
     private void applySessionStateTo(final Connection physical) throws SQLException {
         claimValueObjectOwnership(physical);
+        if (networkTimeoutExecutor != null) {
+            physical.setNetworkTimeout(networkTimeoutExecutor, networkTimeout);
+        }
         physical.setAutoCommit(sessionState.isAutoCommit());
         if (transactionIsolation != null) {
             physical.setTransactionIsolation(transactionIsolation.intValue());
@@ -3116,13 +3257,14 @@ public class LoadBalanceConnection extends CUBRIDConnection {
 
     /**
      * Core prepared every open statement on its one session before a session {@code SET}, and the
-     * server keeps what a statement was compiled under. One with no physical statement on RW yet is
-     * prepared there now, or its first run on RW would compile under the new setting.
+     * server keeps what a statement was compiled under. One with no physical statement yet on a leg
+     * it can run on is prepared there now, before the SET reaches that leg, or its first run there
+     * would compile under the new setting.
      *
      * @param sql the statement about to run
      */
     public void beforeSessionSet(final String sql) {
-        if (SessionSetStatement.parse(sql).getAction() == SessionSetStatement.Action.NONE) {
+        if (!SessionSetStatement.parse(sql).changesSession()) {
             return;
         }
         final List<Statement> open;
@@ -3131,7 +3273,9 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         }
         for (Statement each : open) {
             if (each instanceof LBPreparedStatement) {
-                ((LBPreparedStatement) each).prepareOnWriteLeg();
+                final LBPreparedStatement prepared = (LBPreparedStatement) each;
+                prepared.prepareOnWriteLeg();
+                prepared.prepareOnReadLeg();
             }
         }
     }
@@ -3139,9 +3283,10 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     /**
      * Records what a statement that just succeeded changed in its session. A SQL {@code SET} ran
      * only on the leg it was routed to (RW): a session-scoped one is replayed on the read leg now
-     * and on every leg opened later; any other keeps this session's reads on RW. Variables an
-     * {@code INTO/TO} clause created on RW are remembered so reads naming them follow, until a
-     * {@code DROP VARIABLE} removes them. Its leg is where a following {@code ROW_COUNT()} runs.
+     * and on every leg opened later; one the read leg cannot be given keeps reads on RW until a
+     * later statement undoes it or the connection closes. Variables an {@code INTO/TO} clause
+     * created on RW are remembered so reads naming them follow, until a {@code DROP VARIABLE}
+     * removes them. Its leg is where a following {@code ROW_COUNT()} runs.
      *
      * @param sql the statement as the application issued it
      * @param ranOn the leg it ran on
@@ -3153,10 +3298,60 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             sessionState.removeSessionVariables(IntoVariables.droppedBy(sql));
         }
         final SessionSetStatement set = SessionSetStatement.parse(sql);
-        if (set.getAction() == SessionSetStatement.Action.REPLAY) {
+        if (!set.changesSession()) {
+            return;
+        }
+        if (!set.getReplay().isEmpty()) {
             replaySessionSet(sql, set.getReplay());
-        } else if (set.getAction() == SessionSetStatement.Action.PIN_TO_RW) {
-            pinReadsToRw(sql);
+        }
+        pinReads(sql, set.getPins(), "a session change the read leg does not have ran on RW");
+        unpinReads(set.getUnpins(), sqlForLog(sql));
+        if (!set.getNonSessionParams().isEmpty()) {
+            LbLog.warn(
+                    LOGGER,
+                    LbLog.conn(connectionId),
+                    "LB SESSION SET: "
+                            + set.getNonSessionParams()
+                            + " is not a session parameter; it changed the RW node only and read"
+                            + " nodes keep their own value, so reads are not pinned"
+                            + sqlForLog(sql));
+        }
+    }
+
+    /**
+     * Records what a statement that failed on RW may have changed. CUBRID keeps the SETs a
+     * multi-statement string ran before the failing statement; which ones ran is not known, so each
+     * setting the string touches keeps reads on RW until a later statement sets it again.
+     *
+     * @param sql the statement as the application issued it
+     */
+    public void afterStatementFailed(final String sql) {
+        pinReads(
+                sql,
+                SessionSetStatement.parse(sql).getPinsIfFailed(),
+                "a statement string with a session change failed; the SETs before the failing"
+                        + " statement may have run on RW");
+    }
+
+    /**
+     * Records a batch the server answered with a {@link java.sql.BatchUpdateException}. Each entry
+     * whose count is not {@link Statement#EXECUTE_FAILED} changed the session as it would have
+     * alone, and is the statement a following {@code ROW_COUNT()} reports on; a batch in which
+     * every entry failed leaves that with the statement before it, as on core.
+     *
+     * @param sqls the batch entries, in order
+     * @param counts the update counts the server answered, possibly {@code null}
+     * @param ranOn the leg the batch ran on
+     */
+    public void afterBatchAnswered(
+            final List<String> sqls, final int[] counts, final RouteTarget ranOn) {
+        final int answered = counts == null ? 0 : Math.min(sqls.size(), counts.length);
+        for (int i = 0; i < answered; i++) {
+            if (counts[i] == Statement.EXECUTE_FAILED) {
+                afterStatementFailed(sqls.get(i));
+            } else {
+                afterStatementSucceeded(sqls.get(i), ranOn);
+            }
         }
     }
 
@@ -3167,55 +3362,68 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                 sessionSets.put(each.getKey(), each.getValue());
             }
         }
-        if (connMgr == null || !isSessionInitialized()) {
-            return;
+        if (connMgr != null && isSessionInitialized()) {
+            final Collection<String> statements = replay.values();
+            try {
+                connMgr.applyToOpenReadLeg(
+                        "session SET",
+                        new EndpointConnManager.SessionStateApplier() {
+                            public void applyTo(final Connection physical) throws SQLException {
+                                runSessionSets(physical, statements);
+                            }
+                        });
+            } catch (SQLException rejected) {
+                // A reopened leg would reject it again: keep reads where the SET took effect.
+                pinReads(
+                        sql,
+                        replay.keySet(),
+                        "the read leg rejected a SET that ran on RW ("
+                                + LbLog.cause(rejected)
+                                + ")");
+                return;
+            }
         }
-
-        final Collection<String> statements = replay.values();
-        try {
-            connMgr.applyToOpenReadLeg(
-                    "session SET",
-                    new EndpointConnManager.SessionStateApplier() {
-                        public void applyTo(final Connection physical) throws SQLException {
-                            runSessionSets(physical, statements);
-                        }
-                    });
-        } catch (SQLException rejected) {
-            // A reopened leg would reject it again: keep reads where the SET took effect.
-            sessionState.pinReadsToRw();
-            LbLog.warn(
-                    LOGGER,
-                    LbLog.conn(connectionId),
-                    "LB SESSION PIN: the read leg rejected a SET that ran on RW; this session's"
-                            + " reads stay on RW until it closes"
-                            + sqlForLog(sql)
-                            + " | cause: "
-                            + LbLog.cause(rejected));
-        }
+        // The read leg has these settings now, or gets them when it opens.
+        unpinReads(replay.keySet(), sqlForLog(sql));
     }
 
-    private void pinReadsToRw(final String sql) {
-        if (sessionState.isReadsPinnedToRw()) {
+    private void pinReads(final String sql, final Collection<String> reasons, final String what) {
+        if (reasons.isEmpty() || sessionState.pinReadsToRw(reasons).isEmpty()) {
             return;
         }
-        sessionState.pinReadsToRw();
         LbLog.warn(
                 LOGGER,
                 LbLog.conn(connectionId),
-                "LB SESSION PIN: a session change the read leg cannot replay ran on RW; this"
-                        + " session's reads"
-                        + " stay on RW until it closes"
+                "LB SESSION PIN: "
+                        + what
+                        + "; this session's reads stay on RW until a later statement undoes it or"
+                        + " the connection closes | reasons="
+                        + sessionState.getReadPinReasons()
                         + sqlForLog(sql));
     }
 
+    private void unpinReads(final Collection<String> reasons, final String cause) {
+        if (!sessionState.unpinReads(reasons)) {
+            return;
+        }
+        LbLog.info(
+                LOGGER,
+                LbLog.conn(connectionId),
+                "LB SESSION UNPIN: the last change that kept reads on RW was undone; reads are"
+                        + " distributed again"
+                        + cause);
+    }
+
     /**
-     * A JDBC setter now owns {@code key}'s setting: drop the SQL {@code SET} of it, or a leg opened
-     * later would get the older SQL value on top of the setter's.
+     * A JDBC setter now owns {@code key}'s setting on both legs: drop the SQL {@code SET} of it, or
+     * a leg opened later would get the older SQL value on top of the setter's, and release a pin a
+     * bound SQL value of it left.
      */
     private void forgetSessionSet(final String key) {
         synchronized (sessionSets) {
             sessionSets.remove(key);
         }
+        unpinReads(Collections.singleton(key), " | by=a JDBC setter");
     }
 
     private List<String> sessionSetsSnapshot() {
@@ -3280,6 +3488,20 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         rejectedReadReason = null;
     }
 
+    /**
+     * Gives the routing records the decision of the statement the execute path is about to run,
+     * until {@link #endStatementRoute()}, so they name the rule that decided.
+     *
+     * @param decision the statement's routing decision
+     */
+    public void beginStatementRoute(final Router.RouteDecision decision) {
+        statementRoute = decision;
+    }
+
+    public void endStatementRoute() {
+        statementRoute = null;
+    }
+
     /** Why the read leg cannot serve the failed read, or {@code null} if the failure is its own. */
     private static String readLegRefusal(final SQLException failure) {
         for (SQLException e = failure; e != null; e = e.getNextException()) {
@@ -3305,28 +3527,27 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     /**
-     * RW route of a READ that only the session read pin or a session variable moved there, or
-     * {@code reason}.
+     * Why a read the session would otherwise send to the read leg runs on RW, from the rule that
+     * decided, or {@code reason}. A read pin is named for a READ only: any other statement runs on
+     * RW with or without it.
      */
-    private String readPinReason(final String rawSql, final String reason) {
-        final boolean pinned = sessionState.isReadsPinnedToRw();
-        final boolean rwTxOpen = rwHoldsOpenAutoCommitTx();
-        if (!FallbackReason.NONE.equals(reason)
-                || (!pinned && !rwTxOpen && sessionState.getSessionVariables().isEmpty())
-                || sessionState.isTransactionActive()
-                || HintParser.parse(rawSql).hasTargetHint()
-                || sqlClassifier.classify(rawSql) != SqlClassification.READ) {
+    private static String readFallbackReason(
+            final Router.RouteDecision decision, final String reason) {
+        if (!FallbackReason.NONE.equals(reason)) {
             return reason;
         }
-        if (pinned) {
-            return FallbackReason.SESSION_SET_PIN;
+        switch (decision.getRule()) {
+            case READ_PIN:
+                return decision.getSql().getClassification() == SqlClassification.READ
+                        ? FallbackReason.SESSION_SET_PIN
+                        : reason;
+            case SESSION_VARIABLE:
+                return FallbackReason.SESSION_VARIABLE;
+            case RW_TRANSACTION_OPEN:
+                return FallbackReason.RW_TX_OPEN;
+            default:
+                return reason;
         }
-        if (rwTxOpen) {
-            return FallbackReason.RW_TX_OPEN;
-        }
-        return IntoVariables.isReferencedIn(rawSql, sessionState.getSessionVariables())
-                ? FallbackReason.SESSION_VARIABLE
-                : reason;
     }
 
     private String sqlForLog(final String sql) {
@@ -3416,19 +3637,17 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      * @param readEndpoint the node this read is about to run on
      */
     private void warnIfIsolationCannotHoldAcrossNodes(final Endpoint readEndpoint) {
-        final Integer isolation = transactionIsolation;
-        if (isolationSpreadWarned
-                || isolation == null
-                || (isolation.intValue() != TRANSACTION_REPEATABLE_READ
-                        && isolation.intValue() != TRANSACTION_SERIALIZABLE)) {
+        if (isolationSpreadWarned) {
+            return;
+        }
+        final int isolation = sessionIsolation();
+        if (isolation != TRANSACTION_REPEATABLE_READ && isolation != TRANSACTION_SERIALIZABLE) {
             return;
         }
 
         isolationSpreadWarned = true;
         final String level =
-                isolation.intValue() == TRANSACTION_SERIALIZABLE
-                        ? "SERIALIZABLE"
-                        : "REPEATABLE_READ";
+                isolation == TRANSACTION_SERIALIZABLE ? "SERIALIZABLE" : "REPEATABLE_READ";
         LbLogDedup.warn(
                 LOGGER,
                 LbLog.conn(connectionId),
@@ -3442,6 +3661,23 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                         + " distribution assumes READ COMMITTED with autocommit on; use /*+ TO_RW"
                         + " */ on the statements that must see the level, or readWeight master:1"
                         + " alone to stop distributing");
+    }
+
+    /**
+     * The level the application gave this session, by the JDBC setter or by a SQL SET, whichever
+     * came later: the setter drops the SQL SET it replaces. 0 when it gave none, or one a read on
+     * another node honours.
+     */
+    private int sessionIsolation() {
+        final String bySql;
+        synchronized (sessionSets) {
+            bySql = sessionSets.get(SessionSetStatement.ISOLATION_LEVEL_KEY);
+        }
+        if (bySql != null) {
+            return SessionSetStatement.isolationAboveReadCommitted(bySql);
+        }
+        final Integer bySetter = transactionIsolation;
+        return bySetter == null ? 0 : bySetter.intValue();
     }
 
     private EndpointSelection withPhysicalFallbackReason(final Endpoint logicalRoEndpoint)
@@ -3590,13 +3826,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             Endpoint restoredRw = connMgr.restoreRwIfRecovered();
             if (restoredRw != null) {
                 currentRwEndpoint = restoredRw;
-                // A read riding on the RW connection moved with it; re-read the RO binding from the
-                // manager so the routing/metrics view is not left pointing at the stranded node.
-                Endpoint boundRo = connMgr.getSessionEndpoint(SessionLeg.RO);
-                if (boundRo != null && !boundRo.equals(currentRoEndpoint)) {
-                    currentRoEndpoint = boundRo;
-                    boundReadEndpoint.setCurrentRoEndpoint(boundRo);
-                }
+                followReadLegOfRwMove(connMgr);
                 invalidateMetaDataCache();
                 routingMetrics.recordRwFailback(restoredRw);
             }

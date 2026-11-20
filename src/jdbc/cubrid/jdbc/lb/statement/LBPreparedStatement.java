@@ -39,13 +39,10 @@ import cubrid.jdbc.lb.LoadBalanceConnection;
 import cubrid.jdbc.lb.failover.ExecuteFailoverHandler;
 import cubrid.jdbc.lb.failover.ExecuteFailoverHandler.SqlExecution;
 import cubrid.jdbc.lb.failover.UnreachableEndpoints;
-import cubrid.jdbc.lb.route.Router;
+import cubrid.jdbc.lb.route.RoutedSql;
+import cubrid.jdbc.lb.route.Router.RouteDecision;
 import cubrid.jdbc.lb.route.Router.RouteTarget;
-import cubrid.jdbc.lb.sql.HintParser;
-import cubrid.jdbc.lb.sql.HintSet;
-import cubrid.jdbc.lb.sql.SqlClassification;
 import cubrid.jdbc.lb.sql.SqlClassifier;
-import cubrid.jdbc.lb.state.SessionRoutingState;
 import cubrid.sql.CUBRIDOID;
 import cubrid.sql.CUBRIDTimestamptz;
 import java.io.InputStream;
@@ -73,7 +70,6 @@ import java.sql.Time;
 import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.Calendar;
-import java.util.Collections;
 import java.util.List;
 
 /**
@@ -98,7 +94,6 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     private final LoadBalanceConnection ownerConn;
     // What core's prepare reports in hasResultSet(); core keeps it after close, so this does too.
     private boolean firstResultType;
-    private final SessionRoutingState sessState;
     private final ParameterBinder parameterBinder;
     private final List<ParameterBinder> batchedBinders = new ArrayList<ParameterBinder>();
     private PhysicalPsProvider phyPsProvider = new UnsupportedPsProvider();
@@ -143,19 +138,17 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         this.statementDelegate = statementDelegate;
         this.sql = sql;
         this.ownerConn = lbConnection;
-        this.sessState = lbConnection.getSessionState();
         this.parameterBinder =
                 new ParameterBinder(
                         new ParameterBinder.BindCheck() {
                             public PreparedStatement statement() throws SQLException {
-                                return phyPsProvider.preparedForBindCheck();
+                                return bindCheckStatement();
                             }
                         });
-        this.sqlCaches =
-                SqlCaches.compute(
-                        sql,
-                        lbConnection.sqlClassifier(),
-                        statementDelegate.producesUpdatableResults());
+        this.sqlCaches = SqlCaches.compute(sql, lbConnection.sqlClassifier());
+        if (lbConnection.getSessionState().isReadsPinnedToRw()) {
+            statementDelegate.markPreparedUnderReadPin();
+        }
     }
 
     String getSql() {
@@ -164,10 +157,6 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
 
     LoadBalanceConnection getOwnerConn() {
         return ownerConn;
-    }
-
-    SessionRoutingState getSessState() {
-        return sessState;
     }
 
     ParameterBinder getParameterBinder() {
@@ -182,15 +171,31 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     }
 
     public void prepareEagerly() throws SQLException {
+        prepareEagerly(false);
+    }
+
+    private void prepareEagerly(final boolean forBindCheck) throws SQLException {
         RouteTarget target = resolveRouteTarget();
         if (RouteTarget.TO_READ_ONLY == target) {
-            prepareTolerantOfUnreachable(true);
+            prepareTolerantOfUnreachable(true, forBindCheck);
 
             return;
         }
 
         // RW/UNKNOWN path: prepare on RW only to avoid replica schema lag failures.
-        prepareTolerantOfUnreachable(false);
+        prepareTolerantOfUnreachable(false, forBindCheck);
+    }
+
+    /**
+     * The physical statement a setter or {@code addBatch()} is checked on. One closed under this
+     * statement, as replacing its leg does, is prepared again here, once. A failure of that prepare
+     * is the execution's to report: the check waits for it, as after a deferred prepare.
+     */
+    private PreparedStatement bindCheckStatement() throws SQLException {
+        if (phyPsProvider.takeClosedBindCheck()) {
+            prepareEagerly(true);
+        }
+        return phyPsProvider.preparedForBindCheck();
     }
 
     /**
@@ -199,7 +204,8 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
      * over. Swallow "host down" errors and let the first execute re-prepare through the failover
      * path; any other error still propagates as before.
      */
-    private void prepareTolerantOfUnreachable(final boolean onReadLeg) throws SQLException {
+    private void prepareTolerantOfUnreachable(final boolean onReadLeg, final boolean forBindCheck)
+            throws SQLException {
         ownerConn.settleReadLegRollback(false);
         try {
             if (onReadLeg) {
@@ -209,11 +215,13 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
             }
             rememberPrepared(phyPsProvider.preparedForBindCheck());
         } catch (SQLException ex) {
-            // A malformed reply is core's to report, as its prepareStatement does.
+            // A malformed reply is core's to report, as its prepareStatement does. A setter
+            // reports none of them.
             final boolean reported =
-                    ExecuteFailoverHandler.isMalformedReply(ex)
-                            || !ReconnectPolicy.isRetriableSqlException(ex)
-                                    && !UnreachableEndpoints.shouldMarkUnreachable(ex);
+                    !forBindCheck
+                            && (ExecuteFailoverHandler.isMalformedReply(ex)
+                                    || !ReconnectPolicy.isRetriableSqlException(ex)
+                                            && !UnreachableEndpoints.shouldMarkUnreachable(ex));
             ownerConn.settleReadLegRollback(reported);
             if (reported) {
                 throw ex;
@@ -226,13 +234,14 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     public ResultSet executeQuery() throws SQLException {
         checkIsOpen();
 
-        final RouteTarget target = resolveRouteTarget();
+        final RouteDecision route = resolveRoute();
+        final RouteTarget target = route.getTarget();
         // Stamped with this prepared statement, not with statementDelegate: the delegate is an
         // implementation detail the application never received.
         return LBStatement.stampProducer(
                 statementDelegate.executeWithFailover(
                         sql,
-                        target,
+                        route,
                         new SqlExecution<ResultSet>() {
                             public ResultSet run() throws SQLException {
                                 PreparedStatement physicalStatement = physicalPsWithParams(target);
@@ -247,11 +256,12 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     public int executeUpdate() throws SQLException {
         checkIsOpen();
 
-        final RouteTarget target = resolveRouteTarget();
+        final RouteDecision route = resolveRoute();
+        final RouteTarget target = route.getTarget();
         return statementDelegate
                 .executeWithFailover(
                         sql,
-                        target,
+                        route,
                         new SqlExecution<Integer>() {
                             public Integer run() throws SQLException {
                                 PreparedStatement physicalStatement = physicalPsWithParams(target);
@@ -266,11 +276,12 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     public boolean execute() throws SQLException {
         checkIsOpen();
 
-        final RouteTarget target = resolveRouteTarget();
+        final RouteDecision route = resolveRoute();
+        final RouteTarget target = route.getTarget();
         return statementDelegate
                 .executeWithFailover(
                         sql,
-                        target,
+                        route,
                         new SqlExecution<Boolean>() {
                             public Boolean run() throws SQLException {
                                 PreparedStatement physicalStatement = physicalPsWithParams(target);
@@ -298,7 +309,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
      * again; {@code executeBatch()} rebuilds the physical batch anyway.
      */
     private void checkAllBound() throws SQLException {
-        final PreparedStatement target = phyPsProvider.preparedForBindCheck();
+        final PreparedStatement target = bindCheckStatement();
         if (target == null) {
             return;
         }
@@ -319,30 +330,23 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
             return new int[0];
         }
 
-        // As in LBStatement.executeBatch, every batch runs on RW, under failover.
-        final RouteTarget target = RouteTarget.TO_READ_WRITE;
-
         final int[] result;
         try {
             result =
-                    ownerConn
-                            .getExecuteFailoverHandler()
-                            .executeWithFailover(
-                                    ownerConn,
-                                    target,
-                                    sql,
-                                    true,
-                                    new SqlExecution<int[]>() {
-                                        public int[] run() throws SQLException {
-                                            return runBatchOn(physicalPsForTarget(target));
-                                        }
-                                    });
+                    statementDelegate.executeBatchWithFailover(
+                            sql,
+                            batchedBinders.size(),
+                            new SqlExecution<int[]>() {
+                                public int[] run() throws SQLException {
+                                    return runBatchOn(
+                                            physicalPsForTarget(RouteTarget.TO_READ_WRITE));
+                                }
+                            });
         } catch (BatchUpdateException answered) {
             batchedBinders.clear();
             throw answered;
         }
         batchedBinders.clear();
-        statementDelegate.afterBatchSucceeded(Collections.singletonList(sql), target);
 
         return result;
     }
@@ -665,13 +669,16 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     public CUBRIDOID executeInsert() throws SQLException {
         checkIsOpen();
 
-        final RouteTarget target = resolveRouteTarget();
-        PreparedStatement physicalStatement = physicalPsWithParams(target);
-
-        CUBRIDOID oid = invokeExecInsert(physicalStatement);
-        ownerConn.afterStatementSucceeded(sql, target);
-
-        return oid;
+        final RouteDecision route = resolveRoute();
+        final RouteTarget target = route.getTarget();
+        return statementDelegate.executeWithFailover(
+                sql,
+                route,
+                new SqlExecution<CUBRIDOID>() {
+                    public CUBRIDOID run() throws SQLException {
+                        return invokeExecInsert(physicalPsWithParams(target));
+                    }
+                });
     }
 
     /**
@@ -682,6 +689,24 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         try {
             if (!statementDelegate.isClosed()) {
                 phyPsProvider.prepareOnWriteEndpoint(sql);
+            }
+        } catch (SQLException notNow) {
+            // as before this existed
+        }
+    }
+
+    /**
+     * Prepares this statement on the read leg if it can run there and has no physical statement
+     * there yet; see {@link LoadBalanceConnection#beforeSessionSet}. Not while reads are pinned:
+     * the read leg lacks a session setting then, and every statement that can run there was
+     * prepared there before the pin.
+     */
+    public void prepareOnReadLeg() {
+        try {
+            if (!statementDelegate.isClosed()
+                    && !ownerConn.getSessionState().isReadsPinnedToRw()
+                    && statementDelegate.mayRunOnReadLeg(sqlCaches.routed)) {
+                phyPsProvider.prepareOnBoundReadEndpoint(sql);
             }
         } catch (SQLException notNow) {
             // as before this existed
@@ -922,9 +947,10 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         statementDelegate.setEscapeProcessing(enable);
     }
 
+    // A PreparedStatement refuses this vendor form that takes SQL too; core's refusal answers.
     @Override
     public CUBRIDOID executeInsert(final String sql) throws SQLException {
-        return statementDelegate.executeInsert(sql);
+        return super.executeInsert(sql);
     }
 
     @Override
@@ -1077,28 +1103,6 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     @Override
     protected void checkBindError() throws SQLException {}
 
-    /**
-     * Same mapping as the inherited version, but reported through {@link LbExceptions}. The
-     * inherited one goes through the package-private {@code
-     * CUBRIDConnection.createCUBRIDException(int, String, Throwable)}, which dereferences a null
-     * {@code u_con} on a load-balanced connection, giving an NPE instead of the intended
-     * SQLException. That method cannot be overridden from this package, so its caller is.
-     */
-    @Override
-    protected int checkSqlType(final SQLType targetSqlType) throws SQLException {
-        if (targetSqlType == null) {
-            throw LbExceptions.invalidValue("setObject requires a non-null targetSqlType");
-        }
-
-        Integer vendorTypeNumber = targetSqlType.getVendorTypeNumber();
-        if (vendorTypeNumber == null) {
-            throw LbExceptions.invalidValue(
-                    "targetSqlType has no vendor type number: " + targetSqlType.getName());
-        }
-
-        return vendorTypeNumber.intValue();
-    }
-
     /* ===== SQLType parameter setters =====*/
 
     /**
@@ -1122,16 +1126,12 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         setObject(parameterIndex, x, checkSqlType(targetSqlType), scaleOrLength);
     }
 
+    private RouteDecision resolveRoute() {
+        return statementDelegate.routeFor(sqlCaches.routed);
+    }
+
     private RouteTarget resolveRouteTarget() {
-        // Routing precedence lives in Router.decide(); this only supplies the per-instance caches
-        // (hint and classification precomputed at prepare time) so the hot execute path avoids
-        // re-running HintParser.parse() and SqlClassifier.classify().
-        final RouteTarget defaultTarget =
-                sqlCaches.followsPreviousStatement
-                        ? Router.previousStatementLeg(sessState)
-                        : sqlCaches.defaultTarget;
-        return ownerConn.keepReadOnRwWhileTxOpen(
-                Router.decide(sqlCaches.targetFromHint, defaultTarget, sessState, sql));
+        return resolveRoute().getTarget();
     }
 
     private PreparedStatement physicalPsWithParams(final RouteTarget target) throws SQLException {
@@ -1208,42 +1208,17 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     }
 
     private static final class SqlCaches {
-        final RouteTarget targetFromHint;
-
-        final RouteTarget defaultTarget;
-
-        /** Whether the default target is the leg the previous statement ran on, at execution. */
-        final boolean followsPreviousStatement;
+        final RoutedSql routed;
 
         final int expectedParameterCount;
 
-        private SqlCaches(
-                final RouteTarget targetFromHint,
-                final RouteTarget defaultTarget,
-                final boolean followsPreviousStatement,
-                final int expectedParameterCount) {
-            this.targetFromHint = targetFromHint;
-            this.defaultTarget = defaultTarget;
-            this.followsPreviousStatement = followsPreviousStatement;
+        private SqlCaches(final RoutedSql routed, final int expectedParameterCount) {
+            this.routed = routed;
             this.expectedParameterCount = expectedParameterCount;
         }
 
-        static SqlCaches compute(
-                final String sql, final SqlClassifier classifier, final boolean updatable) {
-            final HintSet hints = HintParser.parse(sql);
-
-            final RouteTarget targetFromHint =
-                    hints.hasTargetHint() ? Router.mapTargetHint(hints.getTargetHint()) : null;
-            final SqlClassification classification = classifier.classify(sql);
-
-            final RouteTarget defaultTarget =
-                    SqlClassification.READ == classification && !updatable
-                            ? RouteTarget.TO_READ_ONLY
-                            : RouteTarget.TO_READ_WRITE;
-            final boolean followsPrevious =
-                    SqlClassification.READ_ON_PREVIOUS_LEG == classification && !updatable;
-            return new SqlCaches(
-                    targetFromHint, defaultTarget, followsPrevious, countParamPlaceholders(sql));
+        static SqlCaches compute(final String sql, final SqlClassifier classifier) {
+            return new SqlCaches(RoutedSql.of(sql, classifier), countParamPlaceholders(sql));
         }
     }
 
@@ -1315,6 +1290,17 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
          */
         default PreparedStatement preparedForBindCheck() throws SQLException {
             return null;
+        }
+
+        /**
+         * Whether the statement last prepared was closed under this one, which replacing its leg's
+         * connection does. True once for each such statement.
+         *
+         * @return whether a prepare now replaces a closed statement
+         * @throws SQLException if its state cannot be read
+         */
+        default boolean takeClosedBindCheck() throws SQLException {
+            return false;
         }
 
         void closePrepStmts() throws SQLException;

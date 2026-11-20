@@ -31,6 +31,7 @@
 package cubrid.jdbc.lb.connection;
 
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
+import cubrid.jdbc.lb.state.RecoveryBackoff;
 import java.util.Properties;
 
 /**
@@ -50,5 +51,15 @@ public final class ConnectionTestAccess {
             final JdbcConnectionFactory connectionFactory) {
         return new SessionPhysicalConnManager(
                 logicalJdbcUrl, clientInfo, loadBalanceSettings, connectionFactory);
+    }
+
+    public static SessionPhysicalConnManager newSessionPhysicalConnManager(
+            final String logicalJdbcUrl,
+            final Properties clientInfo,
+            final LoadBalanceSettings loadBalanceSettings,
+            final JdbcConnectionFactory connectionFactory,
+            final RecoveryBackoff backoff) {
+        return new SessionPhysicalConnManager(
+                logicalJdbcUrl, clientInfo, loadBalanceSettings, connectionFactory, backoff);
     }
 }

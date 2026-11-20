@@ -1513,12 +1513,7 @@ public abstract class UConnection {
     }
 
     public boolean isPrepStmtCache(String sql) {
-        boolean isCacheable = false;
-        if (connectionProperties.getPrepStmtCache()
-                && sql.length() <= connectionProperties.getPrepStmtCacheSqlLimit()) {
-            isCacheable = true;
-        }
-        return isCacheable;
+        return connectionProperties.isPrepStmtCache(sql);
     }
 
     public void setCasIp(String casIp) {

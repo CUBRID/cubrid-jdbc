@@ -488,4 +488,31 @@ public class HintParserTest {
         HintSet hs = HintParser.parse("SELECT /*+ STICKY_TO_RW TO_RO */ * FROM t");
         assertEquals(HintSet.TargetHint.TO_RO, hs.getTargetHint());
     }
+
+    /**
+     * M15: the classifier reads a query that opens with "(" as a SELECT, so a hint after that first
+     * SELECT counts as on a bare one. Ignored, a TO_RW meant for a read after a write ran on RO and
+     * returned a stale row instead of an error.
+     */
+    @Test
+    public void assertHintAfterSelectInsideLeadingParenthesis() {
+        assertEquals(
+                HintSet.TargetHint.TO_RW,
+                HintParser.parse("(SELECT /*+ TO_RW */ a FROM t) UNION (SELECT a FROM t2)")
+                        .getTargetHint());
+        assertEquals(
+                HintSet.TargetHint.TO_RW,
+                HintParser.parse("( SELECT /*+ TO_MASTER */ * FROM v)").getTargetHint());
+        assertEquals(
+                HintSet.TargetHint.TO_RO,
+                HintParser.parse("(( /* tag */ SELECT /*+ TO_RO */ a FROM t))").getTargetHint());
+    }
+
+    /** As in the classifier, only SELECT counts past a leading "(". */
+    @Test
+    public void assertLeadingParenthesisBeforeOtherVerbsGivesNoHint() {
+        assertTrue(
+                HintParser.parse("(WITH c AS (SELECT 1) SELECT /*+ TO_RO */ * FROM c)").isEmpty());
+        assertTrue(HintParser.parse("(UPDATE /*+ TO_RO */ t SET a = 1)").isEmpty());
+    }
 }

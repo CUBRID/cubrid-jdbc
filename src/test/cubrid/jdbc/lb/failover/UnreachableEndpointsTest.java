@@ -30,48 +30,16 @@
 
 package cubrid.jdbc.lb.failover;
 
-import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import cubrid.jdbc.jci.UErrorCode;
-import cubrid.jdbc.jci.UUnreachableHostList;
 import cubrid.jdbc.lb.config.Endpoint;
-import cubrid.jdbc.lb.config.EndpointTopology;
 import java.net.SocketException;
 import java.sql.SQLException;
-import java.util.Arrays;
-import java.util.Collections;
-import org.junit.After;
 import org.junit.Test;
 
 public class UnreachableEndpointsTest {
-
-    private static final String BAD_RW = "bad-rw:33000";
-    private static final String OK_RW = "ok-rw:33000";
-
-    @After
-    public void tearDown() {
-        UUnreachableHostList.getInstance().remove(BAD_RW);
-        UUnreachableHostList.getInstance().remove(OK_RW);
-    }
-
-    @Test
-    public void collectUnreachableEndpointIdsFromTopology() {
-        UUnreachableHostList.getInstance().add(BAD_RW);
-
-        EndpointTopology topology =
-                new EndpointTopology(
-                        Arrays.asList(new Endpoint("bad-rw", 33000), new Endpoint("ok-rw", 33000)),
-                        Arrays.asList(new Endpoint("ro", 33001)),
-                        Collections.<Endpoint>emptyList());
-
-        UnreachableEndpoints filter = new UnreachableEndpoints();
-        assertTrue(filter.isUnreachable(new Endpoint("bad-rw", 33000)));
-        assertFalse(filter.isUnreachable(new Endpoint("ok-rw", 33000)));
-        assertEquals(1, filter.collectUnreachableEndpointIds(topology).size());
-        assertTrue(filter.collectUnreachableEndpointIds(topology).contains(BAD_RW));
-    }
 
     @Test
     public void shouldMarkUnreachableMatchesCoreAltHostsErrnos() {

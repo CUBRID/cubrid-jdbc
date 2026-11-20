@@ -34,6 +34,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import cubrid.jdbc.jci.UErrorCode;
+import cubrid.jdbc.jci.UUnreachableHostList;
 import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
@@ -41,6 +42,7 @@ import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.connection.ConnectionTestAccess;
 import cubrid.jdbc.lb.connection.JdbcConnectionFactory;
 import cubrid.jdbc.lb.connection.SessionPhysicalConnManager;
+import cubrid.jdbc.lb.state.RecoveryBackoff;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
@@ -81,6 +83,8 @@ public class LbSessionRecordsTest {
 
     @Before
     public void setUp() {
+        // The list is JVM-wide; a RO listed by an earlier test would have its probe spent at bind.
+        UUnreachableHostList.getInstance().remove(RO.getId());
         LbLogDedup.resetForTests();
         lbLogger = Logger.getLogger("cubrid.jdbc.lb");
         lbLogger.setLevel(Level.ALL);
@@ -95,6 +99,7 @@ public class LbSessionRecordsTest {
         lbLogger.setLevel(null);
         lbLogger.setUseParentHandlers(true);
         LbLogDedup.resetForTests();
+        UUnreachableHostList.getInstance().remove(RO.getId());
     }
 
     @Test
@@ -171,6 +176,35 @@ public class LbSessionRecordsTest {
                 allMatching("LB READ ON RW:").size());
     }
 
+    /** A refusal is a configuration to fix, not a broker going down, so FINE would hide it. */
+    @Test
+    public void aReadBrokerThatRefusesTheSessionIsWarnedOncePerWindow() throws SQLException {
+        EndpointTopology topo =
+                new EndpointTopology(RW, Arrays.asList(RO), Collections.<Endpoint>emptyList());
+        JdbcConnectionFactory refusingRo =
+                new JdbcConnectionFactory() {
+                    public Connection getConnection(final String url, final Properties info)
+                            throws SQLException {
+                        if (url.contains(RO.getHost() + ":")) {
+                            throw new SQLException(
+                                    "", null, UErrorCode.CAS_ER_SSL_TYPE_NOT_ALLOWED);
+                        }
+                        return openConnectionProxy();
+                    }
+                };
+
+        for (int i = 0; i < 2; i++) {
+            ConnectionTestAccess.newSessionPhysicalConnManager(
+                            LOGICAL_URL, new Properties(), LbTestSettings.defaults(), refusingRo)
+                    .bindSession(RW, RO, topo);
+        }
+
+        String refused = onlyMatching("LB CONNECT REFUSED [RO]");
+        assertTrue(refused, refused.indexOf("endpoint=ronode:34001") >= 0);
+        assertTrue(refused, refused.indexOf("errorCode=-10103") >= 0);
+        assertEquals(Level.WARNING, recordOf("LB CONNECT REFUSED [RO]").getLevel());
+    }
+
     private static SessionPhysicalConnManager newManager(final AtomicBoolean roUp) {
         LoadBalanceSettings config = LbTestSettings.defaults();
 
@@ -185,8 +219,10 @@ public class LbSessionRecordsTest {
                     }
                 };
 
+        // No probe window: these tests check the records, and a bind failure would otherwise hold
+        // the next probe for the default interval.
         return ConnectionTestAccess.newSessionPhysicalConnManager(
-                LOGICAL_URL, new Properties(), config, factory);
+                LOGICAL_URL, new Properties(), config, factory, new RecoveryBackoff(0));
     }
 
     private static Connection openConnectionProxy() {
@@ -233,6 +269,16 @@ public class LbSessionRecordsTest {
             }
         }
         return out;
+    }
+
+    private LogRecord recordOf(final String needle) {
+        for (int i = 0; i < captured.records.size(); i++) {
+            LogRecord record = captured.records.get(i);
+            if (record.getMessage() != null && record.getMessage().indexOf(needle) >= 0) {
+                return record;
+            }
+        }
+        return null;
     }
 
     private String contextOf(final String needle) {

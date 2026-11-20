@@ -30,13 +30,15 @@
 
 package cubrid.jdbc.lb.state;
 
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.Set;
 
 /**
- * Per-connection routing flags: autocommit, active transaction, the read pin a session SET that
- * cannot be replayed on the read leg leaves behind, and the variables an INTO/TO clause created on
+ * Per-connection routing flags: autocommit, active transaction, the reasons a session SET the read
+ * leg does not have keeps reads on the write leg, and the variables an INTO/TO clause created on
  * the write leg.
  *
  * <p>Thread contract: these fields are non-volatile and carry the same contract as the owning
@@ -47,8 +49,9 @@ import java.util.Set;
 public class SessionRoutingState {
     private boolean autoCommit = true;
     private boolean transactionActive = false;
-    private boolean readsPinnedToRw = false;
+    private Set<String> readPinReasons = Collections.emptySet();
     private Set<String> sessionVariables = Collections.emptySet();
+    private Set<String> preparedCallVariables = Collections.emptySet();
     private boolean lastStatementOnReadLeg = false;
 
     public boolean isAutoCommit() {
@@ -98,15 +101,45 @@ public class SessionRoutingState {
     }
 
     /**
-     * Keeps this session's reads on the write leg until the connection closes: a SET ran there that
-     * the read leg cannot replay. Unlike a transaction, an explicit TO_RO hint still wins.
+     * Keeps this session's reads on the write leg while any reason holds: a SET ran there that the
+     * read leg does not have. Unlike a transaction, an explicit TO_RO hint still wins.
+     *
+     * @param reasons what the read leg lacks, as named by {@code SessionSetStatement}
+     * @return the reasons this call added
      */
-    public void pinReadsToRw() {
-        this.readsPinnedToRw = true;
+    public Set<String> pinReadsToRw(final Collection<String> reasons) {
+        final Set<String> added = new LinkedHashSet<String>(reasons);
+        added.removeAll(readPinReasons);
+        if (!added.isEmpty()) {
+            final Set<String> merged = new LinkedHashSet<String>(readPinReasons);
+            merged.addAll(added);
+            this.readPinReasons = Collections.unmodifiableSet(merged);
+        }
+        return added;
+    }
+
+    /**
+     * Drops reasons a later statement made untrue, for example tracing turned off again.
+     *
+     * @param reasons the reasons that no longer hold
+     * @return whether this call released the last reason
+     */
+    public boolean unpinReads(final Collection<String> reasons) {
+        if (readPinReasons.isEmpty() || Collections.disjoint(readPinReasons, reasons)) {
+            return false;
+        }
+        final Set<String> remaining = new LinkedHashSet<String>(readPinReasons);
+        remaining.removeAll(reasons);
+        this.readPinReasons = Collections.unmodifiableSet(remaining);
+        return remaining.isEmpty();
     }
 
     public boolean isReadsPinnedToRw() {
-        return readsPinnedToRw;
+        return !readPinReasons.isEmpty();
+    }
+
+    public Set<String> getReadPinReasons() {
+        return readPinReasons;
     }
 
     /**
@@ -125,8 +158,25 @@ public class SessionRoutingState {
     }
 
     /**
+     * Records variables a {@code CALL} prepared with {@code prepareCall} assigns. LB does not see
+     * that statement run, so it may assign them again after a {@code DROP VARIABLE}: they are kept
+     * until the connection closes.
+     *
+     * @param upperNames upper-cased variable names
+     */
+    public void addPreparedCallVariables(final Set<String> upperNames) {
+        addSessionVariables(upperNames);
+        if (upperNames.isEmpty() || preparedCallVariables.containsAll(upperNames)) {
+            return;
+        }
+        final Set<String> merged = new HashSet<String>(preparedCallVariables);
+        merged.addAll(upperNames);
+        this.preparedCallVariables = Collections.unmodifiableSet(merged);
+    }
+
+    /**
      * Forgets variables {@code DROP VARIABLE} removed from the write leg, so reads naming them are
-     * routed as usual again.
+     * routed as usual again, except those of a prepared {@code CALL}.
      *
      * @param upperNames upper-cased variable names
      */
@@ -136,6 +186,7 @@ public class SessionRoutingState {
         }
         final Set<String> remaining = new HashSet<String>(sessionVariables);
         remaining.removeAll(upperNames);
+        remaining.addAll(preparedCallVariables);
         this.sessionVariables = Collections.unmodifiableSet(remaining);
     }
 
@@ -165,8 +216,9 @@ public class SessionRoutingState {
     public void reset() {
         this.autoCommit = true;
         this.transactionActive = false;
-        this.readsPinnedToRw = false;
+        this.readPinReasons = Collections.emptySet();
         this.sessionVariables = Collections.emptySet();
+        this.preparedCallVariables = Collections.emptySet();
         this.lastStatementOnReadLeg = false;
     }
 }

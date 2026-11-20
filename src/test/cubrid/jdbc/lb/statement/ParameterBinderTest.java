@@ -33,6 +33,7 @@ package cubrid.jdbc.lb.statement;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -323,6 +324,55 @@ public class ParameterBinderTest {
 
         Object[] replayed = (Object[]) handler.lastArgument("setCollection");
         assertEquals("a", replayed[0]);
+    }
+
+    /**
+     * Core binds the caller's own array for {@code setObject} too and, under {@code
+     * oracleStyleEmptyString}, changes {@code ""} to null in it. The copy for replay is that array
+     * as core left it.
+     */
+    @Test
+    public void setObjectHandsTheCallersArrayToThePreparedStatement() throws Exception {
+        final PreparedStatement core =
+                new FakePhysicalPreparedStatement() {
+                    @Override
+                    protected Object dispatch(final String name, final Object[] args) {
+                        if ("setObject".equals(name) && args[1] instanceof Object[]) {
+                            final Object[] values = (Object[]) args[1];
+                            for (int i = 0; i < values.length; i++) {
+                                if ("".equals(values[i])) {
+                                    values[i] = null;
+                                }
+                            }
+                        }
+                        return null;
+                    }
+                };
+        ParameterBinder binder =
+                new ParameterBinder(
+                        new ParameterBinder.BindCheck() {
+                            public PreparedStatement statement() {
+                                return core;
+                            }
+                        });
+        String[][] arrays = {{"", "a"}, {"", "b"}, {"", "c"}};
+
+        binder.recordSetObject(1, arrays[0]);
+        binder.recordSetObject(2, arrays[1], Types.OTHER);
+        binder.recordSetObject(3, arrays[2], Types.OTHER, 0);
+
+        ValueCapturingHandler handler = new ValueCapturingHandler();
+        for (String[] array : arrays) {
+            assertNull("the caller's array is the one core changes", array[0]);
+            array[1] = "changed after the setter";
+        }
+        binder.replay(handler.createProxy());
+
+        List<Object[]> replayed = handler.calls("setObject");
+        assertEquals(3, replayed.size());
+        assertArrayEquals(new Object[] {null, "a"}, (Object[]) replayed.get(0)[1]);
+        assertArrayEquals(new Object[] {null, "b"}, (Object[]) replayed.get(1)[1]);
+        assertArrayEquals(new Object[] {null, "c"}, (Object[]) replayed.get(2)[1]);
     }
 
     /**

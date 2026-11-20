@@ -111,6 +111,7 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
@@ -179,8 +180,9 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     private final Object recoveryLock = new Object();
     private final Object statementCacheLock = new Object();
     private boolean sessionInitialized;
-    private long lastReadFailbackAttemptMs = 0L;
-    private long lastRwFailbackAttemptMs = 0L;
+    // System.nanoTime() of the last attempt; null before the first, as nanoTime has no "never".
+    private Long lastReadFailbackAttemptNanos;
+    private Long lastRwFailbackAttemptNanos;
     // volatile: close() may run on a pool-eviction thread other than the one using the
     // connection, so the closed flag must be visible across threads.
     private volatile boolean closed = false;
@@ -3697,14 +3699,15 @@ public class LoadBalanceConnection extends CUBRIDConnection {
 
         // Throttle: a displaced session re-probes for a recovered home at most once per interval.
         // A session already at home returns inside restoreRoIfRecovered() without opening anything.
-        long now = System.currentTimeMillis();
-        if (now - lastReadFailbackAttemptMs < config.getReadFailbackProbeIntervalMs()) {
+        long now = System.nanoTime();
+        if (attemptedWithin(
+                lastReadFailbackAttemptNanos, now, config.getReadFailbackProbeIntervalMs())) {
             return;
         }
         if (hasOpenCursorOn(connMgr.boundConnection(SessionLeg.RO))) {
             return; // retried on a later read, once the cursor is closed
         }
-        lastReadFailbackAttemptMs = now;
+        lastReadFailbackAttemptNanos = Long.valueOf(now);
 
         try {
             Endpoint restoredRo = connMgr.restoreRoIfRecovered();
@@ -3783,6 +3786,17 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     /**
+     * Whether the attempt at {@code lastNanos} is less than {@code intervalMs} before {@code
+     * nowNanos}. Both are {@code System.nanoTime()} readings: on the wall clock, one set back would
+     * hold the failback until it caught up.
+     */
+    static boolean attemptedWithin(
+            final Long lastNanos, final long nowNanos, final long intervalMs) {
+        return lastNanos != null
+                && nowNanos - lastNanos.longValue() < TimeUnit.MILLISECONDS.toNanos(intervalMs);
+    }
+
+    /**
      * Attempts RW failback at a caller-verified safe boundary: no statement in flight and no
      * transaction work since the last commit/rollback. Throttled per session; a session already on
      * the master returns inside {@code restoreRwIfRecovered()} without opening anything.
@@ -3795,15 +3809,16 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             return;
         }
 
-        long now = System.currentTimeMillis();
-        if (now - lastRwFailbackAttemptMs < config.getWriteFailbackProbeIntervalMs()) {
+        long now = System.nanoTime();
+        if (attemptedWithin(
+                lastRwFailbackAttemptNanos, now, config.getWriteFailbackProbeIntervalMs())) {
             return;
         }
         final Connection rw = connMgr.boundConnection(SessionLeg.RW);
         if (hasOpenCursorOn(rw) || hasOpenCallOn(rw)) {
             return; // retried at a later trigger, once the cursor or the call is closed
         }
-        lastRwFailbackAttemptMs = now;
+        lastRwFailbackAttemptNanos = Long.valueOf(now);
 
         try {
             Endpoint restoredRw = connMgr.restoreRwIfRecovered();

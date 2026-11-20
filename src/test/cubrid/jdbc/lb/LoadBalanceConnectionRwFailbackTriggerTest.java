@@ -32,6 +32,7 @@ package cubrid.jdbc.lb;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import cubrid.jdbc.jci.UErrorCode;
 import cubrid.jdbc.jci.UUnreachableHostList;
@@ -292,6 +293,22 @@ public class LoadBalanceConnectionRwFailbackTriggerTest {
         } finally {
             conn.close();
         }
+    }
+
+    /** The interval is read from the monotonic clock, whose readings span the whole long range. */
+    @Test
+    public void throttleIntervalIsMeasuredOnTheMonotonicClock() {
+        final Long last = Long.valueOf(Long.MAX_VALUE - 5L);
+        final long justInside = last.longValue() + 2999L * 1000000L; // wraps past the long range
+        final long atTheInterval = last.longValue() + 3000L * 1000000L;
+
+        assertFalse(
+                "before the first attempt",
+                LoadBalanceConnection.attemptedWithin(null, -1L, 3000L));
+        assertTrue(LoadBalanceConnection.attemptedWithin(last, justInside, 3000L));
+        assertFalse(LoadBalanceConnection.attemptedWithin(last, atTheInterval, 3000L));
+        assertFalse(
+                "no interval", LoadBalanceConnection.attemptedWithin(last, last.longValue(), 0L));
     }
 
     private void executeWrite(final LoadBalanceConnection conn) throws SQLException {

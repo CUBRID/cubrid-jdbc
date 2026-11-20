@@ -364,11 +364,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         return physicalStatement.executeBatch();
     }
 
-    /**
-     * {@code CUBRIDPreparedStatement} declares this without {@code throws SQLException} and an
-     * override may not widen the inherited clause, so a closed-statement failure is reported
-     * unchecked. See {@link LBStatement#setQueryInfo(boolean)} for the same constraint.
-     */
+    /** Whether the first result is a result set, as the prepare on a leg found it. */
     @Override
     public boolean hasResultSet() {
         return firstResultType;
@@ -965,12 +961,6 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
 
     /* ===== vendor flags: inherited signatures declare no throws clause =====*/
 
-    /**
-     * {@code CUBRIDStatement} declares these without {@code throws SQLException} and an override
-     * may not widen the inherited clause, so the delegate's checked variants are called and any
-     * failure is reported unchecked. Same constraint and same shape as {@link
-     * LBStatement#setQueryInfo}.
-     */
     /** Before any execution, the type core's prepare found, as core answers from its prepare. */
     @Override
     public byte getStatementType() {
@@ -988,6 +978,12 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         return statementDelegate.getStatementType();
     }
 
+    /**
+     * {@code CUBRIDStatement} declares these without {@code throws SQLException} and an override
+     * may not widen the inherited clause, so the delegate's checked variants are called and any
+     * failure is reported unchecked. Same constraint and same shape as {@link
+     * LBStatement#setQueryInfo}.
+     */
     @Override
     public void setQueryInfo(final boolean value) {
         try {

@@ -2077,18 +2077,17 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     /**
-     * The holdability a statement asking for {@code requested} reports, as core's statement does:
-     * HOLD only when the server keeps cursors over commit.
+     * The holdability a statement asking for {@code requested} reports: core's statement decides it
+     * on an open leg. With no leg open yet there is no server to ask, and HOLD stays HOLD.
      */
     public int statementHoldability(final int requested) throws SQLException {
-        if (requested != ResultSet.HOLD_CURSORS_OVER_COMMIT) {
-            return ResultSet.CLOSE_CURSORS_AT_COMMIT;
-        }
         final UConnection socket = openLegSocket();
-        if (socket != null && !socket.supportHoldableResult()) {
-            return ResultSet.CLOSE_CURSORS_AT_COMMIT;
+        if (socket != null) {
+            return LBStatement.holdabilityOn(socket, requested);
         }
-        return requested;
+        return requested == ResultSet.HOLD_CURSORS_OVER_COMMIT
+                ? ResultSet.HOLD_CURSORS_OVER_COMMIT
+                : ResultSet.CLOSE_CURSORS_AT_COMMIT;
     }
 
     /**

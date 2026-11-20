@@ -34,6 +34,7 @@ import cubrid.jdbc.driver.CUBRIDResultSet;
 import cubrid.jdbc.driver.CUBRIDStatement;
 import cubrid.jdbc.jci.CUBRIDCommandType;
 import cubrid.jdbc.jci.UBatchResult;
+import cubrid.jdbc.jci.UConnection;
 import cubrid.jdbc.jci.UStatementCacheData;
 import cubrid.jdbc.lb.LbExceptions;
 import cubrid.jdbc.lb.LoadBalanceConnection;
@@ -105,6 +106,20 @@ public class LBStatement extends CUBRIDStatement {
     private final BooleanSupplier rwTransactionOpen;
     // Set for a prepared statement made while reads were pinned to RW; see Router.decide.
     private boolean preparedUnderReadPin;
+
+    /**
+     * The holdability a statement asking for {@code requested} reports on {@code socket}, by core's
+     * own rule.
+     *
+     * @param socket the socket of an open leg
+     * @param requested the holdability asked for
+     * @return the holdability core's statement would report
+     */
+    public static int holdabilityOn(final UConnection socket, final int requested) {
+        return holdsCursorsOverCommit(socket, requested)
+                ? ResultSet.HOLD_CURSORS_OVER_COMMIT
+                : ResultSet.CLOSE_CURSORS_AT_COMMIT;
+    }
 
     public LBStatement(LoadBalanceConnection lbConnection) throws SQLException {
         this(lbConnection, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);

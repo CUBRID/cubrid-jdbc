@@ -304,25 +304,6 @@ public final class MetricsRegistry {
         return out;
     }
 
-    /** Clears the whole registry; for the export harness / unit tests only. */
-    static void clearForTests() {
-        LIVE.clear();
-        PROBES.clear();
-        synchronized (CUMULATIVE) {
-            CUMULATIVE.clear();
-        }
-        synchronized (CUMULATIVE_LAT) {
-            CUMULATIVE_LAT.clear();
-        }
-        synchronized (FAILOVERS) {
-            FAILOVERS.clear();
-        }
-        synchronized (FAILBACKS) {
-            FAILBACKS.clear();
-        }
-        ROLE.clear();
-    }
-
     /**
      * Per-endpoint execution-latency histograms: cumulative (closed connections) plus every live
      * metrics object, split read/write. The p50/p95/p99 signal, exported as Prometheus histograms.

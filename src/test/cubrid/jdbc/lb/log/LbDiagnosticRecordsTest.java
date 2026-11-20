@@ -67,7 +67,7 @@ public class LbDiagnosticRecordsTest {
 
     @Before
     public void setUp() {
-        LbLogDedup.resetForTests();
+        LogTestAccess.resetDedup();
         UUnreachableHostList.getInstance().remove(EP.getId());
         lbLogger = Logger.getLogger("cubrid.jdbc.lb");
         lbLogger.setLevel(Level.ALL);
@@ -82,7 +82,7 @@ public class LbDiagnosticRecordsTest {
         lbLogger.setLevel(null);
         lbLogger.setUseParentHandlers(true);
         UUnreachableHostList.getInstance().remove(EP.getId());
-        LbLogDedup.resetForTests();
+        LogTestAccess.resetDedup();
     }
 
     @Test

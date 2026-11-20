@@ -79,7 +79,7 @@ public class LbIsolationWarningTest {
 
     @Before
     public void setUp() {
-        LbLogDedup.resetForTests();
+        LogTestAccess.resetDedup();
         lbLogger = Logger.getLogger("cubrid.jdbc.lb");
         lbLogger.setLevel(Level.ALL);
         lbLogger.setUseParentHandlers(false);
@@ -92,7 +92,7 @@ public class LbIsolationWarningTest {
         lbLogger.removeHandler(captured);
         lbLogger.setLevel(null);
         lbLogger.setUseParentHandlers(true);
-        LbLogDedup.resetForTests();
+        LogTestAccess.resetDedup();
     }
 
     @Test

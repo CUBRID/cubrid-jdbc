@@ -276,9 +276,4 @@ public final class LbLogDedup {
             }
         }
     }
-
-    /** Test hook: forgets all windows so a following test starts from a clean state. */
-    static synchronized void resetForTests() {
-        STATE.clear();
-    }
 }

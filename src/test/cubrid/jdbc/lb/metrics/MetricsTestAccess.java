@@ -30,7 +30,10 @@
 
 package cubrid.jdbc.lb.metrics;
 
+import cubrid.jdbc.lb.LbTestReflection;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 
 /**
  * The package-private members of {@code cubrid.jdbc.lb.metrics} that tests in other packages use.
@@ -39,8 +42,26 @@ import java.util.List;
 public final class MetricsTestAccess {
     private MetricsTestAccess() {}
 
+    /** Empties the registry, each collection under the lock the registry itself takes for it. */
     public static void clearForTests() {
-        MetricsRegistry.clearForTests();
+        collection("LIVE").clear();
+        map("PROBES").clear();
+        for (String guarded :
+                new String[] {"CUMULATIVE", "CUMULATIVE_LAT", "FAILOVERS", "FAILBACKS"}) {
+            final Map<?, ?> each = map(guarded);
+            synchronized (each) {
+                each.clear();
+            }
+        }
+        map("ROLE").clear();
+    }
+
+    private static Collection<?> collection(final String field) {
+        return (Collection<?>) LbTestReflection.staticField(MetricsRegistry.class, field);
+    }
+
+    private static Map<?, ?> map(final String field) {
+        return (Map<?, ?>) LbTestReflection.staticField(MetricsRegistry.class, field);
     }
 
     public static long getRwFallbackCount(final RuntimeMetrics metrics) {

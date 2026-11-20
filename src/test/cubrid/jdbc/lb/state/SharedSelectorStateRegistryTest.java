@@ -40,7 +40,7 @@ public final class SharedSelectorStateRegistryTest {
 
     @After
     public void tearDown() {
-        SharedSelectorStateRegistry.clearForTests();
+        StateTestAccess.clearForTests();
     }
 
     @Test

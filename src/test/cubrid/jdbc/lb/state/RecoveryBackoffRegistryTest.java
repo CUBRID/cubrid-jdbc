@@ -43,7 +43,7 @@ public final class RecoveryBackoffRegistryTest {
 
     @After
     public void tearDown() {
-        RecoveryBackoffRegistry.clearForTests();
+        StateTestAccess.clearRecoveryBackoffs();
     }
 
     @Test

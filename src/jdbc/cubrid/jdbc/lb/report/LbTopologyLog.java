@@ -236,9 +236,4 @@ public final class LbTopologyLog {
         b.append(" metrics=").append(config.getMetricsConfig().isEnabled() ? "on" : "off");
         return b.toString();
     }
-
-    /** Test hook: forgets the declared configurations so a following test starts clean. */
-    static synchronized void resetForTests() {
-        SEEN.clear();
-    }
 }

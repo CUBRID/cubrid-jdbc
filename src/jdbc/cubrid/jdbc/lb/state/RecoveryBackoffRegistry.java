@@ -68,9 +68,4 @@ public final class RecoveryBackoffRegistry {
     static void releaseKey(final String registryKey) {
         BY_KEY.remove(registryKey);
     }
-
-    /** Clears all registry entries; for unit tests only. */
-    static void clearForTests() {
-        BY_KEY.clear();
-    }
 }

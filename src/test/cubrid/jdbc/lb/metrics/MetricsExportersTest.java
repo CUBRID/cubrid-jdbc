@@ -72,13 +72,13 @@ public class MetricsExportersTest {
 
     @Before
     public void setUp() {
-        MetricsRegistry.clearForTests();
+        MetricsTestAccess.clearForTests();
         UUnreachableHostList.getInstance().remove(SLAVE);
     }
 
     @After
     public void tearDown() {
-        MetricsRegistry.clearForTests();
+        MetricsTestAccess.clearForTests();
         UUnreachableHostList.getInstance().remove(SLAVE);
     }
 

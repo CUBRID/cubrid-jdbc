@@ -67,7 +67,7 @@ public class LbTopologyLogTest {
 
     @Before
     public void setUp() {
-        LbTopologyLog.resetForTests();
+        ReportTestAccess.resetTopologyLog();
         lbLogger = Logger.getLogger("cubrid.jdbc.lb");
         lbLogger.setLevel(Level.ALL);
         lbLogger.setUseParentHandlers(false);
@@ -80,7 +80,7 @@ public class LbTopologyLogTest {
         lbLogger.removeHandler(captured);
         lbLogger.setLevel(null);
         lbLogger.setUseParentHandlers(true);
-        LbTopologyLog.resetForTests();
+        ReportTestAccess.resetTopologyLog();
     }
 
     @Test

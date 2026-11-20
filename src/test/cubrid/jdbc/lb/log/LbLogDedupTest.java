@@ -63,7 +63,7 @@ public class LbLogDedupTest {
 
     @Before
     public void setUp() {
-        LbLogDedup.resetForTests();
+        LogTestAccess.resetDedup();
         logger = Logger.getLogger("cubrid.jdbc.lb.LbLogDedupTest");
         logger.setUseParentHandlers(false);
         logger.setLevel(Level.ALL);
@@ -75,7 +75,7 @@ public class LbLogDedupTest {
     public void tearDown() {
         logger.removeHandler(captured);
         logger.setUseParentHandlers(true);
-        LbLogDedup.resetForTests();
+        LogTestAccess.resetDedup();
     }
 
     @Test

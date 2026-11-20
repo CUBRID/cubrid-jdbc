@@ -85,7 +85,7 @@ public class LbSessionRecordsTest {
     public void setUp() {
         // The list is JVM-wide; a RO listed by an earlier test would have its probe spent at bind.
         UUnreachableHostList.getInstance().remove(RO.getId());
-        LbLogDedup.resetForTests();
+        LogTestAccess.resetDedup();
         lbLogger = Logger.getLogger("cubrid.jdbc.lb");
         lbLogger.setLevel(Level.ALL);
         lbLogger.setUseParentHandlers(false);
@@ -98,7 +98,7 @@ public class LbSessionRecordsTest {
         lbLogger.removeHandler(captured);
         lbLogger.setLevel(null);
         lbLogger.setUseParentHandlers(true);
-        LbLogDedup.resetForTests();
+        LogTestAccess.resetDedup();
         UUnreachableHostList.getInstance().remove(RO.getId());
     }
 

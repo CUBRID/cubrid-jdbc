@@ -30,6 +30,7 @@
 
 package cubrid.jdbc.lb.state;
 
+import cubrid.jdbc.lb.LbTestReflection;
 import java.util.Map;
 
 /**
@@ -56,6 +57,11 @@ public final class StateTestAccess {
     }
 
     public static void clearForTests() {
-        SharedSelectorStateRegistry.clearForTests();
+        ((Map<?, ?>) LbTestReflection.staticField(SharedSelectorStateRegistry.class, "BY_KEY"))
+                .clear();
+    }
+
+    public static void clearRecoveryBackoffs() {
+        ((Map<?, ?>) LbTestReflection.staticField(RecoveryBackoffRegistry.class, "BY_KEY")).clear();
     }
 }

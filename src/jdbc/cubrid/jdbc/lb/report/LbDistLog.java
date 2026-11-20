@@ -509,13 +509,4 @@ public final class LbDistLog {
             }
         }
     }
-
-    /** Test hook: disarms and forgets the window state. */
-    static synchronized void resetForTests() {
-        armed = false;
-        intervalNanos = 0L;
-        target = null;
-        previous = Collections.emptyMap();
-        lastEmitNanos.set(0L);
-    }
 }

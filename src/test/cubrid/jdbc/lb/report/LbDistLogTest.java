@@ -81,7 +81,7 @@ public class LbDistLogTest {
     @Before
     public void setUp() {
         MetricsTestAccess.clearForTests();
-        LbDistLog.resetForTests();
+        ReportTestAccess.resetDistLog();
         lbLogger = Logger.getLogger("cubrid.jdbc.lb");
         lbLogger.setLevel(Level.ALL);
         lbLogger.setUseParentHandlers(false);
@@ -94,7 +94,7 @@ public class LbDistLogTest {
         lbLogger.removeHandler(captured);
         lbLogger.setLevel(null);
         lbLogger.setUseParentHandlers(true);
-        LbDistLog.resetForTests();
+        ReportTestAccess.resetDistLog();
         MetricsTestAccess.clearForTests();
     }
 

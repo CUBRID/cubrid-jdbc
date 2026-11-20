@@ -64,7 +64,7 @@ import org.junit.Test;
  * the write, or the batch, once more on the rebound leg the same way. A failure core reports as a
  * lost connection (-21003) is not run again.
  */
-public final class NotSentWriteFailoverTest {
+public final class ConnectFailureWriteReplayTest {
 
     private static final Endpoint NODE1 = new Endpoint("nsnode1", 33000);
     private static final Endpoint NODE2 = new Endpoint("nsnode2", 33000);

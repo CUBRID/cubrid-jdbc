@@ -125,7 +125,7 @@ public class LoadBalanceConnectionUriUrlTest {
     }
 
     @Test
-    public void credentialsAndCommonOptionsPropagateToPhysicalUrl() throws SQLException {
+    public void physicalUrlCarriesCommonOptionsAndPropertiesCarryCredentials() throws SQLException {
         openLb(
                 "jdbc:cubrid:loadbalance://node1/db:dba:secret:"
                         + "?rwPort=33000&roPort=33002&charSet=utf-8");

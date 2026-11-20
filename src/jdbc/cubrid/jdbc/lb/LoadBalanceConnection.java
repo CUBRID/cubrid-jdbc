@@ -199,6 +199,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
 
     private DatabaseMetaData rwMetaForCmd = null;
     // One per connection, as core keeps one; closed with the connection.
+    private final Object metaDataLock = new Object();
     private LBDatabaseMetaData metaData = null;
     // As the application wrote it, which is what core's DatabaseMetaData.getURL() reports.
     private final String urlAsWritten;
@@ -2204,11 +2205,14 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      */
     public DatabaseMetaData getMetaData() throws SQLException {
         checkClosed();
-        if (metaData == null) {
-            metaData = new LBDatabaseMetaData(this);
-        }
+        // Core's getMetaData is synchronized: threads asking at once get the one object.
+        synchronized (metaDataLock) {
+            if (metaData == null) {
+                metaData = new LBDatabaseMetaData(this);
+            }
 
-        return metaData;
+            return metaData;
+        }
     }
 
     String urlAsWritten() {

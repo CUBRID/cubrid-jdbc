@@ -55,6 +55,11 @@ import java.sql.SQLFeatureNotSupportedException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Test;
 
@@ -335,6 +340,39 @@ public final class LoadBalanceConnectionMetadataProxyTest {
         assertEquals(0, readOnlyProductVersionCalls.get());
         assertEquals(0, readOnlyMajorVersionCalls.get());
         assertEquals(0, readOnlyMinorVersionCalls.get());
+    }
+
+    /** Core's getMetaData is synchronized: threads asking at once the first time get one object. */
+    @Test
+    public void threadsAskingAtOnceGetTheSameMetaData() throws Exception {
+        final int threads = 8;
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        try {
+            for (int round = 0; round < 2000; round++) {
+                final LoadBalanceConnection connection =
+                        new LoadBalanceConnection(LbTestSettings.defaults());
+                final CyclicBarrier start = new CyclicBarrier(threads);
+                List<Future<DatabaseMetaData>> asked = new ArrayList<Future<DatabaseMetaData>>();
+                for (int i = 0; i < threads; i++) {
+                    asked.add(
+                            pool.submit(
+                                    new Callable<DatabaseMetaData>() {
+                                        public DatabaseMetaData call() throws Exception {
+                                            start.await();
+                                            return connection.getMetaData();
+                                        }
+                                    }));
+                }
+
+                DatabaseMetaData first = asked.get(0).get();
+                for (Future<DatabaseMetaData> each : asked) {
+                    assertSame("round " + round, first, each.get());
+                }
+                connection.close();
+            }
+        } finally {
+            pool.shutdownNow();
+        }
     }
 
     // DatabaseMetaData.getConnection() must return the logical LB connection, not the

@@ -44,6 +44,7 @@ import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.connection.ConnectionTestAccess;
 import cubrid.jdbc.lb.connection.JdbcConnectionFactory;
+import cubrid.jdbc.lb.log.LbLogDedup;
 import cubrid.jdbc.lb.metrics.MetricsTestAccess;
 import cubrid.jdbc.lb.state.SharedSelectorState;
 import java.lang.reflect.InvocationHandler;
@@ -63,6 +64,9 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.logging.Handler;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -122,6 +126,62 @@ public class ReadLegSafetyTest {
         assertEquals(1, legs.count("rw", "SELECT * FROM v_seq"));
         assertTrue(lastRouteEvent().contains("routeTarget=TO_READ_WRITE"));
         assertTrue(lastRouteEvent().contains("fallbackReason=RO_WRITE_REJECTED"));
+    }
+
+    /** {@code lbLogSql=off} keeps a statement out of the record of collapsed occurrences too. */
+    @Test
+    public void rejectedReadsCollapsedWithSqlLoggingOffLeaveNoSqlInTheLog() throws SQLException {
+        final String url =
+                "jdbc:cubrid:loadbalance://rw:33000,ro:1:33001/testdb:::"
+                        + "?readWeight=slave:1&lbLogSql=off";
+        final List<String> logged = Collections.synchronizedList(new ArrayList<String>());
+        final Handler capture =
+                new Handler() {
+                    @Override
+                    public void publish(final LogRecord record) {
+                        logged.add(String.valueOf(record.getMessage()));
+                    }
+
+                    @Override
+                    public void flush() {}
+
+                    @Override
+                    public void close() {}
+                };
+        final Logger lbLogger = Logger.getLogger("cubrid.jdbc.lb");
+        final LoadBalanceConnection off =
+                LbTestAccess.newLoadBalanceConnection(LbTestSettings.fromUrl(url));
+        LbTestAccess.setConnectionManager(
+                off,
+                ConnectionTestAccess.newSessionPhysicalConnManager(
+                        LOGICAL_URL, new Properties(), LbTestSettings.fromUrl(url), legs));
+        LbTestAccess.setSharedSelectorState(off, new SharedSelectorState());
+        LbTestAccess.initSessionBindings(
+                off,
+                new EndpointTopology(
+                        new Endpoint("rw", 33000),
+                        Arrays.asList(new Endpoint("ro", 33001)),
+                        Collections.<Endpoint>emptyList()));
+        legs.refuseOnRo("v_seq", ER_DB_NO_MODIFICATIONS);
+        LbLogDedup.drain();
+        lbLogger.addHandler(capture);
+        try {
+            off.createStatement().executeQuery("SELECT * FROM v_seq WHERE a = 1");
+            off.createStatement().executeQuery("SELECT * FROM v_seq WHERE a = 2");
+            LbLogDedup.drain();
+        } finally {
+            lbLogger.removeHandler(capture);
+            off.close();
+        }
+
+        int summaries = 0;
+        for (String message : logged) {
+            assertFalse(message, message.contains("v_seq"));
+            if (message.startsWith("LB SUPPRESSED")) {
+                summaries++;
+            }
+        }
+        assertEquals(logged.toString(), 1, summaries);
     }
 
     /** A routine that writes, called from a view, fails on the read node as -889. */

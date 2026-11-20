@@ -3462,7 +3462,12 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         LbLogDedup.info(
                 LOGGER,
                 LbLog.conn(connectionId),
-                "RO REJECTED|" + SqlLiteralMasker.mask(sql, 200),
+                // The key is written too, with what was collapsed: no statement under lbLogSql=off.
+                "RO REJECTED|"
+                        + failure.getErrorCode()
+                        + (LbLogConfig.SQL_OFF.equals(config.getLbLogConfig().getSqlMode())
+                                ? ""
+                                : "|" + SqlLiteralMasker.mask(sql, 200)),
                 "LB RO REJECTED: the read leg could not serve a statement classified READ ("
                         + failure.getErrorCode()
                         + "); running it on RW"

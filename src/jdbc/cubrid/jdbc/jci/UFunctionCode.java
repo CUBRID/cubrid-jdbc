@@ -94,6 +94,12 @@ public enum UFunctionCode {
     CURSOR_CLOSE(42),
     GET_SHARD_INFO(43),
     SET_CAS_CHANGE_MODE(44),
+
+    /* shared client->server byte-stream transport (COPY, internal-LOB, ...) */
+    STREAM_SEND_DATA(45),
+    STREAM_END(46),
+    STREAM_ABORT(48),
+
     LAST_FUNCTION_CODE(GET_SHARD_INFO);
 
     private byte code;

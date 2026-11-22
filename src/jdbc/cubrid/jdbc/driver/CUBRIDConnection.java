@@ -57,6 +57,7 @@ import java.sql.Savepoint;
 import java.sql.Statement;
 import java.sql.Struct;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.Executor;
@@ -429,7 +430,8 @@ public class CUBRIDConnection implements Connection {
     }
 
     public Map<String, Class<?>> getTypeMap() throws SQLException {
-        throw CUBRIDException.notSupported();
+        checkIsOpen();
+        return new HashMap<String, Class<?>>();
     }
 
     public void setTypeMap(Map<String, Class<?>> map) throws SQLException {

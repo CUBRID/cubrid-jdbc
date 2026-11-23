@@ -399,6 +399,28 @@ public class SessionSetStatementTest {
         }
     }
 
+    /** Statistics collection and a lock timeout leave how a statement compiles alone. */
+    @Test
+    public void onlySomePinReasonsChangeHowAStatementCompiles() {
+        assertFalse(SessionSetStatement.changesCompilation(Collections.<String>emptySet()));
+        assertFalse(
+                SessionSetStatement.changesCompilation(
+                        Arrays.asList(
+                                SessionSetStatement.EXEC_STATS_PIN,
+                                SessionSetStatement.LOCK_TIMEOUT_KEY)));
+        assertTrue(
+                SessionSetStatement.changesCompilation(
+                        Arrays.asList(
+                                SessionSetStatement.EXEC_STATS_PIN,
+                                SessionSetStatement.LOGIN_KEY)));
+        assertTrue(
+                SessionSetStatement.changesCompilation(
+                        Collections.singleton(SessionSetStatement.UNKNOWN_PIN)));
+        assertTrue(
+                SessionSetStatement.changesCompilation(
+                        Collections.singleton(SessionSetStatement.TIMEZONE_KEY)));
+    }
+
     @Test
     public void isolationLevelOfASetTransactionIsRead() {
         final int rr = java.sql.Connection.TRANSACTION_REPEATABLE_READ;

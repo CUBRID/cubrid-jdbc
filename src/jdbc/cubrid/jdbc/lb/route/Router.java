@@ -85,8 +85,9 @@ public final class Router {
      *
      * @param sql the statement
      * @param updatableResults whether the statement makes updatable result sets
-     * @param preparedUnderReadPin whether the statement was prepared while reads were pinned: the
-     *     read leg lacked a session setting then, and cannot compile it as core did
+     * @param preparedUnderReadPin whether the statement was prepared while a session change that
+     *     alters compilation pinned reads: the read leg lacked it then, and cannot compile the
+     *     statement as core did
      * @param session the session routing state
      * @param rwTransactionOpen whether the write leg holds an open autocommit transaction; asked
      *     only for a statement that would otherwise leave RW

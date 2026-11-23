@@ -32,6 +32,7 @@ package cubrid.jdbc.lb.sql;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -378,6 +379,23 @@ public final class SessionSetStatement {
                 || !pins.isEmpty()
                 || !unpins.isEmpty()
                 || !nonSessionParams.isEmpty();
+    }
+
+    /**
+     * Whether a read leg lacking what {@code pinReasons} name compiles a statement differently from
+     * RW. Statistics collection and a lock timeout change nothing a statement is compiled under;
+     * any other reason may.
+     *
+     * @param pinReasons the reasons reads are pinned for
+     * @return whether one of them changes how a statement compiles
+     */
+    public static boolean changesCompilation(final Collection<String> pinReasons) {
+        for (String reason : pinReasons) {
+            if (!EXEC_STATS_PIN.equals(reason) && !LOCK_TIMEOUT_KEY.equals(reason)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

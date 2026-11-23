@@ -104,7 +104,8 @@ public class LBStatement extends CUBRIDStatement {
     // Takes the connection manager's lock, so the router asks only for a statement that would
     // otherwise leave RW.
     private final BooleanSupplier rwTransactionOpen;
-    // Set for a prepared statement made while reads were pinned to RW; see Router.decide.
+    // Set for a prepared statement made while a session change that alters compilation pinned
+    // reads to RW; see Router.decide.
     private boolean preparedUnderReadPin;
 
     /**

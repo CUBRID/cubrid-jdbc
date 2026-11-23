@@ -552,6 +552,58 @@ public class ReadLegSafetyTest {
         assertEquals(1, legs.count("ro", "SELECT 2"));
     }
 
+    /**
+     * Collecting statistics changes nothing a statement is compiled under, so one prepared while
+     * that pins reads leaves RW with the pin.
+     */
+    @Test
+    public void readStatementPreparedWhileStatisticsPinnedReadsLeavesRwWithThePin()
+            throws SQLException {
+        Statement st = conn.createStatement();
+        st.executeQuery("SELECT 1");
+        st.execute("SET @collect_exec_stats = 1");
+        PreparedStatement read = conn.prepareStatement("SELECT * FROM t WHERE s = ?");
+        read.setString(1, "a");
+        read.executeQuery();
+        st.execute("SET @collect_exec_stats = 0");
+        read.executeQuery();
+
+        assertEquals(1, legs.count("rw", "SELECT * FROM t WHERE s = ?"));
+        assertEquals(1, legs.count("ro", "SELECT * FROM t WHERE s = ?"));
+    }
+
+    /** Nor does a lock timeout the read leg was not given. */
+    @Test
+    public void readStatementPreparedWhileABoundLockTimeoutPinnedReadsLeavesRwWithThePin()
+            throws SQLException {
+        conn.createStatement().executeQuery("SELECT 1");
+        PreparedStatement bound = conn.prepareStatement("SET TRANSACTION LOCK TIMEOUT ?");
+        bound.setInt(1, 3);
+        bound.execute();
+        PreparedStatement read = conn.prepareStatement("SELECT * FROM t WHERE s = ?");
+        read.setString(1, "a");
+        read.executeQuery();
+        conn.createStatement().execute("SET TRANSACTION LOCK TIMEOUT 5");
+        read.executeQuery();
+
+        assertEquals(1, legs.count("rw", "SELECT * FROM t WHERE s = ?"));
+        assertEquals(1, legs.count("ro", "SELECT * FROM t WHERE s = ?"));
+    }
+
+    /** Under such a pin the read leg compiles as RW does: a SET finds the statement there. */
+    @Test
+    public void readStatementPreparedWhileStatisticsPinnedReadsIsPreparedOnTheReadLegBeforeASet()
+            throws SQLException {
+        Statement st = conn.createStatement();
+        st.executeQuery("SELECT 1");
+        st.execute("SET @collect_exec_stats = 1");
+        conn.prepareStatement("SELECT * FROM t WHERE s = ?");
+        st.execute("SET NAMES utf8 COLLATE utf8_bin");
+
+        assertPreparedBefore(
+                "ro", "SELECT * FROM t WHERE s = ?", "SET NAMES utf8 COLLATE utf8_bin");
+    }
+
     /** A statement that never runs on the read leg is not prepared there. */
     @Test
     public void writeStatementIsNotPreparedOnTheReadLegBeforeASet() throws SQLException {

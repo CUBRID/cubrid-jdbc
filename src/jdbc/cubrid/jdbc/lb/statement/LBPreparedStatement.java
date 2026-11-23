@@ -42,6 +42,7 @@ import cubrid.jdbc.lb.failover.UnreachableEndpoints;
 import cubrid.jdbc.lb.route.RoutedSql;
 import cubrid.jdbc.lb.route.Router.RouteDecision;
 import cubrid.jdbc.lb.route.Router.RouteTarget;
+import cubrid.jdbc.lb.sql.SessionSetStatement;
 import cubrid.jdbc.lb.sql.SqlClassifier;
 import cubrid.sql.CUBRIDOID;
 import cubrid.sql.CUBRIDTimestamptz;
@@ -146,7 +147,8 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
                             }
                         });
         this.sqlCaches = SqlCaches.compute(sql, lbConnection.sqlClassifier());
-        if (lbConnection.getSessionState().isReadsPinnedToRw()) {
+        if (SessionSetStatement.changesCompilation(
+                lbConnection.getSessionState().getReadPinReasons())) {
             statementDelegate.markPreparedUnderReadPin();
         }
     }
@@ -692,14 +694,15 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
 
     /**
      * Prepares this statement on the read leg if it can run there and has no physical statement
-     * there yet; see {@link LoadBalanceConnection#beforeSessionSet}. Not while reads are pinned:
-     * the read leg lacks a session setting then, and every statement that can run there was
-     * prepared there before the pin.
+     * there yet; see {@link LoadBalanceConnection#beforeSessionSet}. Not while a session change
+     * that alters compilation pins reads: the read leg lacks it then, and every statement that can
+     * run there was prepared there before the pin.
      */
     public void prepareOnReadLeg() {
         try {
             if (!statementDelegate.isClosed()
-                    && !ownerConn.getSessionState().isReadsPinnedToRw()
+                    && !SessionSetStatement.changesCompilation(
+                            ownerConn.getSessionState().getReadPinReasons())
                     && statementDelegate.mayRunOnReadLeg(sqlCaches.routed)) {
                 phyPsProvider.prepareOnBoundReadEndpoint(sql);
             }

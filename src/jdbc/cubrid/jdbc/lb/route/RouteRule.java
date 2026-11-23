@@ -40,7 +40,7 @@ public enum RouteRule {
     SESSION_SET_IN_HINTED_STRING,
     /**
      * A session change the read leg does not have keeps reads on RW, and a statement prepared under
-     * one for as long as it lives.
+     * one that alters compilation for as long as it lives.
      */
     READ_PIN,
     /** An updatable result set writes through its statement. */

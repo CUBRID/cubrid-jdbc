@@ -134,15 +134,24 @@ public class SessionSetStatementTest {
         assertUntracked("CALL [login]");
     }
 
-    /** A parameter LB cannot place, or one session-scoped in some versions only, pins. */
+    /** A parameter LB cannot place, or one server-wide in some released versions, pins. */
     @Test
     public void unknownParameterPinsUntilClose() {
         final Set<String> unknown = only(SessionSetStatement.UNKNOWN_PIN);
         assertEquals(unknown, pins("set system parameters 'compat_mode=mysql'"));
         assertEquals(unknown, pins("set system parameters 'no_equals_sign'"));
         assertEquals(unknown, pins("set system parameters ?"));
-        assertEquals(unknown, pins("set system parameters 'compat_numeric_division_scale=yes'"));
         assertEquals(unknown, pins("set system parameters 'max_hash_list_scan_size=8M'"));
+    }
+
+    /** Session-scoped in every release that reads it (10.2 to 11.4), so the read leg gets it. */
+    @Test
+    public void numericDivisionScaleIsReplayed() {
+        final String sql = "set system parameters 'compat_numeric_division_scale=yes'";
+        assertEquals(
+                Arrays.asList("SET SYSTEM PARAMETERS 'compat_numeric_division_scale=yes'"),
+                replayed(sql));
+        assertTrue(pins(sql).isEmpty());
     }
 
     /**

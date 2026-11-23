@@ -87,8 +87,9 @@ public final class SessionSetStatement {
     /**
      * Parameters that are session-scoped (PRM_FOR_SESSION in the engine's system_parameter.c) in
      * every version from 10.2 to develop that has them, and change what a query parses, plans or
-     * returns, or how it waits. compat_numeric_division_scale and max_hash_list_scan_size are
-     * session-scoped in some versions only, so they are in no list and pin.
+     * returns, or how it waits. compat_numeric_division_scale is session-scoped in every release
+     * (10.2 to 11.4); develop keeps the name but reads it nowhere. max_hash_list_scan_size is
+     * server-wide in 11.0 to 11.3, so it is in no list and pins.
      */
     private static final Set<String> REPLAYED_PARAMS =
             names(
@@ -98,6 +99,7 @@ public final class SessionSetStatement {
                     "auto_increment_cache_size",
                     "block_ddl_statement",
                     "block_nowhere_statement",
+                    "compat_numeric_division_scale",
                     "compat_primary_key",
                     "create_table_reuseoid",
                     "cte_max_recursions",

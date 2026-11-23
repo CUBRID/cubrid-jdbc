@@ -707,7 +707,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         // fails, on the RW leg: the records and failover name that leg.
         lastExecOnRwConn = FallbackReason.RO_PHYSICAL.equals(fallbackReason);
         lastExecRanOn = lastExecOnRwConn ? currentOrManagerEndpoint(SessionLeg.RW) : endpoint;
-        // The execute path's decision; a batch and a metadata call have none and are read here.
+        // The execute path's decision; a metadata call has none and is read here.
         final Router.RouteDecision decision =
                 statementRoute != null
                         ? statementRoute

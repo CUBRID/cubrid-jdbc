@@ -275,6 +275,10 @@ final class RoutingMetricsRecorder {
                         : "hint(" + hint + ")";
             case SESSION_SET_IN_HINTED_STRING:
                 return "sessionSet(hint=" + hint + ")";
+            case UPDATABLE_RESULT:
+                return "updatable(classify=" + decision.getSql().getClassification().name() + ")";
+            case BATCH:
+                return "batch";
             default:
                 return hint != null
                         ? "hint(" + hint + ")"

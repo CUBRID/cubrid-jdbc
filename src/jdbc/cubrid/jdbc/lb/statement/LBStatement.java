@@ -764,6 +764,8 @@ public class LBStatement extends CUBRIDStatement {
         }
         lbConnection.settleReadLegRollback(false);
         final int[] counts;
+        lbConnection.beginStatementRoute(
+                Router.batch(RoutedSql.of(sqls.get(0), lbConnection.sqlClassifier())));
         try {
             counts =
                     lbConnection
@@ -780,6 +782,8 @@ public class LBStatement extends CUBRIDStatement {
         } catch (SQLException failure) {
             lbConnection.settleReadLegRollback(true);
             throw failure;
+        } finally {
+            lbConnection.endStatementRoute();
         }
         lbConnection.settleReadLegRollback(false);
         // Core sends no batch for a prepared statement without parameters: no counts, nothing ran.

@@ -52,5 +52,7 @@ public enum RouteRule {
     /** A read names a variable the session created on RW. */
     SESSION_VARIABLE,
     /** Core left an autocommit transaction open on RW; the next statement there ends it. */
-    RW_TRANSACTION_OPEN
+    RW_TRANSACTION_OPEN,
+    /** A batch runs on RW whatever it holds; see {@link Router#batch}. */
+    BATCH
 }

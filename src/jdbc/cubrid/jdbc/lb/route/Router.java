@@ -145,6 +145,16 @@ public final class Router {
         return ro(followsPrevious ? RouteRule.PREVIOUS_STATEMENT : RouteRule.CLASSIFICATION, sql);
     }
 
+    /**
+     * The decision of a batch, which runs on RW whatever its statements, hints and session are.
+     *
+     * @param first the batch's first statement, which its routing record shows
+     * @return RW, by the batch rule
+     */
+    public static RouteDecision batch(final RoutedSql first) {
+        return rw(RouteRule.BATCH, first);
+    }
+
     private static RouteDecision rw(final RouteRule rule, final RoutedSql sql) {
         return new RouteDecision(RouteTarget.TO_READ_WRITE, rule, sql);
     }

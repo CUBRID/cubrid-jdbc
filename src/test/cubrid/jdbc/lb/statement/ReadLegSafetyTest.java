@@ -65,6 +65,7 @@ import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Handler;
+import java.util.logging.Level;
 import java.util.logging.LogRecord;
 import java.util.logging.Logger;
 import org.junit.After;
@@ -182,6 +183,50 @@ public class ReadLegSafetyTest {
             }
         }
         assertEquals(logged.toString(), 1, summaries);
+    }
+
+    /** The record of a read an updatable result keeps on RW says so, not just that it is a READ. */
+    @Test
+    public void routeRecordNamesTheUpdatableResultThatKeptAReadOnRw() throws SQLException {
+        final List<String> routes = new ArrayList<String>();
+        final Handler capture = routeRecordsInto(routes);
+        try {
+            conn.createStatement(
+                            ResultSet.TYPE_FORWARD_ONLY,
+                            ResultSet.CONCUR_UPDATABLE,
+                            ResultSet.CLOSE_CURSORS_AT_COMMIT)
+                    .executeQuery("SELECT * FROM t");
+        } finally {
+            stopRouteRecords(capture);
+        }
+
+        assertEquals(1, legs.count("rw", "SELECT * FROM t"));
+        assertEquals(routes.toString(), 1, routes.size());
+        assertTrue(
+                routes.toString(),
+                routes.get(0).startsWith("LB ROUTE: RW@rw:33000 by=updatable(classify=READ)"));
+    }
+
+    /** A batch runs on RW whatever its statements are; its record names the batch as the reason. */
+    @Test
+    public void routeRecordNamesABatch() throws SQLException {
+        final List<String> routes = new ArrayList<String>();
+        final Handler capture = routeRecordsInto(routes);
+        try {
+            Statement st = conn.createStatement();
+            st.addBatch("SELECT /*+ TO_RO */ * FROM t");
+            st.executeBatch();
+            PreparedStatement ps = conn.prepareStatement("SELECT * FROM t WHERE s = ?");
+            ps.setString(1, "a");
+            ps.addBatch();
+            ps.executeBatch();
+        } finally {
+            stopRouteRecords(capture);
+        }
+
+        assertEquals(routes.toString(), 2, routes.size());
+        assertTrue(routes.toString(), routes.get(0).startsWith("LB ROUTE: RW@rw:33000 by=batch "));
+        assertTrue(routes.toString(), routes.get(1).startsWith("LB ROUTE: RW@rw:33000 by=batch "));
     }
 
     /** A routine that writes, called from a view, fails on the read node as -889. */
@@ -965,6 +1010,36 @@ public class ReadLegSafetyTest {
         }
         fail("no route event recorded");
         return null;
+    }
+
+    /** Collects the {@code LB ROUTE} records written until {@link #stopRouteRecords}. */
+    private static Handler routeRecordsInto(final List<String> routes) {
+        final Handler capture =
+                new Handler() {
+                    @Override
+                    public void publish(final LogRecord record) {
+                        final String message = String.valueOf(record.getMessage());
+                        if (message.startsWith("LB ROUTE: ")) {
+                            routes.add(message);
+                        }
+                    }
+
+                    @Override
+                    public void flush() {}
+
+                    @Override
+                    public void close() {}
+                };
+        final Logger lbLogger = Logger.getLogger("cubrid.jdbc.lb");
+        lbLogger.setLevel(Level.FINE);
+        lbLogger.addHandler(capture);
+        return capture;
+    }
+
+    private static void stopRouteRecords(final Handler capture) {
+        final Logger lbLogger = Logger.getLogger("cubrid.jdbc.lb");
+        lbLogger.removeHandler(capture);
+        lbLogger.setLevel(null);
     }
 
     private void assertPreparedOnRwBefore(final String sql, final String set) {

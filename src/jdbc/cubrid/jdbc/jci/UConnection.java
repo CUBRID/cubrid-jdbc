@@ -2047,6 +2047,11 @@ public abstract class UConnection {
         sessionId = newSessionId;
     }
 
+    /** The server session this connection is in; a reconnect that could not keep it changes it. */
+    public byte[] getSessionId() {
+        return sessionId.clone();
+    }
+
     public void setShardId(int shardId) {
         lastShardId = shardId;
     }

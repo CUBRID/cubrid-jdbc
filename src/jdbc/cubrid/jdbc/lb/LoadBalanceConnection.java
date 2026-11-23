@@ -99,6 +99,7 @@ import java.sql.Savepoint;
 import java.sql.Statement;
 import java.sql.Struct;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -110,6 +111,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
+import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
@@ -225,6 +227,10 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     // SQL SETs re-run on every leg opened later (replay key -> statement), in the order they last
     // ran, so a newer SET of the same setting replaces the older one.
     private final Map<String, String> sessionSets = new LinkedHashMap<String, String>();
+    // The server session each leg was in when it last got the session SETs; see
+    // restoreSessionSetsAfterReconnect.
+    private final Map<Connection, byte[]> legSessions =
+            Collections.synchronizedMap(new WeakHashMap<Connection, byte[]>());
     // True while a READ the read-only broker refused runs again on RW, so that route is recorded
     // with RO_WRITE_REJECTED rather than NONE.
     // Why a read the read leg could not serve is running again on RW, or null when none is.
@@ -3179,6 +3185,88 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             physical.setHoldability(holdability.intValue());
         }
         runSessionSets(physical, sessionSetsSnapshot());
+        rememberLegSession(physical, sessionOf(physical));
+    }
+
+    /**
+     * Core reconnects a leg by itself and tells no one. When the CAS could not keep the server
+     * session over it, that leg alone has none of the SETs LB ran on it, and its statements would
+     * run under other settings than the other leg's. A read leg on its own connection is closed, to
+     * reopen with the session state; the write leg runs the SETs again, once it holds no
+     * transaction they would run inside.
+     *
+     * @param target the leg a statement is about to run on, or just ran on
+     * @return whether a read leg was closed, so a read that just ran on it should run again
+     */
+    public boolean restoreSessionSetsAfterReconnect(final RouteTarget target) {
+        final List<String> sets = sessionSetsSnapshot();
+        if (sets.isEmpty() || connMgr == null || !isSessionInitialized()) {
+            return false; // nothing a new session would lack
+        }
+        final Connection rw = connMgr.boundConnection(SessionLeg.RW);
+        final Connection leg =
+                target == RouteTarget.TO_READ_ONLY ? connMgr.boundConnection(SessionLeg.RO) : rw;
+        final byte[] session = leg == null ? null : sessionOf(leg);
+        final byte[] applied = leg == null ? null : legSessions.get(leg);
+        if (session == null || applied == null || Arrays.equals(session, applied)) {
+            return false;
+        }
+        if (leg != rw) {
+            try {
+                leg.close();
+            } catch (SQLException alreadyGone) {
+                // A leg that is closed is replaced by the next read on it either way.
+            }
+            LbLog.warn(
+                    LOGGER,
+                    LbLog.conn(connectionId),
+                    "LB SESSION RENEWED [RO]: core reconnected the read leg into a new server"
+                            + " session, which has none of the session SETs; the leg is closed and"
+                            + " reopens with them");
+            return true;
+        }
+        if (connMgr.isRwTxOpenOnServer()) {
+            return false;
+        }
+        // Remembered whether or not the SETs run: a SET the server now refuses is refused again.
+        rememberLegSession(rw, session);
+        try {
+            runSessionSets(rw, sets);
+            LbLog.warn(
+                    LOGGER,
+                    LbLog.conn(connectionId),
+                    "LB SESSION RENEWED [RW]: core reconnected the write leg into a new server"
+                            + " session; the session SETs ran on it again | sets="
+                            + sets.size());
+        } catch (SQLException failed) {
+            LbLog.warn(
+                    LOGGER,
+                    LbLog.conn(connectionId),
+                    "LB SESSION RENEWED [RW]: core reconnected the write leg into a new server"
+                            + " session and running the session SETs on it again failed; it runs"
+                            + " without them | cause: "
+                            + LbLog.cause(failed));
+        }
+        return false;
+    }
+
+    private void rememberLegSession(final Connection leg, final byte[] session) {
+        if (session != null) {
+            legSessions.put(leg, session);
+        }
+    }
+
+    /** The server session {@code leg} is in, or null when it has no core connection to ask. */
+    private static byte[] sessionOf(final Connection leg) {
+        try {
+            final UConnection socket =
+                    leg instanceof CUBRIDConnection
+                            ? ((CUBRIDConnection) leg).getUConnection()
+                            : null;
+            return socket == null ? null : socket.getSessionId();
+        } catch (SQLException unreadable) {
+            return null;
+        }
     }
 
     /**

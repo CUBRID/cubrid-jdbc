@@ -692,10 +692,19 @@ public class LBStatement extends CUBRIDStatement {
         final ExecuteFailoverHandler handler = lbConnection.getExecuteFailoverHandler();
         T result;
         RouteTarget ranOn = target;
+        lbConnection.restoreSessionSetsAfterReconnect(target);
         lbConnection.beforeSessionSet(sql);
         lbConnection.settleReadLegRollback(false);
         try {
             result = handler.executeWithFailover(lbConnection, target, sql, retrySafe, execution);
+            // Core reconnected the read leg while the read ran: it ran without the session SETs.
+            if (retrySafe
+                    && target == RouteTarget.TO_READ_ONLY
+                    && lbConnection.restoreSessionSetsAfterReconnect(target)) {
+                result =
+                        handler.executeWithFailover(
+                                lbConnection, target, sql, retrySafe, execution);
+            }
         } catch (SQLException failure) {
             final boolean runAgain =
                     retrySafe && lbConnection.mayRetryRejectedReadOnRw(target, sql, failure);
@@ -760,6 +769,7 @@ public class LBStatement extends CUBRIDStatement {
             final List<String> sqls, final int rows, final SqlExecution<int[]> execution)
             throws SQLException {
         final RouteTarget target = RouteTarget.TO_READ_WRITE;
+        lbConnection.restoreSessionSetsAfterReconnect(target);
         for (String each : sqls) {
             lbConnection.beforeSessionSet(each);
         }

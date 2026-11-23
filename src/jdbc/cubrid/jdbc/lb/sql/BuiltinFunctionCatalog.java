@@ -72,7 +72,6 @@ final class BuiltinFunctionCatalog {
     private static final Set<String> ALL_BUILTINS;
     private static final Set<String> SERIAL_PSEUDO_COLUMNS;
     private static final Set<String> WRITE_EFFECT_PSEUDO_COLUMNS;
-    private static final Set<String> NODE_KEYWORDS;
 
     private static final String[] NUMERIC = {
         "ABS",
@@ -201,6 +200,34 @@ final class BuiltinFunctionCatalog {
         "YEAR"
     };
 
+    /**
+     * The node's clock. A read node answers from its own, which is off from the master's by less
+     * than its replication lag, so a read using the current time is distributed like any other.
+     * {@code DEFAULT(col)} may evaluate one of these.
+     */
+    private static final String[] CLOCK = {
+        "CURDATE",
+        "CURRENT_DATE",
+        "CURRENT_DATETIME",
+        "NOW",
+        "CURTIME",
+        "CURRENT_TIME",
+        "CURRENT_TIMESTAMP",
+        "LOCALTIME",
+        "LOCALTIMESTAMP",
+        "SYS_DATE",
+        "SYSDATE",
+        "SYS_DATETIME",
+        "SYSDATETIME",
+        "SYS_TIME",
+        "SYSTIME",
+        "SYS_TIMESTAMP",
+        "SYSTIMESTAMP",
+        "UTC_DATE",
+        "UTC_TIME",
+        "UTC_TIMESTAMP"
+    };
+
     private static final String[] BIT = {"BIT_COUNT"};
 
     private static final String[] AGGREGATE = {
@@ -231,6 +258,7 @@ final class BuiltinFunctionCatalog {
         "COERCIBILITY",
         "COLLATION",
         "DATABASE",
+        "DEFAULT",
         "SCHEMA",
         "SESSIONTIMEZONE",
         "DISK_SIZE",
@@ -348,63 +376,13 @@ final class BuiltinFunctionCatalog {
     };
 
     /**
-     * Functions whose value comes from the node that runs them: {@code USER()} answers {@code
-     * user@host} of that broker, and the rest read the node's clock or configuration. On RW they
-     * answer what a classic connection does. The bare {@code USER} and {@code CURRENT_USER} carry
-     * no host. {@code DEFAULT(col)} evaluates the column's default there, which may be a clock or
-     * {@code USER} expression the SQL text does not show. {@code UNIX_TIMESTAMP} is here only when
-     * called empty ({@link #readsNodeClockWhenCalledEmpty}).
+     * Functions whose value names the node that runs them or its configuration: {@code USER()}
+     * answers {@code user@host} of that broker, and the rest read the node's database list, time
+     * zone setting or version. On RW they answer what a classic connection does. The bare {@code
+     * USER} and {@code CURRENT_USER} carry no host.
      */
     private static final String[] NODE_RW = {
-        "USER",
-        "SYSTEM_USER",
-        "CURRENT_USER",
-        "CURDATE",
-        "CURRENT_DATE",
-        "CURRENT_DATETIME",
-        "NOW",
-        "CURTIME",
-        "CURRENT_TIME",
-        "CURRENT_TIMESTAMP",
-        "LOCALTIME",
-        "LOCALTIMESTAMP",
-        "SYS_DATE",
-        "SYSDATE",
-        "SYS_DATETIME",
-        "SYSDATETIME",
-        "SYS_TIME",
-        "SYSTIME",
-        "SYS_TIMESTAMP",
-        "SYSTIMESTAMP",
-        "UTC_DATE",
-        "UTC_TIME",
-        "UTC_TIMESTAMP",
-        "LIST_DBS",
-        "DBTIMEZONE",
-        "VERSION",
-        "DEFAULT"
-    };
-
-    /**
-     * {@link #NODE_RW} names the engine also reads without parentheses ({@code SELECT SYSDATE}).
-     * All are reserved words except {@code DBTIMEZONE}, so a column of that name runs on RW too.
-     */
-    private static final String[] NODE_RW_KEYWORDS = {
-        "CURRENT_DATE",
-        "CURRENT_DATETIME",
-        "CURRENT_TIME",
-        "CURRENT_TIMESTAMP",
-        "LOCALTIME",
-        "LOCALTIMESTAMP",
-        "SYS_DATE",
-        "SYSDATE",
-        "SYS_DATETIME",
-        "SYSDATETIME",
-        "SYS_TIME",
-        "SYSTIME",
-        "SYS_TIMESTAMP",
-        "SYSTIMESTAMP",
-        "DBTIMEZONE"
+        "USER", "SYSTEM_USER", "CURRENT_USER", "LIST_DBS", "DBTIMEZONE", "VERSION"
     };
 
     /**
@@ -515,6 +493,7 @@ final class BuiltinFunctionCatalog {
         addAll(ro, NUMERIC);
         addAll(ro, STRING);
         addAll(ro, DATETIME);
+        addAll(ro, CLOCK);
         addAll(ro, BIT);
         addAll(ro, AGGREGATE);
         addAll(ro, INFORMATION);
@@ -533,10 +512,6 @@ final class BuiltinFunctionCatalog {
         addAll(rw, NODE_RW);
         addAll(rw, LOB_RW);
         RW_BUILTINS = Collections.unmodifiableSet(rw);
-
-        final HashSet<String> nodeKeywords = new HashSet<String>(32);
-        addAll(nodeKeywords, NODE_RW_KEYWORDS);
-        NODE_KEYWORDS = Collections.unmodifiableSet(nodeKeywords);
 
         final HashSet<String> writeEffect = new HashSet<String>(8);
         addAll(writeEffect, WRITE_EFFECT_RW);
@@ -607,18 +582,6 @@ final class BuiltinFunctionCatalog {
     }
 
     /**
-     * Read-only built-in that reads the node's clock when called with no argument: {@code
-     * UNIX_TIMESTAMP()} answers the current time, while {@code UNIX_TIMESTAMP(d)} converts {@code
-     * d}.
-     *
-     * @param upperAsciiName built-in name, upper-cased ASCII
-     * @return {@code true} if the empty call answers from the node's clock
-     */
-    static boolean readsNodeClockWhenCalledEmpty(final String upperAsciiName) {
-        return "UNIX_TIMESTAMP".equals(upperAsciiName);
-    }
-
-    /**
      * Any CUBRID built-in (RO or RW). An {@code ident(...)} call not listed here is a user routine.
      *
      * @param upperAsciiName built-in name, upper-cased ASCII
@@ -639,14 +602,15 @@ final class BuiltinFunctionCatalog {
     }
 
     /**
-     * Keyword that reads the node's clock or configuration without parentheses, as {@code SYSDATE}
-     * does; it must route to RW like the call form.
+     * Keyword that reads the node's configuration without parentheses; it must route to RW like the
+     * call form. {@code DBTIMEZONE} is not a reserved word, so a column of that name runs on RW
+     * too.
      *
      * @param upperAsciiName identifier, upper-cased ASCII
      * @return {@code true} if the bare name answers from the node that runs it
      */
     static boolean isNodeKeyword(final String upperAsciiName) {
-        return contains(NODE_KEYWORDS, upperAsciiName);
+        return "DBTIMEZONE".equals(upperAsciiName);
     }
 
     /**

@@ -1217,19 +1217,10 @@ public class KeywordSqlClassifierTest {
         assertEquals(SqlClassification.READ, classifier.classify("SELECT * FROM db_class"));
     }
 
-    /** Each node answers these from its own clock or configuration. */
+    /** Each node answers these from its own configuration. */
     @Test
-    public void nodeClockAndConfigurationRunOnRw() {
+    public void nodeConfigurationRunsOnRw() {
         String[] rw = {
-            "SELECT NOW() FROM db_root",
-            "SELECT SYSDATE FROM db_root",
-            "select sys_datetime from db_root",
-            "SELECT CURRENT_TIMESTAMP FROM db_root",
-            "SELECT CURRENT_DATE() FROM db_root",
-            "SELECT LOCALTIMESTAMP FROM db_root",
-            "SELECT UNIX_TIMESTAMP() FROM db_root",
-            "SELECT UTC_TIMESTAMP() FROM db_root",
-            "SELECT * FROM t WHERE reg_date > SYSDATE - 7",
             "SELECT LIST_DBS() FROM db_root",
             "SELECT DBTIMEZONE() FROM db_root",
             "SELECT DBTIMEZONE FROM db_root",
@@ -1238,49 +1229,46 @@ public class KeywordSqlClassifierTest {
         for (String sql : rw) {
             assertEquals(sql, SqlClassification.UNKNOWN, classifier.classify(sql));
         }
-        // NOW is only a call, and quoted names and literals are not the keyword.
-        String[] read = {
-            "SELECT now FROM t",
-            "SELECT \"sysdate\" FROM t",
-            "SELECT [current_timestamp] FROM t",
-            "SELECT 'SYSDATE' FROM t",
-            "SELECT CURRENT_USER FROM db_root"
-        };
+        // Quoted names and literals are not the keyword.
+        String[] read = {"SELECT \"dbtimezone\" FROM t", "SELECT 'DBTIMEZONE' FROM t"};
         for (String sql : read) {
             assertEquals(sql, SqlClassification.READ, classifier.classify(sql));
         }
     }
 
-    /** UNIX_TIMESTAMP(d) converts d; only the empty call reads the node's clock. */
+    /**
+     * A read node answers from its own clock, which is off by less than its replication lag: reads
+     * that use the current time are distributed like any other.
+     */
     @Test
-    public void unixTimestampReadsTheClockOnlyWhenCalledEmpty() {
-        String[] rw = {
+    public void nodeClockRunsOnTheReadLeg() {
+        String[] read = {
+            "SELECT NOW() FROM db_root",
+            "SELECT SYSDATE FROM db_root",
+            "select sys_datetime from db_root",
+            "SELECT CURRENT_TIMESTAMP FROM db_root",
+            "SELECT CURRENT_DATE() FROM db_root",
+            "SELECT LOCALTIMESTAMP FROM db_root",
+            "SELECT UTC_TIMESTAMP() FROM db_root",
+            "SELECT UNIX_TIMESTAMP() FROM db_root",
             "SELECT UNIX_TIMESTAMP ( ) FROM db_root",
-            "SELECT UNIX_TIMESTAMP(/* now */) FROM db_root",
-            "SELECT \"UNIX_TIMESTAMP\"() FROM db_root",
-            "SELECT UNIX_TIMESTAMP(SYSDATE) FROM db_root"
-        };
-        for (String sql : rw) {
-            assertEquals(sql, SqlClassification.UNKNOWN, classifier.classify(sql));
-        }
-        String[] read = {
+            "SELECT UNIX_TIMESTAMP(SYSDATE) FROM db_root",
             "SELECT UNIX_TIMESTAMP(created_at) FROM t",
-            "select unix_timestamp(?) from db_root",
-            "SELECT \"UNIX_TIMESTAMP\"(created_at) FROM t"
+            "SELECT * FROM t WHERE reg_date > SYSDATE - 7",
+            "SELECT COUNT(*) FROM t WHERE dt < CURRENT_TIMESTAMP AND d >= CURDATE()"
         };
         for (String sql : read) {
             assertEquals(sql, SqlClassification.READ, classifier.classify(sql));
         }
     }
 
-    /** The engine evaluates a clock or USER column default on the node that runs DEFAULT(col). */
+    /** A column default that differs by node is a clock expression; USER there has no host. */
     @Test
-    public void defaultOfAColumnRunsOnRw() {
+    public void defaultOfAColumnRunsOnTheReadLeg() {
         assertEquals(
-                SqlClassification.UNKNOWN,
-                classifier.classify("SELECT DEFAULT(created_at) FROM t"));
+                SqlClassification.READ, classifier.classify("SELECT DEFAULT(created_at) FROM t"));
         assertEquals(
-                SqlClassification.UNKNOWN,
+                SqlClassification.READ,
                 classifier.classify("select a from t where b = default(b)"));
     }
 

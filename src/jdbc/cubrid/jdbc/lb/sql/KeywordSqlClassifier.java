@@ -63,8 +63,9 @@ import java.util.Set;
  *       conservatively.
  *   <li>{@code db_ha_apply_info} - each HA node writes its own rows, so a read node would answer
  *       about itself.
- *   <li>the node's clock and configuration, called ({@code NOW()}, {@code VERSION()}) or bare
- *       ({@code SYSDATE}) - a read node would answer from its own.
+ *   <li>the node's configuration, called ({@code VERSION()}) or bare ({@code DBTIMEZONE}) - a read
+ *       node would answer from its own. Its clock ({@code SYSDATE}, {@code NOW()}) is not here:
+ *       reads using the current time are distributed.
  *   <li>{@code SHOW TRACE} - it reports the last query of its own session, so it runs where that
  *       query ran: {@link SqlClassification#READ_ON_PREVIOUS_LEG}.
  * </ul>
@@ -464,8 +465,7 @@ final class KeywordSqlClassifier implements SqlClassifier {
                     } else {
                         sawUnsafe = true;
                     }
-                } else if (NODE_LOCAL_TABLES.contains(name)
-                        || isEmptyClockCallAt(name, sql, qend)) {
+                } else if (NODE_LOCAL_TABLES.contains(name)) {
                     sawUnsafe = true;
                 }
                 prevWasFor = false;
@@ -556,8 +556,7 @@ final class KeywordSqlClassifier implements SqlClassifier {
                                 sawUnsafe = true;
                             }
                         } else if (NODE_LOCAL_TABLES.contains(name)
-                                || BuiltinFunctionCatalog.isNodeKeyword(name)
-                                || isEmptyClockCallAt(name, sql, end)) {
+                                || BuiltinFunctionCatalog.isNodeKeyword(name)) {
                             sawUnsafe = true;
                         }
                         prevWasFor = false;
@@ -719,22 +718,6 @@ final class KeywordSqlClassifier implements SqlClassifier {
         }
 
         return true;
-    }
-
-    /** Whether {@code name()} with nothing between the parentheses reads the node's clock. */
-    private static boolean isEmptyClockCallAt(
-            final String name, final String sql, final int afterIdentifier) {
-        if (!BuiltinFunctionCatalog.readsNodeClockWhenCalledEmpty(name)) {
-            return false;
-        }
-
-        final int paren = skipWhitespaceAndSkippable(sql, afterIdentifier);
-        if (paren >= sql.length() || sql.charAt(paren) != '(') {
-            return false;
-        }
-        final int close = skipWhitespaceAndSkippable(sql, paren + 1);
-
-        return close < sql.length() && sql.charAt(close) == ')';
     }
 
     private static int skipWhitespaceAndSkippable(final String sql, int pos) {

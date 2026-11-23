@@ -51,7 +51,6 @@ public class SessionRoutingState {
     private boolean transactionActive = false;
     private Set<String> readPinReasons = Collections.emptySet();
     private Set<String> sessionVariables = Collections.emptySet();
-    private Set<String> preparedCallVariables = Collections.emptySet();
     private boolean lastStatementOnReadLeg = false;
 
     public boolean isAutoCommit() {
@@ -158,25 +157,8 @@ public class SessionRoutingState {
     }
 
     /**
-     * Records variables a {@code CALL} prepared with {@code prepareCall} assigns. LB does not see
-     * that statement run, so it may assign them again after a {@code DROP VARIABLE}: they are kept
-     * until the connection closes.
-     *
-     * @param upperNames upper-cased variable names
-     */
-    public void addPreparedCallVariables(final Set<String> upperNames) {
-        addSessionVariables(upperNames);
-        if (upperNames.isEmpty() || preparedCallVariables.containsAll(upperNames)) {
-            return;
-        }
-        final Set<String> merged = new HashSet<String>(preparedCallVariables);
-        merged.addAll(upperNames);
-        this.preparedCallVariables = Collections.unmodifiableSet(merged);
-    }
-
-    /**
      * Forgets variables {@code DROP VARIABLE} removed from the write leg, so reads naming them are
-     * routed as usual again, except those of a prepared {@code CALL}.
+     * routed as usual again.
      *
      * @param upperNames upper-cased variable names
      */
@@ -186,7 +168,6 @@ public class SessionRoutingState {
         }
         final Set<String> remaining = new HashSet<String>(sessionVariables);
         remaining.removeAll(upperNames);
-        remaining.addAll(preparedCallVariables);
         this.sessionVariables = Collections.unmodifiableSet(remaining);
     }
 
@@ -218,7 +199,6 @@ public class SessionRoutingState {
         this.transactionActive = false;
         this.readPinReasons = Collections.emptySet();
         this.sessionVariables = Collections.emptySet();
-        this.preparedCallVariables = Collections.emptySet();
         this.lastStatementOnReadLeg = false;
     }
 }

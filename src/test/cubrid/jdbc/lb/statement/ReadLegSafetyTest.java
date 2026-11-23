@@ -663,6 +663,26 @@ public class ReadLegSafetyTest {
         assertTrue(lastRouteEvent().contains("fallbackReason=SESSION_SET_PIN"));
     }
 
+    /**
+     * Closed, the prepared login cannot run again. Closing alone releases nothing, as LB does not
+     * know whether it ran; a login LB does see then leaves both legs with one user.
+     */
+    @Test
+    public void literalLoginReleasesThePinOfAClosedPreparedLogin() throws SQLException {
+        CallableStatement cs = conn.prepareCall("CALL login('u2', 'pw') ON CLASS db_user");
+        cs.execute();
+        Statement st = conn.createStatement();
+        st.executeQuery("SELECT 1");
+        cs.close();
+        st.executeQuery("SELECT 2");
+        st.execute("CALL login('public', '') ON CLASS db_user");
+        st.executeQuery("SELECT 3");
+
+        assertEquals(1, legs.count("rw", "SELECT 1"));
+        assertEquals(1, legs.count("rw", "SELECT 2"));
+        assertEquals(1, legs.count("ro", "SELECT 3"));
+    }
+
     @Test
     public void callPreparedWithoutLoginOrThatFailedKeepsReadsDistributed() throws SQLException {
         legs.refuseOnRw("broken", -494);
@@ -1038,6 +1058,21 @@ public class ReadLegSafetyTest {
         assertTrue(lastRouteEvent().contains("fallbackReason=SESSION_VARIABLE"));
     }
 
+    /** Closed, the CallableStatement cannot assign its variable again: DROP VARIABLE forgets it. */
+    @Test
+    public void variableOfAClosedPreparedCallIsForgottenAfterDrop() throws SQLException {
+        CallableStatement cs = conn.prepareCall("CALL next_no() INTO :no");
+        cs.execute();
+        cs.close();
+        Statement st = conn.createStatement();
+        st.executeQuery("SELECT no");
+        st.execute("DROP VARIABLE no");
+        st.executeQuery("SELECT no + 1");
+
+        assertEquals(1, legs.count("rw", "SELECT no"));
+        assertEquals(1, legs.count("ro", "SELECT no + 1"));
+    }
+
     /** DEALLOCATE VARIABLE drops @session variables, a different namespace from INTO variables. */
     @Test
     public void deallocatingSessionVariableKeepsIntoVariableTracked() throws SQLException {
@@ -1252,6 +1287,7 @@ public class ReadLegSafetyTest {
             private final String role;
             private final String prepared;
             private final List<String> batch = new ArrayList<String>();
+            private volatile boolean closed;
 
             StatementHandler(final String role, final String prepared) {
                 this.role = role;
@@ -1261,6 +1297,13 @@ public class ReadLegSafetyTest {
             public Object invoke(final Object proxy, final Method m, final Object[] args)
                     throws SQLException {
                 String name = m.getName();
+                if ("close".equals(name)) {
+                    closed = true;
+                    return null;
+                }
+                if ("isClosed".equals(name)) {
+                    return Boolean.valueOf(closed);
+                }
                 if ("addBatch".equals(name)) {
                     // Core keeps no batch row for a prepared statement without parameters.
                     if (prepared == null || prepared.indexOf('?') >= 0) {

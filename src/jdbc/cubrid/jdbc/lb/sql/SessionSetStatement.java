@@ -88,8 +88,7 @@ public final class SessionSetStatement {
      * Parameters that are session-scoped (PRM_FOR_SESSION in the engine's system_parameter.c) in
      * every version from 10.2 to develop that has them, and change what a query parses, plans or
      * returns, or how it waits. compat_numeric_division_scale is session-scoped in every release
-     * (10.2 to 11.4); develop keeps the name but reads it nowhere. max_hash_list_scan_size is
-     * server-wide in 11.0 to 11.3, so it is in no list and pins.
+     * (10.2 to 11.4); develop keeps the name but reads it nowhere.
      */
     private static final Set<String> REPLAYED_PARAMS =
             names(
@@ -133,12 +132,14 @@ public final class SessionSetStatement {
      * Parameters that change nothing a read returns: an XASL debug dump, how INSERT runs, plan
      * choice, index builds, csql and connection settings. They are not copied to the read leg -
      * several live in the CAS process and would outlast the session there - and need no pin.
+     * max_hash_list_scan_size, the memory a hash scan may use, is server-wide in 11.0 to 11.3.
      */
     private static final Set<String> IGNORED_PARAMS =
             names(
                     "xasl_debug_dump",
                     "insert_execution_mode",
                     "like_term_selectivity",
+                    "max_hash_list_scan_size",
                     "optimizer_enable_merge_join",
                     "deduplicate_key_level",
                     "csql_auto_commit",

@@ -134,14 +134,13 @@ public class SessionSetStatementTest {
         assertUntracked("CALL [login]");
     }
 
-    /** A parameter LB cannot place, or one server-wide in some released versions, pins. */
+    /** A parameter LB cannot place pins. */
     @Test
     public void unknownParameterPinsUntilClose() {
         final Set<String> unknown = only(SessionSetStatement.UNKNOWN_PIN);
         assertEquals(unknown, pins("set system parameters 'compat_mode=mysql'"));
         assertEquals(unknown, pins("set system parameters 'no_equals_sign'"));
         assertEquals(unknown, pins("set system parameters ?"));
-        assertEquals(unknown, pins("set system parameters 'max_hash_list_scan_size=8M'"));
     }
 
     /** Session-scoped in every release that reads it (10.2 to 11.4), so the read leg gets it. */
@@ -178,6 +177,8 @@ public class SessionSetStatementTest {
         assertUntracked("set system parameters 'xasl_debug_dump=yes'");
         assertUntracked("set system parameters 'insert_execution_mode=1; csql_auto_commit=no'");
         assertUntracked("set system parameters 'deduplicate_key_level=10'");
+        // Session-scoped from 11.4 only, and it sets how a hash scan runs, not what a read returns.
+        assertUntracked("set system parameters 'max_hash_list_scan_size=8M'");
         assertEquals(
                 Arrays.asList("SET SYSTEM PARAMETERS 'timezone=UTC'"),
                 replayed("set system parameters 'like_term_selectivity=0.1; timezone=UTC'"));

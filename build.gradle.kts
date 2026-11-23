@@ -98,14 +98,14 @@ val deleteStaleJars by tasks.registering(Delete::class) {
 
 // Created-By names the toolchain JDK, not the one running Gradle. The vendor is Gradle's name for it,
 // e.g. "Eclipse Temurin" where Ant wrote "Temurin".
-val buildJdk = javaToolchains.compilerFor(java.toolchain).get().metadata
+val buildJdk = javaToolchains.compilerFor(java.toolchain).map { it.metadata }
 
 // The engine packaging (CPack, build.sh -z jdbc) takes every jar in the project root, so deleteStaleJars
 // clears the other ones first, as Ant's clean did.
 tasks.withType<Jar>().configureEach {
     destinationDirectory.set(layout.projectDirectory)
     dependsOn(deleteStaleJars)
-    manifest.attributes("Created-By" to "${buildJdk.javaRuntimeVersion} (${buildJdk.vendor})")
+    manifest.attributes("Created-By" to buildJdk.map { "${it.javaRuntimeVersion} (${it.vendor})" })
 }
 
 tasks.jar {

@@ -34,10 +34,10 @@ Below You will see the brief list of sections to guide You to easily get started
 
 ### Building and testing with Gradle
 The Gradle wrapper in this repository (`gradlew`) builds and tests the driver without Ant: JDK 8 to
-21 runs it, and the driver is compiled and tested with JDK 8 (Gradle uses an installed JDK 8 or
-downloads one). The first build downloads Gradle itself. The CUBRID engine build, `build.sh` and
-`build.bat` still use Ant, and the two builds produce jars with the same classes and resources
-(only the manifest and the javadoc pages differ).
+21 runs it (Gradle 8.1.1 officially supports up to 19; 21 was tested), and the driver is compiled
+and tested with JDK 8 (Gradle uses an installed JDK 8 or downloads one). The first build downloads
+Gradle itself. The CUBRID engine build, `build.sh` and `build.bat` still use Ant, and the two builds
+produce jars with the same classes and resources (only the manifest and the javadoc pages differ).
 
 | Command | Does |
 |---|---|

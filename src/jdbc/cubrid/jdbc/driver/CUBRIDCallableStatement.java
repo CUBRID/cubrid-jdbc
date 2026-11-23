@@ -72,6 +72,14 @@ public class CUBRIDCallableStatement extends CUBRIDPreparedStatement implements 
                 Statement.NO_GENERATED_KEYS);
     }
 
+    /**
+     * For a logical callable statement that owns no {@link UStatement}; see {@link
+     * CUBRIDPreparedStatement#CUBRIDPreparedStatement(CUBRIDConnection)}.
+     */
+    protected CUBRIDCallableStatement(CUBRIDConnection c) {
+        super(c);
+    }
+
     /*
      * java.sql.CallableStatement interface
      */

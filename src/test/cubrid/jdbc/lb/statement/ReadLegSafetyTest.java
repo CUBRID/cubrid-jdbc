@@ -645,40 +645,36 @@ public class ReadLegSafetyTest {
     }
 
     /**
-     * LB does not see a CallableStatement run, so a login prepared with prepareCall keeps reads on
-     * RW from the prepare on, and a later login LB does see does not release that.
+     * LB sees a CallableStatement run. A login prepared with prepareCall changes nothing until it
+     * runs, and then is replayed on the read leg like a login run any other way.
      */
     @Test
-    public void loginPreparedAsCallKeepsReadsOnRw() throws SQLException {
+    public void loginRunAsPreparedCallIsReplayedOnTheReadLeg() throws SQLException {
         CallableStatement cs = conn.prepareCall("CALL login('u2', 'pw') ON CLASS db_user");
-        cs.execute();
         Statement st = conn.createStatement();
         st.executeQuery("SELECT 1");
-        st.execute("CALL login('public', '') ON CLASS db_user");
         cs.execute();
         st.executeQuery("SELECT 2");
 
-        assertEquals(1, legs.count("rw", "SELECT 1"));
-        assertEquals(1, legs.count("rw", "SELECT 2"));
-        assertTrue(lastRouteEvent().contains("fallbackReason=SESSION_SET_PIN"));
+        assertEquals(
+                Arrays.asList("SELECT 1", "CALL login('u2', 'pw') ON CLASS db_user", "SELECT 2"),
+                legs.log("ro"));
     }
 
-    /**
-     * Closed, the prepared login cannot run again. Closing alone releases nothing, as LB does not
-     * know whether it ran; a login LB does see then leaves both legs with one user.
-     */
+    /** With bound arguments it pins when it runs, as a PreparedStatement's does. */
     @Test
-    public void literalLoginReleasesThePinOfAClosedPreparedLogin() throws SQLException {
-        CallableStatement cs = conn.prepareCall("CALL login('u2', 'pw') ON CLASS db_user");
-        cs.execute();
+    public void boundLoginRunAsPreparedCallPinsUntilALiteralLogin() throws SQLException {
+        CallableStatement cs = conn.prepareCall("CALL login(?, ?) ON CLASS db_user");
         Statement st = conn.createStatement();
         st.executeQuery("SELECT 1");
-        cs.close();
+        cs.setString(1, "u2");
+        cs.setString(2, "pw");
+        cs.execute();
         st.executeQuery("SELECT 2");
         st.execute("CALL login('public', '') ON CLASS db_user");
         st.executeQuery("SELECT 3");
 
-        assertEquals(1, legs.count("rw", "SELECT 1"));
+        assertEquals(1, legs.count("ro", "SELECT 1"));
         assertEquals(1, legs.count("rw", "SELECT 2"));
         assertEquals(1, legs.count("ro", "SELECT 3"));
     }
@@ -1039,12 +1035,10 @@ public class ReadLegSafetyTest {
         assertEquals(1, legs.count("ro", "SELECT v + 1 FROM db_root"));
     }
 
-    /**
-     * A CallableStatement can assign its variable again after DROP VARIABLE without LB seeing it,
-     * so reads naming that variable stay on RW.
-     */
+    /** A CallableStatement that runs again after DROP VARIABLE assigns its variable again. */
     @Test
-    public void variableOfCallPreparedAsCallStaysFollowedAfterDrop() throws SQLException {
+    public void variableOfCallPreparedAsCallIsFollowedAgainWhenItRunsAfterDrop()
+            throws SQLException {
         CallableStatement cs = conn.prepareCall("CALL next_no() INTO :no");
         cs.execute();
         Statement st = conn.createStatement();
@@ -1058,17 +1052,21 @@ public class ReadLegSafetyTest {
         assertTrue(lastRouteEvent().contains("fallbackReason=SESSION_VARIABLE"));
     }
 
-    /** Closed, the CallableStatement cannot assign its variable again: DROP VARIABLE forgets it. */
+    /**
+     * The variable of a prepared CALL exists once it has run, and DROP VARIABLE forgets it whether
+     * or not the CallableStatement is still open.
+     */
     @Test
-    public void variableOfAClosedPreparedCallIsForgottenAfterDrop() throws SQLException {
+    public void variableOfAPreparedCallIsFollowedFromItsRunToItsDrop() throws SQLException {
         CallableStatement cs = conn.prepareCall("CALL next_no() INTO :no");
-        cs.execute();
-        cs.close();
         Statement st = conn.createStatement();
+        st.executeQuery("SELECT no - 1");
+        cs.execute();
         st.executeQuery("SELECT no");
         st.execute("DROP VARIABLE no");
         st.executeQuery("SELECT no + 1");
 
+        assertEquals(1, legs.count("ro", "SELECT no - 1"));
         assertEquals(1, legs.count("rw", "SELECT no"));
         assertEquals(1, legs.count("ro", "SELECT no + 1"));
     }

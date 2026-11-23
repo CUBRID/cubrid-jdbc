@@ -259,9 +259,9 @@ public interface EndpointConnManager extends PhysicalResourceReleaser {
 
     /**
      * Whether the server's last reply on the bound write connection said a transaction is open
-     * there. CUBRID reports it in every reply, so it also covers work LB never saw - a {@code CALL}
-     * on a handed-out CallableStatement, an updatable result set, an OID write. Answers {@code
-     * true} when it cannot be read: guessing "closed" would let failover drop uncommitted work.
+     * there. CUBRID reports it in every reply, so it also covers work LB never saw - an updatable
+     * result set's write, an OID write. Answers {@code true} when it cannot be read: guessing
+     * "closed" would let failover drop uncommitted work.
      *
      * @return whether uncommitted work may exist on the write connection
      */

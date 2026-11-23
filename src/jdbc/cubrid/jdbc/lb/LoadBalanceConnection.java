@@ -76,6 +76,7 @@ import cubrid.jdbc.lb.state.RecoveryBackoffRegistry;
 import cubrid.jdbc.lb.state.SessionRoutingState;
 import cubrid.jdbc.lb.state.SharedSelectorState;
 import cubrid.jdbc.lb.state.SharedSelectorStateRegistry;
+import cubrid.jdbc.lb.statement.LBCallableStatement;
 import cubrid.jdbc.lb.statement.LBPreparedStatement;
 import cubrid.jdbc.lb.statement.LBStatement;
 import java.io.UnsupportedEncodingException;
@@ -101,11 +102,9 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -152,11 +151,11 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      */
     private final List<CUBRIDOutResultSet> openOutResultSets = new ArrayList<CUBRIDOutResultSet>();
 
-    // CallableStatements handed out unwrapped, with the leg each was prepared on and its SQL. An RW
-    // failback closes that leg and them with it, so it waits until they are closed
-    // (hasOpenCallOn); an open one may run again unseen, so what it changes is not undone.
-    private final Map<CallableStatement, HandedOutCall> openCalls =
-            new IdentityHashMap<CallableStatement, HandedOutCall>();
+    // The physical CallableStatements behind the ones handed out, with the leg each was prepared
+    // on. An RW failback closes that leg and them with it, so it waits until they are closed
+    // (hasOpenCallOn).
+    private final Map<CallableStatement, Connection> openCalls =
+            new IdentityHashMap<CallableStatement, Connection>();
 
     private final long connectionId = CONNECTION_SEQUENCE.getAndIncrement();
     private final RoutingMetricsRecorder routingMetrics;
@@ -247,11 +246,6 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     private static final int ER_ES_FILE_NOT_FOUND = -1020;
     /** CUBRID ER_TP_CANT_COERCE: how reading a LOB column's content fails on a read node. */
     private static final int ER_TP_CANT_COERCE = -181;
-    /**
-     * Read pin of a session change a prepared {@code CALL} may make, with the setting's name after
-     * it; see {@link #withClosedCallPins}.
-     */
-    private static final String PREPARED_CALL_PIN = "PREPARED_CALL";
 
     private ExecuteFailoverHandler executeFailoverHandler = new ExecuteFailoverHandler();
     // True when this connection's RuntimeMetrics was registered for export; drives unregister
@@ -2198,133 +2192,47 @@ public class LoadBalanceConnection extends CUBRIDConnection {
 
     /* ===== Connection: unsupported deferred API =====*/
     /**
-     * A {@code CALL} runs on the write endpoint, and LB does not wrap the statement it returns: the
-     * physical {@code CallableStatement} is handed out as is, so the OUT-parameter API and the
-     * vendor casts on it keep working.
+     * A {@code CALL} runs on the write endpoint. The statement returned wraps the physical one of
+     * that leg and passes every call to it, so the OUT-parameter API is core's and the vendor casts
+     * keep working (see {@link LBCallableStatement}).
      *
-     * <p>What is fixed up is the owner it reports. Left alone, {@code cs.getConnection()} is the
-     * physical leg, and an application walking back through it could commit or close that leg while
-     * the session knows nothing. The statement is stamped to report this session instead.
-     *
-     * <p>Execution still happens outside {@link ExecuteFailoverHandler}, because it happens on the
-     * returned object; only the prepare is covered. That is deliberate: a stored procedure is not
-     * idempotent, so LB must not replay a {@code CALL} it saw fail.
+     * <p>Its runs go through the execute path, so LB sees what a {@code CALL} changes in the
+     * session. A run that failed is not run again: a stored procedure is not idempotent.
      */
     public CallableStatement prepareCall(final String sql) throws SQLException {
         checkClosed();
 
-        return reportSelfAsOwner(
-                runRwCommand(
-                        "prepareCall",
-                        new SqlExecution<CallableStatement>() {
-                            public CallableStatement run() throws SQLException {
-                                final Connection rw = getPhysicalConnForCmd(SessionLeg.RW);
-                                return afterCallPrepared(
-                                        sql, trackCall(sql, rw.prepareCall(sql), rw));
-                            }
-                        }));
-    }
-
-    /** A CallableStatement handed out unwrapped: the leg it lives on and what it runs. */
-    private static final class HandedOutCall {
-        final Connection leg;
-        final String sql;
-
-        HandedOutCall(final Connection leg, final String sql) {
-            this.leg = leg;
-            this.sql = sql;
-        }
-    }
-
-    /** Remembers a CallableStatement handed out and its leg, forgetting closed ones. */
-    private CallableStatement trackCall(
-            final String sql, final CallableStatement call, final Connection leg) {
-        synchronized (openCalls) {
-            forgetClosedCalls();
-            openCalls.put(call, new HandedOutCall(leg, sql));
-        }
-
-        return call;
+        return runRwCommand(
+                "prepareCall",
+                new SqlExecution<CallableStatement>() {
+                    public CallableStatement run() throws SQLException {
+                        final Connection rw = getPhysicalConnForCmd(SessionLeg.RW);
+                        return wrapCall(sql, rw.prepareCall(sql), rw);
+                    }
+                });
     }
 
     /**
-     * LB does not see a CallableStatement run, so what its {@code CALL} changes in the session is
-     * assumed once it is prepared: a login keeps reads on RW, and reads naming the variables it
-     * assigns follow them there. While it is open it may run again, so neither is undone; once it
-     * is closed, the statement that undoes the same change of a statement LB sees undoes this.
+     * The statement the application gets for a physical CallableStatement, which is remembered with
+     * its leg (closed ones are forgotten) and reports this session as its owner.
      */
-    private CallableStatement afterCallPrepared(final String sql, final CallableStatement call) {
-        sessionState.addSessionVariables(IntoVariables.assignedBy(sql));
-        pinReads(
-                sql,
-                callPins(sql),
-                "a CALL prepared with prepareCall changes the session, and LB does not see it run");
-        return call;
-    }
-
-    /** The read pins a prepared CALL holds: one for each setting it may change. */
-    private static Set<String> callPins(final String sql) {
-        final SessionSetStatement set = SessionSetStatement.parse(sql);
-        if (!set.changesSession()) {
-            return Collections.emptySet();
-        }
-        final Set<String> pins = new LinkedHashSet<String>();
-        for (String setting : set.getReplay().keySet()) {
-            pins.add(callPin(setting));
-        }
-        for (String setting : set.getPins()) {
-            pins.add(callPin(setting));
-        }
-        // A change with no setting a later statement could set again is never undone.
-        return pins.isEmpty() ? Collections.singleton(PREPARED_CALL_PIN) : pins;
-    }
-
-    private static String callPin(final String setting) {
-        return PREPARED_CALL_PIN + ":" + setting;
-    }
-
-    /**
-     * {@code settings}, and the pins prepared CALLs held on them unless one that may change the
-     * setting is still open: with all of those closed, undoing the setting undoes what they did.
-     */
-    private Collection<String> withClosedCallPins(final Collection<String> settings) {
-        final Set<String> open = new HashSet<String>();
+    private CallableStatement wrapCall(
+            final String sql, final CallableStatement call, final Connection leg)
+            throws SQLException {
         synchronized (openCalls) {
             forgetClosedCalls();
-            for (HandedOutCall each : openCalls.values()) {
-                open.addAll(callPins(each.sql));
-            }
+            openCalls.put(call, leg);
         }
-        final Set<String> all = new LinkedHashSet<String>(settings);
-        for (String setting : settings) {
-            if (!open.contains(callPin(setting))) {
-                all.add(callPin(setting));
-            }
-        }
-        return all;
-    }
 
-    /** {@code dropped} less the variables an open CallableStatement may assign again, unseen. */
-    private Set<String> withoutOpenCallVariables(final Set<String> dropped) {
-        if (dropped.isEmpty()) {
-            return dropped;
-        }
-        final Set<String> gone = new HashSet<String>(dropped);
-        synchronized (openCalls) {
-            forgetClosedCalls();
-            for (HandedOutCall each : openCalls.values()) {
-                gone.removeAll(IntoVariables.assignedBy(each.sql));
-            }
-        }
-        return gone;
+        return new LBCallableStatement(this, sql, reportSelfAsOwner(call));
     }
 
     /** Whether a CallableStatement the application has not closed lives on {@code physical}. */
     private boolean hasOpenCallOn(final Connection physical) {
         synchronized (openCalls) {
             forgetClosedCalls();
-            for (HandedOutCall each : openCalls.values()) {
-                if (each.leg == physical) {
+            for (Connection leg : openCalls.values()) {
+                if (leg == physical) {
                     return true;
                 }
             }
@@ -2346,10 +2254,11 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     /**
-     * Name this session as the owner of a physical statement handed out unwrapped, so {@code
-     * getConnection()} on it cannot be used to change one leg behind the session's back.
+     * Name this session as the owner of a physical statement whose result sets reach the
+     * application, so {@code getConnection()} on it cannot be used to change one leg behind the
+     * session's back.
      *
-     * @param statement the physical statement about to cross to the application
+     * @param statement the physical statement
      * @param <T> the statement type
      * @return the same statement, for use in a return statement
      */
@@ -2366,21 +2275,15 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             throws SQLException {
         checkClosed();
 
-        return reportSelfAsOwner(
-                runRwCommand(
-                        "prepareCall(resultSetType,resultSetConcurrency)",
-                        new SqlExecution<CallableStatement>() {
-                            public CallableStatement run() throws SQLException {
-                                final Connection rw = getPhysicalConnForCmd(SessionLeg.RW);
-                                return afterCallPrepared(
-                                        sql,
-                                        trackCall(
-                                                sql,
-                                                rw.prepareCall(
-                                                        sql, resultSetType, resultSetConcurrency),
-                                                rw));
-                            }
-                        }));
+        return runRwCommand(
+                "prepareCall(resultSetType,resultSetConcurrency)",
+                new SqlExecution<CallableStatement>() {
+                    public CallableStatement run() throws SQLException {
+                        final Connection rw = getPhysicalConnForCmd(SessionLeg.RW);
+                        return wrapCall(
+                                sql, rw.prepareCall(sql, resultSetType, resultSetConcurrency), rw);
+                    }
+                });
     }
 
     public CallableStatement prepareCall(
@@ -2391,24 +2294,21 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             throws SQLException {
         checkClosed();
 
-        return reportSelfAsOwner(
-                runRwCommand(
-                        "prepareCall(resultSetType,resultSetConcurrency,resultSetHoldability)",
-                        new SqlExecution<CallableStatement>() {
-                            public CallableStatement run() throws SQLException {
-                                final Connection rw = getPhysicalConnForCmd(SessionLeg.RW);
-                                return afterCallPrepared(
+        return runRwCommand(
+                "prepareCall(resultSetType,resultSetConcurrency,resultSetHoldability)",
+                new SqlExecution<CallableStatement>() {
+                    public CallableStatement run() throws SQLException {
+                        final Connection rw = getPhysicalConnForCmd(SessionLeg.RW);
+                        return wrapCall(
+                                sql,
+                                rw.prepareCall(
                                         sql,
-                                        trackCall(
-                                                sql,
-                                                rw.prepareCall(
-                                                        sql,
-                                                        resultSetType,
-                                                        resultSetConcurrency,
-                                                        resultSetHoldability),
-                                                rw));
-                            }
-                        }));
+                                        resultSetType,
+                                        resultSetConcurrency,
+                                        resultSetHoldability),
+                                rw);
+                    }
+                });
     }
 
     public Savepoint setSavepoint() throws SQLException {
@@ -3321,8 +3221,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         sessionState.setLastStatementOnReadLeg(ranOn == RouteTarget.TO_READ_ONLY);
         if (ranOn == RouteTarget.TO_READ_WRITE) {
             sessionState.addSessionVariables(IntoVariables.assignedBy(sql));
-            sessionState.removeSessionVariables(
-                    withoutOpenCallVariables(IntoVariables.droppedBy(sql)));
+            sessionState.removeSessionVariables(IntoVariables.droppedBy(sql));
         }
         final SessionSetStatement set = SessionSetStatement.parse(sql);
         if (!set.changesSession()) {
@@ -3430,8 +3329,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     private void unpinReads(final Collection<String> reasons, final String cause) {
-        if (!sessionState.isReadsPinnedToRw()
-                || !sessionState.unpinReads(withClosedCallPins(reasons))) {
+        if (!sessionState.unpinReads(reasons)) {
             return;
         }
         LbLog.info(

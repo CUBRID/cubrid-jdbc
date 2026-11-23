@@ -1236,8 +1236,8 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     }
 
     /**
-     * Meaningless here, so refused. The redirect exists for the physical statements LB hands out
-     * unwrapped; a logical statement already reports the logical connection from {@code
+     * Meaningless here, so refused. The redirect exists for a physical statement whose result sets
+     * reach the application; a logical statement already reports the logical connection from {@code
      * getConnection()}. Accepting it would let a caller make this statement claim an owner it does
      * not have. {@code CUBRIDStatement} declares it without a {@code throws} clause, so the refusal
      * is unchecked.

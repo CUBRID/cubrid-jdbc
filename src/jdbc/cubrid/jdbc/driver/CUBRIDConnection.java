@@ -677,7 +677,8 @@ public class CUBRIDConnection implements Connection {
         }
 
         checkIsOpen();
-        if (auto_commit) rollback();
+        /* With a stream open the CAS refused this statement; a rollback would drop the stream. */
+        if (auto_commit && !u_con.isStreamOpen()) rollback();
     }
 
     /**

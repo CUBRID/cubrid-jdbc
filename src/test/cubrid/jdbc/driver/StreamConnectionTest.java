@@ -64,14 +64,33 @@ public final class StreamConnectionTest {
         assertEquals(1, socket.commits());
     }
 
+    /**
+     * A statement refused with -1220 while a stream is open did nothing; rolling back would drop
+     * the stream the application is still feeding.
+     */
+    @Test
+    public void autoRollbackWaitsWhileAStreamIsOpen() throws Exception {
+        StreamSocket socket = new StreamSocket(UConnection.PROTOCOL_V13, STREAM_OPEN);
+        CUBRIDConnection conn = new CUBRIDConnection(socket, "jdbc:cubrid:stream", "dba");
+
+        conn.autoRollback();
+        assertEquals(0, socket.rollbacks());
+
+        socket.report(0);
+        conn.autoRollback();
+        assertEquals(1, socket.rollbacks());
+    }
+
     /** A release CAS (PROTOCOL_V12) sends the stream bit as 1 in every reply. */
     @Test
-    public void autoCommitCommitsOnAnOlderCas() throws Exception {
+    public void autoCommitAndRollbackRunOnAnOlderCas() throws Exception {
         StreamSocket socket = new StreamSocket(UConnection.PROTOCOL_V12, 0xFF);
         CUBRIDConnection conn = new CUBRIDConnection(socket, "jdbc:cubrid:stream", "dba");
 
         conn.autoCommit();
         assertEquals(1, socket.commits());
+        conn.autoRollback();
+        assertEquals(1, socket.rollbacks());
     }
 
     /** The CAS refuses a second open while an upload is open, and leaves the upload as it was. */

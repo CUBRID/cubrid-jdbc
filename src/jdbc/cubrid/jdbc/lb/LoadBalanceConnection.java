@@ -1603,6 +1603,8 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             final LBPreparedStatement.PhysicalPsProvider provider)
             throws SQLException {
         ps.setPsProvider(provider);
+        // Before the prepare, which opens a transaction that would hold it.
+        failbackRwIfStatementAllows();
         if (!cacheable(sql)) {
             ps.prepareEagerly();
             trackStatement(ps);

@@ -1071,6 +1071,39 @@ public class ReadLegSafetyTest {
         assertEquals(1, legs.count("ro", "SELECT no + 1"));
     }
 
+    /**
+     * Core runs the Statement forms that take SQL on a PreparedStatement, and applications written
+     * for it call them. LB runs that SQL as a statement of its own, routed as any other, and keeps
+     * the prepared statement.
+     */
+    @Test
+    public void sqlGivenToAPreparedStatementRunsAsAStatement() throws SQLException {
+        PreparedStatement ps = conn.prepareStatement("SELECT a FROM t WHERE a = ?");
+        ps.setInt(1, 1);
+
+        assertNotNull(ps.executeQuery("SELECT b FROM t"));
+        ps.executeUpdate("UPDATE t SET a = 1");
+        assertTrue(ps.execute("SELECT c FROM t"));
+        ps.executeQuery();
+
+        assertEquals(
+                Arrays.asList("SELECT b FROM t", "SELECT c FROM t", "SELECT a FROM t WHERE a = ?"),
+                legs.log("ro"));
+        assertEquals(1, legs.count("rw", "UPDATE t SET a = 1"));
+    }
+
+    /** As on a PreparedStatement; a SET given this way reaches the read leg like any other. */
+    @Test
+    public void sqlGivenToACallableStatementRunsAsAStatement() throws SQLException {
+        CallableStatement cs = conn.prepareCall("CALL p()");
+
+        cs.execute("SET TIMEZONE '+03:00'");
+        assertNotNull(cs.executeQuery("SELECT b FROM t"));
+
+        assertEquals(Arrays.asList("SET TIMEZONE '+03:00'"), legs.log("rw"));
+        assertEquals(Arrays.asList("SET TIMEZONE '+03:00'", "SELECT b FROM t"), legs.log("ro"));
+    }
+
     /** DEALLOCATE VARIABLE drops @session variables, a different namespace from INTO variables. */
     @Test
     public void deallocatingSessionVariableKeepsIntoVariableTracked() throws SQLException {

@@ -782,6 +782,8 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
                                         + LbLog.cause(ex));
                     } else {
                         unreachFilter.markUnreachable(ep, ex);
+                        unreachFilter.healthCheckConnectsAs(
+                                config.buildPhysicalJdbcSpec(clientInfo, ep));
                         backoff.startWindow(ep.getId(), System.nanoTime());
                         // Surface WHY this candidate was skipped (otherwise swallowed unless all
                         // fail), so a fallback onto a non-master RW is traceable to its root

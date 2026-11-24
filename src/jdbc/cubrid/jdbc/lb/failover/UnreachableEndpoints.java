@@ -30,9 +30,11 @@
 
 package cubrid.jdbc.lb.failover;
 
+import cubrid.jdbc.driver.ConnectionProperties;
 import cubrid.jdbc.jci.UErrorCode;
 import cubrid.jdbc.jci.UUnreachableHostList;
 import cubrid.jdbc.lb.config.Endpoint;
+import cubrid.jdbc.lb.config.JdbcPhyConnSpec;
 import cubrid.jdbc.lb.log.LbLog;
 import cubrid.jdbc.lb.log.LbLogDedup;
 import java.io.IOException;
@@ -227,6 +229,29 @@ public final class UnreachableEndpoints {
                             + " entered the unreachable set -- candidate selection"
                             + " will skip it until it is probed back | cause: "
                             + LbLog.cause(cause));
+        }
+    }
+
+    /**
+     * Tells core's health check, which takes a host off the list once it answers, how the legs of
+     * the session that listed one connect. Core tells it at its altHosts reconnect, which a leg
+     * never takes; untold it connects in plain, and a TLS-only broker that is back refuses that
+     * every time. The check is JVM-wide and keeps what it was told last, as with core.
+     *
+     * @param leg the connection spec of the leg whose connect failed
+     */
+    public void healthCheckConnectsAs(final JdbcPhyConnSpec leg) {
+        try {
+            final ConnectionProperties properties = new ConnectionProperties();
+            final String url = leg.getJdbcUrl();
+            final int options = url.indexOf('?');
+            if (options >= 0) {
+                properties.setProperties(url.substring(options));
+            }
+            properties.setProperties(leg.getConnectionProperties());
+            unreachableHostList.setSslConfig(properties.getSslMode(), properties.getTrustStore());
+        } catch (SQLException unreadable) {
+            // Settings no leg connects with: the connect reports them. The check stays as it was.
         }
     }
 

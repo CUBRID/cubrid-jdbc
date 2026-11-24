@@ -998,7 +998,8 @@ public class CUBRIDConnection implements Connection {
      * Shared client->server byte-stream transport. A stream is opened either by a statement
      * (COPY <table> FROM STDIN) or, inside the driver, by streamInit() for a kind the driver opens
      * itself. Send the payload with streamData(), then streamEnd() to finish; streamEnd() returns
-     * the 64-bit value the kind defines (the rows loaded, for COPY).
+     * the 64-bit value the kind defines (the rows loaded for COPY, an upload token for
+     * internal-LOB).
      */
     synchronized int streamInit(int streamKind, byte[] config) throws SQLException {
         checkIsOpen();

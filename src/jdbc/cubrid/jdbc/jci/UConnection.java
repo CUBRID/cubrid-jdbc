@@ -110,8 +110,8 @@ public abstract class UConnection {
     public static final int PROTOCOL_V11 = 11;
     public static final int PROTOCOL_V12 = 12;
     /* CAS-issued session id required (not just optionally checked) for QC/X1 query cancel,
-     * see KVE-2026-1827 and engine ticket CBRD-27389, and the client->server byte-stream
-     * transport (UFunctionCode.STREAM_*). Mirrors src/broker/cas_protocol.h's
+     * see KVE-2026-1827 and engine ticket CBRD-27389, and the byte-stream transport, uploads and
+     * downloads (UFunctionCode.STREAM_*). Mirrors src/broker/cas_protocol.h's
      * PROTOCOL_V13 (engine) and src/cci/broker_cas_protocol.h's PROTOCOL_V13 (CCI). */
     public static final int PROTOCOL_V13 = 13;
 
@@ -1226,9 +1226,8 @@ public abstract class UConnection {
             UInputBuffer inBuffer;
             inBuffer = send_recv_msg();
 
-            /* The reply is the result code every CAS reply starts with, then
-             * a 64-bit count whose meaning the stream's kind defines: rows
-             * for COPY and LOB DML. */
+            /* The result code, then the 64-bit value the kind defines: the rows loaded for COPY,
+             * the upload token for internal-LOB (kind 1). */
             int res_code;
             res_code = inBuffer.getResCode();
             if (res_code < 0) {

@@ -187,6 +187,41 @@ public final class LoadBalanceConnectionCastTest {
     }
 
     @Test
+    public void copyStreamIsRefusedWithANamedError() throws Exception {
+        LoadBalanceConnection conn = boundEx();
+        byte[] chunk = new byte[] {'1', '\n'};
+
+        for (int api = 0; api < 4; api++) {
+            String name = null;
+            try {
+                switch (api) {
+                    case 0:
+                        name = "getCopyLoader()";
+                        conn.getCopyLoader();
+                        break;
+                    case 1:
+                        name = "streamData(byte[])";
+                        conn.streamData(chunk);
+                        break;
+                    case 2:
+                        name = "streamData(byte[], int, int)";
+                        conn.streamData(chunk, 0, chunk.length);
+                        break;
+                    default:
+                        name = "streamEnd()";
+                        conn.streamEnd();
+                        break;
+                }
+                fail(name + " must be refused, not run against the null inherited socket");
+            } catch (SQLException expected) {
+                assertTrue(
+                        "the message must name the refused API: " + expected.getMessage(),
+                        expected.getMessage().contains(name));
+            }
+        }
+    }
+
+    @Test
     public void isShardDoesNotReachTheNullInheritedSocket() throws Exception {
         LoadBalanceConnection conn = boundEx();
         try {
@@ -248,7 +283,8 @@ public final class LoadBalanceConnectionCastTest {
      * {@code cubrid.jdbc.driver} still dispatches to {@code CUBRIDConnection}'s body and its null
      * {@code u_con}. They are safe only because nothing hands this object to code that calls them:
      * {@code CUBRIDStatement} and {@code CUBRIDResultSet} call them on the physical connection that
-     * created them.
+     * created them. {@code streamAbort()} is called only by the {@code CUBRIDCopyLoader} of the
+     * connection that made it, and this object refuses {@code getCopyLoader()}.
      *
      * <p>The one way to break that is {@code CUBRIDOIDImpl.getNewInstance(CUBRIDConnection,
      * String)}, which an application can call with this object; the OID then passes it to {@code
@@ -280,7 +316,7 @@ public final class LoadBalanceConnectionCastTest {
                         + " createCUBRIDException(int, String, Throwable),"
                         + " createCUBRIDException(int, Throwable), isSavepointTopologySupported(),"
                         + " isSchemaSupported(), prepare(String, byte),"
-                        + " removeStatement(Statement)]",
+                        + " removeStatement(Statement), streamAbort()]",
                 packagePrivate.toString());
     }
 

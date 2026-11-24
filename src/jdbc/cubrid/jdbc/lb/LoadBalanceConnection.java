@@ -32,6 +32,7 @@ package cubrid.jdbc.lb;
 
 import cubrid.jdbc.driver.CUBRIDConnection;
 import cubrid.jdbc.driver.CUBRIDConnectionKey;
+import cubrid.jdbc.driver.CUBRIDCopyLoader;
 import cubrid.jdbc.driver.CUBRIDDriver;
 import cubrid.jdbc.driver.CUBRIDOutResultSet;
 import cubrid.jdbc.driver.CUBRIDShardMetaData;
@@ -2583,6 +2584,32 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     @Override
     public CUBRIDShardMetaData getShardMetaData() throws SQLException {
         throw LbExceptions.notSupportedApi("getShardMetaData()");
+    }
+
+    /**
+     * The upload stream of {@code COPY ... FROM STDIN}, refused. A stream lives on the one physical
+     * connection that ran the statement, and a {@link CUBRIDCopyLoader} would run that statement on
+     * the write leg directly, past this session's record of an open write transaction. COPY runs on
+     * a connection opened without load balancing.
+     */
+    @Override
+    public CUBRIDCopyLoader getCopyLoader() throws SQLException {
+        throw LbExceptions.copyStreamNotSupported("getCopyLoader()");
+    }
+
+    @Override
+    public int streamData(byte[] data) throws SQLException {
+        throw LbExceptions.copyStreamNotSupported("streamData(byte[])");
+    }
+
+    @Override
+    public int streamData(byte[] data, int start, int len) throws SQLException {
+        throw LbExceptions.copyStreamNotSupported("streamData(byte[], int, int)");
+    }
+
+    @Override
+    public long streamEnd() throws SQLException {
+        throw LbExceptions.copyStreamNotSupported("streamEnd()");
     }
 
     /**

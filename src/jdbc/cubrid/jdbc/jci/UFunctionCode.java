@@ -98,7 +98,11 @@ public enum UFunctionCode {
     /* shared client->server byte-stream transport (COPY, internal-LOB, ...) */
     STREAM_SEND_DATA(45),
     STREAM_END(46),
+    STREAM_INIT(47),
     STREAM_ABORT(48),
+    STREAM_READ_OPEN(49),
+    STREAM_READ(50),
+    STREAM_RELEASE(51),
 
     LAST_FUNCTION_CODE(GET_SHARD_INFO);
 

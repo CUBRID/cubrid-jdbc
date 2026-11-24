@@ -32,7 +32,6 @@ package cubrid.jdbc.lb;
 
 import cubrid.jdbc.driver.CUBRIDConnection;
 import cubrid.jdbc.driver.CUBRIDConnectionKey;
-import cubrid.jdbc.driver.CUBRIDCopyLoader;
 import cubrid.jdbc.driver.CUBRIDDriver;
 import cubrid.jdbc.driver.CUBRIDOutResultSet;
 import cubrid.jdbc.driver.CUBRIDShardMetaData;
@@ -2587,29 +2586,33 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     /**
-     * The upload stream of {@code COPY ... FROM STDIN}, refused. A stream lives on the one physical
-     * connection that ran the statement, and a {@link CUBRIDCopyLoader} would run that statement on
-     * the write leg directly, past this session's record of an open write transaction. COPY runs on
-     * a connection opened without load balancing.
+     * The byte-stream calls, refused. A stream lives on the one physical connection that opened it,
+     * and the work it does would pass this session's record of an open write transaction. A stream
+     * runs on a connection opened without load balancing.
      */
     @Override
-    public CUBRIDCopyLoader getCopyLoader() throws SQLException {
-        throw LbExceptions.copyStreamNotSupported("getCopyLoader()");
+    public int streamInit(int streamKind, byte[] config) throws SQLException {
+        throw LbExceptions.streamNotSupported("streamInit(int, byte[])");
     }
 
     @Override
     public int streamData(byte[] data) throws SQLException {
-        throw LbExceptions.copyStreamNotSupported("streamData(byte[])");
+        throw LbExceptions.streamNotSupported("streamData(byte[])");
     }
 
     @Override
     public int streamData(byte[] data, int start, int len) throws SQLException {
-        throw LbExceptions.copyStreamNotSupported("streamData(byte[], int, int)");
+        throw LbExceptions.streamNotSupported("streamData(byte[], int, int)");
     }
 
     @Override
     public long streamEnd() throws SQLException {
-        throw LbExceptions.copyStreamNotSupported("streamEnd()");
+        throw LbExceptions.streamNotSupported("streamEnd()");
+    }
+
+    @Override
+    public int streamAbort() throws SQLException {
+        throw LbExceptions.streamNotSupported("streamAbort()");
     }
 
     /**

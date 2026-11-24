@@ -78,7 +78,6 @@ public class CUBRIDConnection implements Connection {
     public static final int CAS_CHANGE_MODE_KEEP = 2;
 
     UConnection u_con;
-    protected CUBRIDCopyLoader copy_loader;
     String user;
     String url;
 
@@ -118,7 +117,6 @@ public class CUBRIDConnection implements Connection {
         statements = new ArrayList<Statement>();
         outRs = new ArrayList<CUBRIDOutResultSet>();
         shard_mdata = null;
-        copy_loader = null;
         prepStmtCache =
                 new UPreparedStatementCache<String, PreparedStatement>(
                         u_con.getPrepStmtCacheSize());
@@ -288,7 +286,6 @@ public class CUBRIDConnection implements Connection {
         statements = null;
         error = null;
         shard_mdata = null;
-        copy_loader = null;
     }
 
     public synchronized boolean isClosed() throws SQLException {
@@ -997,10 +994,30 @@ public class CUBRIDConnection implements Connection {
     }
 
     /*
-     * Shared client->server byte-stream transport. Used after executing
-     * COPY <table> FROM STDIN: send the encoded payload with streamData(),
-     * then streamEnd() to finish; streamEnd() returns the number of rows loaded.
+     * Shared client->server byte-stream transport. A stream is opened either by a statement
+     * (COPY <table> FROM STDIN) or by streamInit() for a kind the driver opens itself. Send the
+     * payload with streamData(), then streamEnd() to finish; streamEnd() returns the 64-bit value
+     * the kind defines (the rows loaded, for COPY).
      */
+    public synchronized int streamInit(int streamKind, byte[] config) throws SQLException {
+        checkIsOpen();
+        int result;
+
+        synchronized (u_con) {
+            result = u_con.streamInit(streamKind, config);
+            error = u_con.getRecentError();
+        }
+
+        switch (error.getErrorCode()) {
+            case UErrorCode.ER_NO_ERROR:
+                break;
+            default:
+                throw createCUBRIDException(error);
+        }
+
+        return result;
+    }
+
     public synchronized int streamData(byte[] data) throws SQLException {
         return streamData(data, 0, data.length);
     }
@@ -1022,21 +1039,6 @@ public class CUBRIDConnection implements Connection {
         }
 
         return result;
-    }
-
-    /**
-     * Returns the loader for COPY ... FROM STDIN, which runs the statement, chunks the source and
-     * ends the stream in one call.
-     */
-    public synchronized CUBRIDCopyLoader getCopyLoader() throws SQLException {
-        checkIsOpen();
-
-        if (copy_loader != null) {
-            return copy_loader;
-        }
-
-        copy_loader = new CUBRIDCopyLoader(this);
-        return copy_loader;
     }
 
     public synchronized long streamEnd() throws SQLException {
@@ -1065,11 +1067,12 @@ public class CUBRIDConnection implements Connection {
      * same transaction stays. The auto-commit the opening statement deferred
      * is paid back by the CAS as a rollback.
      */
-    synchronized void streamAbort() throws SQLException {
+    public synchronized int streamAbort() throws SQLException {
         checkIsOpen();
+        int result;
 
         synchronized (u_con) {
-            u_con.streamAbort();
+            result = u_con.streamAbort();
             error = u_con.getRecentError();
         }
 
@@ -1079,6 +1082,8 @@ public class CUBRIDConnection implements Connection {
             default:
                 throw createCUBRIDException(error);
         }
+
+        return result;
     }
 
     public synchronized int getShardId() {

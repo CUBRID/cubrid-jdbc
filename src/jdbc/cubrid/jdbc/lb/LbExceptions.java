@@ -90,19 +90,19 @@ public final class LbExceptions {
     }
 
     /**
-     * The upload stream of {@code COPY ... FROM STDIN}, which the LB connection does not serve. The
-     * stream lives on the one physical connection that ran the statement, and this session's
-     * transaction bookkeeping would not see the rows it loads.
+     * A call of the byte-stream protocol, which the LB connection does not serve. A stream lives on
+     * the one physical connection that opened it, and this session's transaction bookkeeping would
+     * not see the work it does.
      *
-     * @param api the refused API, e.g. {@code "getCopyLoader()"}
+     * @param api the refused API, e.g. {@code "streamInit(int, byte[])"}
      * @return the exception to throw
      */
-    public static CUBRIDException copyStreamNotSupported(final String api) {
+    public static CUBRIDException streamNotSupported(final String api) {
         return withCoreDetail(
                 CUBRIDJDBCErrorCode.not_supported,
                 api
-                        + " - COPY FROM STDIN is not served by the LB connection; use a connection"
-                        + " opened without load balancing",
+                        + " - the byte-stream calls are not served by the LB connection; use a"
+                        + " connection opened without load balancing",
                 null);
     }
 

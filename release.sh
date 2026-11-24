@@ -5,7 +5,11 @@
 
 # Release script for CUBRID JDBC Driver
 # Builds this commit with Gradle and uploads it to the Central Portal, where the deployment waits
-# for Publish or Drop. The Portal token and the signing key come from ~/.gradle/gradle.properties.
+# for Publish or Drop. It reads these Gradle properties from ~/.gradle/gradle.properties:
+#   sonatypeUsername, sonatypePassword                the Central Portal user token
+#   signing.gnupg.keyName, signing.gnupg.passphrase   the key the local gpg signs with
+# To sign without gpg, give signingKey and signingPassword (an ASCII-armored secret key and its
+# passphrase) instead, for example as ORG_GRADLE_PROJECT_signingKey in the environment.
 
 set -e
 cd "$(dirname "$0")"

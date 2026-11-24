@@ -187,6 +187,20 @@ public final class LoadBalanceConnectionCastTest {
     }
 
     @Test
+    public void copyLoaderIsRefusedWithANamedError() throws Exception {
+        LoadBalanceConnection conn = boundEx();
+
+        try {
+            conn.getCopyLoader();
+            fail("getCopyLoader() must be refused, not run against the null inherited socket");
+        } catch (SQLException expected) {
+            assertTrue(
+                    "the message must name the refused API: " + expected.getMessage(),
+                    expected.getMessage().contains("getCopyLoader()"));
+        }
+    }
+
+    @Test
     public void isShardDoesNotReachTheNullInheritedSocket() throws Exception {
         LoadBalanceConnection conn = boundEx();
         try {

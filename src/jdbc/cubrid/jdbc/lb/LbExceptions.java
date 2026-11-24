@@ -90,6 +90,23 @@ public final class LbExceptions {
     }
 
     /**
+     * The COPY loader, which the LB connection does not serve. A stream lives on the one physical
+     * connection that opened it, and this session's transaction bookkeeping would not see the work
+     * it does.
+     *
+     * @param api the refused API, e.g. {@code "getCopyLoader()"}
+     * @return the exception to throw
+     */
+    public static CUBRIDException streamNotSupported(final String api) {
+        return withCoreDetail(
+                CUBRIDJDBCErrorCode.not_supported,
+                api
+                        + " - the byte-stream calls are not served by the LB connection; use a"
+                        + " connection opened without load balancing",
+                null);
+    }
+
+    /**
      * A stream or reader handed to a parameter setter could not be read. Core raises the same
      * {@code -21112} from inside the setter, so an application catching that code keeps catching it
      * when the value is bound through an LB statement.

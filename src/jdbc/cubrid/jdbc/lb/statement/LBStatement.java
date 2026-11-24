@@ -664,7 +664,7 @@ public class LBStatement extends CUBRIDStatement {
      * Records a batch that ran outside {@link #executeWithFailover}: a {@code SET} in it changed
      * the session just as a single statement would.
      */
-    void afterBatchSucceeded(final List<String> sqls, final RouteTarget ranOn) {
+    void afterBatchSucceeded(final List<String> sqls, final RouteTarget ranOn) throws SQLException {
         for (String each : sqls) {
             lbConnection.afterStatementSucceeded(each, ranOn);
         }

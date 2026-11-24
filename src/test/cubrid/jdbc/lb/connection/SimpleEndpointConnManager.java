@@ -64,8 +64,16 @@ public final class SimpleEndpointConnManager implements EndpointConnManager {
         this.rwTxReportedOpen = open;
     }
 
-    public java.sql.Connection boundConnection(final SessionLeg leg) {
-        return null;
+    private boolean reportsBoundConnections;
+
+    /** The leg's connection, as the real manager answers: nothing, unless a test asks for it. */
+    public synchronized java.sql.Connection boundConnection(final SessionLeg leg) {
+        final Endpoint endpoint = reportsBoundConnections ? getSessionEndpoint(leg) : null;
+        return endpoint == null ? null : physicalConnections.get(endpoint.getId());
+    }
+
+    public synchronized void setReportsBoundConnections(final boolean reports) {
+        this.reportsBoundConnections = reports;
     }
 
     private final Map<String, Integer> acquireCounts = new HashMap<String, Integer>();

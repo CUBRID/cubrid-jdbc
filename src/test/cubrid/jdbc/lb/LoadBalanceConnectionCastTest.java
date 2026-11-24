@@ -39,10 +39,16 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import cubrid.jdbc.driver.CUBRIDConnection;
+import cubrid.jdbc.driver.CUBRIDJDBCErrorCode;
+import cubrid.jdbc.jci.UConnection;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.connection.SimpleEndpointConnManager;
+import cubrid.jdbc.lb.route.Router.RouteTarget;
 import cubrid.jdbc.lb.state.SharedSelectorState;
+import cubrid.jdbc.lb.statement.FakePhysicalStatement;
+import cubrid.jdbc.lb.statement.LBStatement;
+import cubrid.jdbc.lb.statement.StatementTestAccess;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.sql.Connection;
@@ -225,6 +231,64 @@ public final class LoadBalanceConnectionCastTest {
         }
     }
 
+    /**
+     * COPY routes to the write leg like any statement LB does not classify, and the stream it opens
+     * there could not be ended through the refused calls: LB aborts it and fails the statement.
+     */
+    @Test
+    public void aStatementThatOpensAStreamIsAbortedAndRefused() throws Exception {
+        final StreamSocket socket = new StreamSocket();
+        final AtomicInteger aborts = new AtomicInteger();
+        Connection writeLeg =
+                new FakePhysicalConnection() {
+                    @Override
+                    public UConnection getUConnection() {
+                        return socket;
+                    }
+
+                    @Override
+                    public int streamAbort() {
+                        aborts.incrementAndGet();
+                        socket.report(false);
+                        return 0;
+                    }
+                };
+        SimpleEndpointConnManager manager = new SimpleEndpointConnManager();
+        manager.setReportsBoundConnections(true);
+        LoadBalanceConnection conn = boundEx(writeLeg, new FakePhysicalConnection(), manager);
+        LBStatement statement = (LBStatement) conn.createStatement();
+        StatementTestAccess.setStatementProvider(
+                statement,
+                new LBStatement.PhysicalStmtProvider() {
+                    public Statement getStatement(final RouteTarget target, final String rawSql) {
+                        return new FakePhysicalStatement() {
+                            @Override
+                            protected Object dispatch(final String name, final Object[] args) {
+                                if ("executeUpdate".equals(name)
+                                        && String.valueOf(args[0]).startsWith("COPY")) {
+                                    socket.report(true);
+                                }
+                                return null;
+                            }
+                        };
+                    }
+                });
+
+        try {
+            statement.executeUpdate("COPY t FROM STDIN WITH (FORMAT CSV)");
+            fail("a statement that leaves a stream open on the write leg must fail");
+        } catch (SQLException expected) {
+            assertEquals(CUBRIDJDBCErrorCode.not_supported, expected.getErrorCode());
+            assertTrue(
+                    expected.getMessage(), expected.getMessage().contains("COPY ... FROM STDIN"));
+        }
+        assertEquals("the stream is aborted on the write leg", 1, aborts.get());
+        assertFalse(socket.isStreamOpen());
+
+        assertEquals(0, statement.executeUpdate("UPDATE t SET a = 1"));
+        assertEquals("a statement that opens no stream aborts nothing", 1, aborts.get());
+    }
+
     @Test
     public void isShardDoesNotReachTheNullInheritedSocket() throws Exception {
         LoadBalanceConnection conn = boundEx();
@@ -356,9 +420,16 @@ public final class LoadBalanceConnectionCastTest {
     }
 
     private LoadBalanceConnection boundEx(final Legs legs) throws Exception {
+        return boundEx(legs.writeLeg(), legs.readLeg(), new SimpleEndpointConnManager());
+    }
+
+    private LoadBalanceConnection boundEx(
+            final Connection writeLeg,
+            final Connection readLeg,
+            final SimpleEndpointConnManager manager)
+            throws Exception {
         LoadBalanceConnection lb = new LoadBalanceConnection(LbTestSettings.defaults());
 
-        SimpleEndpointConnManager manager = new SimpleEndpointConnManager();
         lb.setConnectionManager(manager);
         lb.setSharedSelectorState(new SharedSelectorState());
 
@@ -366,10 +437,33 @@ public final class LoadBalanceConnectionCastTest {
         roEndpoints.add(new Endpoint("ro1", 33000));
         lb.initSessionBindings(new EndpointTopology(new Endpoint("rw", 33000), roEndpoints, null));
 
-        manager.setPhysicalConnection(lb.getCurrentEp(SessionLeg.RW), legs.writeLeg());
-        manager.setPhysicalConnection(lb.getCurrentEp(SessionLeg.RO), legs.readLeg());
+        manager.setPhysicalConnection(lb.getCurrentEp(SessionLeg.RW), writeLeg);
+        manager.setPhysicalConnection(lb.getCurrentEp(SessionLeg.RO), readLeg);
 
         return lb;
+    }
+
+    /** What the server last reported on a leg: whether a stream session is open there. */
+    private static final class StreamSocket extends UConnection {
+
+        StreamSocket() {
+            protocolVersion = PROTOCOL_V13;
+            report(false);
+        }
+
+        void report(final boolean streamOpen) {
+            casInfo = new byte[] {1, 0, 0, streamOpen ? CAS_INFO_FLAG_MASK_STREAM_OPEN : 0};
+        }
+
+        public void endTransaction(final boolean type) {}
+
+        protected void closeInternal() {}
+
+        public void setAutoCommit(final boolean autoCommit) {}
+
+        public boolean getAutoCommit() {
+            return true;
+        }
     }
 
     private static final class Legs {

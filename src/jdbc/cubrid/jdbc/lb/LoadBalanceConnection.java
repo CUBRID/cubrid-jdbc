@@ -3176,8 +3176,11 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      *
      * @param sql the statement as the application issued it
      * @param ranOn the leg it ran on
+     * @throws SQLException if the statement opened a byte stream, which is aborted first
      */
-    public void afterStatementSucceeded(final String sql, final RouteTarget ranOn) {
+    public void afterStatementSucceeded(final String sql, final RouteTarget ranOn)
+            throws SQLException {
+        abortStreamOpenedBy(ranOn);
         sessionState.setLastStatementOnReadLeg(ranOn == RouteTarget.TO_READ_ONLY);
         if (ranOn == RouteTarget.TO_READ_WRITE) {
             sessionState.addSessionVariables(IntoVariables.assignedBy(sql));
@@ -3189,6 +3192,30 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         } else if (set.getAction() == SessionSetStatement.Action.PIN_TO_RW) {
             pinReadsToRw(sql);
         }
+    }
+
+    /**
+     * A statement that opens a byte stream (COPY ... FROM STDIN) leaves it open on its leg, and the
+     * refused stream calls could not end it: abort it there and fail the statement.
+     */
+    private void abortStreamOpenedBy(final RouteTarget ranOn) throws SQLException {
+        final Connection leg =
+                connMgr == null ? null : connMgr.boundConnection(SessionLeg.fromRouteTarget(ranOn));
+        if (!(leg instanceof CUBRIDConnection) || leg.isClosed()) {
+            return;
+        }
+        final UConnection socket = ((CUBRIDConnection) leg).getUConnection();
+        if (socket == null || !socket.isStreamOpen()) {
+            return;
+        }
+
+        final SQLException refused = LbExceptions.streamNotSupported("COPY ... FROM STDIN");
+        try {
+            ((CUBRIDConnection) leg).streamAbort();
+        } catch (SQLException abortFailed) {
+            refused.setNextException(abortFailed);
+        }
+        throw refused;
     }
 
     private void replaySessionSet(final String sql, final Map<String, String> replay) {

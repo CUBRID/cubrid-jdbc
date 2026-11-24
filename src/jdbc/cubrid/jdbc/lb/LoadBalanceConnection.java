@@ -153,12 +153,6 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      */
     private final List<CUBRIDOutResultSet> openOutResultSets = new ArrayList<CUBRIDOutResultSet>();
 
-    // The physical CallableStatements behind the ones handed out, with the leg each was prepared
-    // on. An RW failback closes that leg and them with it, so it waits until they are closed
-    // (hasOpenCallOn).
-    private final Map<CallableStatement, Connection> openCalls =
-            new IdentityHashMap<CallableStatement, Connection>();
-
     private final long connectionId = CONNECTION_SEQUENCE.getAndIncrement();
     private final RoutingMetricsRecorder routingMetrics;
     private EndpointConnManager connMgr = null;
@@ -2200,63 +2194,64 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     /**
      * A {@code CALL} runs on the write endpoint. The statement returned wraps the physical one of
      * that leg and passes every call to it, so the OUT-parameter API is core's and the vendor casts
-     * keep working (see {@link LBCallableStatement}).
+     * keep working (see {@link LBCallableStatement}). It prepares the CALL again when a failover or
+     * a failback has replaced that leg.
      *
      * <p>Its runs go through the execute path, so LB sees what a {@code CALL} changes in the
      * session. A run that failed is not run again: a stored procedure is not idempotent.
      */
     public CallableStatement prepareCall(final String sql) throws SQLException {
-        checkClosed();
-
-        return runRwCommand(
+        return newCall(
                 "prepareCall",
-                new SqlExecution<CallableStatement>() {
-                    public CallableStatement run() throws SQLException {
-                        final Connection rw = getPhysicalConnForCmd(SessionLeg.RW);
-                        return wrapCall(sql, rw.prepareCall(sql), rw);
+                sql,
+                new CallPreparer() {
+                    public CallableStatement on(final Connection leg) throws SQLException {
+                        return leg.prepareCall(sql);
                     }
                 });
     }
 
+    /** How one prepareCall overload prepares on a physical connection. */
+    private interface CallPreparer {
+        CallableStatement on(Connection leg) throws SQLException;
+    }
+
     /**
-     * The statement the application gets for a physical CallableStatement, which is remembered with
-     * its leg (closed ones are forgotten) and reports this session as its owner.
+     * The statement the application gets from prepareCall: prepared on the write leg, and able to
+     * prepare its CALL again on the leg a failover or a failback replaces that one with.
      */
-    private CallableStatement wrapCall(
-            final String sql, final CallableStatement call, final Connection leg)
-            throws SQLException {
-        synchronized (openCalls) {
-            forgetClosedCalls();
-            openCalls.put(call, leg);
-        }
+    private CallableStatement newCall(
+            final String label, final String sql, final CallPreparer preparer) throws SQLException {
+        checkClosed();
 
-        return new LBCallableStatement(this, sql, reportSelfAsOwner(call));
-    }
+        final LBCallableStatement.WriteLeg writeLeg =
+                new LBCallableStatement.WriteLeg() {
+                    public boolean is(final Connection leg) {
+                        final EndpointConnManager mgr = connMgr;
+                        return leg != null
+                                && mgr != null
+                                && mgr.boundConnection(SessionLeg.RW) == leg;
+                    }
 
-    /** Whether a CallableStatement the application has not closed lives on {@code physical}. */
-    private boolean hasOpenCallOn(final Connection physical) {
-        synchronized (openCalls) {
-            forgetClosedCalls();
-            for (Connection leg : openCalls.values()) {
-                if (leg == physical) {
-                    return true;
-                }
-            }
-        }
+                    public Connection now() throws SQLException {
+                        return getPhysicalConnForCmd(SessionLeg.RW);
+                    }
 
-        return false;
-    }
+                    public CallableStatement prepare(final Connection leg) throws SQLException {
+                        return reportSelfAsOwner(preparer.on(leg));
+                    }
 
-    private void forgetClosedCalls() {
-        for (Iterator<CallableStatement> it = openCalls.keySet().iterator(); it.hasNext(); ) {
-            try {
-                if (it.next().isClosed()) {
-                    it.remove();
-                }
-            } catch (SQLException unreadable) {
-                it.remove();
-            }
-        }
+                    public <T> T asCommand(final SqlExecution<T> command) throws SQLException {
+                        return runRwCommand(label, command);
+                    }
+                };
+        return runRwCommand(
+                label,
+                new SqlExecution<CallableStatement>() {
+                    public CallableStatement run() throws SQLException {
+                        return new LBCallableStatement(LoadBalanceConnection.this, sql, writeLeg);
+                    }
+                });
     }
 
     /**
@@ -2279,15 +2274,12 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     public CallableStatement prepareCall(
             final String sql, final int resultSetType, final int resultSetConcurrency)
             throws SQLException {
-        checkClosed();
-
-        return runRwCommand(
+        return newCall(
                 "prepareCall(resultSetType,resultSetConcurrency)",
-                new SqlExecution<CallableStatement>() {
-                    public CallableStatement run() throws SQLException {
-                        final Connection rw = getPhysicalConnForCmd(SessionLeg.RW);
-                        return wrapCall(
-                                sql, rw.prepareCall(sql, resultSetType, resultSetConcurrency), rw);
+                sql,
+                new CallPreparer() {
+                    public CallableStatement on(final Connection leg) throws SQLException {
+                        return leg.prepareCall(sql, resultSetType, resultSetConcurrency);
                     }
                 });
     }
@@ -2298,21 +2290,13 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             final int resultSetConcurrency,
             final int resultSetHoldability)
             throws SQLException {
-        checkClosed();
-
-        return runRwCommand(
+        return newCall(
                 "prepareCall(resultSetType,resultSetConcurrency,resultSetHoldability)",
-                new SqlExecution<CallableStatement>() {
-                    public CallableStatement run() throws SQLException {
-                        final Connection rw = getPhysicalConnForCmd(SessionLeg.RW);
-                        return wrapCall(
-                                sql,
-                                rw.prepareCall(
-                                        sql,
-                                        resultSetType,
-                                        resultSetConcurrency,
-                                        resultSetHoldability),
-                                rw);
+                sql,
+                new CallPreparer() {
+                    public CallableStatement on(final Connection leg) throws SQLException {
+                        return leg.prepareCall(
+                                sql, resultSetType, resultSetConcurrency, resultSetHoldability);
                     }
                 });
     }
@@ -3842,8 +3826,8 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             return; // retried at a later trigger, once it has ended
         }
         final Connection rw = connMgr.boundConnection(SessionLeg.RW);
-        if (hasOpenCursorOn(rw) || hasOpenCallOn(rw)) {
-            return; // retried at a later trigger, once the cursor or the call is closed
+        if (hasOpenCursorOn(rw)) {
+            return; // retried at a later trigger, once the cursor is closed
         }
         lastRwFailbackAttemptNanos = Long.valueOf(now);
 

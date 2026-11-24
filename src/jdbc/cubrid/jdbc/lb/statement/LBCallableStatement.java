@@ -51,6 +51,7 @@ import java.sql.Connection;
 import java.sql.Date;
 import java.sql.NClob;
 import java.sql.ParameterMetaData;
+import java.sql.PreparedStatement;
 import java.sql.Ref;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
@@ -62,6 +63,7 @@ import java.sql.SQLXML;
 import java.sql.Time;
 import java.sql.Timestamp;
 import java.util.Calendar;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -72,38 +74,156 @@ import java.util.Map;
  * session when the statement runs, not when it is prepared, and only a statement LB sees run can be
  * followed on the read leg.
  *
+ * <p>A failover or a failback replaces the write leg, and the physical statement closes with the
+ * leg it was prepared on. Core replaces only the socket and prepares its statement again at the
+ * next run; this one prepares the CALL again on the write leg of that run, with the values, OUT
+ * registrations and settings it was given. Until then the closed statement is asked nothing: what
+ * is set is kept, and what the last run left is refused as core refuses a closed statement.
+ *
  * <p>It extends core's class so {@code (CUBRIDCallableStatement) cs} keeps working, and for that
  * overrides everything it inherits: the base holds no socket statement here.
  */
 public class LBCallableStatement extends CUBRIDCallableStatement {
 
+    /** The session's write leg, as this statement needs it; the connection supplies it. */
+    public interface WriteLeg {
+        /** Whether {@code leg} is still the session's write leg. Asks no server. */
+        boolean is(Connection leg);
+
+        /** The write leg, for the command that is running. */
+        Connection now() throws SQLException;
+
+        /** Prepares the CALL on {@code leg}, as the application's prepareCall did. */
+        CallableStatement prepare(Connection leg) throws SQLException;
+
+        /** Runs {@code command} as prepareCall runs, rebinding a leg whose broker is gone. */
+        <T> T asCommand(SqlExecution<T> command) throws SQLException;
+    }
+
+    /** A statement setting, made again on the statement prepared after the leg was replaced. */
+    private interface Setting {
+        void on(CallableStatement target) throws SQLException;
+    }
+
     private final LoadBalanceConnection lbConnection;
     private final String sql;
-    private final CallableStatement call;
+    private final WriteLeg writeLeg;
+    // The physical statement, the write leg it was prepared on, and whether it has been given
+    // everything this statement was.
+    private CallableStatement call;
+    private Connection leg;
+    private boolean inStep = true;
+    // What a statement prepared again is given: IN values, OUT registrations, settings by name.
+    private final ParameterBinder parameterBinder;
+    private final Map<String, Setting> settings = new LinkedHashMap<String, Setting>();
     // Runs nothing itself: it is the execute path this statement's runs go through.
     private final LBStatement statementDelegate;
 
     /**
+     * Prepares the CALL on the write leg.
+     *
      * @param lbConnection the connection the application prepared it on
      * @param sql the CALL as the application wrote it
-     * @param call the physical statement, prepared on the write leg
-     * @throws SQLException if the connection is closed
+     * @param writeLeg the session's write leg and how to prepare on it
+     * @throws SQLException if the connection is closed or the prepare fails
      */
     public LBCallableStatement(
-            final LoadBalanceConnection lbConnection,
-            final String sql,
-            final CallableStatement call)
+            final LoadBalanceConnection lbConnection, final String sql, final WriteLeg writeLeg)
             throws SQLException {
         super(lbConnection);
         this.lbConnection = lbConnection;
         this.sql = sql;
-        this.call = call;
+        this.writeLeg = writeLeg;
         this.statementDelegate = new LBStatement(lbConnection);
+        this.parameterBinder =
+                new ParameterBinder(
+                        new ParameterBinder.BindCheck() {
+                            public PreparedStatement statement() {
+                                final CallableStatement attached = attached();
+                                inStep &= attached != null; // kept only, until the next run
+                                return attached;
+                            }
+                        });
+        this.leg = writeLeg.now();
+        this.call = writeLeg.prepare(leg);
     }
 
     /** The physical statement as core's class, for the methods JDBC does not declare. */
     private CUBRIDCallableStatement vendor() {
         return (CUBRIDCallableStatement) call;
+    }
+
+    /**
+     * The physical statement to ask now: null while the leg it was prepared on is gone, and the
+     * closed one, for core's refusal, once this statement is closed.
+     */
+    private CallableStatement attached() {
+        return closed() || writeLeg.is(leg) ? call : null;
+    }
+
+    /** Closed here or with its connection, as core counts a statement closed. */
+    private boolean closed() {
+        try {
+            return super.isClosed();
+        } catch (SQLException unreadable) {
+            return true;
+        }
+    }
+
+    /** As {@link #attached()}, but prepared again, as prepareCall would, if its leg is gone. */
+    private CallableStatement prepared() throws SQLException {
+        final CallableStatement attached = attached();
+        if (attached != null) {
+            return attached;
+        }
+
+        return writeLeg.asCommand(
+                new SqlExecution<CallableStatement>() {
+                    public CallableStatement run() throws SQLException {
+                        return onWriteLeg();
+                    }
+                });
+    }
+
+    /**
+     * The physical statement on the write leg of the command that is running: the one held, or the
+     * CALL prepared again there with what this statement was given.
+     */
+    private CallableStatement onWriteLeg() throws SQLException {
+        if (closed()) {
+            return call; // core's refusal
+        }
+        final Connection now = writeLeg.now();
+        if (now != leg || !inStep) {
+            inStep = false; // prepared again if this does not finish
+            try {
+                call.close(); // its leg may live on in another role
+            } catch (SQLException alreadyClosed) {
+                // closed with its leg
+            }
+            call = writeLeg.prepare(now);
+            leg = now;
+            parameterBinder.replay(call);
+            for (Setting each : settings.values()) {
+                each.on(call);
+            }
+            inStep = true;
+        }
+
+        return call;
+    }
+
+    /** Makes a setting on the physical statement, where core checks it, and keeps it. */
+    private void keep(final String name, final Setting setting) throws SQLException {
+        setting.on(prepared());
+        settings.put(name, setting);
+    }
+
+    /** Core's refusal of a closed statement, from the physical one this closed. */
+    private void checkOpen() throws SQLException {
+        if (closed()) {
+            call.getConnection();
+        }
     }
 
     private static RuntimeException unchecked(final SQLException cause) {
@@ -115,8 +235,7 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
     /**
      * Runs the CALL through the execute path every statement takes: open statements are prepared
      * before a login, the login or the INTO variable is recorded after it, and the run is routed
-     * and counted. It is never run again: a stored procedure is not idempotent, and the physical
-     * statement lives on the leg it was prepared on.
+     * and counted. It is never run again: a stored procedure is not idempotent.
      */
     private <T> T runCall(final SqlExecution<T> execution) throws SQLException {
         return statementDelegate.executeWithFailover(
@@ -131,7 +250,7 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
         return runCall(
                         new SqlExecution<Boolean>() {
                             public Boolean run() throws SQLException {
-                                return Boolean.valueOf(call.execute());
+                                return Boolean.valueOf(onWriteLeg().execute());
                             }
                         })
                 .booleanValue();
@@ -143,7 +262,7 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
                 runCall(
                         new SqlExecution<ResultSet>() {
                             public ResultSet run() throws SQLException {
-                                return call.executeQuery();
+                                return onWriteLeg().executeQuery();
                             }
                         }),
                 this);
@@ -154,7 +273,7 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
         return runCall(
                         new SqlExecution<Integer>() {
                             public Integer run() throws SQLException {
-                                return Integer.valueOf(call.executeUpdate());
+                                return Integer.valueOf(onWriteLeg().executeUpdate());
                             }
                         })
                 .intValue();
@@ -165,6 +284,7 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
         return runCall(
                 new SqlExecution<CUBRIDOID>() {
                     public CUBRIDOID run() throws SQLException {
+                        onWriteLeg();
                         return vendor().executeInsert();
                     }
                 });
@@ -182,8 +302,16 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
 
     @Override
     public void close() throws SQLException {
+        final boolean legGone = attached() == null;
+        is_closed = true; // core's own closed flag, which its isClosed() reads
         try {
             call.close();
+        } catch (SQLException failure) {
+            // Core can refuse to close a statement whose connection is closed. The application
+            // closed no connection when LB replaced the leg.
+            if (!legGone) {
+                throw failure;
+            }
         } finally {
             statementDelegate.close();
         }
@@ -193,13 +321,13 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
 
     @Override
     public Connection getConnection() throws SQLException {
-        call.getConnection(); // core's refusal of a closed statement
+        checkOpen();
         return lbConnection;
     }
 
     @Override
     public <T> T unwrap(final Class<T> iface) throws SQLException {
-        call.isWrapperFor(iface); // core's refusal of a closed statement
+        checkOpen();
         if (iface.isAssignableFrom(getClass())) {
             return iface.cast(this);
         }
@@ -209,7 +337,7 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
 
     @Override
     public boolean isWrapperFor(final Class<?> iface) throws SQLException {
-        call.isWrapperFor(iface); // core's refusal of a closed statement
+        checkOpen();
         return iface.isAssignableFrom(getClass());
     }
 
@@ -650,19 +778,19 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
 
     @Override
     public void registerOutParameter(final int index, final int sqlType) throws SQLException {
-        call.registerOutParameter(index, sqlType);
+        parameterBinder.recordRegisterOutParameter(index, sqlType);
     }
 
     @Override
     public void registerOutParameter(final int index, final int sqlType, final int scale)
             throws SQLException {
-        call.registerOutParameter(index, sqlType, scale);
+        parameterBinder.recordRegisterOutParameter(index, sqlType, scale);
     }
 
     @Override
     public void registerOutParameter(final int index, final int sqlType, final String typeName)
             throws SQLException {
-        call.registerOutParameter(index, sqlType, typeName);
+        parameterBinder.recordRegisterOutParameter(index, sqlType, typeName);
     }
 
     @Override
@@ -886,23 +1014,24 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
         return call.getObject(parameterName, type);
     }
 
+    // Core resolves the SQLType forms to the int forms above, which keep the registration.
     @Override
     public void registerOutParameter(final int parameterIndex, final SQLType sqlType)
             throws SQLException {
-        call.registerOutParameter(parameterIndex, sqlType);
+        super.registerOutParameter(parameterIndex, sqlType);
     }
 
     @Override
     public void registerOutParameter(
             final int parameterIndex, final SQLType sqlType, final int scale) throws SQLException {
-        call.registerOutParameter(parameterIndex, sqlType, scale);
+        super.registerOutParameter(parameterIndex, sqlType, scale);
     }
 
     @Override
     public void registerOutParameter(
             final int parameterIndex, final SQLType sqlType, final String typeName)
             throws SQLException {
-        call.registerOutParameter(parameterIndex, sqlType, typeName);
+        super.registerOutParameter(parameterIndex, sqlType, typeName);
     }
 
     /* ===== java.sql.PreparedStatement ===== */
@@ -961,84 +1090,84 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
 
     @Override
     public void setNull(final int parameterIndex, final int sqlType) throws SQLException {
-        call.setNull(parameterIndex, sqlType);
+        parameterBinder.recordSetNull(parameterIndex, sqlType);
     }
 
     @Override
     public void setBoolean(final int parameterIndex, final boolean x) throws SQLException {
-        call.setBoolean(parameterIndex, x);
+        parameterBinder.recordSetBoolean(parameterIndex, x);
     }
 
     @Override
     public void setByte(final int parameterIndex, final byte x) throws SQLException {
-        call.setByte(parameterIndex, x);
+        parameterBinder.recordSetByte(parameterIndex, x);
     }
 
     @Override
     public void setShort(final int parameterIndex, final short x) throws SQLException {
-        call.setShort(parameterIndex, x);
+        parameterBinder.recordSetShort(parameterIndex, x);
     }
 
     @Override
     public void setInt(final int parameterIndex, final int x) throws SQLException {
-        call.setInt(parameterIndex, x);
+        parameterBinder.recordSetInt(parameterIndex, x);
     }
 
     @Override
     public void setLong(final int parameterIndex, final long x) throws SQLException {
-        call.setLong(parameterIndex, x);
+        parameterBinder.recordSetLong(parameterIndex, x);
     }
 
     @Override
     public void setFloat(final int parameterIndex, final float x) throws SQLException {
-        call.setFloat(parameterIndex, x);
+        parameterBinder.recordSetFloat(parameterIndex, x);
     }
 
     @Override
     public void setDouble(final int parameterIndex, final double x) throws SQLException {
-        call.setDouble(parameterIndex, x);
+        parameterBinder.recordSetDouble(parameterIndex, x);
     }
 
     @Override
     public void setBigDecimal(final int parameterIndex, final BigDecimal x) throws SQLException {
-        call.setBigDecimal(parameterIndex, x);
+        parameterBinder.recordSetBigDecimal(parameterIndex, x);
     }
 
     @Override
     public void setString(final int parameterIndex, final String x) throws SQLException {
-        call.setString(parameterIndex, x);
+        parameterBinder.recordSetString(parameterIndex, x);
     }
 
     @Override
     public void setBytes(final int parameterIndex, final byte[] x) throws SQLException {
-        call.setBytes(parameterIndex, x);
+        parameterBinder.recordSetBytes(parameterIndex, x);
     }
 
     @Override
     public void setDate(final int parameterIndex, final Date x) throws SQLException {
-        call.setDate(parameterIndex, x);
+        parameterBinder.recordSetDate(parameterIndex, x);
     }
 
     @Override
     public void setTime(final int parameterIndex, final Time x) throws SQLException {
-        call.setTime(parameterIndex, x);
+        parameterBinder.recordSetTime(parameterIndex, x);
     }
 
     @Override
     public void setTimestamp(final int parameterIndex, final Timestamp x) throws SQLException {
-        call.setTimestamp(parameterIndex, x);
+        parameterBinder.recordSetTimestamp(parameterIndex, x);
     }
 
     @Override
     public void setTimestamptz(final int parameterIndex, final CUBRIDTimestamptz x)
             throws SQLException {
-        vendor().setTimestamptz(parameterIndex, x);
+        parameterBinder.recordSetTimestamptz(parameterIndex, x);
     }
 
     @Override
     public void setAsciiStream(final int parameterIndex, final InputStream x, final int length)
             throws SQLException {
-        call.setAsciiStream(parameterIndex, x, length);
+        parameterBinder.recordSetAsciiStream(parameterIndex, x, length);
     }
 
     @Override
@@ -1050,36 +1179,41 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
     @Override
     public void setBinaryStream(final int parameterIndex, final InputStream x, final int length)
             throws SQLException {
-        call.setBinaryStream(parameterIndex, x, length);
+        parameterBinder.recordSetBinaryStream(parameterIndex, x, length);
     }
 
     @Override
     public void clearParameters() throws SQLException {
-        call.clearParameters();
+        final CallableStatement attached = attached();
+        if (attached != null) {
+            attached.clearParameters();
+        }
+        inStep &= attached != null;
+        parameterBinder.clear();
     }
 
     @Override
     public void setObject(
             final int parameterIndex, final Object x, final int targetSqlType, final int scale)
             throws SQLException {
-        call.setObject(parameterIndex, x, targetSqlType, scale);
+        parameterBinder.recordSetObject(parameterIndex, x, targetSqlType, scale);
     }
 
     @Override
     public void setObject(final int parameterIndex, final Object x, final int targetSqlType)
             throws SQLException {
-        call.setObject(parameterIndex, x, targetSqlType);
+        parameterBinder.recordSetObject(parameterIndex, x, targetSqlType);
     }
 
     @Override
     public void setObject(final int parameterIndex, final Object x) throws SQLException {
-        call.setObject(parameterIndex, x);
+        parameterBinder.recordSetObject(parameterIndex, x);
     }
 
     @Override
     public void setCharacterStream(final int parameterIndex, final Reader reader, final int length)
             throws SQLException {
-        call.setCharacterStream(parameterIndex, reader, length);
+        parameterBinder.recordSetCharacterStream(parameterIndex, reader, length);
     }
 
     @Override
@@ -1089,35 +1223,36 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
 
     @Override
     public void setBlob(final int parameterIndex, final Blob x) throws SQLException {
-        call.setBlob(parameterIndex, x);
+        parameterBinder.recordSetBlob(parameterIndex, x);
     }
 
     @Override
     public void setClob(final int parameterIndex, final Clob x) throws SQLException {
-        call.setClob(parameterIndex, x);
+        parameterBinder.recordSetClob(parameterIndex, x);
     }
 
+    // Core writes the stream to a LOB the connection makes and binds it through the form above.
     @Override
     public void setBlob(final int parameterIndex, final InputStream inputStream)
             throws SQLException {
-        call.setBlob(parameterIndex, inputStream);
+        super.setBlob(parameterIndex, inputStream);
     }
 
     @Override
     public void setBlob(final int parameterIndex, final InputStream inputStream, final long length)
             throws SQLException {
-        call.setBlob(parameterIndex, inputStream, length);
+        super.setBlob(parameterIndex, inputStream, length);
     }
 
     @Override
     public void setClob(final int parameterIndex, final Reader reader) throws SQLException {
-        call.setClob(parameterIndex, reader);
+        super.setClob(parameterIndex, reader);
     }
 
     @Override
     public void setClob(final int parameterIndex, final Reader reader, final long length)
             throws SQLException {
-        call.setClob(parameterIndex, reader, length);
+        super.setClob(parameterIndex, reader, length);
     }
 
     @Override
@@ -1127,48 +1262,51 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
 
     @Override
     public ResultSetMetaData getMetaData() throws SQLException {
-        return call.getMetaData();
+        return prepared().getMetaData();
     }
 
     @Override
     public void setDate(final int parameterIndex, final Date x, final Calendar cal)
             throws SQLException {
-        call.setDate(parameterIndex, x, cal);
+        parameterBinder.recordSetDate(parameterIndex, x, cal);
     }
 
     @Override
     public void setTime(final int parameterIndex, final Time x, final Calendar cal)
             throws SQLException {
-        call.setTime(parameterIndex, x, cal);
+        parameterBinder.recordSetTime(parameterIndex, x, cal);
     }
 
     @Override
     public void setTimestamp(final int parameterIndex, final Timestamp x, final Calendar cal)
             throws SQLException {
-        call.setTimestamp(parameterIndex, x, cal);
+        parameterBinder.recordSetTimestamp(parameterIndex, x, cal);
     }
 
     @Override
     public void setTimestamptz(
             final int parameterIndex, final CUBRIDTimestamptz x, final Calendar cal)
             throws SQLException {
-        vendor().setTimestamptz(parameterIndex, x, cal);
+        parameterBinder.recordSetTimestamptz(parameterIndex, x, cal);
     }
 
     @Override
     public void setNull(final int paramIndex, final int sqlType, final String typeName)
             throws SQLException {
-        call.setNull(paramIndex, sqlType, typeName);
+        parameterBinder.recordSetNull(paramIndex, sqlType, typeName);
     }
 
     @Override
     public void clearBatch() throws SQLException {
-        call.clearBatch();
+        final CallableStatement attached = attached();
+        if (attached != null) {
+            attached.clearBatch();
+        }
     }
 
     @Override
     public ParameterMetaData getParameterMetaData() throws SQLException {
-        return call.getParameterMetaData();
+        return prepared().getParameterMetaData();
     }
 
     @Override
@@ -1178,12 +1316,12 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
 
     @Override
     public void setOID(final int parameterIndex, final CUBRIDOID x) throws SQLException {
-        vendor().setOID(parameterIndex, x);
+        parameterBinder.recordSetOID(parameterIndex, x);
     }
 
     @Override
     public void setCollection(final int parameterIndex, final Object[] x) throws SQLException {
-        vendor().setCollection(parameterIndex, x);
+        parameterBinder.recordSetCollection(parameterIndex, x);
     }
 
     @Override
@@ -1271,7 +1409,7 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
     @Override
     public void setObject(final int parameterIndex, final Object x, final SQLType targetSqlType)
             throws SQLException {
-        call.setObject(parameterIndex, x, targetSqlType);
+        super.setObject(parameterIndex, x, targetSqlType);
     }
 
     @Override
@@ -1281,64 +1419,95 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
             final SQLType targetSqlType,
             final int scaleOrLength)
             throws SQLException {
-        call.setObject(parameterIndex, x, targetSqlType, scaleOrLength);
+        super.setObject(parameterIndex, x, targetSqlType, scaleOrLength);
     }
 
     /* ===== java.sql.Statement ===== */
 
     @Override
     public int getMaxFieldSize() throws SQLException {
-        return call.getMaxFieldSize();
+        return prepared().getMaxFieldSize();
     }
 
     @Override
     public void setMaxFieldSize(final int max) throws SQLException {
-        call.setMaxFieldSize(max);
+        keep(
+                "maxFieldSize",
+                new Setting() {
+                    public void on(final CallableStatement target) throws SQLException {
+                        target.setMaxFieldSize(max);
+                    }
+                });
     }
 
     @Override
     public int getMaxRows() throws SQLException {
-        return call.getMaxRows();
+        return prepared().getMaxRows();
     }
 
     @Override
     public void setMaxRows(final int max) throws SQLException {
-        call.setMaxRows(max);
+        keep(
+                "maxRows",
+                new Setting() {
+                    public void on(final CallableStatement target) throws SQLException {
+                        target.setMaxRows(max);
+                    }
+                });
     }
 
     @Override
     public void setEscapeProcessing(final boolean enable) throws SQLException {
-        call.setEscapeProcessing(enable);
+        final CallableStatement attached = attached();
+        if (attached != null) {
+            attached.setEscapeProcessing(enable);
+        }
     }
 
     @Override
     public int getQueryTimeout() throws SQLException {
-        return call.getQueryTimeout();
+        return prepared().getQueryTimeout();
     }
 
     @Override
     public void setQueryTimeout(final int seconds) throws SQLException {
-        call.setQueryTimeout(seconds);
+        keep(
+                "queryTimeout",
+                new Setting() {
+                    public void on(final CallableStatement target) throws SQLException {
+                        target.setQueryTimeout(seconds);
+                    }
+                });
     }
 
     @Override
     public void cancel() throws SQLException {
-        call.cancel();
+        final CallableStatement attached = attached();
+        if (attached != null) {
+            attached.cancel();
+        }
     }
 
     @Override
     public SQLWarning getWarnings() throws SQLException {
-        return call.getWarnings();
+        final CallableStatement attached = attached();
+        return attached == null ? null : attached.getWarnings();
     }
 
     @Override
     public void clearWarnings() throws SQLException {
-        call.clearWarnings();
+        final CallableStatement attached = attached();
+        if (attached != null) {
+            attached.clearWarnings();
+        }
     }
 
     @Override
     public void setCursorName(final String name) throws SQLException {
-        call.setCursorName(name);
+        final CallableStatement attached = attached();
+        if (attached != null) {
+            attached.setCursorName(name);
+        }
     }
 
     @Override
@@ -1353,37 +1522,52 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
 
     @Override
     public void setFetchDirection(final int direction) throws SQLException {
-        call.setFetchDirection(direction);
+        keep(
+                "fetchDirection",
+                new Setting() {
+                    public void on(final CallableStatement target) throws SQLException {
+                        target.setFetchDirection(direction);
+                    }
+                });
     }
 
     @Override
     public int getFetchDirection() throws SQLException {
-        return call.getFetchDirection();
+        return prepared().getFetchDirection();
     }
 
     @Override
     public void setFetchSize(final int rows) throws SQLException {
-        call.setFetchSize(rows);
+        keep(
+                "fetchSize",
+                new Setting() {
+                    public void on(final CallableStatement target) throws SQLException {
+                        target.setFetchSize(rows);
+                    }
+                });
     }
 
     @Override
     public int getFetchSize() throws SQLException {
-        return call.getFetchSize();
+        return prepared().getFetchSize();
     }
 
     @Override
     public int getResultSetConcurrency() throws SQLException {
-        return call.getResultSetConcurrency();
+        return prepared().getResultSetConcurrency();
     }
 
     @Override
     public int getResultSetType() throws SQLException {
-        return call.getResultSetType();
+        return prepared().getResultSetType();
     }
 
     @Override
     public void addBatch(final String sql) throws SQLException {
-        call.addBatch(sql);
+        final CallableStatement attached = attached();
+        if (attached != null) {
+            attached.addBatch(sql);
+        }
     }
 
     @Override
@@ -1393,7 +1577,7 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
 
     @Override
     public int getResultSetHoldability() throws SQLException {
-        return call.getResultSetHoldability();
+        return prepared().getResultSetHoldability();
     }
 
     @Override
@@ -1403,7 +1587,7 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
 
     @Override
     public String getQueryplan(final String sql) throws SQLException {
-        return vendor().getQueryplan(sql);
+        return ((CUBRIDCallableStatement) prepared()).getQueryplan(sql);
     }
 
     @Override
@@ -1414,16 +1598,30 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
     @Override
     public void setQueryInfo(final boolean value) {
         vendor().setQueryInfo(value);
+        settings.put(
+                "queryInfo",
+                new Setting() {
+                    public void on(final CallableStatement target) {
+                        ((CUBRIDCallableStatement) target).setQueryInfo(value);
+                    }
+                });
     }
 
     @Override
     public void setOnlyQueryPlan(final boolean value) {
         vendor().setOnlyQueryPlan(value);
+        settings.put(
+                "onlyQueryPlan",
+                new Setting() {
+                    public void on(final CallableStatement target) {
+                        ((CUBRIDCallableStatement) target).setOnlyQueryPlan(value);
+                    }
+                });
     }
 
     @Override
     public boolean isClosed() throws SQLException {
-        return call.isClosed();
+        return super.isClosed();
     }
 
     @Override

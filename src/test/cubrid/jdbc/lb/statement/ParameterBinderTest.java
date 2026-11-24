@@ -47,6 +47,7 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.math.BigDecimal;
 import java.sql.Blob;
+import java.sql.CallableStatement;
 import java.sql.Clob;
 import java.sql.Date;
 import java.sql.PreparedStatement;
@@ -55,6 +56,7 @@ import java.sql.Time;
 import java.sql.Timestamp;
 import java.sql.Types;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Calendar;
 import java.util.List;
 import java.util.TimeZone;
@@ -457,6 +459,73 @@ public class ParameterBinderTest {
             }
             return list;
         }
+    }
+
+    @Test
+    public void anOutRegistrationIsReplayedWithTheValues() throws Exception {
+        ParameterBinder binder = new ParameterBinder();
+        binder.recordSetInt(1, 4);
+        binder.recordRegisterOutParameter(2, Types.INTEGER);
+        binder.recordRegisterOutParameter(3, Types.NUMERIC, 2);
+        binder.recordRegisterOutParameter(4, Types.OTHER, "t");
+
+        List<String> asked = new ArrayList<String>();
+        binder.replay(recordingCall(asked));
+
+        assertEquals(
+                Arrays.asList(
+                        "setInt[1, 4]",
+                        "registerOutParameter[2, 4]",
+                        "registerOutParameter[3, 2, 2]",
+                        "registerOutParameter[4, 1111, t]"),
+                asked);
+    }
+
+    @Test
+    public void aValueAndAnOutRegistrationAtOneIndexReplayInTheOrderLastMade() throws Exception {
+        ParameterBinder binder = new ParameterBinder();
+        binder.recordRegisterOutParameter(1, Types.INTEGER);
+        binder.recordSetInt(1, 4);
+        binder.recordSetInt(2, 5);
+        binder.recordRegisterOutParameter(2, Types.INTEGER);
+        binder.recordSetInt(2, 6);
+
+        List<String> asked = new ArrayList<String>();
+        binder.replay(recordingCall(asked));
+
+        assertEquals(
+                Arrays.asList(
+                        "registerOutParameter[1, 4]",
+                        "setInt[1, 4]",
+                        "registerOutParameter[2, 4]",
+                        "setInt[2, 6]"),
+                asked);
+    }
+
+    @Test
+    public void clearForgetsOutRegistrationsAsCoreDoes() throws Exception {
+        ParameterBinder binder = new ParameterBinder();
+        binder.recordSetInt(1, 4);
+        binder.recordRegisterOutParameter(2, Types.INTEGER);
+
+        binder.clear();
+
+        List<String> asked = new ArrayList<String>();
+        binder.replay(recordingCall(asked));
+        assertTrue(asked.isEmpty());
+    }
+
+    private static CallableStatement recordingCall(final List<String> asked) {
+        return (CallableStatement)
+                Proxy.newProxyInstance(
+                        CallableStatement.class.getClassLoader(),
+                        new Class<?>[] {CallableStatement.class},
+                        new InvocationHandler() {
+                            public Object invoke(final Object p, final Method m, final Object[] a) {
+                                asked.add(m.getName() + Arrays.toString(a));
+                                return null;
+                            }
+                        });
     }
 
     private static final class RecordingPreparedStatementHandler {

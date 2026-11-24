@@ -114,6 +114,13 @@ public final class FailoverCoverageArchitectureTest {
                     + " runs inside every execute closure"
         },
         {
+            "LoadBalanceConnection#newCall",
+            "1",
+            "HELPER",
+            "the write leg a CallableStatement prepares on; asked from its constructor, its"
+                    + " run and its describe calls, each inside a handler block"
+        },
+        {
             "LBPreparedStatement#physicalPsForTarget", "1",
             "HELPER", "called only from the execute closures"
         },

@@ -37,6 +37,7 @@ import java.io.InputStream;
 import java.io.Reader;
 import java.math.BigDecimal;
 import java.sql.Blob;
+import java.sql.CallableStatement;
 import java.sql.Clob;
 import java.sql.Date;
 import java.sql.PreparedStatement;
@@ -261,6 +262,26 @@ final class ParameterBinder {
     }
 
     /**
+     * A CallableStatement's OUT registration, made on the physical statement and kept as the values
+     * are: a statement prepared again after its leg was replaced is registered again.
+     */
+    void recordRegisterOutParameter(final int parameterIndex, final int sqlType)
+            throws SQLException {
+        add(new RegisterOutOp(parameterIndex, sqlType, null, null));
+    }
+
+    void recordRegisterOutParameter(final int parameterIndex, final int sqlType, final int scale)
+            throws SQLException {
+        add(new RegisterOutOp(parameterIndex, sqlType, Integer.valueOf(scale), null));
+    }
+
+    void recordRegisterOutParameter(
+            final int parameterIndex, final int sqlType, final String typeName)
+            throws SQLException {
+        add(new RegisterOutOp(parameterIndex, sqlType, null, typeName));
+    }
+
+    /**
      * Core binds inside the setter, so a value it cannot bind fails there and the previous value
      * stays. Binding to the prepared physical statement first gives that exception at that call;
      * without one, the value fails only when it is replayed.
@@ -459,6 +480,16 @@ final class ParameterBinder {
         }
 
         abstract void apply(PreparedStatement target) throws SQLException;
+
+        /** One operation is kept per key: a later one at the same key replaces it. */
+        Object key() {
+            return Integer.valueOf(parameterIndex);
+        }
+
+        /** The key of the other kind of operation at this index. */
+        Object otherKeyAtIndex() {
+            return RegisterOutOp.keyOf(parameterIndex);
+        }
     }
 
     /* ===== typed operations =====*/ private static final class SetNullOp
@@ -942,14 +973,62 @@ final class ParameterBinder {
      * the previous value in place (last write wins) while first-insertion order is preserved for
      * deterministic replay. Map-backed: dedup and add are O(1), {@code snapshot} is O(n).
      */
+    /* ===== CallableStatement =====*/
+    private static final class RegisterOutOp extends ParameterOperation {
+        private final int sqlType;
+        private final Integer scale;
+        private final String typeName;
+
+        RegisterOutOp(
+                final int parameterIndex,
+                final int sqlType,
+                final Integer scale,
+                final String typeName) {
+            super(parameterIndex);
+            this.sqlType = sqlType;
+            this.scale = scale;
+            this.typeName = typeName;
+        }
+
+        static Object keyOf(final int parameterIndex) {
+            return "out" + parameterIndex;
+        }
+
+        @Override
+        Object key() {
+            return keyOf(parameterIndex);
+        }
+
+        @Override
+        Object otherKeyAtIndex() {
+            return Integer.valueOf(parameterIndex);
+        }
+
+        @Override
+        void apply(final PreparedStatement target) throws SQLException {
+            final CallableStatement call = (CallableStatement) target;
+            if (scale != null) {
+                call.registerOutParameter(parameterIndex, sqlType, scale.intValue());
+            } else if (typeName != null) {
+                call.registerOutParameter(parameterIndex, sqlType, typeName);
+            } else {
+                call.registerOutParameter(parameterIndex, sqlType);
+            }
+        }
+    }
+
     private static final class OperationList {
-        private final LinkedHashMap<Integer, ParameterOperation> byIndex =
-                new LinkedHashMap<Integer, ParameterOperation>();
+        private final LinkedHashMap<Object, ParameterOperation> byIndex =
+                new LinkedHashMap<Object, ParameterOperation>();
 
         void add(final ParameterOperation operation) {
             // LinkedHashMap.put keeps an existing key's position and only replaces its value, which
-            // matches the previous "set in place on re-bind" behavior.
-            byIndex.put(Integer.valueOf(operation.parameterIndex), operation);
+            // matches the previous "set in place on re-bind" behavior. A value and an OUT
+            // registration at one index are replayed in the order they were last made.
+            if (byIndex.containsKey(operation.otherKeyAtIndex())) {
+                byIndex.remove(operation.key());
+            }
+            byIndex.put(operation.key(), operation);
         }
 
         void addAllFrom(final OperationList other) {
@@ -966,9 +1045,9 @@ final class ParameterBinder {
 
         int maxParameterIndex() {
             int result = 0;
-            for (Integer index : byIndex.keySet()) {
-                if (index.intValue() > result) {
-                    result = index.intValue();
+            for (ParameterOperation operation : byIndex.values()) {
+                if (operation.parameterIndex > result) {
+                    result = operation.parameterIndex;
                 }
             }
 

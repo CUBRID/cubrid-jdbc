@@ -41,6 +41,7 @@
 package cubrid.jdbc.jci;
 
 import java.io.IOException;
+import java.time.OffsetDateTime;
 
 class UUpdateParameter extends UParameter {
     private int indexes[]; /* parameter's column index */
@@ -66,7 +67,11 @@ class UUpdateParameter extends UParameter {
         indexes = new int[number];
 
         for (int i = 0; i < types.length; i++) {
-            pTypes[i] = info[columnIndexes[i]].getColumnType();
+            /* CAS converts a DATETIMETZ to the column type, as the server does for a bound one. */
+            pTypes[i] =
+                    columnValues[i] instanceof OffsetDateTime
+                            ? UUType.U_TYPE_DATETIMETZ
+                            : info[columnIndexes[i]].getColumnType();
         }
 
         setParameters(pTypes, columnValues);

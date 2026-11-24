@@ -35,7 +35,6 @@ import cubrid.jdbc.jci.UColumnInfo;
 import cubrid.jdbc.jci.UError;
 import cubrid.jdbc.jci.UErrorCode;
 import cubrid.jdbc.jci.UStatement;
-import cubrid.jdbc.jci.UUType;
 import cubrid.sql.CUBRIDOID;
 import java.io.Closeable;
 import java.io.IOException;
@@ -63,13 +62,13 @@ import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
-import java.time.format.DateTimeFormatter;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.HashMap;
 import java.util.Iterator;
-import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.TimeZone;
 
 /**
@@ -78,17 +77,30 @@ import java.util.TimeZone;
  * @version 2.0
  */
 public class CUBRIDResultSet implements ResultSet {
-    private static final DateTimeFormatter DATE_LITERAL =
-            DateTimeFormatter.ofPattern("MM/dd/uuuu", Locale.ROOT);
-    private static final DateTimeFormatter TIME_LITERAL =
-            DateTimeFormatter.ofPattern("HH:mm:ss", Locale.ROOT);
-    private static final DateTimeFormatter DATETIME_LITERAL =
-            DateTimeFormatter.ofPattern("MM/dd/uuuu HH:mm:ss.SSS", Locale.ROOT);
-
     public boolean complete_on_close;
 
     private CUBRIDConnection con;
     private CUBRIDStatement stmt;
+
+    /**
+     * The statement to name as this result set's producer, when that is not {@link #stmt}.
+     *
+     * <p>A load-balanced session runs each execution on a physical statement chosen at execute
+     * time, and hands the physical result set straight to the application. Without this field
+     * {@link #getStatement()} would name that physical statement — an object the application never
+     * asked for, whose {@code getConnection()} is a physical connection. Committing or closing
+     * through it reaches one leg only.
+     *
+     * <p>Deliberately separate from {@link #stmt} rather than replacing it. {@code stmt} is
+     * load-bearing here: {@link #close()} synchronizes on it, calls its package-private {@code
+     * complete()}, and reads its holdability. Pointing it at a logical statement would run {@code
+     * complete()} against a statement that owns no {@code UStatement} — a NullPointerException —
+     * and a logical statement cannot override a package-private method from another package. So the
+     * internal producer and the reported producer are two notions, and only the reported one is
+     * redirected.
+     */
+    private Statement reportedStmt;
+
     protected UStatement u_stmt;
     protected int number_of_rows;
     private int current_row;
@@ -124,6 +136,7 @@ public class CUBRIDResultSet implements ResultSet {
             throws SQLException {
         con = c;
         stmt = s;
+        reportedStmt = null;
         u_stmt = s.u_stmt;
         number_of_rows = u_stmt.getExecuteResult();
         current_row = -1;
@@ -172,6 +185,7 @@ public class CUBRIDResultSet implements ResultSet {
     public CUBRIDResultSet(CUBRIDConnection c, UStatement s) {
         con = c;
         stmt = null;
+        reportedStmt = null;
         u_stmt = s;
         current_row = -1;
         if (u_stmt != null) {
@@ -276,6 +290,7 @@ public class CUBRIDResultSet implements ResultSet {
             switch (errorCode) {
                 case UErrorCode.ER_DBMS:
                 case UErrorCode.ER_COMMUNICATION:
+                case UErrorCode.ER_NETWORK_TIMEOUT:
                 case UErrorCode.ER_ILLEGAL_DATA_SIZE:
                 case UErrorCode.CAS_ER_DBMS:
                 case UErrorCode.CAS_ER_COMMUNICATION:
@@ -304,7 +319,7 @@ public class CUBRIDResultSet implements ResultSet {
                         is_closed = true;
 
                         clearCurrentRow();
-                        if (stmt.getResultSetHoldability() == ResultSet.HOLD_CURSORS_OVER_COMMIT) {
+                        if (stmt.getHoldability() == ResultSet.HOLD_CURSORS_OVER_COMMIT) {
                             u_stmt.closeCursor();
                         }
                         if (complete_on_close) {
@@ -316,6 +331,7 @@ public class CUBRIDResultSet implements ResultSet {
 
                         streams = null;
                         stmt = null;
+                        reportedStmt = null;
                         u_stmt.closeResult();
                         u_stmt = null;
                         column_info = null;
@@ -350,6 +366,7 @@ public class CUBRIDResultSet implements ResultSet {
             error = u_stmt.getRecentError();
         }
         if (obj != null && obj instanceof Clob) {
+            checkGetXXXError();
             Clob clob = (Clob) obj;
             int length;
             if (clob.length() > (long) Integer.MAX_VALUE) {
@@ -483,6 +500,7 @@ public class CUBRIDResultSet implements ResultSet {
             error = u_stmt.getRecentError();
         }
         if (obj != null && obj instanceof Blob) {
+            checkGetXXXError();
             Blob blob = (Blob) obj;
             int length;
             if (blob.length() > (long) Integer.MAX_VALUE) {
@@ -555,6 +573,7 @@ public class CUBRIDResultSet implements ResultSet {
             error = u_stmt.getRecentError();
         }
         if (obj != null && obj instanceof Clob) {
+            checkGetXXXError();
             Clob clob = (Clob) obj;
             InputStream stream = clob.getAsciiStream();
             addStream(stream);
@@ -592,6 +611,7 @@ public class CUBRIDResultSet implements ResultSet {
             error = u_stmt.getRecentError();
         }
         if (obj != null && obj instanceof Blob) {
+            checkGetXXXError();
             Blob blob = (Blob) obj;
             InputStream stream = blob.getBinaryStream();
             addStream(stream);
@@ -744,6 +764,7 @@ public class CUBRIDResultSet implements ResultSet {
             error = u_stmt.getRecentError();
         }
         if (obj != null && obj instanceof Clob) {
+            checkGetXXXError();
             Clob clob = (Clob) obj;
             Reader stream = clob.getCharacterStream();
             addStream(stream);
@@ -1448,7 +1469,24 @@ public class CUBRIDResultSet implements ResultSet {
 
     public synchronized Statement getStatement() throws SQLException {
         checkIsOpen();
+        if (reportedStmt != null) {
+            return reportedStmt;
+        }
+
         return stmt;
+    }
+
+    /**
+     * Name {@code reported} as this result set's producer instead of the statement that physically
+     * created it. Used by the load-balance driver, which hands out physical result sets: see {@link
+     * #reportedStmt} for why this is a separate notion from the internal producer. Public only
+     * because that driver is in another package: an application that calls it changes what {@link
+     * #getStatement()} returns.
+     *
+     * @param reported the statement to report, or null to report the physical producer again
+     */
+    public synchronized void setReportedStatement(Statement reported) {
+        reportedStmt = reported;
     }
 
     public Object getObject(int i, Map<String, Class<?>> map) throws SQLException {
@@ -1682,7 +1720,7 @@ public class CUBRIDResultSet implements ResultSet {
     }
 
     private void checkIsOpen() throws SQLException {
-        if (is_closed) {
+        if (isClosed()) {
             throw con.createCUBRIDException(CUBRIDJDBCErrorCode.result_set_closed, null);
         }
     }
@@ -1768,11 +1806,24 @@ public class CUBRIDResultSet implements ResultSet {
         return value;
     }
 
+    private OffsetDateTime getOffsetDateTime(int columnIndex) throws SQLException {
+        checkJavaTimeColumn(columnIndex, OffsetDateTime.class);
+
+        OffsetDateTime value;
+        synchronized (u_stmt) {
+            value = u_stmt.getOffsetDateTime(columnIndex - 1);
+            error = u_stmt.getRecentError();
+        }
+
+        checkGetXXXError();
+        return value;
+    }
+
     private void checkJavaTimeColumn(int columnIndex, Class<?> type) throws SQLException {
         checkRowIsValidForGet();
         checkColumnIsValid(columnIndex);
 
-        if (isJavaTimeConversionSupported(column_info[columnIndex - 1].getColumnType(), type)) {
+        if (JavaTimeRules.canRead(column_info[columnIndex - 1].getColumnType(), type)) {
             return;
         }
 
@@ -1780,23 +1831,6 @@ public class CUBRIDResultSet implements ResultSet {
                 CUBRIDJDBCErrorCode.invalid_value,
                 CUBRIDException.cannotConvertMessage(type),
                 null);
-    }
-
-    static boolean isJavaTimeConversionSupported(byte columnType, Class<?> type) {
-        switch (columnType) {
-            case UUType.U_TYPE_DATE:
-                return type == LocalDate.class || type == LocalDateTime.class;
-            case UUType.U_TYPE_TIME:
-                return type == LocalTime.class || type == LocalDateTime.class;
-            case UUType.U_TYPE_TIMESTAMP:
-            case UUType.U_TYPE_DATETIME:
-                return true;
-            case UUType.U_TYPE_NULL:
-                /* The server did not declare a type, so the decoded value carries its own. */
-                return true;
-            default:
-                return false;
-        }
     }
 
     private void beforeGetValue(int columnIndex) throws SQLException {
@@ -1829,14 +1863,18 @@ public class CUBRIDResultSet implements ResultSet {
         }
     }
 
-    private void updateValue(int columnIndex, Object value) throws SQLException {
+    private void checkCanUpdate(int columnIndex) throws SQLException {
         checkIsOpen();
         checkIsUpdatable();
         checkRowIsValidForUpdate();
         checkColumnIsValid(columnIndex);
         checkColumnIsUpdatable(columnIndex);
+    }
 
-        if (CUBRIDPreparedStatement.isUnsupportedJavaTime(value)) {
+    private void updateValue(int columnIndex, Object value) throws SQLException {
+        checkCanUpdate(columnIndex);
+
+        if (JavaTimeRules.isUnsupported(value)) {
             throw CUBRIDException.notSupported(
                     CUBRIDException.cannotStoreMessage(value.getClass()));
         }
@@ -1893,14 +1931,13 @@ public class CUBRIDResultSet implements ResultSet {
             return "null";
         }
 
+        Optional<String> javaTimeLiteral = JavaTimeRules.literalOf(value);
+        if (javaTimeLiteral.isPresent()) {
+            return javaTimeLiteral.get();
+        }
+
         String strvalue = null;
-        if (value instanceof LocalTime) {
-            strvalue = "'" + TIME_LITERAL.format((LocalTime) value) + "'";
-        } else if (value instanceof LocalDate) {
-            strvalue = "'" + DATE_LITERAL.format((LocalDate) value) + "'";
-        } else if (value instanceof LocalDateTime) {
-            strvalue = "'" + DATETIME_LITERAL.format((LocalDateTime) value) + "'";
-        } else if (value instanceof java.sql.Time) {
+        if (value instanceof java.sql.Time) {
             java.text.SimpleDateFormat format = new java.text.SimpleDateFormat("HH:mm:ss");
             strvalue = "'" + format.format((java.util.Date) value) + "'";
         } else if (value instanceof java.sql.Date) {
@@ -2041,7 +2078,17 @@ public class CUBRIDResultSet implements ResultSet {
 
     /* JDK 1.6 */
     public boolean isClosed() throws SQLException {
-        return is_closed;
+        if (is_closed) {
+            return true;
+        }
+
+        CUBRIDStatement s = stmt;
+        if (s != null) {
+            return s.isClosed();
+        }
+
+        CUBRIDConnection c = con;
+        return c != null && c.isClosedWithoutLock();
     }
 
     /* JDK 1.6 */
@@ -2322,6 +2369,9 @@ public class CUBRIDResultSet implements ResultSet {
         if (type == LocalDateTime.class) {
             return type.cast(getLocalDateTime(columnIndex));
         }
+        if (type == OffsetDateTime.class) {
+            return type.cast(getOffsetDateTime(columnIndex));
+        }
 
         throw con.createCUBRIDException(
                 CUBRIDJDBCErrorCode.invalid_value,
@@ -2336,39 +2386,51 @@ public class CUBRIDResultSet implements ResultSet {
 
     // ------------------------- JDBC 4.2 -----------------------------------
 
-    private void checkSqlType(SQLType targetSqlType) throws SQLException {
+    private int checkSqlType(SQLType targetSqlType) throws SQLException {
         if (targetSqlType == null) {
             throw con.createCUBRIDException(
                     CUBRIDJDBCErrorCode.invalid_value, " - targetSqlType is null", null);
         }
-        if (targetSqlType.getVendorTypeNumber() == null) {
+        Integer vendorTypeNumber = targetSqlType.getVendorTypeNumber();
+        if (vendorTypeNumber == null) {
             throw con.createCUBRIDException(
                     CUBRIDJDBCErrorCode.invalid_value,
                     " - targetSqlType has no vendor type number: " + targetSqlType.getName(),
                     null);
         }
+        return vendorTypeNumber;
+    }
+
+    /* An OffsetDateTime follows the setObject rule of the target type; other values ignore it. */
+    private Object valueToUpdate(Object x, int targetSqlType) throws SQLException {
+        if (!(x instanceof OffsetDateTime)) {
+            return x;
+        }
+        return JavaTimeRules.valueToSend((OffsetDateTime) x, targetSqlType, con);
     }
 
     @Override
     public synchronized void updateObject(int columnIndex, Object x, SQLType targetSqlType)
             throws SQLException {
-        checkSqlType(targetSqlType);
-        updateObject(columnIndex, x);
+        int target = checkSqlType(targetSqlType);
+        checkCanUpdate(columnIndex);
+        updateObject(columnIndex, valueToUpdate(x, target));
     }
 
     @Override
     public synchronized void updateObject(
             int columnIndex, Object x, SQLType targetSqlType, int scaleOrLength)
             throws SQLException {
-        checkSqlType(targetSqlType);
-        updateObject(columnIndex, x, scaleOrLength);
+        int target = checkSqlType(targetSqlType);
+        checkCanUpdate(columnIndex);
+        updateObject(columnIndex, valueToUpdate(x, target), scaleOrLength);
     }
 
     @Override
     public synchronized void updateObject(String columnLabel, Object x, SQLType targetSqlType)
             throws SQLException {
         checkSqlType(targetSqlType);
-        updateObject(columnLabel, x);
+        updateObject(findColumn(columnLabel), x, targetSqlType);
     }
 
     @Override
@@ -2376,6 +2438,6 @@ public class CUBRIDResultSet implements ResultSet {
             String columnLabel, Object x, SQLType targetSqlType, int scaleOrLength)
             throws SQLException {
         checkSqlType(targetSqlType);
-        updateObject(columnLabel, x, scaleOrLength);
+        updateObject(findColumn(columnLabel), x, targetSqlType, scaleOrLength);
     }
 }

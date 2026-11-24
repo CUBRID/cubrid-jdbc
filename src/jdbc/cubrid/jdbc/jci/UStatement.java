@@ -58,11 +58,12 @@ import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.TimeZone;
 
-public class UStatement {
+public class UStatement implements AutoCloseable {
     public static final int CURSOR_SET = 0, CURSOR_CUR = 1, CURSOR_END = 2;
 
     public static final byte QUERY_INFO_PLAN = 0x01;
@@ -449,6 +450,10 @@ public class UStatement {
 
     public void bind(int index, LocalDateTime value) {
         bindValue(index, UUType.U_TYPE_DATETIME, value);
+    }
+
+    public void bind(int index, OffsetDateTime value) {
+        bindValue(index, UUType.U_TYPE_DATETIMETZ, value);
     }
 
     public void bind(int index, Date value) {
@@ -1391,7 +1396,7 @@ public class UStatement {
     }
 
     public synchronized LocalDate getLocalDate(int index) {
-        UDateTimeFields fields = dateTimeFieldsOf(index);
+        UDateTimeFields fields = dateTimeFieldsOf(index, UDateTimeFields.class);
         if (fields == null) return null;
 
         try {
@@ -1403,7 +1408,7 @@ public class UStatement {
     }
 
     public synchronized LocalTime getLocalTime(int index) {
-        UDateTimeFields fields = dateTimeFieldsOf(index);
+        UDateTimeFields fields = dateTimeFieldsOf(index, UDateTimeFields.class);
         if (fields == null) return null;
 
         try {
@@ -1415,7 +1420,7 @@ public class UStatement {
     }
 
     public synchronized LocalDateTime getLocalDateTime(int index) {
-        UDateTimeFields fields = dateTimeFieldsOf(index);
+        UDateTimeFields fields = dateTimeFieldsOf(index, UDateTimeFields.class);
         if (fields == null) return null;
 
         try {
@@ -1426,7 +1431,19 @@ public class UStatement {
         return null;
     }
 
-    private UDateTimeFields dateTimeFieldsOf(int index) {
+    public synchronized OffsetDateTime getOffsetDateTime(int index) {
+        UDateTimeTzFields fields = dateTimeFieldsOf(index, UDateTimeTzFields.class);
+        if (fields == null) return null;
+
+        try {
+            return fields.toOffsetDateTime();
+        } catch (UJciException e) {
+            e.toUError(errorHandler);
+        }
+        return null;
+    }
+
+    private <T extends UDateTimeValue> T dateTimeFieldsOf(int index, Class<T> type) {
         errorHandler = new UError(relatedConnection);
 
         if (isClosed == true) {
@@ -1452,8 +1469,8 @@ public class UStatement {
             return null;
         }
 
-        if (obj instanceof UDateTimeFields) {
-            return (UDateTimeFields) obj;
+        if (type.isInstance(obj)) {
+            return type.cast(obj);
         }
 
         errorHandler.setErrorCode(UErrorCode.ER_TYPE_CONVERSION);
@@ -2159,7 +2176,7 @@ public class UStatement {
 
     private Object beforeGetXXX(int index) {
         Object obj = beforeGetRaw(index);
-        return obj == null ? null : UDateTimeFields.sqlValueOf(obj);
+        return obj == null ? null : UDateTimeValue.sqlValueOf(obj);
     }
 
     private Object beforeGetRaw(int index) {
@@ -2390,12 +2407,12 @@ public class UStatement {
             case UUType.U_TYPE_TIME:
                 return inBuffer.readTime();
             case UUType.U_TYPE_TIMESTAMP:
-                return inBuffer.readTimestampFields(false);
+                return inBuffer.readTimestamp(false);
             case UUType.U_TYPE_TIMESTAMPTZ:
             case UUType.U_TYPE_TIMESTAMPLTZ:
                 return inBuffer.readTimestamptz(dataSize);
             case UUType.U_TYPE_DATETIME:
-                return inBuffer.readDatetimeFields(false);
+                return inBuffer.readDatetime(false);
             case UUType.U_TYPE_DATETIMETZ:
             case UUType.U_TYPE_DATETIMELTZ:
                 return inBuffer.readDatetimetz(dataSize);
@@ -2414,7 +2431,7 @@ public class UStatement {
                         else
                             aArray.setElement(
                                     i,
-                                    UDateTimeFields.sqlValueOf(
+                                    UDateTimeValue.sqlValueOf(
                                             readData(inBuffer, baseType, eleSize, charsetName)));
                     }
                     return aArray;

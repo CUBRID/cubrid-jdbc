@@ -50,6 +50,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.sql.SQLException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -256,10 +257,11 @@ public abstract class UConnection {
     protected boolean lastAutoCommit = true;
     private boolean isAutoCommitBySelf = false;
 
-    protected boolean isClosed = false;
+    protected volatile boolean isClosed = false;
 
     private int lastIsolationLevel;
     private int lastLockTimeout = LOCK_TIMEOUT_NOT_USED;
+    private volatile int networkTimeout;
 
     protected byte[] dbInfo;
     protected String dbname = "";
@@ -506,6 +508,11 @@ public abstract class UConnection {
     // UFunctionCode.GET_SCHEMA_INFO
     public synchronized UStatement getSchemaInfo(
             int type, String arg1, String arg2, byte flag, int shard_id) {
+        return getSchemaInfo(type, arg1, arg2, null, flag, shard_id);
+    }
+
+    public synchronized UStatement getSchemaInfo(
+            int type, String arg1, String arg2, String arg3, byte flag, int shard_id) {
         UStatement returnValue = null;
 
         errorHandler = new UError(this);
@@ -517,7 +524,9 @@ public abstract class UConnection {
             errorHandler.setErrorCode(UErrorCode.ER_SCHEMA_TYPE);
             return null;
         }
-        if (flag < 0 || flag > 3) {
+        boolean hasParameterPattern =
+                type == USchType.SCH_PROCEDURE_COLUMNS || type == USchType.SCH_FUNCTION_COLUMNS;
+        if (flag < 0 || flag > (hasParameterPattern ? 7 : 3)) {
             errorHandler.setErrorCode(UErrorCode.ER_ILLEGAL_FLAG);
             return null;
         }
@@ -535,6 +544,7 @@ public abstract class UConnection {
             outBuffer.addByte(flag);
 
             outBuffer.addInt(shard_id);
+            if (arg3 != null) outBuffer.addStringWithNull(arg3);
 
             UInputBuffer inBuffer;
             inBuffer = send_recv_msg();
@@ -1688,34 +1698,38 @@ public abstract class UConnection {
     }
 
     public boolean isErrorCommunication(int error) {
-        switch (error) {
-            case UErrorCode.ER_COMMUNICATION:
-            case UErrorCode.ER_ILLEGAL_DATA_SIZE:
-            case UErrorCode.CAS_ER_COMMUNICATION:
-                return true;
-            default:
-                return false;
-        }
+        return ReconnectPolicy.isErrorCommunication(error);
     }
 
     public boolean isErrorToReconnect(int error) {
-        if (isErrorCommunication(error)) {
-            return true;
-        }
-
-        switch (error) {
-            case -111: // ER_TM_SERVER_DOWN_UNILATERALLY_ABORTED
-            case -199: // ER_NET_SERVER_CRASHED
-            case -224: // ER_OBJ_NO_CONNECT
-            case -677: // ER_BO_CONNECT_FAILED
-                return true;
-            default:
-                return false;
-        }
+        return ReconnectPolicy.isErrorToReconnect(error);
     }
 
     public int getLockTimeout() {
         return lastLockTimeout;
+    }
+
+    public void setNetworkTimeout(int milliseconds) {
+        networkTimeout = milliseconds;
+        Socket socket = client;
+        if (socket == null) {
+            return;
+        }
+
+        try {
+            socket.setSoTimeout(socketTimeout(milliseconds));
+        } catch (IOException e) {
+            logException(e);
+        }
+    }
+
+    public int getNetworkTimeout() {
+        return networkTimeout;
+    }
+
+    /* No CAS status check before the deadline: it fails first when the network is down. */
+    static int socketTimeout(int networkTimeout) {
+        return networkTimeout > 0 ? networkTimeout : SOCKET_TIMEOUT;
     }
 
     // UFunctionCode.SAVEPOINT
@@ -1975,9 +1989,9 @@ public abstract class UConnection {
         outBuffer.sendData();
         /* set cas info to UConnection member variable and return InputBuffer */
         if (timeout > 0) {
-            inputBuffer = new UInputBuffer(input, this, timeout * 1000 + READ_TIMEOUT);
+            inputBuffer = receive(timeout * 1000 + READ_TIMEOUT);
         } else {
-            inputBuffer = new UInputBuffer(input, this, 0);
+            inputBuffer = receive(0);
         }
 
         if (UJCIUtil.isConsoleDebug()) {
@@ -1997,7 +2011,7 @@ public abstract class UConnection {
         byte prev_casinfo[] = casInfo;
         outBuffer.sendData();
         /* set cas info to UConnection member variable and return InputBuffer */
-        UInputBuffer inputBuffer = new UInputBuffer(input, this, 0);
+        UInputBuffer inputBuffer = receive(0);
 
         if (UJCIUtil.isConsoleDebug()) {
             printCasInfo(prev_casinfo, casInfo);
@@ -2010,6 +2024,21 @@ public abstract class UConnection {
             createJciException(UErrorCode.ER_COMMUNICATION);
         }
         return send_recv_msg(true);
+    }
+
+    private UInputBuffer receive(int headerTimeout) throws UJciException, IOException {
+        int networkTimeout = this.networkTimeout;
+        if (networkTimeout <= 0) {
+            return new UInputBuffer(input, this, headerTimeout, input.getTimeout());
+        }
+
+        try {
+            return new UInputBuffer(input, this, networkTimeout, networkTimeout);
+        } catch (SocketTimeoutException e) {
+            clientSocketClose();
+            isClosed = true;
+            throw createJciException(UErrorCode.ER_NETWORK_TIMEOUT);
+        }
     }
 
     UUrlCache getUrlCache() {

@@ -55,7 +55,12 @@ public class CUBRIDConnectionWrapperXA extends CUBRIDConnection {
         if (is_closed) return;
 
         this.closeConnection();
-        xacon.notifyConnectionClosed();
+        if (u_con.isClosed()) {
+            xacon.notifyConnectionErrorOccurred(
+                    createCUBRIDException(CUBRIDJDBCErrorCode.connection_closed, null));
+        } else {
+            xacon.notifyConnectionClosed();
+        }
     }
 
     public synchronized void setAutoCommit(boolean autoCommit) throws SQLException {

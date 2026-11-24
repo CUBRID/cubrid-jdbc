@@ -1,0 +1,161 @@
+/*
+ * Copyright (c) 2016 CUBRID Corporation.
+ *
+ * Redistribution and use in source and binary forms, with or without modification,
+ * are permitted provided that the following conditions are met:
+ *
+ * - Redistributions of source code must retain the above copyright notice,
+ *   this list of conditions and the following disclaimer.
+ *
+ * - Redistributions in binary form must reproduce the above copyright notice,
+ *   this list of conditions and the following disclaimer in the documentation
+ *   and/or other materials provided with the distribution.
+ *
+ * - Neither the name of the <ORGANIZATION> nor the names of its contributors
+ *   may be used to endorse or promote products derived from this software without
+ *   specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+ * IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
+ * INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA,
+ * OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY
+ * OF SUCH DAMAGE.
+ *
+ */
+
+package cubrid.jdbc.lb.route;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.fail;
+
+import cubrid.jdbc.lb.route.Router.RouteTarget;
+import cubrid.jdbc.lb.state.SessionRoutingState;
+import java.util.Collections;
+import org.junit.Before;
+import org.junit.Test;
+
+public class RouterTransactionPrecedenceTest {
+
+    private SessionRoutingState session;
+
+    @Before
+    public void setUp() {
+        session = new SessionRoutingState();
+        session.setAutoCommit(false);
+    }
+
+    /** A session SET the read leg cannot replay keeps unhinted reads on RW, in autocommit too. */
+    @Test
+    public void assertSessionReadPinSendsReadsToRw() {
+        SessionRoutingState pinned = new SessionRoutingState();
+        pinned.pinReadsToRw();
+        Router.RouteDecision d = Router.decide("SELECT * FROM t", pinned, readAdvisor());
+        assertEquals(RouteTarget.TO_READ_WRITE, d.getTarget());
+        assertEquals(
+                RouteTarget.TO_READ_WRITE,
+                Router.decide(null, RouteTarget.TO_READ_ONLY, pinned, "SELECT * FROM t"));
+    }
+
+    /** Unlike a transaction, the pin yields to an explicit TO_RO hint: the application chose it. */
+    @Test
+    public void assertToRoHintStillWinsOverSessionReadPin() {
+        SessionRoutingState pinned = new SessionRoutingState();
+        pinned.pinReadsToRw();
+        Router.RouteDecision d =
+                Router.decide("SELECT /*+ TO_RO */ * FROM t", pinned, failingDefaultAdvisor());
+        assertEquals(RouteTarget.TO_READ_ONLY, d.getTarget());
+        pinned.reset();
+        assertEquals(
+                RouteTarget.TO_READ_ONLY,
+                Router.decide("SELECT * FROM t", pinned, readAdvisor()).getTarget());
+    }
+
+    /** Only the reads naming a variable the session created on RW follow it there. */
+    @Test
+    public void assertReadNamingSessionVariableGoesToRw() {
+        SessionRoutingState withVariable = new SessionRoutingState();
+        withVariable.addSessionVariables(Collections.singleton("SET1"));
+        assertEquals(
+                RouteTarget.TO_READ_WRITE,
+                Router.decide("SELECT set1 FROM db_root", withVariable, readAdvisor()).getTarget());
+        assertEquals(
+                RouteTarget.TO_READ_WRITE,
+                Router.decide(null, RouteTarget.TO_READ_ONLY, withVariable, "SELECT set1"));
+        assertEquals(
+                RouteTarget.TO_READ_ONLY,
+                Router.decide("SELECT a FROM t", withVariable, readAdvisor()).getTarget());
+        assertEquals(
+                RouteTarget.TO_READ_ONLY,
+                Router.decide("SELECT /*+ TO_RO */ set1", withVariable, failingDefaultAdvisor())
+                        .getTarget());
+        withVariable.reset();
+        assertEquals(
+                RouteTarget.TO_READ_ONLY,
+                Router.decide("SELECT set1 FROM db_root", withVariable, readAdvisor()).getTarget());
+    }
+
+    private static Router.DefaultRouteAdvisor readAdvisor() {
+        return new Router.DefaultRouteAdvisor() {
+            public RouteTarget defaultTarget(final String sql) {
+                return RouteTarget.TO_READ_ONLY;
+            }
+        };
+    }
+
+    @Test
+    public void assertActiveTransactionInvalidatesToRoHint() {
+        final String sql = "SELECT /*+ TO_RO */ * FROM t";
+        Router.RouteDecision d = Router.decide(sql, session, failingDefaultAdvisor());
+        assertEquals(RouteTarget.TO_READ_WRITE, d.getTarget());
+    }
+
+    @Test
+    public void assertActiveTransactionInvalidatesToSlaveHint() {
+        final String sql = "SELECT /*+ TO_SLAVE */ * FROM t";
+        Router.RouteDecision d = Router.decide(sql, session, failingDefaultAdvisor());
+        assertEquals(RouteTarget.TO_READ_WRITE, d.getTarget());
+    }
+
+    @Test
+    public void assertActiveTransactionPreservesToRwHint() {
+        final String sql = "SELECT /*+ TO_RW */ * FROM t";
+        Router.RouteDecision d = Router.decide(sql, session, failingDefaultAdvisor());
+        assertEquals(RouteTarget.TO_READ_WRITE, d.getTarget());
+    }
+
+    /**
+     * A manual-commit session stays transaction-pinned across commit()/rollback(): CUBRID begins
+     * the next transaction implicitly, so a non-Master hint remains invalid (routes to RW) and a
+     * single logical transaction never spans two physical connections (04 §C-1).
+     */
+    @Test
+    public void assertManualCommitStaysTransactionPinnedAfterCommit() {
+        session.onTransactionBoundary();
+        final String sql = "SELECT /*+ TO_RO */ * FROM t";
+        Router.RouteDecision d = Router.decide(sql, session, failingDefaultAdvisor());
+        assertEquals(RouteTarget.TO_READ_WRITE, d.getTarget());
+    }
+
+    @Test
+    public void assertNonTransactionalToRoHonored() {
+        SessionRoutingState autoCommit = new SessionRoutingState();
+        final String sql = "SELECT /*+ TO_RO */ * FROM t";
+        Router.RouteDecision d = Router.decide(sql, autoCommit, failingDefaultAdvisor());
+        assertEquals(RouteTarget.TO_READ_ONLY, d.getTarget());
+    }
+
+    private static Router.DefaultRouteAdvisor failingDefaultAdvisor() {
+        return new Router.DefaultRouteAdvisor() {
+            @Override
+            public RouteTarget defaultTarget(final String s) {
+                fail("Default advisor must not run when transaction or hint decides routing");
+                return null;
+            }
+        };
+    }
+}

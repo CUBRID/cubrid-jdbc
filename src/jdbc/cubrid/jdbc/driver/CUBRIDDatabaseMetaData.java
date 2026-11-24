@@ -44,6 +44,7 @@ import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.RowIdLifetime;
 import java.sql.SQLException;
+import java.sql.Types;
 import java.util.Locale;
 import java.util.StringTokenizer;
 
@@ -426,7 +427,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
 
     public synchronized String getSchemaTerm() throws SQLException {
         checkIsOpen();
-        return checkSupportSchema() ? "schema" : "";
+        return con.isSchemaSupported() ? "schema" : "";
     }
 
     public synchronized String getProcedureTerm() throws SQLException {
@@ -451,27 +452,27 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
 
     public synchronized boolean supportsSchemasInDataManipulation() throws SQLException {
         checkIsOpen();
-        return checkSupportSchema();
+        return con.isSchemaSupported();
     }
 
     public synchronized boolean supportsSchemasInProcedureCalls() throws SQLException {
         checkIsOpen();
-        return checkSupportSchema();
+        return con.isSchemaSupported();
     }
 
     public synchronized boolean supportsSchemasInTableDefinitions() throws SQLException {
         checkIsOpen();
-        return checkSupportSchema();
+        return con.isSchemaSupported();
     }
 
     public synchronized boolean supportsSchemasInIndexDefinitions() throws SQLException {
         checkIsOpen();
-        return checkSupportSchema();
+        return con.isSchemaSupported();
     }
 
     public synchronized boolean supportsSchemasInPrivilegeDefinitions() throws SQLException {
         checkIsOpen();
-        return checkSupportSchema();
+        return con.isSchemaSupported();
     }
 
     public synchronized boolean supportsCatalogsInDataManipulation() throws SQLException {
@@ -631,7 +632,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
 
     public synchronized int getMaxSchemaNameLength() throws SQLException {
         checkIsOpen();
-        return checkSupportSchema() ? 31 : 0;
+        return con.isSchemaSupported() ? 31 : 0;
     }
 
     public synchronized int getMaxProcedureNameLength() throws SQLException {
@@ -666,7 +667,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
 
     public synchronized int getMaxTableNameLength() throws SQLException {
         checkIsOpen();
-        return checkSupportSchema() ? 222 : 254;
+        return con.isSchemaSupported() ? 222 : 254;
     }
 
     public synchronized int getMaxTablesInSelect() throws SQLException {
@@ -723,9 +724,6 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
         return false;
     }
 
-    /*
-     * empty ResultSet
-     */
     public synchronized ResultSet getProcedures(
             String catalog, String schemaPattern, String procedureNamePattern) throws SQLException {
         checkIsOpen();
@@ -738,7 +736,8 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
             "",
             "",
             "REMARKS",
-            "PROCEDURE_TYPE"
+            "PROCEDURE_TYPE",
+            "SPECIFIC_NAME"
         };
         int[] types = {
             UUType.U_TYPE_VARCHAR,
@@ -748,16 +747,39 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
             UUType.U_TYPE_VARCHAR,
             UUType.U_TYPE_VARCHAR,
             UUType.U_TYPE_VARCHAR,
-            UUType.U_TYPE_SHORT
+            UUType.U_TYPE_SHORT,
+            UUType.U_TYPE_VARCHAR
         };
-        boolean[] nullable = {true, true, false, true, true, true, false, false};
+        boolean[] nullable = {true, true, false, true, true, true, true, false, false};
+        CUBRIDResultSetWithoutQuery rs =
+                new CUBRIDResultSetWithoutQuery(9, types, names, nullable, null);
 
-        return new CUBRIDResultSetWithoutQuery(8, types, names, nullable, null);
+        try (UStatement us =
+                requestRoutines(
+                        USchType.SCH_PROCEDURES,
+                        schemaPattern,
+                        procedureNamePattern,
+                        null,
+                        (byte) 3)) {
+            if (us == null) {
+                return rs;
+            }
+
+            Object[] value = new Object[9];
+            value[7] = (short) procedureNoResult;
+            for (int i = 0; nextRoutineRow(us, i); i++) {
+                value[1] = us.getString(0);
+                value[2] = us.getString(1);
+                value[6] = us.getString(2);
+                value[8] = us.getString(3);
+                rs.addTuple(value);
+            }
+        }
+        endTransaction();
+
+        return rs;
     }
 
-    /*
-     * empty ResultSet
-     */
     public synchronized ResultSet getProcedureColumns(
             String catalog,
             String schemaPattern,
@@ -779,7 +801,14 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
             "SCALE",
             "RADIX",
             "NULLABLE",
-            "REMARKS"
+            "REMARKS",
+            "COLUMN_DEF",
+            "SQL_DATA_TYPE",
+            "SQL_DATETIME_SUB",
+            "CHAR_OCTET_LENGTH",
+            "ORDINAL_POSITION",
+            "IS_NULLABLE",
+            "SPECIFIC_NAME"
         };
         int[] types = {
             UUType.U_TYPE_VARCHAR,
@@ -794,13 +823,60 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
             UUType.U_TYPE_SHORT,
             UUType.U_TYPE_SHORT,
             UUType.U_TYPE_SHORT,
+            UUType.U_TYPE_VARCHAR,
+            UUType.U_TYPE_VARCHAR,
+            UUType.U_TYPE_INT,
+            UUType.U_TYPE_INT,
+            UUType.U_TYPE_INT,
+            UUType.U_TYPE_INT,
+            UUType.U_TYPE_VARCHAR,
             UUType.U_TYPE_VARCHAR
         };
         boolean[] nullable = {
-            true, true, false, false, false, false, false, false, false, false, false, false, false
+            true, true, false, false, false, false, false, true, true, true, false, false, true,
+            true, true, true, true, false, false, false
         };
+        CUBRIDResultSetWithoutQuery rs =
+                new CUBRIDResultSetWithoutQuery(20, types, names, nullable, null);
 
-        return new CUBRIDResultSetWithoutQuery(13, types, names, nullable, null);
+        try (UStatement us =
+                requestRoutines(
+                        USchType.SCH_PROCEDURE_COLUMNS,
+                        schemaPattern,
+                        procedureNamePattern,
+                        columnNamePattern,
+                        (byte) 7)) {
+            if (us == null) {
+                return rs;
+            }
+
+            Object[] value = new Object[20];
+            value[10] = (short) 10;
+            value[11] = (short) procedureNullable;
+            value[18] = "YES";
+            for (int i = 0; nextRoutineRow(us, i); i++) {
+                String dataType = us.getString(5);
+                String defaultValue = us.getString(6);
+                boolean quoted =
+                        defaultValue != null
+                                && ("CHAR".equals(dataType) || "STRING".equals(dataType));
+
+                value[1] = us.getString(0);
+                value[2] = us.getString(1);
+                value[3] = us.getString(3);
+                value[4] = procedureColumnType(us.getString(4));
+                value[5] = routineDataType(dataType);
+                value[6] = routineTypeName(dataType);
+                value[12] = us.getString(7);
+                value[13] = quoted ? "'" + defaultValue + "'" : defaultValue;
+                value[17] = us.getInt(2);
+                value[19] = us.getString(8);
+                rs.addTuple(value);
+            }
+        }
+        endTransaction();
+
+        return rs;
     }
 
     public synchronized ResultSet getTables(
@@ -957,7 +1033,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
         CUBRIDResultSetWithoutQuery rs =
                 new CUBRIDResultSetWithoutQuery(2, types, names, nullable, null);
 
-        if (!checkSupportSchema() || u_con.brokerProtocolVersion() < UConnection.PROTOCOL_V13) {
+        if (!con.isSchemaSupported() || u_con.brokerProtocolVersion() < UConnection.PROTOCOL_V13) {
             return rs;
         }
 
@@ -2821,7 +2897,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
 
     // 3.0
 
-    synchronized void close() {
+    protected synchronized void close() {
         is_closed = true;
         con = null;
         u_con = null;
@@ -2829,19 +2905,7 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
         shard_id = UShardInfo.SHARD_ID_INVALID;
     }
 
-    private boolean checkSupportSchema() throws SQLException {
-        synchronized (u_con) {
-            boolean support = u_con.supportSchema();
-            error = u_con.getRecentError();
-            if (error.getErrorCode() != UErrorCode.ER_NO_ERROR) {
-                throw con.createCUBRIDException(error);
-            }
-
-            return support;
-        }
-    }
-
-    private void checkIsOpen() throws SQLException {
+    protected void checkIsOpen() throws SQLException {
         if (is_closed) {
             if (con != null) {
                 throw con.createCUBRIDException(CUBRIDJDBCErrorCode.dbmetadata_closed, null);
@@ -2854,6 +2918,136 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
     private synchronized void endTransaction() {
         if (u_con.getAutoCommit() == true) {
             u_con.endTransaction(true);
+        }
+    }
+
+    private UStatement requestRoutines(
+            int type, String schemaPattern, String namePattern, String columnNamePattern, byte flag)
+            throws SQLException {
+        if (!con.isSchemaSupported() || u_con.brokerProtocolVersion() < UConnection.PROTOCOL_V13) {
+            return null;
+        }
+
+        synchronized (u_con) {
+            UStatement us =
+                    u_con.getSchemaInfo(
+                            type, schemaPattern, namePattern, columnNamePattern, flag, shard_id);
+            error = u_con.getRecentError();
+            switch (error.getErrorCode()) {
+                case UErrorCode.ER_NO_ERROR:
+                    return us;
+                case UErrorCode.ER_IS_CLOSED:
+                    close();
+                    throw new CUBRIDException(CUBRIDJDBCErrorCode.dbmetadata_closed);
+                default:
+                    throw con.createCUBRIDException(error);
+            }
+        }
+    }
+
+    private boolean nextRoutineRow(UStatement us, int index) throws SQLException {
+        us.moveCursor(index, UStatement.CURSOR_SET);
+        if (us.getRecentError().getErrorCode() != UErrorCode.ER_NO_ERROR) {
+            return false;
+        }
+
+        us.fetch();
+        int fetched = us.getRecentError().getErrorCode();
+        if (fetched != UErrorCode.ER_NO_ERROR && fetched != UErrorCode.ER_WAS_NULL) {
+            throw con.createCUBRIDException(new UError(us.getRecentError()));
+        }
+        return true;
+    }
+
+    private static short procedureColumnType(String mode) {
+        switch (mode) {
+            case "IN":
+                return procedureColumnIn;
+            case "OUT":
+                return procedureColumnOut;
+            case "INOUT":
+                return procedureColumnInOut;
+            default:
+                return procedureColumnUnknown;
+        }
+    }
+
+    private static short functionColumnType(String mode) {
+        switch (mode) {
+            case "IN":
+                return functionColumnIn;
+            case "OUT":
+                return functionColumnOut;
+            case "INOUT":
+                return functionColumnInOut;
+            case "RETURN":
+                return functionReturn;
+            default:
+                return functionColumnUnknown;
+        }
+    }
+
+    private static short routineDataType(String catalogType) {
+        switch (catalogType) {
+            case "SHORT":
+                return Types.SMALLINT;
+            case "INTEGER":
+                return Types.INTEGER;
+            case "BIGINT":
+                return Types.BIGINT;
+            case "NUMERIC":
+                return Types.NUMERIC;
+            case "FLOAT":
+                return Types.REAL;
+            case "DOUBLE":
+            case "MONETARY":
+                return Types.DOUBLE;
+            case "CHAR":
+                return Types.CHAR;
+            case "STRING":
+            case "ENUM":
+            case "JSON":
+                return Types.VARCHAR;
+            case "BIT":
+                return Types.BINARY;
+            case "VARBIT":
+                return Types.VARBINARY;
+            case "DATE":
+                return Types.DATE;
+            case "TIME":
+                return Types.TIME;
+            case "TIMESTAMP":
+            case "DATETIME":
+            case "TIMESTAMPTZ":
+            case "TIMESTAMPLTZ":
+            case "DATETIMETZ":
+            case "DATETIMELTZ":
+                return Types.TIMESTAMP;
+            case "BLOB":
+                return Types.BLOB;
+            case "CLOB":
+                return Types.CLOB;
+            case "CURSOR":
+                return Types.REF_CURSOR;
+            default:
+                return Types.OTHER;
+        }
+    }
+
+    private static String routineTypeName(String catalogType) {
+        switch (catalogType) {
+            case "SHORT":
+                return "SMALLINT";
+            case "DOUBLE":
+                return "DOUBLE PRECISION";
+            case "STRING":
+                return "VARCHAR";
+            case "VARBIT":
+                return "BIT VARYING";
+            case "OBJECT":
+                return "CLASS";
+            default:
+                return catalogType;
         }
     }
 
@@ -2935,19 +3129,144 @@ public class CUBRIDDatabaseMetaData implements DatabaseMetaData {
     }
 
     /* JDK 1.6 */
-    public ResultSet getFunctionColumns(
+    public synchronized ResultSet getFunctionColumns(
             String catalog,
             String schemaPattern,
             String functionNamePattern,
             String columnNamePattern)
             throws SQLException {
-        throw CUBRIDException.notSupported();
+        checkIsOpen();
+
+        String[] names = {
+            "FUNCTION_CAT",
+            "FUNCTION_SCHEM",
+            "FUNCTION_NAME",
+            "COLUMN_NAME",
+            "COLUMN_TYPE",
+            "DATA_TYPE",
+            "TYPE_NAME",
+            "PRECISION",
+            "LENGTH",
+            "SCALE",
+            "RADIX",
+            "NULLABLE",
+            "REMARKS",
+            "CHAR_OCTET_LENGTH",
+            "ORDINAL_POSITION",
+            "IS_NULLABLE",
+            "SPECIFIC_NAME"
+        };
+        int[] types = {
+            UUType.U_TYPE_VARCHAR,
+            UUType.U_TYPE_VARCHAR,
+            UUType.U_TYPE_VARCHAR,
+            UUType.U_TYPE_VARCHAR,
+            UUType.U_TYPE_SHORT,
+            UUType.U_TYPE_SHORT,
+            UUType.U_TYPE_VARCHAR,
+            UUType.U_TYPE_INT,
+            UUType.U_TYPE_INT,
+            UUType.U_TYPE_SHORT,
+            UUType.U_TYPE_SHORT,
+            UUType.U_TYPE_SHORT,
+            UUType.U_TYPE_VARCHAR,
+            UUType.U_TYPE_INT,
+            UUType.U_TYPE_INT,
+            UUType.U_TYPE_VARCHAR,
+            UUType.U_TYPE_VARCHAR
+        };
+        boolean[] nullable = {
+            true, true, false, false, false, false, false, true, true, true, false, false, true,
+            true, false, false, false
+        };
+        CUBRIDResultSetWithoutQuery rs =
+                new CUBRIDResultSetWithoutQuery(17, types, names, nullable, null);
+
+        try (UStatement us =
+                requestRoutines(
+                        USchType.SCH_FUNCTION_COLUMNS,
+                        schemaPattern,
+                        functionNamePattern,
+                        columnNamePattern,
+                        (byte) 7)) {
+            if (us == null) {
+                return rs;
+            }
+
+            Object[] value = new Object[17];
+            value[10] = (short) 10;
+            value[11] = (short) functionNullable;
+            value[15] = "YES";
+            for (int i = 0; nextRoutineRow(us, i); i++) {
+                String mode = us.getString(4);
+                String dataType = us.getString(5);
+
+                value[1] = us.getString(0);
+                value[2] = us.getString(1);
+                value[3] = "RETURN".equals(mode) ? "" : us.getString(3);
+                value[4] = functionColumnType(mode);
+                value[5] = routineDataType(dataType);
+                value[6] = routineTypeName(dataType);
+                value[12] = us.getString(7);
+                value[14] = us.getInt(2);
+                value[16] = us.getString(8);
+                rs.addTuple(value);
+            }
+        }
+        endTransaction();
+
+        return rs;
     }
 
     /* JDK 1.6 */
-    public ResultSet getFunctions(String catalog, String schemaPattern, String functionNamePattern)
-            throws SQLException {
-        throw CUBRIDException.notSupported();
+    public synchronized ResultSet getFunctions(
+            String catalog, String schemaPattern, String functionNamePattern) throws SQLException {
+        checkIsOpen();
+
+        String[] names = {
+            "FUNCTION_CAT",
+            "FUNCTION_SCHEM",
+            "FUNCTION_NAME",
+            "REMARKS",
+            "FUNCTION_TYPE",
+            "SPECIFIC_NAME"
+        };
+        int[] types = {
+            UUType.U_TYPE_VARCHAR,
+            UUType.U_TYPE_VARCHAR,
+            UUType.U_TYPE_VARCHAR,
+            UUType.U_TYPE_VARCHAR,
+            UUType.U_TYPE_SHORT,
+            UUType.U_TYPE_VARCHAR
+        };
+        boolean[] nullable = {true, true, false, true, false, false};
+        CUBRIDResultSetWithoutQuery rs =
+                new CUBRIDResultSetWithoutQuery(6, types, names, nullable, null);
+
+        try (UStatement us =
+                requestRoutines(
+                        USchType.SCH_FUNCTIONS,
+                        schemaPattern,
+                        functionNamePattern,
+                        null,
+                        (byte) 3)) {
+            if (us == null) {
+                return rs;
+            }
+
+            Object[] value = new Object[6];
+            value[4] = (short) functionNoTable;
+            for (int i = 0; nextRoutineRow(us, i); i++) {
+                value[1] = us.getString(0);
+                value[2] = us.getString(1);
+                value[3] = us.getString(2);
+                value[5] = us.getString(3);
+                rs.addTuple(value);
+            }
+        }
+        endTransaction();
+
+        return rs;
     }
 
     /* JDK 1.6 */

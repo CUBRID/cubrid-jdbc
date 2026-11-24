@@ -28,7 +28,6 @@
  *
  */
 
-
 package cubrid.jdbc.lb;
 
 import static org.junit.Assert.assertEquals;

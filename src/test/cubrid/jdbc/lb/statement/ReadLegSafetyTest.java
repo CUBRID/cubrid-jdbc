@@ -572,14 +572,18 @@ public class ReadLegSafetyTest {
         assertEquals(1, legs.count("ro", "SELECT * FROM t WHERE s = ?"));
     }
 
-    /** Nor does a lock timeout the read leg was not given. */
+    /**
+     * Nor does a lock timeout the read leg was not given: one run in a batch, whose rows' values
+     * are not kept for the other legs.
+     */
     @Test
     public void readStatementPreparedWhileABoundLockTimeoutPinnedReadsLeavesRwWithThePin()
             throws SQLException {
         conn.createStatement().executeQuery("SELECT 1");
         PreparedStatement bound = conn.prepareStatement("SET TRANSACTION LOCK TIMEOUT ?");
         bound.setInt(1, 3);
-        bound.execute();
+        bound.addBatch();
+        bound.executeBatch();
         PreparedStatement read = conn.prepareStatement("SELECT * FROM t WHERE s = ?");
         read.setString(1, "a");
         read.executeQuery();
@@ -628,13 +632,17 @@ public class ReadLegSafetyTest {
                 legs.log("ro"));
     }
 
-    /** A login with bound arguments pins until a literal one is replayed, as a login back does. */
+    /**
+     * A login with bound arguments run in a batch, whose values are not kept, pins until a literal
+     * one is replayed, as a login back does.
+     */
     @Test
     public void literalLoginReleasesThePinOfABoundLogin() throws SQLException {
         PreparedStatement ps = conn.prepareStatement("CALL login(?, ?) ON CLASS db_user");
         ps.setString(1, "u2");
         ps.setString(2, "pw");
-        ps.execute();
+        ps.addBatch();
+        ps.executeBatch();
         Statement st = conn.createStatement();
         st.executeQuery("SELECT 1");
         st.execute("CALL login('public', '') ON CLASS db_user");
@@ -659,24 +667,6 @@ public class ReadLegSafetyTest {
         assertEquals(
                 Arrays.asList("SELECT 1", "CALL login('u2', 'pw') ON CLASS db_user", "SELECT 2"),
                 legs.log("ro"));
-    }
-
-    /** With bound arguments it pins when it runs, as a PreparedStatement's does. */
-    @Test
-    public void boundLoginRunAsPreparedCallPinsUntilALiteralLogin() throws SQLException {
-        CallableStatement cs = conn.prepareCall("CALL login(?, ?) ON CLASS db_user");
-        Statement st = conn.createStatement();
-        st.executeQuery("SELECT 1");
-        cs.setString(1, "u2");
-        cs.setString(2, "pw");
-        cs.execute();
-        st.executeQuery("SELECT 2");
-        st.execute("CALL login('public', '') ON CLASS db_user");
-        st.executeQuery("SELECT 3");
-
-        assertEquals(1, legs.count("ro", "SELECT 1"));
-        assertEquals(1, legs.count("rw", "SELECT 2"));
-        assertEquals(1, legs.count("ro", "SELECT 3"));
     }
 
     @Test

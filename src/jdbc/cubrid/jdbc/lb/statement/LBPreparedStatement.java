@@ -96,6 +96,8 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
     // What core's prepare reports in hasResultSet(); core keeps it after close, so this does too.
     private boolean firstResultType;
     private final ParameterBinder parameterBinder;
+    // A login or a lock timeout given its values with ?: the other legs run it with them.
+    private final boolean valuesGoToOtherLegs;
     private final List<ParameterBinder> batchedBinders = new ArrayList<ParameterBinder>();
     private PhysicalPsProvider phyPsProvider = new UnsupportedPsProvider();
     private final SqlCaches sqlCaches;
@@ -147,6 +149,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
                             }
                         });
         this.sqlCaches = SqlCaches.compute(sql, lbConnection.sqlClassifier());
+        this.valuesGoToOtherLegs = SessionSetStatement.parse(sql).getBoundKey() != null;
         if (SessionSetStatement.changesCompilation(
                 lbConnection.getSessionState().getReadPinReasons())) {
             statementDelegate.markPreparedUnderReadPin();
@@ -1144,6 +1147,9 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         // binder before replay (same as executeBatch).
         physicalStatement.clearParameters();
         parameterBinder.replay(physicalStatement);
+        if (valuesGoToOtherLegs) {
+            statementDelegate.runsWith(parameterBinder.runOf(sql, false));
+        }
 
         return physicalStatement;
     }

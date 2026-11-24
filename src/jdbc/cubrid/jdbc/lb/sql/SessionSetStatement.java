@@ -312,18 +312,21 @@ public final class SessionSetStatement {
     private final Set<String> unpins;
     private final List<String> nonSessionParams;
     private final Set<String> pinsIfFailed;
+    private final String boundKey;
 
     private SessionSetStatement(
             final Map<String, String> replay,
             final Set<String> pins,
             final Set<String> unpins,
             final List<String> nonSessionParams,
-            final Set<String> pinsIfFailed) {
+            final Set<String> pinsIfFailed,
+            final String boundKey) {
         this.replay = replay;
         this.pins = pins;
         this.unpins = unpins;
         this.nonSessionParams = nonSessionParams;
         this.pinsIfFailed = pinsIfFailed;
+        this.boundKey = boundKey;
     }
 
     /**
@@ -376,6 +379,17 @@ public final class SessionSetStatement {
         return pinsIfFailed;
     }
 
+    /**
+     * The replay key of a login or a lock timeout that is this whole statement and takes its values
+     * from {@code ?}, the two such forms the server accepts. Run again with the values of the run
+     * it is replayed like one written out; without them it {@link #getPins() pins} under this key.
+     *
+     * @return the key, or null for any other statement
+     */
+    public String getBoundKey() {
+        return boundKey;
+    }
+
     /** Whether the statement changed anything LB tracks. */
     public boolean changesSession() {
         return !replay.isEmpty()
@@ -418,6 +432,7 @@ public final class SessionSetStatement {
         }
 
         final Builder all = new Builder();
+        SessionSetStatement last = NONE_RESULT;
         int statements = 0;
         int start = 0;
         int i = 0;
@@ -438,10 +453,14 @@ public final class SessionSetStatement {
             final int body = SqlLexer.skipWhitespaceAndComments(part, 0);
             if (body < part.length()) {
                 statements++;
-                all.then(parseStatement(part, body));
+                last = parseStatement(part, body);
+                all.then(last);
             }
             start = i + 1;
             i++;
+        }
+        if (statements == 1) {
+            return last; // one statement and a ';' after it
         }
         all.severalStatements = statements > 1;
         return all.build();
@@ -504,9 +523,15 @@ public final class SessionSetStatement {
             }
         }
         if ("OPTIMIZATION".equals(target)) {
+            final String what = wordAt(stmt, skipWord(stmt, pos));
+            if ("COST".equals(what)) {
+                // The cost functions of the CAS process, for every later client of it; no result.
+                return notOfTheSession("optimization cost");
+            }
             // SET OPTIMIZATION LEVEL n sets optimization_level; levels 2/258/514 skip execution.
-            final boolean level = "LEVEL".equals(wordAt(stmt, skipWord(stmt, pos)));
-            return level ? replayOrPin(OPTIMIZATION_LEVEL_KEY, text) : pin(UNKNOWN_PIN);
+            return "LEVEL".equals(what)
+                    ? replayOrPin(OPTIMIZATION_LEVEL_KEY, text)
+                    : pin(UNKNOWN_PIN);
         }
         if ("TRACE".equals(target)) {
             // SET TRACE ON sets query_trace=y; SHOW TRACE then runs where the traced query ran.
@@ -713,7 +738,17 @@ public final class SessionSetStatement {
 
     /** Replays {@code stmt}, or pins under {@code key} until a replayable SET of it. */
     private static SessionSetStatement replayOrPin(final String key, final String stmt) {
-        return replayable(stmt) ? replay(key, stmt) : pin(key);
+        if (replayable(stmt)) {
+            return replay(key, stmt);
+        }
+        final boolean takesValues = LOGIN_KEY.equals(key) || LOCK_TIMEOUT_KEY.equals(key);
+        return new SessionSetStatement(
+                Collections.<String, String>emptyMap(),
+                Collections.singleton(key),
+                Collections.<String>emptySet(),
+                Collections.<String>emptyList(),
+                Collections.<String>emptySet(),
+                takesValues ? key : null);
     }
 
     private static SessionSetStatement replay(final String key, final String stmt) {
@@ -726,7 +761,8 @@ public final class SessionSetStatement {
                 Collections.<String>emptySet(),
                 Collections.<String>emptySet(),
                 Collections.<String>emptyList(),
-                Collections.<String>emptySet());
+                Collections.<String>emptySet(),
+                null);
     }
 
     private static SessionSetStatement pin(final String reason) {
@@ -735,7 +771,18 @@ public final class SessionSetStatement {
                 Collections.singleton(reason),
                 Collections.<String>emptySet(),
                 Collections.<String>emptyList(),
-                Collections.<String>emptySet());
+                Collections.<String>emptySet(),
+                null);
+    }
+
+    private static SessionSetStatement notOfTheSession(final String name) {
+        return new SessionSetStatement(
+                Collections.<String, String>emptyMap(),
+                Collections.<String>emptySet(),
+                Collections.<String>emptySet(),
+                Collections.singletonList(name),
+                Collections.<String>emptySet(),
+                null);
     }
 
     private static SessionSetStatement unpin(final String reason) {
@@ -744,7 +791,8 @@ public final class SessionSetStatement {
                 Collections.<String>emptySet(),
                 Collections.singleton(reason),
                 Collections.<String>emptyList(),
-                Collections.<String>emptySet());
+                Collections.<String>emptySet(),
+                null);
     }
 
     /**
@@ -888,7 +936,8 @@ public final class SessionSetStatement {
                     Collections.unmodifiableSet(pins),
                     Collections.unmodifiableSet(unpins),
                     Collections.unmodifiableList(nonSessionParams),
-                    Collections.unmodifiableSet(ifFailed));
+                    Collections.unmodifiableSet(ifFailed),
+                    null);
         }
     }
 }

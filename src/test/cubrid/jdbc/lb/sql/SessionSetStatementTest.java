@@ -32,6 +32,7 @@ package cubrid.jdbc.lb.sql;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.util.ArrayList;
@@ -238,8 +239,52 @@ public class SessionSetStatementTest {
                 replay("set system parameters 'optimization_level=1'")
                         .containsKey("PARAM:OPTIMIZATION_LEVEL"));
         assertEquals(only("PARAM:OPTIMIZATION_LEVEL"), pins("SET OPTIMIZATION LEVEL ?"));
+        assertEquals(only(SessionSetStatement.UNKNOWN_PIN), pins("SET OPTIMIZATION FOO 1"));
+    }
+
+    /** The cost functions belong to the CAS process, not to the session, and change no result. */
+    @Test
+    public void optimizationCostIsReportedAndPinsNothing() {
+        SessionSetStatement s = SessionSetStatement.parse("SET OPTIMIZATION COST 'iscan' '0'");
+
+        assertEquals(Arrays.asList("optimization cost"), s.getNonSessionParams());
+        assertTrue(s.getPins().isEmpty());
+        assertTrue(s.getReplay().isEmpty());
+        assertTrue(s.changesSession());
+    }
+
+    /** The two forms the server accepts values for; a run's values make them replayable. */
+    @Test
+    public void aLoginOrALockTimeoutGivenValuesNamesItsKey() {
         assertEquals(
-                only(SessionSetStatement.UNKNOWN_PIN), pins("SET OPTIMIZATION COST 'iscan' '0'"));
+                SessionSetStatement.LOGIN_KEY,
+                SessionSetStatement.parse("CALL login(?, ?) ON CLASS db_user").getBoundKey());
+        assertEquals(
+                SessionSetStatement.LOCK_TIMEOUT_KEY,
+                SessionSetStatement.parse("SET TRANSACTION LOCK TIMEOUT ?").getBoundKey());
+        assertEquals(
+                "one statement and a ';' after it",
+                SessionSetStatement.LOGIN_KEY,
+                SessionSetStatement.parse("CALL login(?, ?) ON CLASS db_user;").getBoundKey());
+        // Without the values it pins under the same key, as before.
+        assertEquals(
+                only(SessionSetStatement.LOGIN_KEY), pins("CALL login(?, ?) ON CLASS db_user"));
+    }
+
+    @Test
+    public void noOtherStatementNamesABoundKey() {
+        assertNull(
+                SessionSetStatement.parse("CALL login('u', 'p') ON CLASS db_user").getBoundKey());
+        assertNull(SessionSetStatement.parse("SET NAMES ?").getBoundKey());
+        assertNull(SessionSetStatement.parse("SET OPTIMIZATION LEVEL ?").getBoundKey());
+        assertNull(SessionSetStatement.parse("SET TRANSACTION ISOLATION LEVEL ?").getBoundKey());
+        assertNull(
+                SessionSetStatement.parse("SET TRANSACTION LOCK TIMEOUT ?; SET NAMES utf8")
+                        .getBoundKey());
+        assertNull(
+                SessionSetStatement.parse("SET TRANSACTION ISOLATION LEVEL 4, LOCK TIMEOUT ?")
+                        .getBoundKey());
+        assertNull(SessionSetStatement.parse("SELECT 1 FROM db_root").getBoundKey());
     }
 
     /** Both legs trace; SHOW TRACE then runs where the traced query ran. */

@@ -37,6 +37,7 @@ import cubrid.jdbc.lb.LbExceptions;
 import cubrid.jdbc.lb.LoadBalanceConnection;
 import cubrid.jdbc.lb.failover.ExecuteFailoverHandler.SqlExecution;
 import cubrid.jdbc.lb.route.RoutedSql;
+import cubrid.jdbc.lb.sql.SessionSetStatement;
 import cubrid.sql.CUBRIDOID;
 import cubrid.sql.CUBRIDTimestamptz;
 import java.io.InputStream;
@@ -126,6 +127,8 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
     // What a statement prepared again is given: IN values, OUT registrations, settings by name.
     private final ParameterBinder parameterBinder;
     private final Map<String, Setting> settings = new LinkedHashMap<String, Setting>();
+    // A login given its values with ?: the other legs run it with them.
+    private final boolean valuesGoToOtherLegs;
     // Runs nothing itself: it is the execute path this statement's runs go through.
     private final LBStatement statementDelegate;
 
@@ -154,6 +157,7 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
                                 return attached;
                             }
                         });
+        this.valuesGoToOtherLegs = SessionSetStatement.parse(sql).getBoundKey() != null;
         this.leg = writeLeg.now();
         this.call = writeLeg.prepare(leg);
     }
@@ -204,6 +208,9 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
     private CallableStatement onWriteLeg(final boolean forRun) throws SQLException {
         if (closed()) {
             return call; // core's refusal
+        }
+        if (forRun && valuesGoToOtherLegs) {
+            statementDelegate.runsWith(parameterBinder.runOf(sql, true));
         }
         final Connection now = forRun ? writeLeg.forRun(ran) : writeLeg.now();
         if (now != leg || !inStep) {

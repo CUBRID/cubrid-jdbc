@@ -32,6 +32,7 @@ package cubrid.jdbc.lb.statement;
 
 import cubrid.jdbc.driver.CUBRIDPreparedStatement;
 import cubrid.jdbc.lb.LbExceptions;
+import cubrid.jdbc.lb.LoadBalanceConnection;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
@@ -39,6 +40,7 @@ import java.math.BigDecimal;
 import java.sql.Blob;
 import java.sql.CallableStatement;
 import java.sql.Clob;
+import java.sql.Connection;
 import java.sql.Date;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
@@ -468,6 +470,30 @@ final class ParameterBinder {
             throw LbExceptions.internalState("missing prepared statement");
         }
         operations.replayTo(target);
+    }
+
+    /**
+     * {@code sql} run on another connection with the values recorded now. They are copied, so what
+     * is set afterwards does not change the run.
+     *
+     * @param sql the statement these values are for
+     * @param call whether it is prepared as a CallableStatement
+     * @return what prepares, binds, runs and closes it on a connection
+     */
+    LoadBalanceConnection.BoundRun runOf(final String sql, final boolean call) {
+        final ParameterBinder values = snapshot();
+        return new LoadBalanceConnection.BoundRun() {
+            public void on(final Connection physical) throws SQLException {
+                final PreparedStatement statement =
+                        call ? physical.prepareCall(sql) : physical.prepareStatement(sql);
+                try {
+                    values.replay(statement);
+                    statement.execute();
+                } finally {
+                    statement.close();
+                }
+            }
+        };
     }
 
     /* ===== operation base =====*/

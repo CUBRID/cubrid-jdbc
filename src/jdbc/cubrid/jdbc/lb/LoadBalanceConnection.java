@@ -220,7 +220,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     private volatile CUBRIDConnection heldReadLegRollback = null;
     // SQL SETs re-run on every leg opened later (replay key -> statement), in the order they last
     // ran, so a newer SET of the same setting replaces the older one.
-    private final Map<String, String> sessionSets = new LinkedHashMap<String, String>();
+    private final Map<String, Replayed> sessionSets = new LinkedHashMap<String, Replayed>();
     // The server session each leg was in when it last got the session SETs; see
     // restoreSessionSetsAfterReconnect.
     private final Map<Connection, byte[]> legSessions =
@@ -3212,7 +3212,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      * @return whether a read leg was closed, so a read that just ran on it should run again
      */
     public boolean restoreSessionSetsAfterReconnect(final RouteTarget target) {
-        final List<String> sets = sessionSetsSnapshot();
+        final List<Replayed> sets = sessionSetsSnapshot();
         if (sets.isEmpty() || connMgr == null || !isSessionInitialized()) {
             return false; // nothing a new session would lack
         }
@@ -3319,6 +3319,20 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      * @param ranOn the leg it ran on
      */
     public void afterStatementSucceeded(final String sql, final RouteTarget ranOn) {
+        afterStatementSucceeded(sql, ranOn, null);
+    }
+
+    /**
+     * {@link #afterStatementSucceeded(String, RouteTarget)} for a statement that took values from
+     * {@code ?}. A login or a lock timeout that did runs on the other legs with them, as one
+     * written out runs from its text.
+     *
+     * @param sql the statement as the application issued it
+     * @param ranOn the leg it ran on
+     * @param withValues the statement with the values of this run, or null when it kept none
+     */
+    public void afterStatementSucceeded(
+            final String sql, final RouteTarget ranOn, final BoundRun withValues) {
         sessionState.setLastStatementOnReadLeg(ranOn == RouteTarget.TO_READ_ONLY);
         if (ranOn == RouteTarget.TO_READ_WRITE) {
             sessionState.addSessionVariables(IntoVariables.assignedBy(sql));
@@ -3328,10 +3342,20 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         if (!set.changesSession()) {
             return;
         }
-        if (!set.getReplay().isEmpty()) {
-            replaySessionSet(sql, set.getReplay());
+        final String boundKey = withValues == null ? null : set.getBoundKey();
+        if (boundKey != null) {
+            replaySessionSet(
+                    sql, Collections.singletonMap(boundKey, new Replayed(sql, withValues)));
+        } else {
+            if (!set.getReplay().isEmpty()) {
+                final Map<String, Replayed> written = new LinkedHashMap<String, Replayed>();
+                for (Map.Entry<String, String> each : set.getReplay().entrySet()) {
+                    written.put(each.getKey(), new Replayed(each.getValue(), null));
+                }
+                replaySessionSet(sql, written);
+            }
+            pinReads(sql, set.getPins(), "a session change the read leg does not have ran on RW");
         }
-        pinReads(sql, set.getPins(), "a session change the read leg does not have ran on RW");
         unpinReads(set.getUnpins(), sqlForLog(sql));
         if (!set.getNonSessionParams().isEmpty()) {
             LbLog.warn(
@@ -3382,15 +3406,15 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         }
     }
 
-    private void replaySessionSet(final String sql, final Map<String, String> replay) {
+    private void replaySessionSet(final String sql, final Map<String, Replayed> replay) {
         synchronized (sessionSets) {
-            for (Map.Entry<String, String> each : replay.entrySet()) {
+            for (Map.Entry<String, Replayed> each : replay.entrySet()) {
                 sessionSets.remove(each.getKey());
                 sessionSets.put(each.getKey(), each.getValue());
             }
         }
         if (connMgr != null && isSessionInitialized()) {
-            final Collection<String> statements = replay.values();
+            final Collection<Replayed> statements = replay.values();
             try {
                 connMgr.applyToOpenReadLeg(
                         "session SET",
@@ -3453,21 +3477,44 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         unpinReads(Collections.singleton(key), " | by=a JDBC setter");
     }
 
-    private List<String> sessionSetsSnapshot() {
+    private List<Replayed> sessionSetsSnapshot() {
         synchronized (sessionSets) {
-            return new ArrayList<String>(sessionSets.values());
+            return new ArrayList<Replayed>(sessionSets.values());
         }
     }
 
-    private static void runSessionSets(final Connection physical, final Collection<String> sqls)
-            throws SQLException {
-        for (String sql : sqls) {
+    private static void runSessionSets(
+            final Connection physical, final Collection<Replayed> statements) throws SQLException {
+        for (Replayed each : statements) {
+            if (each.withValues != null) {
+                each.withValues.on(physical);
+                continue;
+            }
             Statement statement = physical.createStatement();
             try {
-                statement.execute(sql);
+                statement.execute(each.sql);
             } finally {
                 statement.close();
             }
+        }
+    }
+
+    /**
+     * A statement run on another connection with the values one run of it was given. The values are
+     * kept as that run had them, a login's password among them, for the legs opened later.
+     */
+    public interface BoundRun {
+        void on(Connection physical) throws SQLException;
+    }
+
+    /** A session SET kept for the other legs: its text, or the statement with a run's values. */
+    private static final class Replayed {
+        private final String sql;
+        private final BoundRun withValues;
+
+        Replayed(final String sql, final BoundRun withValues) {
+            this.sql = sql;
+            this.withValues = withValues;
         }
     }
 
@@ -3701,12 +3748,12 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      * another node honours.
      */
     private int sessionIsolation() {
-        final String bySql;
+        final Replayed bySql;
         synchronized (sessionSets) {
             bySql = sessionSets.get(SessionSetStatement.ISOLATION_LEVEL_KEY);
         }
         if (bySql != null) {
-            return SessionSetStatement.isolationAboveReadCommitted(bySql);
+            return SessionSetStatement.isolationAboveReadCommitted(bySql.sql);
         }
         final Integer bySetter = transactionIsolation;
         return bySetter == null ? 0 : bySetter.intValue();

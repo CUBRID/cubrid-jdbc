@@ -77,6 +77,8 @@ public class LBStatement extends CUBRIDStatement {
     private final int resultSetConcurrency;
     private final int resultSetHoldability;
     private boolean closed = false;
+    // What runs the statement again with the values of the run under way; see runsWith.
+    private LoadBalanceConnection.BoundRun valuesOfRun;
     private boolean escapeProcessing = true;
     private boolean queryInfo;
     private boolean onlyQueryPlan;
@@ -692,6 +694,7 @@ public class LBStatement extends CUBRIDStatement {
         final ExecuteFailoverHandler handler = lbConnection.getExecuteFailoverHandler();
         T result;
         RouteTarget ranOn = target;
+        valuesOfRun = null;
         lbConnection.restoreSessionSetsAfterReconnect(target);
         lbConnection.beforeSessionSet(sql);
         lbConnection.settleReadLegRollback(false);
@@ -726,8 +729,17 @@ public class LBStatement extends CUBRIDStatement {
             }
         }
         lbConnection.settleReadLegRollback(false);
-        lbConnection.afterStatementSucceeded(sql, ranOn);
+        lbConnection.afterStatementSucceeded(sql, ranOn, valuesOfRun);
         return result;
+    }
+
+    /**
+     * A prepared or callable statement tells, as it binds a run, what runs it again with the values
+     * of that run. Only for a statement whose values the other legs need: a login or a lock timeout
+     * that takes them from {@code ?}.
+     */
+    void runsWith(final LoadBalanceConnection.BoundRun values) {
+        valuesOfRun = values;
     }
 
     /**

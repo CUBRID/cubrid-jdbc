@@ -35,7 +35,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
 import java.io.UnsupportedEncodingException;
-import java.nio.charset.Charset;
 import java.sql.SQLException;
 import java.sql.Statement;
 
@@ -43,13 +42,13 @@ import java.sql.Statement;
  * Loads a stream into a table through COPY ... FROM STDIN.
  *
  * <p>The connection already exposes the transport itself -- {@link
- * CUBRIDConnection#streamData(byte[])} and {@link CUBRIDConnection#streamEnd()}
- * -- but using it means running the statement, cutting the payload into chunks
- * and closing the stream by hand. This does those three in one call, so a
- * caller hands over a stream and gets back the number of rows loaded.
+ * CUBRIDConnection#streamData(byte[])} and {@link CUBRIDConnection#streamEnd()} -- but using it
+ * means running the statement, cutting the payload into chunks and closing the stream by hand. This
+ * does those three in one call, so a caller hands over a stream and gets back the number of rows
+ * loaded.
  *
- * <p>The payload is opaque here: the format is whatever the statement's
- * {@code WITH (FORMAT ...)} says, and the bytes are passed through untouched.
+ * <p>The payload is opaque here: the format is whatever the statement's {@code WITH (FORMAT ...)}
+ * says, and the bytes are passed through untouched.
  *
  * <pre>
  * CUBRIDCopyLoader loader = ((CUBRIDConnection) conn).getCopyLoader();
@@ -61,9 +60,8 @@ public class CUBRIDCopyLoader {
     /**
      * Bytes read from the source before each send.
      *
-     * <p>Every chunk is a synchronous round trip, so throughput over a remote
-     * link is bounded by round-trip time times chunk count. The default is
-     * large for that reason.
+     * <p>Every chunk is a synchronous round trip, so throughput over a remote link is bounded by
+     * round-trip time times chunk count. The default is large for that reason.
      */
     public static final int DEFAULT_BUFFER_SIZE = 1024 * 1024;
 

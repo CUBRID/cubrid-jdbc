@@ -1025,8 +1025,8 @@ public class CUBRIDConnection implements Connection {
     }
 
     /**
-     * Returns the loader for COPY ... FROM STDIN, which runs the statement,
-     * chunks the source and ends the stream in one call.
+     * Returns the loader for COPY ... FROM STDIN, which runs the statement, chunks the source and
+     * ends the stream in one call.
      */
     public synchronized CUBRIDCopyLoader getCopyLoader() throws SQLException {
         checkIsOpen();

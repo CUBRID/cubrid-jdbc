@@ -1,11 +1,11 @@
 # Load-balance integration tests
 
-These tests drive a **real CUBRID cluster** over real brokers. They are not part of `ant test`:
-that target discovers `**/*Test.class`, and everything here is named `*IT`, so a normal build
-compiles these files but never runs them. Compiling them is deliberate — it keeps the live suite
-from drifting away from the production API between cluster runs.
+These tests drive a **real CUBRID cluster** over real brokers. They are not part of
+`./gradlew test`: that task leaves out every `*IT` class, so a normal build compiles these files
+but never runs them. Compiling them is deliberate — it keeps the live suite from drifting away
+from the production API between cluster runs.
 
-Run them with the `test-it-*` targets described below.
+Run them with the `integrationTest` task described below.
 
 ## They skip silently without `lb.it.enabled`
 
@@ -13,21 +13,26 @@ Every IT gates itself on `Assume.assumeTrue(Boolean.getBoolean("lb.it.enabled"))
 without that property passes without touching anything:
 
 ```
-$ ant test-it-vendor-api
-     [java] OK (0 tests)
+$ ./gradlew integrationTest --tests '*LbVendorApiInheritanceIT'
 BUILD SUCCESSFUL
 ```
 
-**A green build is not evidence that the cluster was exercised.** Worse, the reported count is not
-a reliable signal either, because the gate sits in two different places:
+**A green build is not evidence that the cluster was exercised.** Read the test report
+(`build/reports/tests/integrationTest/index.html`) with care too, because the gate sits in two
+different places:
 
-| Gate in | Classes | Reports when skipped |
+| Gate in | Classes | Report when skipped |
 |---|---|---|
-| `@BeforeClass` | `LbRoutingDecisionIT`, `LbDatabaseMetaDataIT`, `LbStatementApiIT`, `LbPreparedStatementApiIT`, `LbVendorApiInheritanceIT` | `OK (0 tests)` — the whole class is aborted |
-| the `@Test` body | `LbUriUrlIT` | `OK (4 tests)` — **the same count as a real run** |
+| `@BeforeClass` | `LbRoutingDecisionIT`, `LbDatabaseMetaDataIT`, `LbStatementApiIT`, `LbPreparedStatementApiIT`, `LbVendorApiInheritanceIT` | **no entry for the class** — the whole class is aborted |
+| the `@Test` body | `LbUriUrlIT` | 4 tests, 3 of them skipped |
 
-So `ant test-it-uri-url` prints `OK (4 tests)` whether or not a broker was ever contacted. For
-that one, confirm from the cluster side — the fixture table — rather than from the JUnit summary.
+So for the five classes gated in `@BeforeClass`, a skipped run leaves no trace. Check that the
+report lists the class with the full count below, or confirm from the cluster side — the fixture
+table.
+
+The Ant targets give even less: their JUnit summary reads the same whether or not the cluster was
+reached. `ant test-it-uri-url` prints `OK (4 tests)`, and the targets of the other five classes print
+`OK (0 tests)`.
 
 Full counts, for comparing against a real run:
 
@@ -52,7 +57,7 @@ The URL you pass decides the topology, so the cluster must actually provide the 
 | slave | RO broker on a standby node | distributed reads |
 | replica | SO broker on a replica node | distributed reads (only if `replica=` is in the URL) |
 
-A two-node master/slave cluster is enough for most targets. `replica=` and a `readWeight` that
+A two-node master/slave cluster is enough for most classes. `replica=` and a `readWeight` that
 gives the replica a share are needed only when you want the replica rung covered.
 
 The account in `lb.it.jdbc.user` must be able to `CREATE TABLE` and `DROP TABLE`: each suite
@@ -72,22 +77,17 @@ rows to reach every read endpoint before asserting. Replication lag is tolerated
 | `lb.it.table` | per-class default | Fixture table name, e.g. `lb_scenario_it`. |
 | `lb.it.fixture.waitMs` | `20000` | Cap on waiting for fixture rows to replicate to every read endpoint. |
 
-A value that is empty, blank, or a literal unresolved Ant placeholder (`${lb.it.jdbc.url}`) counts
-as unset — that last case is why passing only some of the properties still works.
+`lb.it.jdbc.url`, `lb.it.jdbc.baseUrl` and `lb.it.table` count as unset when the value is empty,
+blank, or a literal unresolved Ant placeholder (`${lb.it.jdbc.url}`). `lb.it.jdbc.user` and
+`lb.it.jdbc.password` are used as given in every class but `LbUriUrlIT`, and an Ant target passes
+the literal `${name}` for a key it was not given. So with `integrationTest` any property but
+`lb.it.enabled` can be left out, while an Ant target also needs the user and the password.
 
-## Targets
+## Running
 
-One target per class, plus `test-it-all` to run the lot:
-
-| Target | Class |
-|---|---|
-| `test-it-routing` | `LbRoutingDecisionIT` |
-| `test-it-metadata` | `LbDatabaseMetaDataIT` |
-| `test-it-statement` | `LbStatementApiIT` |
-| `test-it-prepared` | `LbPreparedStatementApiIT` |
-| `test-it-uri-url` | `LbUriUrlIT` |
-| `test-it-vendor-api` | `LbVendorApiInheritanceIT` |
-| `test-it-all` | all of the above |
+`./gradlew integrationTest` runs every IT, and `--tests` picks classes, e.g.
+`--tests '*LbRoutingDecisionIT'`. Every `-Dlb.it.*` given to Gradle reaches the tests. The Ant
+targets in `build.xml` (one `test-it-*` per class, plus `test-it-all`) still work as well.
 
 What each class covers:
 
@@ -108,7 +108,7 @@ What each class covers:
 Master/slave cluster, every suite:
 
 ```sh
-ant test-it-all \
+./gradlew integrationTest \
   -Dlb.it.enabled=true \
   -Dlb.it.jdbc.url='jdbc:cubrid:loadbalance://192.168.2.197:30000:33000,192.168.2.196:30000:33000/tdb?readWeight=master:50,slave:50' \
   -Dlb.it.jdbc.user=dba \
@@ -119,7 +119,7 @@ ant test-it-all \
 With a replica rung:
 
 ```sh
-ant test-it-all \
+./gradlew integrationTest \
   -Dlb.it.enabled=true \
   -Dlb.it.jdbc.url='jdbc:cubrid:loadbalance://192.168.2.197:30000:33000,192.168.2.196:30000:33000;replica=192.168.2.195:36000/tdb?readWeight=master:33,slave:33,replica:34' \
   -Dlb.it.jdbc.user=dba -Dlb.it.jdbc.password= -Dlb.it.table=lb_scenario_it
@@ -127,14 +127,12 @@ ant test-it-all \
 
 ## Adding a property
 
-`<java fork="yes">` starts a new JVM, so a `-D` given to `ant` reaches the tests only if that
-target lists the key in a `<sysproperty>` element. A property read by a test but missing from the
-target is silently ignored — the test sees the class default instead, and nothing reports that the
-value was dropped. When you add a property to a test, add it to every `test-it-*` target that runs
-that test.
+The `integrationTest` task passes every `lb.it.*` system property given to Gradle to the test
+JVM, so a test can read a new property without any change to the build. An Ant target passes only
+the keys it lists in `<sysproperty>`: add a new key to every `test-it-*` target that runs the test.
 
 Ant passes an undefined property through as the literal string `${name}`. Read properties the way
-this package already does, so that literal is treated as unset:
+this package already does, so that an empty or blank value and that literal are treated as unset:
 
 ```java
 String raw = System.getProperty("lb.it.table");

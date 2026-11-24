@@ -144,7 +144,6 @@ public final class CommandCoverageFollowupTest {
         LoadBalanceConnection connection = createSessionConnection();
         assertUnsupportedPrefix(connection, "createArrayOf");
         assertUnsupportedPrefix(connection, "createStruct");
-        assertUnsupportedPrefix(connection, "getTypeMap");
         assertUnsupportedPrefix(connection, "setTypeMap");
         assertUnsupportedPrefix(connection, "getClientInfo");
         assertUnsupportedPrefix(connection, "getClientInfo(name)");
@@ -178,8 +177,6 @@ public final class CommandCoverageFollowupTest {
                 connection.createArrayOf("V", new Object[] {"x"});
             } else if ("createStruct".equals(api)) {
                 connection.createStruct("S", new Object[] {Integer.valueOf(1)});
-            } else if ("getTypeMap".equals(api)) {
-                connection.getTypeMap();
             } else if ("getClientInfo".equals(api)) {
                 connection.getClientInfo();
             } else if ("getClientInfo(name)".equals(api)) {

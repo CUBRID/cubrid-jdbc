@@ -2090,7 +2090,8 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     public Map<String, Class<?>> getTypeMap() throws SQLException {
-        throw LbExceptions.featureNotSupported();
+        checkClosed();
+        return new HashMap<String, Class<?>>();
     }
 
     public void setTypeMap(Map<String, Class<?>> map) throws SQLException {

@@ -2237,6 +2237,18 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                         return getPhysicalConnForCmd(SessionLeg.RW);
                     }
 
+                    public Connection forRun(final boolean ranBefore) throws SQLException {
+                        if (ranBefore) {
+                            commitWhatHoldsTheFailback();
+                        }
+                        final Endpoint endpoint = routeStatement(RouteTarget.TO_READ_WRITE, sql);
+                        try {
+                            return requireConnMgr().getPhyConn(endpoint);
+                        } catch (SQLException e) {
+                            throw closedOr(e);
+                        }
+                    }
+
                     public CallableStatement prepare(final Connection leg) throws SQLException {
                         return reportSelfAsOwner(preparer.on(leg));
                     }
@@ -2249,9 +2261,26 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                 label,
                 new SqlExecution<CallableStatement>() {
                     public CallableStatement run() throws SQLException {
+                        // Before the prepare, which opens a transaction that would hold it.
+                        failbackRwIfStatementAllows();
                         return new LBCallableStatement(LoadBalanceConnection.this, sql, writeLeg);
                     }
                 });
+    }
+
+    /**
+     * In autocommit core commits what a CallableStatement's run left open as the first step of its
+     * next run, and leaves the alternative host at that commit. Here the failback is attempted
+     * before the physical statement runs, so that commit is sent first - only while the write leg
+     * is displaced and reports a transaction, which is when a failback waits on it.
+     */
+    private void commitWhatHoldsTheFailback() throws SQLException {
+        if (sessionState.isAutoCommit()
+                && connMgr != null
+                && connMgr.isRwDisplaced()
+                && connMgr.isRwTxReportedOpen()) {
+            getPhysicalConnForCmd(SessionLeg.RW).commit();
+        }
     }
 
     /**

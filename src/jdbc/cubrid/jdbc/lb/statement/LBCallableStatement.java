@@ -93,6 +93,14 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
         /** The write leg, for the command that is running. */
         Connection now() throws SQLException;
 
+        /**
+         * The write leg a run of the CALL goes to, by the step every statement takes before it
+         * runs: the failback is attempted, and the route is logged and counted. A statement that
+         * {@code ranBefore} first has what that run left open in autocommit committed, as core
+         * commits it at the next run, so that it does not hold the failback.
+         */
+        Connection forRun(boolean ranBefore) throws SQLException;
+
         /** Prepares the CALL on {@code leg}, as the application's prepareCall did. */
         CallableStatement prepare(Connection leg) throws SQLException;
 
@@ -113,6 +121,8 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
     private CallableStatement call;
     private Connection leg;
     private boolean inStep = true;
+    // Whether the physical statement has run: in autocommit a CALL leaves its transaction open.
+    private boolean ran;
     // What a statement prepared again is given: IN values, OUT registrations, settings by name.
     private final ParameterBinder parameterBinder;
     private final Map<String, Setting> settings = new LinkedHashMap<String, Setting>();
@@ -180,7 +190,7 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
         return writeLeg.asCommand(
                 new SqlExecution<CallableStatement>() {
                     public CallableStatement run() throws SQLException {
-                        return onWriteLeg();
+                        return onWriteLeg(false);
                     }
                 });
     }
@@ -188,14 +198,17 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
     /**
      * The physical statement on the write leg of the command that is running: the one held, or the
      * CALL prepared again there with what this statement was given.
+     *
+     * @param forRun whether the command is a run of the CALL, which is routed as a statement is
      */
-    private CallableStatement onWriteLeg() throws SQLException {
+    private CallableStatement onWriteLeg(final boolean forRun) throws SQLException {
         if (closed()) {
             return call; // core's refusal
         }
-        final Connection now = writeLeg.now();
+        final Connection now = forRun ? writeLeg.forRun(ran) : writeLeg.now();
         if (now != leg || !inStep) {
             inStep = false; // prepared again if this does not finish
+            ran = false;
             try {
                 call.close(); // its leg may live on in another role
             } catch (SQLException alreadyClosed) {
@@ -238,11 +251,15 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
      * and counted. It is never run again: a stored procedure is not idempotent.
      */
     private <T> T runCall(final SqlExecution<T> execution) throws SQLException {
-        return statementDelegate.executeWithFailover(
-                sql,
-                statementDelegate.routeFor(RoutedSql.of(sql, lbConnection.sqlClassifier())),
-                false,
-                execution);
+        final T result =
+                statementDelegate.executeWithFailover(
+                        sql,
+                        statementDelegate.routeFor(RoutedSql.of(sql, lbConnection.sqlClassifier())),
+                        false,
+                        execution);
+        ran = true;
+
+        return result;
     }
 
     @Override
@@ -250,7 +267,7 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
         return runCall(
                         new SqlExecution<Boolean>() {
                             public Boolean run() throws SQLException {
-                                return Boolean.valueOf(onWriteLeg().execute());
+                                return Boolean.valueOf(onWriteLeg(true).execute());
                             }
                         })
                 .booleanValue();
@@ -262,7 +279,7 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
                 runCall(
                         new SqlExecution<ResultSet>() {
                             public ResultSet run() throws SQLException {
-                                return onWriteLeg().executeQuery();
+                                return onWriteLeg(true).executeQuery();
                             }
                         }),
                 this);
@@ -273,7 +290,7 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
         return runCall(
                         new SqlExecution<Integer>() {
                             public Integer run() throws SQLException {
-                                return Integer.valueOf(onWriteLeg().executeUpdate());
+                                return Integer.valueOf(onWriteLeg(true).executeUpdate());
                             }
                         })
                 .intValue();
@@ -284,7 +301,7 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
         return runCall(
                 new SqlExecution<CUBRIDOID>() {
                     public CUBRIDOID run() throws SQLException {
-                        onWriteLeg();
+                        onWriteLeg(true);
                         return vendor().executeInsert();
                     }
                 });

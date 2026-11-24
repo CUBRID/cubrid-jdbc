@@ -115,10 +115,17 @@ public final class FailoverCoverageArchitectureTest {
         },
         {
             "LoadBalanceConnection#newCall",
+            "2",
+            "HELPER",
+            "the write leg a CallableStatement prepares and runs on; asked from its"
+                    + " constructor, its run and its describe calls, each inside a handler block"
+        },
+        {
+            "LoadBalanceConnection#commitWhatHoldsTheFailback",
             "1",
             "HELPER",
-            "the write leg a CallableStatement prepares on; asked from its constructor, its"
-                    + " run and its describe calls, each inside a handler block"
+            "the commit core sends at the start of a CallableStatement's next run; called from"
+                    + " that run, inside its execute closure"
         },
         {
             "LBPreparedStatement#physicalPsForTarget", "1",

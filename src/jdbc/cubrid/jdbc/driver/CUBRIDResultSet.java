@@ -352,6 +352,10 @@ public class CUBRIDResultSet implements ResultSet {
         }
         if (obj != null && obj instanceof Clob) {
             checkGetXXXError();
+            if (obj instanceof CUBRIDClob) {
+                /* one read: length () of a multi-byte value would read it once more */
+                return ((CUBRIDClob) obj).readAll();
+            }
             Clob clob = (Clob) obj;
             int length;
             if (clob.length() > (long) Integer.MAX_VALUE) {
@@ -704,7 +708,9 @@ public class CUBRIDResultSet implements ResultSet {
         checkIsOpen();
 
         if (meta_data == null) {
-            meta_data = new CUBRIDResultSetMetaData(u_stmt.getColumnInfo());
+            meta_data =
+                    new CUBRIDResultSetMetaData(
+                            u_stmt.getColumnInfo(), con.u_con.brokerSpeaksV13());
         }
 
         return meta_data;
@@ -1841,6 +1847,12 @@ public class CUBRIDResultSet implements ResultSet {
         checkRowIsValidForUpdate();
         checkColumnIsValid(columnIndex);
         checkColumnIsUpdatable(columnIndex);
+        byte type = column_info[columnIndex - 1].getColumnType();
+        if ((type == UUType.U_TYPE_BLOB || type == UUType.U_TYPE_CLOB)
+                && (value instanceof Blob || value instanceof Clob)) {
+            /* as on develop: a row update goes through the object, which takes no internal LOB */
+            throw CUBRIDException.notSupported();
+        }
 
         if (CUBRIDPreparedStatement.isUnsupportedJavaTime(value)) {
             throw CUBRIDException.notSupported(

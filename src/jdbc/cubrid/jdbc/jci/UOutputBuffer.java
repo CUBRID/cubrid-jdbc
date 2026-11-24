@@ -40,9 +40,9 @@
  */
 package cubrid.jdbc.jci;
 
+import cubrid.jdbc.driver.CUBRIDBfile;
 import cubrid.jdbc.driver.CUBRIDBinaryString;
-import cubrid.jdbc.driver.CUBRIDBlob;
-import cubrid.jdbc.driver.CUBRIDClob;
+import cubrid.jdbc.driver.CUBRIDCfile;
 import cubrid.jdbc.driver.CUBRIDLobHandle;
 import cubrid.jdbc.util.ByteArrayBuffer;
 import cubrid.sql.CUBRIDOID;
@@ -82,12 +82,16 @@ class UOutputBuffer {
     }
 
     void newRequest(OutputStream out, UFunctionCode func_code) throws IOException {
+        if (u_con != null) {
+            u_con.noteRequest(func_code);
+        }
         output = out;
         initBuffer();
         dataBuffer.writeByte(func_code.getCode());
     }
 
     void newRequest(UFunctionCode func_code) throws IOException {
+        u_con.noteRequest(func_code);
         output = u_con.getOutputStream();
         initBuffer();
         dataBuffer.writeByte(func_code.getCode());
@@ -109,6 +113,11 @@ class UOutputBuffer {
         dataBuffer.writeInt(1);
         dataBuffer.writeByte(bValue);
         return 5;
+    }
+
+    /* a type code, in the broker's numbering */
+    int addType(byte type) throws IOException {
+        return addByte(u_con.typeForBroker(type));
     }
 
     int addBytes(byte[] value) throws IOException {
@@ -364,11 +373,11 @@ class UOutputBuffer {
         return 12;
     }
 
-    int addBlob(CUBRIDBlob value) throws IOException {
+    int addBfile(CUBRIDBfile value) throws IOException {
         return addLob(value.getLobHandle());
     }
 
-    int addClob(CUBRIDClob value) throws IOException {
+    int addCfile(CUBRIDCfile value) throws IOException {
         return addLob(value.getLobHandle());
     }
 
@@ -550,23 +559,29 @@ class UOutputBuffer {
                     }
                     return addOID((CUBRIDOID) value);
                 }
-            case UUType.U_TYPE_BLOB:
-                if (value == null) {
-                    return addNull();
-                } else {
-                    if (!(value instanceof CUBRIDBlob)) {
-                        throw u_con.createJciException(UErrorCode.ER_TYPE_CONVERSION);
-                    }
-                    return addBlob((CUBRIDBlob) value);
+            case UUType.U_TYPE_INTERNAL_BLOB_UPLOAD:
+            case UUType.U_TYPE_INTERNAL_CLOB_UPLOAD:
+                if (!(value instanceof byte[])) {
+                    throw u_con.createJciException(UErrorCode.ER_TYPE_CONVERSION);
                 }
-            case UUType.U_TYPE_CLOB:
+                return addBytes((byte[]) value);
+            case UUType.U_TYPE_BFILE:
                 if (value == null) {
                     return addNull();
                 } else {
-                    if (!(value instanceof CUBRIDClob)) {
+                    if (!(value instanceof CUBRIDBfile)) {
                         throw u_con.createJciException(UErrorCode.ER_TYPE_CONVERSION);
                     }
-                    return addClob((CUBRIDClob) value);
+                    return addBfile((CUBRIDBfile) value);
+                }
+            case UUType.U_TYPE_CFILE:
+                if (value == null) {
+                    return addNull();
+                } else {
+                    if (!(value instanceof CUBRIDCfile)) {
+                        throw u_con.createJciException(UErrorCode.ER_TYPE_CONVERSION);
+                    }
+                    return addCfile((CUBRIDCfile) value);
                 }
             case UUType.U_TYPE_RESULTSET:
                 return addNull();
@@ -580,7 +595,7 @@ class UOutputBuffer {
         Object[] values = (Object[]) data.getArray();
         if (values == null) {
             dataBuffer.writeInt(1);
-            dataBuffer.writeByte((byte) data.getBaseType());
+            dataBuffer.writeByte(u_con.typeForBroker((byte) data.getBaseType()));
             return 5;
         }
 
@@ -588,7 +603,7 @@ class UOutputBuffer {
         ByteArrayBuffer saveBuffer = dataBuffer;
         try {
             dataBuffer = new ByteArrayBuffer(false);
-            dataBuffer.writeByte((byte) data.getBaseType());
+            dataBuffer.writeByte(u_con.typeForBroker((byte) data.getBaseType()));
 
             switch (data.getBaseType()) {
                 case UUType.U_TYPE_BIT:
@@ -648,6 +663,8 @@ class UOutputBuffer {
                 case UUType.U_TYPE_DATETIMETZ:
                 case UUType.U_TYPE_DATETIMELTZ:
                 case UUType.U_TYPE_OBJECT:
+                case UUType.U_TYPE_BFILE:
+                case UUType.U_TYPE_CFILE:
                 case UUType.U_TYPE_BLOB:
                 case UUType.U_TYPE_CLOB:
                 case UUType.U_TYPE_CHAR:

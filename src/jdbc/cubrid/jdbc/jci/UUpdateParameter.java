@@ -80,7 +80,7 @@ class UUpdateParameter extends UParameter {
         try {
             for (int i = 0; i < number; i++) {
                 outBuffer.addInt(indexes[i]);
-                outBuffer.addByte(types[i]);
+                outBuffer.addType(types[i]);
                 outBuffer.writeParameter(types[i], values[i], false);
             }
         } catch (IOException e) {

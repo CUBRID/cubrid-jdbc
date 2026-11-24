@@ -105,6 +105,9 @@ public class CUBRIDCallableStatement extends CUBRIDPreparedStatement implements 
             error = u_stmt.getRecentError();
         }
         if (obj != null && obj instanceof Clob) {
+            if (obj instanceof CUBRIDClob) {
+                return ((CUBRIDClob) obj).readAll();
+            }
             Clob clob = (Clob) obj;
             int length;
             if (clob.length() > (long) Integer.MAX_VALUE) {

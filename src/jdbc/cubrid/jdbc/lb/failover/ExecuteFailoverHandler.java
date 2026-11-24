@@ -90,6 +90,11 @@ public final class ExecuteFailoverHandler {
         return ex.getErrorCode() == UErrorCode.ER_ILLEGAL_DATA_SIZE;
     }
 
+    /** Whether the session logs statements as issued: a server error then keeps its message. */
+    private static boolean loggedRaw(final LoadBalanceConnection connection) {
+        return connection.getLbConfig().getLbLogConfig().isSqlRaw();
+    }
+
     /**
      * Whether core closed a read leg on its own connection because its network timeout expired.
      * Core never reads from that node, so the leg fails over as a dead broker's does and the read
@@ -200,7 +205,7 @@ public final class ExecuteFailoverHandler {
                                 + routeTarget
                                 + "]: not a broker failure -> propagating without"
                                 + " failover | cause: "
-                                + LbLog.cause(ex));
+                                + LbLog.cause(ex, loggedRaw(connection)));
                 throw ex;
             }
 
@@ -225,7 +230,7 @@ public final class ExecuteFailoverHandler {
                                 + routeTarget
                                 + "]: rebinding failed -> propagating the original"
                                 + " execution failure | rebind cause: "
-                                + LbLog.cause(recoveryEx));
+                                + LbLog.cause(recoveryEx, loggedRaw(connection)));
                 throw ex;
             }
 

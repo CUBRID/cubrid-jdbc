@@ -135,6 +135,18 @@ public final class LbLog {
      * @return the rendered cause, or {@code ""}
      */
     public static String cause(final SQLException cause) {
+        return cause(cause, false);
+    }
+
+    /**
+     * As {@link #cause(SQLException)}, for a session whose {@code lbLogSql} is known. Under {@code
+     * raw} the statements are logged as issued, so a server error keeps its message too.
+     *
+     * @param cause exception to render, or {@code null}
+     * @param statementsLoggedRaw whether the session logs statements with their values
+     * @return the rendered cause, or {@code ""}
+     */
+    public static String cause(final SQLException cause, final boolean statementsLoggedRaw) {
         if (cause == null) {
             return "";
         }
@@ -145,7 +157,9 @@ public final class LbLog {
                 + cause.getSQLState()
                 + " errorCode="
                 + code
-                + (fromServer ? "" : " msg=" + shortMessage(cause.getMessage()));
+                + (fromServer && !statementsLoggedRaw
+                        ? ""
+                        : " msg=" + shortMessage(cause.getMessage()));
     }
 
     /**

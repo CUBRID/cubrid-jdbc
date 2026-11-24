@@ -160,6 +160,20 @@ public class LbLogDedupTest {
         assertEquals("SQLState=null errorCode=-10003 msg=Communication error", LbLog.cause(cas));
     }
 
+    /** Under lbLogSql=raw the statement is in the log as issued, so its error's message is too. */
+    @Test
+    public void aServerErrorKeepsItsMessageWhereStatementsAreLoggedRaw() {
+        SQLException syntax =
+                new SQLException(
+                        "Syntax: before '  FROMM t WHERE ssn = '860101-1234567''", null, -493);
+
+        assertEquals(
+                "SQLState=null errorCode=-493 msg=Syntax: before '  FROMM t WHERE ssn ="
+                        + " '860101-1234567''",
+                LbLog.cause(syntax, true));
+        assertEquals("SQLState=null errorCode=-493", LbLog.cause(syntax, false));
+    }
+
     @Test
     public void quotedDriverMessageIsCappedAndKeptToOneLine() {
         StringBuilder longMessage = new StringBuilder();

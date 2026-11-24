@@ -779,7 +779,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
                                         + ep.getId()
                                         + " is up but refused the session -> trying next"
                                         + " candidate | cause: "
-                                        + LbLog.cause(ex));
+                                        + causeOf(ex));
                     } else {
                         unreachFilter.markUnreachable(ep, ex);
                         unreachFilter.healthCheckConnectsAs(
@@ -798,7 +798,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
                                         + "] endpoint="
                                         + ep.getId()
                                         + " -> trying next candidate | cause: "
-                                        + LbLog.cause(ex));
+                                        + causeOf(ex));
                     }
                     if (firstFailure == null) {
                         firstFailure = ex;
@@ -1010,7 +1010,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
                         + " | readLeg="
                         + (sessRoEp == null ? "?" : sessRoEp.getId())
                         + (roOnRw ? " (on the RW connection)" : "")
-                        + (cause == null ? "" : " | cause: " + LbLog.cause(cause)));
+                        + (cause == null ? "" : " | cause: " + causeOf(cause)));
     }
 
     public synchronized void releaseBindings() {
@@ -1316,7 +1316,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
                             + "; dropped, reopens in the session's mode | readLeg="
                             + sessRoEp.getId()
                             + " | cause: "
-                            + LbLog.cause(refused));
+                            + causeOf(refused));
         }
     }
 
@@ -1356,7 +1356,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
                             + "; dropped, reopens with the session state | readLeg="
                             + sessRoEp.getId()
                             + " | cause: "
-                            + LbLog.cause(refused));
+                            + causeOf(refused));
         }
     }
 
@@ -1415,7 +1415,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
                                     + " dropped, reopens on the next read | readLeg="
                                     + sessRoEp.getId()
                                     + " | cause: "
-                                    + LbLog.cause(roFailure));
+                                    + causeOf(roFailure));
                     return;
                 }
                 if (roFailure != rwFailure) {
@@ -1431,7 +1431,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
                                 + " reporting the write failure | readLeg="
                                 + (sessRoEp == null ? "?" : sessRoEp.getId())
                                 + " | cause: "
-                                + LbLog.cause(roFailure));
+                                + causeOf(roFailure));
             }
         }
 
@@ -2400,5 +2400,10 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
             c.close();
         } catch (SQLException e) {
         }
+    }
+
+    /** A failure for a log line, a server error with its message only under lbLogSql=raw. */
+    private String causeOf(final SQLException failure) {
+        return LbLog.cause(failure, config.getLbLogConfig().isSqlRaw());
     }
 }

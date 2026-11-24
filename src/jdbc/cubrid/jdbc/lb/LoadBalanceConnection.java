@@ -1156,7 +1156,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                                 ? "  <== REBOUND to a DIFFERENT node"
                                 : "  (reconnected to the same node)")
                         + " | cause: "
-                        + LbLog.cause(cause);
+                        + causeOf(cause);
 
         if (movedNode) {
             LbLogDedup.warn(
@@ -1831,7 +1831,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                         "LB SESSION PROP [RO]: setCASChangeMode failed on the read leg while the"
                                 + " write leg was already failing; reporting the write failure |"
                                 + " cause: "
-                                + LbLog.cause(failure));
+                                + causeOf(failure));
             }
         }
 
@@ -2972,7 +2972,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                         LbLog.conn(connectionId),
                         "LB SESSION PROP [RO]: read leg failed while the write leg was already"
                                 + " failing; reporting the write failure | cause: "
-                                + LbLog.cause(failure));
+                                + causeOf(failure));
             }
         }
 
@@ -3153,7 +3153,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             LbLog.fine(
                     LOGGER,
                     LbLog.conn(connectionId),
-                    "LB LEG END: completing the other leg failed | cause: " + LbLog.cause(failed));
+                    "LB LEG END: completing the other leg failed | cause: " + causeOf(failed));
         }
     }
 
@@ -3258,7 +3258,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                     "LB SESSION RENEWED [RW]: core reconnected the write leg into a new server"
                             + " session and running the session SETs on it again failed; it runs"
                             + " without them | cause: "
-                            + LbLog.cause(failed));
+                            + causeOf(failed));
         }
         return false;
     }
@@ -3428,9 +3428,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                 pinReads(
                         sql,
                         replay.keySet(),
-                        "the read leg rejected a SET that ran on RW ("
-                                + LbLog.cause(rejected)
-                                + ")");
+                        "the read leg rejected a SET that ran on RW (" + causeOf(rejected) + ")");
                 return;
             }
         }
@@ -3579,6 +3577,11 @@ public class LoadBalanceConnection extends CUBRIDConnection {
 
     public void endStatementRoute() {
         statementRoute = null;
+    }
+
+    /** A failure for a log line, a server error with its message only under lbLogSql=raw. */
+    private String causeOf(final SQLException failure) {
+        return LbLog.cause(failure, config.getLbLogConfig().isSqlRaw());
     }
 
     /** Why the read leg cannot serve the failed read, or {@code null} if the failure is its own. */

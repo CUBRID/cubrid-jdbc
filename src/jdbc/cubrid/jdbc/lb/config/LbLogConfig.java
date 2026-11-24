@@ -112,6 +112,11 @@ public final class LbLogConfig {
         return sqlMode;
     }
 
+    /** Whether statements are logged as issued, values included. */
+    public boolean isSqlRaw() {
+        return SQL_RAW.equals(sqlMode);
+    }
+
     /**
      * Cap on the statement text in a {@code LB ROUTE} record; {@code 0} means no cap.
      *

@@ -197,23 +197,19 @@ public final class LoadBalanceConnectionCastTest {
         LoadBalanceConnection conn = boundEx();
         byte[] chunk = new byte[] {'1', '\n'};
 
-        for (int api = 0; api < 5; api++) {
+        for (int api = 0; api < 4; api++) {
             String name = null;
             try {
                 switch (api) {
                     case 0:
-                        name = "streamInit(int, byte[])";
-                        conn.streamInit(5, new byte[4]);
-                        break;
-                    case 1:
                         name = "streamData(byte[])";
                         conn.streamData(chunk);
                         break;
-                    case 2:
+                    case 1:
                         name = "streamData(byte[], int, int)";
                         conn.streamData(chunk, 0, chunk.length);
                         break;
-                    case 3:
+                    case 2:
                         name = "streamEnd()";
                         conn.streamEnd();
                         break;
@@ -358,6 +354,10 @@ public final class LoadBalanceConnectionCastTest {
      * CUBRIDResultSet}. Pinning the exact list here means a newly added package-private member
      * fails this test and gets that reachability question asked again, rather than being discovered
      * as a NullPointerException in the field.
+     *
+     * <p>{@code streamInit(int, byte[])} is called only by driver-internal code such as the
+     * internal-LOB upload, on the physical connection {@code createClob()} and {@code createBlob()}
+     * hand out, which is the write leg's here.
      */
     @Test
     public void packagePrivateMembersAreTheKnownUnreachableSet() {
@@ -383,7 +383,7 @@ public final class LoadBalanceConnectionCastTest {
                         + " createCUBRIDException(int, String, Throwable),"
                         + " createCUBRIDException(int, Throwable), isSavepointTopologySupported(),"
                         + " isSchemaSupported(), prepare(String, byte),"
-                        + " removeStatement(Statement)]",
+                        + " removeStatement(Statement), streamInit(int, byte[])]",
                 packagePrivate.toString());
     }
 

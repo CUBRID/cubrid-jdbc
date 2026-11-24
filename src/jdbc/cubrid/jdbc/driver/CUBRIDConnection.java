@@ -995,11 +995,11 @@ public class CUBRIDConnection implements Connection {
 
     /*
      * Shared client->server byte-stream transport. A stream is opened either by a statement
-     * (COPY <table> FROM STDIN) or by streamInit() for a kind the driver opens itself. Send the
-     * payload with streamData(), then streamEnd() to finish; streamEnd() returns the 64-bit value
-     * the kind defines (the rows loaded, for COPY).
+     * (COPY <table> FROM STDIN) or, inside the driver, by streamInit() for a kind the driver opens
+     * itself. Send the payload with streamData(), then streamEnd() to finish; streamEnd() returns
+     * the 64-bit value the kind defines (the rows loaded, for COPY).
      */
-    public synchronized int streamInit(int streamKind, byte[] config) throws SQLException {
+    synchronized int streamInit(int streamKind, byte[] config) throws SQLException {
         checkIsOpen();
         int result;
 

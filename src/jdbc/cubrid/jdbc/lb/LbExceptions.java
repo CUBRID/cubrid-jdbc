@@ -94,7 +94,7 @@ public final class LbExceptions {
      * the one physical connection that opened it, and this session's transaction bookkeeping would
      * not see the work it does.
      *
-     * @param api the refused API, e.g. {@code "streamInit(int, byte[])"}
+     * @param api the refused API, e.g. {@code "streamEnd()"}
      * @return the exception to throw
      */
     public static CUBRIDException streamNotSupported(final String api) {

@@ -2591,11 +2591,6 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      * runs on a connection opened without load balancing.
      */
     @Override
-    public int streamInit(int streamKind, byte[] config) throws SQLException {
-        throw LbExceptions.streamNotSupported("streamInit(int, byte[])");
-    }
-
-    @Override
     public int streamData(byte[] data) throws SQLException {
         throw LbExceptions.streamNotSupported("streamData(byte[])");
     }

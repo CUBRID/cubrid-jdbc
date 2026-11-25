@@ -51,6 +51,8 @@ public final class StreamSocket extends UConnection {
 
     private int rollbacks;
 
+    private boolean autoCommit = true;
+
     /**
      * @param protocolVersion the protocol version the CAS reported at connect
      * @param additionalFlags the additional-flag byte of the CAS's last reply
@@ -132,9 +134,11 @@ public final class StreamSocket extends UConnection {
 
     protected void closeInternal() {}
 
-    public void setAutoCommit(final boolean autoCommit) {}
+    public void setAutoCommit(final boolean autoCommit) {
+        this.autoCommit = autoCommit;
+    }
 
     public boolean getAutoCommit() {
-        return true;
+        return autoCommit;
     }
 }

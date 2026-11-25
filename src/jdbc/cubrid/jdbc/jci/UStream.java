@@ -219,6 +219,17 @@ public final class UStream {
         reply[1] = flags;
     }
 
+    /*
+     * No usable reply: the CAS and its stream may be gone. In auto-commit the transaction went with
+     * them, so the socket is closed and the next statement reconnects at once. Otherwise the
+     * application's commit has to fail on the lost connection, so the socket is left for it.
+     */
+    private void startOverAfterLostReply() {
+        if (conn.getAutoCommit()) {
+            conn.clientSocketClose();
+        }
+    }
+
     private long request(UFunctionCode code, Arguments args, Result result) {
         return request(code, true, args, result);
     }
@@ -255,13 +266,12 @@ public final class UStream {
                 conn.logException(e);
                 e.toUError(conn.errorHandler);
                 if (e.getJciError() != UErrorCode.ER_DBMS) {
-                    /* no usable reply: the CAS and its stream may be gone, so start over */
-                    conn.clientSocketClose();
+                    startOverAfterLostReply();
                 }
             } catch (IOException e) {
                 conn.logException(e);
                 conn.errorHandler.setErrorCode(UErrorCode.ER_COMMUNICATION);
-                conn.clientSocketClose();
+                startOverAfterLostReply();
             } catch (Exception e) {
                 conn.logException(e);
                 conn.errorHandler.setErrorCode(UErrorCode.ER_UNKNOWN);

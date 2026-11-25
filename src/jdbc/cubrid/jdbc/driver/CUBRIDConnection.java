@@ -759,6 +759,14 @@ public class CUBRIDConnection implements Connection {
         tellOwnerTransactionEnds(commit);
     }
 
+    /* A server's refusal can end the stream, and in auto-commit the CAS then rolls back. */
+    private SQLException streamFailed(UError error) throws SQLException {
+        if (error.getErrorCode() == UErrorCode.ER_DBMS) {
+            endedByStream(false);
+        }
+        return createCUBRIDException(error);
+    }
+
     private void checkIsOpen() throws SQLException {
         if (isClosedWithoutLock()) {
             throw createCUBRIDException(CUBRIDJDBCErrorCode.connection_closed, null);
@@ -1049,7 +1057,7 @@ public class CUBRIDConnection implements Connection {
             case UErrorCode.ER_NO_ERROR:
                 break;
             default:
-                throw createCUBRIDException(error);
+                throw streamFailed(error);
         }
 
         return result;
@@ -1073,7 +1081,7 @@ public class CUBRIDConnection implements Connection {
             case UErrorCode.ER_NO_ERROR:
                 break;
             default:
-                throw createCUBRIDException(error);
+                throw streamFailed(error);
         }
 
         return result;
@@ -1092,7 +1100,7 @@ public class CUBRIDConnection implements Connection {
             case UErrorCode.ER_NO_ERROR:
                 break;
             default:
-                throw createCUBRIDException(error);
+                throw streamFailed(error);
         }
 
         endedByStream(true);
@@ -1120,7 +1128,7 @@ public class CUBRIDConnection implements Connection {
             case UErrorCode.ER_NO_ERROR:
                 break;
             default:
-                throw createCUBRIDException(error);
+                throw streamFailed(error);
         }
 
         endedByStream(false);

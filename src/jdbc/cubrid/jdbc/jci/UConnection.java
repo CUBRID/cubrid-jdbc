@@ -1861,6 +1861,7 @@ public abstract class UConnection {
     }
 
     void clientSocketClose() {
+        forgetStreamOpen();
         try {
             needReconnection = true;
             if (client != null) {

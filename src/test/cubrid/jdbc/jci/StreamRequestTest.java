@@ -232,6 +232,30 @@ public final class StreamRequestTest {
         assertTrue("the next request reconnects", socket.reconnects());
     }
 
+    /**
+     * Out of auto-commit the lost transaction has to surface at the application's commit, so the
+     * socket is left for that commit to fail on; the stream bit is cleared all the same.
+     */
+    @Test
+    public void aManualCommitConnectionKeepsItsSocketForTheCommitToFail() throws Exception {
+        StreamSocket socket = new StreamSocket(UConnection.PROTOCOL_V13, 0x08);
+        socket.setAutoCommit(false);
+        socket.loseCas();
+
+        assertEquals(-1, socket.getStream().sendData(new byte[1], 0, 1));
+        assertFalse(socket.isStreamOpen());
+        assertFalse("no silent reconnect inside the transaction", socket.reconnects());
+    }
+
+    /** A closed socket has no stream behind it. */
+    @Test
+    public void closingTheSocketForgetsTheStream() throws Exception {
+        StreamSocket socket = new StreamSocket(UConnection.PROTOCOL_V13, 0x08);
+
+        socket.clientSocketClose();
+        assertFalse(socket.isStreamOpen());
+    }
+
     private static void assertInvalidArgument(final UConnection socket) {
         assertEquals(UErrorCode.ER_INVALID_ARGUMENT, socket.getRecentError().getErrorCode());
     }

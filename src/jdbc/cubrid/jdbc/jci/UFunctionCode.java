@@ -102,12 +102,18 @@ public enum UFunctionCode {
     STREAM_ABORT(48),
     STREAM_READ_OPEN(49),
     STREAM_READ(50),
-    STREAM_RELEASE(51);
+    STREAM_RELEASE(51),
+
+    LAST_FUNCTION_CODE(STREAM_RELEASE);
 
     private byte code;
 
     UFunctionCode(byte code) {
         this.code = code;
+    }
+
+    UFunctionCode(UFunctionCode code) {
+        this.code = code.getCode();
     }
 
     UFunctionCode(int code) {

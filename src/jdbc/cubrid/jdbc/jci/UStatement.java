@@ -645,7 +645,8 @@ public class UStatement implements AutoCloseable {
                     && (relatedConnection.getAutoCommit() == false
                             || relatedConnection.brokerInfoStatementPooling() == true
                             || ((prepare_flag & UConnection.PREPARE_HOLDABLE) != 0))) {
-                if (getSqlType()) {
+                /* with a stream open the CAS refuses the close, so it waits for the next PREPARE */
+                if (getSqlType() && !relatedConnection.isStreamOpen()) {
                     synchronized (relatedConnection) {
                         outBuffer.newRequest(UFunctionCode.CLOSE_USTATEMENT);
                         outBuffer.addInt(serverHandler);

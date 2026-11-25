@@ -1006,7 +1006,7 @@ public class CUBRIDConnection implements Connection {
         int result;
 
         synchronized (u_con) {
-            result = u_con.streamInit(streamKind, config);
+            result = u_con.getStream().init(streamKind, config);
             error = u_con.getRecentError();
         }
 
@@ -1029,7 +1029,7 @@ public class CUBRIDConnection implements Connection {
         int result;
 
         synchronized (u_con) {
-            result = u_con.streamSendData(data, start, len);
+            result = u_con.getStream().sendData(data, start, len);
             error = u_con.getRecentError();
         }
 
@@ -1048,7 +1048,7 @@ public class CUBRIDConnection implements Connection {
         long result;
 
         synchronized (u_con) {
-            result = u_con.streamEnd();
+            result = u_con.getStream().end();
             error = u_con.getRecentError();
         }
 
@@ -1066,15 +1066,16 @@ public class CUBRIDConnection implements Connection {
      * Gives up the open stream without ending it. The server drops the
      * session, and a COPY rolls back to the savepoint it took at open, so it
      * leaves no row with auto-commit on or off; work done before it in the
-     * same transaction stays. The auto-commit the opening statement deferred
-     * is paid back by the CAS as a rollback.
+     * same transaction stays. In auto-commit, the CAS ends the transaction
+     * the opening statement left open with a rollback, not the commit it
+     * deferred.
      */
     public synchronized int streamAbort() throws SQLException {
         checkIsOpen();
         int result;
 
         synchronized (u_con) {
-            result = u_con.streamAbort();
+            result = u_con.getStream().abort();
             error = u_con.getRecentError();
         }
 

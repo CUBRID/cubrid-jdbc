@@ -40,7 +40,7 @@ import java.nio.charset.StandardCharsets;
 /**
  * A connected socket with no server behind it, like {@code LegTransactionEndNotifyTest}'s: the CAS
  * protocol version and the CAS info of the last reply are what the test sets, requests are kept,
- * and the one reply there is is the refusal a test queues.
+ * and the one reply there is is the one a test queues: a refusal or a body.
  */
 public final class StreamSocket extends UConnection {
 
@@ -76,6 +76,16 @@ public final class StreamSocket extends UConnection {
         ByteBuffer reply = ByteBuffer.allocate(8 + 8 + text.length + 1);
         reply.putInt(8 + text.length + 1).put(casInfo);
         reply.putInt(UErrorCode.DBMS_ERROR_INDICATOR).putInt(serverError).put(text).put((byte) 0);
+        input = new UTimedDataInputStream(new ByteArrayInputStream(reply.array()), "cas", 0);
+    }
+
+    /**
+     * The CAS answers the next request with result code 0, this body after it, and the same CAS
+     * info.
+     */
+    public void replyNext(final byte[] body) {
+        ByteBuffer reply = ByteBuffer.allocate(8 + 4 + body.length);
+        reply.putInt(4 + body.length).put(casInfo).putInt(0).put(body);
         input = new UTimedDataInputStream(new ByteArrayInputStream(reply.array()), "cas", 0);
     }
 

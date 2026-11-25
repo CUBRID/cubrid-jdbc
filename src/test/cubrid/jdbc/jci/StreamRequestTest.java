@@ -30,10 +30,12 @@
 
 package cubrid.jdbc.jci;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import java.nio.ByteBuffer;
 import org.junit.Test;
 
 /** Which CAS the stream calls may talk to, and which replies say a stream is open. */
@@ -51,25 +53,98 @@ public final class StreamRequestTest {
     @Test
     public void anOlderCasIsSentNoStreamRequest() throws Exception {
         StreamSocket socket = new StreamSocket(UConnection.PROTOCOL_V12, 0xFF);
+        UStream stream = socket.getStream();
         byte[] buf = new byte[16];
 
-        assertEquals(-1, socket.streamInit(5, new byte[16]));
+        assertEquals(-1, stream.init(5, new byte[16]));
         assertNotImplemented(socket);
-        assertEquals(-1, socket.streamSendData(buf, 0, buf.length));
+        assertEquals(-1, stream.sendData(buf, 0, buf.length));
         assertNotImplemented(socket);
-        assertEquals(-1L, socket.streamEnd());
+        assertEquals(-1L, stream.end());
         assertNotImplemented(socket);
-        assertEquals(-1, socket.streamAbort());
+        assertEquals(-1, stream.abort());
         assertNotImplemented(socket);
-        assertEquals(-1L, socket.streamReadOpen(6, new byte[16], 0, (byte) 0, buf, new int[2]));
+        assertEquals(-1L, stream.readOpen(6, new byte[16], 0, (byte) 0, buf, new int[2]));
         assertNotImplemented(socket);
-        assertEquals(-1, socket.streamRead(1L, buf, 0, buf.length, (byte) 0, new int[1]));
+        assertEquals(-1, stream.read(1L, buf, 0, buf.length, (byte) 0, new int[1]));
         assertNotImplemented(socket);
-        assertEquals(-1, socket.streamRelease(1L));
+        assertEquals(-1, stream.release(1L));
         assertNotImplemented(socket);
 
         assertEquals("no request byte may reach the CAS", 0, socket.sent().length);
         assertFalse("the connection stays open", socket.isClosed());
+    }
+
+    /** END's value is 64 bits: the rows a COPY loaded can pass INT_MAX. */
+    @Test
+    public void endReturnsTheWholeValue() throws Exception {
+        StreamSocket socket = new StreamSocket(UConnection.PROTOCOL_V13, 0);
+        socket.replyNext(ByteBuffer.allocate(8).putLong(2_202_009_600L).array());
+
+        assertEquals(2_202_009_600L, socket.getStream().end());
+        assertEquals(UErrorCode.ER_NO_ERROR, socket.getRecentError().getErrorCode());
+    }
+
+    /**
+     * The open returns the handle, and the first piece and its flags go into buf and reply. Of the
+     * caller's flags only FLAG_RELEASE_AT_EOF goes out; FLAG_AUTO_COMMIT follows the connection.
+     */
+    @Test
+    public void theOpenReturnsTheHandleAndTheFirstPiece() throws Exception {
+        StreamSocket socket = new StreamSocket(UConnection.PROTOCOL_V13, 0);
+        socket.replyNext(
+                ByteBuffer.allocate(8 + 4 + 4 + 2)
+                        .putLong(77L)
+                        .putInt(2)
+                        .putInt(UStream.FLAG_RELEASED)
+                        .put(new byte[] {5, 6})
+                        .array());
+        byte[] buf = new byte[4];
+        int[] reply = new int[2];
+
+        assertEquals(77L, socket.getStream().readOpen(6, new byte[4], 4, (byte) 0x07, buf, reply));
+        assertArrayEquals(new byte[] {5, 6, 0, 0}, buf);
+        assertEquals(2, reply[0]);
+        assertEquals(UStream.FLAG_RELEASED, reply[1]);
+        byte[] sent = socket.sent();
+        assertEquals(
+                "the flags byte ends the request",
+                UStream.FLAG_RELEASE_AT_EOF | UStream.FLAG_AUTO_COMMIT,
+                sent[sent.length - 1]);
+    }
+
+    /** A piece lands in the caller's buffer at its offset, and replyFlags gets the reply flags. */
+    @Test
+    public void aPieceFillsTheBufferAtItsOffset() throws Exception {
+        StreamSocket socket = new StreamSocket(UConnection.PROTOCOL_V13, 0);
+        socket.replyNext(
+                ByteBuffer.allocate(4 + 4 + 3)
+                        .putInt(3)
+                        .putInt(UStream.FLAG_EOF)
+                        .put(new byte[] {1, 2, 3})
+                        .array());
+        byte[] buf = new byte[8];
+        int[] replyFlags = new int[1];
+
+        assertEquals(3, socket.getStream().read(7L, buf, 2, 4, (byte) 0, replyFlags));
+        assertArrayEquals(new byte[] {0, 0, 1, 2, 3, 0, 0, 0}, buf);
+        assertEquals(UStream.FLAG_EOF, replyFlags[0]);
+    }
+
+    /**
+     * A reply that claims more bytes than were asked for is refused, and replyFlags stays as it
+     * was.
+     */
+    @Test
+    public void aPieceLongerThanAskedIsRefused() throws Exception {
+        StreamSocket socket = new StreamSocket(UConnection.PROTOCOL_V13, 0);
+        socket.replyNext(
+                ByteBuffer.allocate(4 + 4 + 5).putInt(5).putInt(0).put(new byte[5]).array());
+        int[] replyFlags = {-1};
+
+        assertEquals(-1, socket.getStream().read(7L, new byte[8], 0, 4, (byte) 0, replyFlags));
+        assertEquals(UErrorCode.ER_COMMUNICATION, socket.getRecentError().getErrorCode());
+        assertEquals(-1, replyFlags[0]);
     }
 
     private static void assertNotImplemented(final UConnection socket) {

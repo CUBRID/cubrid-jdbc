@@ -78,7 +78,6 @@ public class CUBRIDConnection implements Connection {
     public static final int CAS_CHANGE_MODE_KEEP = 2;
 
     UConnection u_con;
-    protected CUBRIDCopyLoader copy_loader;
     String user;
     String url;
 
@@ -118,7 +117,6 @@ public class CUBRIDConnection implements Connection {
         statements = new ArrayList<Statement>();
         outRs = new ArrayList<CUBRIDOutResultSet>();
         shard_mdata = null;
-        copy_loader = null;
         prepStmtCache =
                 new UPreparedStatementCache<String, PreparedStatement>(
                         u_con.getPrepStmtCacheSize());
@@ -288,7 +286,6 @@ public class CUBRIDConnection implements Connection {
         statements = null;
         error = null;
         shard_mdata = null;
-        copy_loader = null;
     }
 
     public synchronized boolean isClosed() throws SQLException {
@@ -1092,21 +1089,6 @@ public class CUBRIDConnection implements Connection {
         return result;
     }
 
-    /**
-     * Returns the loader for COPY ... FROM STDIN, which runs the statement, chunks the source and
-     * ends the stream in one call.
-     */
-    public synchronized CUBRIDCopyLoader getCopyLoader() throws SQLException {
-        checkIsOpen();
-
-        if (copy_loader != null) {
-            return copy_loader;
-        }
-
-        copy_loader = new CUBRIDCopyLoader(this);
-        return copy_loader;
-    }
-
     synchronized long streamEnd() throws SQLException {
         checkIsOpen();
         long result;
@@ -1153,6 +1135,15 @@ public class CUBRIDConnection implements Connection {
 
         endedByStream(false);
         return result;
+    }
+
+    /**
+     * Returns a loader for COPY ... FROM STDIN on this connection, which runs the statement, sends
+     * the source in chunks and ends the upload in one call.
+     */
+    public synchronized CUBRIDCopyLoader getCopyLoader() throws SQLException {
+        checkIsOpen();
+        return new CUBRIDCopyLoader(this);
     }
 
     public synchronized int getShardId() {

@@ -36,6 +36,7 @@ import static org.junit.Assert.fail;
 
 import cubrid.jdbc.jci.StreamSocket;
 import cubrid.jdbc.jci.UConnection;
+import cubrid.jdbc.jci.UErrorCode;
 import cubrid.jdbc.jci.UFunctionCode;
 import java.sql.SQLException;
 import org.junit.Test;
@@ -91,6 +92,23 @@ public final class StreamConnectionTest {
         assertEquals(1, socket.commits());
         conn.autoRollback();
         assertEquals(1, socket.rollbacks());
+    }
+
+    /**
+     * A null chunk is an SQLException with the invalid-argument code, not a NullPointerException.
+     */
+    @Test
+    public void aNullChunkIsAnInvalidArgument() throws Exception {
+        StreamSocket socket = new StreamSocket(UConnection.PROTOCOL_V13, STREAM_OPEN);
+        CUBRIDConnection conn = new CUBRIDConnection(socket, "jdbc:cubrid:stream", "dba");
+
+        try {
+            conn.streamData(null);
+            fail("a null chunk is refused");
+        } catch (SQLException expected) {
+            assertEquals(UErrorCode.ER_INVALID_ARGUMENT, expected.getErrorCode());
+        }
+        assertEquals("nothing was sent", 0, socket.sent().length);
     }
 
     /** The CAS refuses a second open while an upload is open, and leaves the upload as it was. */

@@ -87,9 +87,16 @@ public final class UStream {
 
     // UFunctionCode.STREAM_SEND_DATA
     public int sendData(final byte[] data, final int start, final int len) {
+        boolean valid =
+                data != null
+                        && start >= 0
+                        && len >= 0
+                        && start <= data.length
+                        && len <= data.length - start;
         return (int)
                 request(
                         UFunctionCode.STREAM_SEND_DATA,
+                        valid,
                         out -> out.addBytes(data, start, len),
                         UInputBuffer::getResCode);
     }
@@ -154,7 +161,8 @@ public final class UStream {
                         && max > 0
                         && max <= READ_MAX_CHUNK
                         && offset >= 0
-                        && offset + max <= buf.length
+                        && offset <= buf.length
+                        && max <= buf.length - offset
                         && replyFlags != null
                         && replyFlags.length >= 1;
         return (int)

@@ -147,6 +147,31 @@ public final class StreamRequestTest {
         assertEquals(-1, replyFlags[0]);
     }
 
+    /** A buffer range the call cannot use is refused before anything is sent. */
+    @Test
+    public void aRangeOutsideTheBufferIsRefusedBeforeSending() throws Exception {
+        StreamSocket socket = new StreamSocket(UConnection.PROTOCOL_V13, 0);
+        UStream stream = socket.getStream();
+        byte[] buf = new byte[8];
+
+        assertEquals(-1, stream.read(7L, buf, Integer.MAX_VALUE, 1, (byte) 0, new int[1]));
+        assertInvalidArgument(socket);
+        assertEquals(-1, stream.sendData(null, 0, 0));
+        assertInvalidArgument(socket);
+        assertEquals(-1, stream.sendData(buf, 4, 5));
+        assertInvalidArgument(socket);
+        assertEquals(-1, stream.sendData(buf, Integer.MAX_VALUE, 1));
+        assertInvalidArgument(socket);
+        assertEquals(-1, stream.sendData(buf, 0, -1));
+        assertInvalidArgument(socket);
+
+        assertEquals("no request byte may reach the CAS", 0, socket.sent().length);
+    }
+
+    private static void assertInvalidArgument(final UConnection socket) {
+        assertEquals(UErrorCode.ER_INVALID_ARGUMENT, socket.getRecentError().getErrorCode());
+    }
+
     private static void assertNotImplemented(final UConnection socket) {
         UError error = socket.getRecentError();
         assertEquals(UErrorCode.ER_DBMS, error.getErrorCode());

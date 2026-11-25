@@ -1021,7 +1021,8 @@ public class CUBRIDConnection implements Connection {
     }
 
     public synchronized int streamData(byte[] data) throws SQLException {
-        return streamData(data, 0, data.length);
+        /* a null chunk is refused below as an invalid argument */
+        return streamData(data, 0, data == null ? 0 : data.length);
     }
 
     public synchronized int streamData(byte[] data, int start, int len) throws SQLException {

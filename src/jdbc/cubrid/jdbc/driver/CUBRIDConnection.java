@@ -713,6 +713,7 @@ public class CUBRIDConnection implements Connection {
     }
 
     protected void clear() throws SQLException {
+        abortAbandonedStream();
         closeAllStatements();
         closeAllOutResultSet();
 
@@ -724,6 +725,38 @@ public class CUBRIDConnection implements Connection {
             mdata.close();
             mdata = null;
         }
+    }
+
+    /*
+     * A stream the application left open holds its transaction, and a COPY its table lock, for
+     * whoever uses this UConnection next: a pool hands it on. The abort's result is not needed.
+     */
+    private void abortAbandonedStream() {
+        if (u_con == null) {
+            return;
+        }
+        synchronized (u_con) {
+            if (u_con.isStreamOpen()) {
+                u_con.getStream().abort();
+            }
+        }
+    }
+
+    /*
+     * In auto-commit the CAS ends the transaction itself at END (a commit) and at ABORT (a
+     * rollback). The driver then has nothing to send, only the cleanup its own commit or rollback
+     * does, so a holdable result set is kept by END as by any other commit.
+     */
+    private void endedByStream(boolean commit) throws SQLException {
+        if (!auto_commit || u_con.isActive()) {
+            return;
+        }
+        if (commit) {
+            completeStatementForCommit();
+        } else {
+            completeAllStatements();
+        }
+        tellOwnerTransactionEnds(commit);
     }
 
     private void checkIsOpen() throws SQLException {
@@ -1062,6 +1095,7 @@ public class CUBRIDConnection implements Connection {
                 throw createCUBRIDException(error);
         }
 
+        endedByStream(true);
         return result;
     }
 
@@ -1089,6 +1123,7 @@ public class CUBRIDConnection implements Connection {
                 throw createCUBRIDException(error);
         }
 
+        endedByStream(false);
         return result;
     }
 

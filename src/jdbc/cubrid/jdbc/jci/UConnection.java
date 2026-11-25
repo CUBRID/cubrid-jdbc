@@ -174,6 +174,8 @@ public abstract class UConnection {
     protected static final byte CAS_INFO_FLAG_MASK_FORCE_OUT_TRAN = 0x02;
     protected static final byte CAS_INFO_FLAG_MASK_NEW_SESSION_ID = 0x04;
     protected static final byte CAS_INFO_FLAG_MASK_STREAM_OPEN = 0x08;
+    /* 0 in every reply from the stream protocol (CUBRID/cubrid#8019) on; a CAS before it sends 1 */
+    private static final int CAS_INFO_FLAG_MASK_RESERVED = 0xF0;
 
     /* broker info */
     protected static final int BROKER_INFO_SIZE = 8;
@@ -1332,7 +1334,9 @@ public abstract class UConnection {
         outBuffer.addByte(flag);
         outBuffer.addByte(getAutoCommit() ? (byte) 1 : (byte) 0);
 
-        while (deferred_close_handle.isEmpty() != true) {
+        /* With a stream open the CAS refuses the whole PREPARE, closes included, so they wait for
+         * the first PREPARE after the stream. */
+        while (!isStreamOpen() && deferred_close_handle.isEmpty() != true) {
             Integer close_handle = (Integer) deferred_close_handle.remove(0);
             outBuffer.addInt(close_handle.intValue());
         }
@@ -1932,6 +1936,18 @@ public abstract class UConnection {
         }
     }
 
+    /*
+     * Did the last reply come from a CAS without the stream protocol? Such a CAS leaves every bit
+     * above the three older masks at 1, and develop builds between CBRD-27389 and CUBRID/cubrid#8019
+     * report PROTOCOL_V13 all the same. From #8019 on the reserved bits are 0, so a CAS that one day
+     * defines one of them still reads as knowing the stream protocol.
+     */
+    boolean casPredatesStreams() {
+        return casInfo != null
+                && (casInfo[CAS_INFO_ADDITIONAL_FLAG] & CAS_INFO_FLAG_MASK_RESERVED)
+                        == CAS_INFO_FLAG_MASK_RESERVED;
+    }
+
     private void forgetStreamOpen() {
         if (casInfo != null) {
             casInfo[CAS_INFO_ADDITIONAL_FLAG] &= ~CAS_INFO_FLAG_MASK_STREAM_OPEN;
@@ -1978,11 +1994,12 @@ public abstract class UConnection {
      * commits at the stream's END.
      *
      * Older servers leave every bit above the three known masks at 1, so the
-     * answer is only meaningful from PROTOCOL_V13 on. A request that got no
-     * reply clears the bit (exchange ()).
+     * answer is only meaningful from PROTOCOL_V13 on, and from a CAS that knows
+     * the stream protocol (casPredatesStreams ()). A request that got no reply
+     * clears the bit (exchange ()).
      */
     public boolean isStreamOpen() {
-        if (protocolVersion < PROTOCOL_V13 || casInfo == null) {
+        if (protocolVersion < PROTOCOL_V13 || casInfo == null || casPredatesStreams()) {
             return false;
         }
         return (casInfo[CAS_INFO_ADDITIONAL_FLAG] & CAS_INFO_FLAG_MASK_STREAM_OPEN) != 0;

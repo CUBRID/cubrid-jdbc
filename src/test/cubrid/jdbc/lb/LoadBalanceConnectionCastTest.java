@@ -276,7 +276,8 @@ public final class LoadBalanceConnectionCastTest {
         } catch (SQLException expected) {
             assertEquals(CUBRIDJDBCErrorCode.not_supported, expected.getErrorCode());
             assertTrue(
-                    expected.getMessage(), expected.getMessage().contains("COPY ... FROM STDIN"));
+                    expected.getMessage(),
+                    expected.getMessage().contains("a statement that opens a byte stream"));
         }
         assertEquals("the stream is aborted on the write leg", 1, aborts.get());
         assertFalse(socket.isStreamOpen());

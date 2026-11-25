@@ -102,9 +102,7 @@ public enum UFunctionCode {
     STREAM_ABORT(48),
     STREAM_READ_OPEN(49),
     STREAM_READ(50),
-    STREAM_RELEASE(51),
-
-    LAST_FUNCTION_CODE(GET_SHARD_INFO);
+    STREAM_RELEASE(51);
 
     private byte code;
 
@@ -115,10 +113,6 @@ public enum UFunctionCode {
     UFunctionCode(int code) {
         // FIX ME: possibly overflow
         this.code = (byte) code;
-    }
-
-    UFunctionCode(UFunctionCode code) {
-        this.code = code.getCode();
     }
 
     public byte getCode() {

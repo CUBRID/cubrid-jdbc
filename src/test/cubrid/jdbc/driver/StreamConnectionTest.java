@@ -133,6 +133,19 @@ public final class StreamConnectionTest {
         assertEquals("nothing was sent", 0, socket.sent().length);
     }
 
+    /**
+     * A stream the application left open would hold its transaction and a COPY's lock for the next
+     * user of the connection, so closing the connection aborts it first.
+     */
+    @Test
+    public void closingAConnectionAbortsAnAbandonedStream() throws Exception {
+        StreamSocket socket = new StreamSocket(UConnection.PROTOCOL_V13, STREAM_OPEN);
+        CUBRIDConnection conn = new CUBRIDConnection(socket, "jdbc:cubrid:stream", "dba");
+
+        conn.close();
+        assertEquals("the abort was sent", UFunctionCode.STREAM_ABORT.getCode(), socket.sent()[8]);
+    }
+
     /** The CAS refuses a second open while an upload is open, and leaves the upload as it was. */
     @Test
     public void anInvalidUseOfAStreamSurfacesWithTheServerCode() throws Exception {

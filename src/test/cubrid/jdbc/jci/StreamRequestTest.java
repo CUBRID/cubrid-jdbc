@@ -34,6 +34,7 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import java.nio.ByteBuffer;
 import org.junit.Test;
@@ -41,12 +42,60 @@ import org.junit.Test;
 /** Which CAS the stream calls may talk to, and which replies say a stream is open. */
 public final class StreamRequestTest {
 
-    /** A release CAS (PROTOCOL_V12) sends every additional-flag bit above its own masks as 1. */
+    /**
+     * A CAS without the stream protocol sends every additional-flag bit above its own masks as 1: a
+     * release CAS (PROTOCOL_V12), and the develop builds that report PROTOCOL_V13 before
+     * CUBRID/cubrid#8019. From #8019 on the reserved bits 0xF0 are 0; a later CAS that defines one
+     * of them still counts.
+     */
     @Test
-    public void theStreamOpenBitCountsFromProtocolV13On() throws Exception {
+    public void theStreamOpenBitCountsOnlyFromACasWithStreams() throws Exception {
         assertFalse(new StreamSocket(UConnection.PROTOCOL_V12, 0xFF).isStreamOpen());
-        assertTrue(new StreamSocket(UConnection.PROTOCOL_V13, 0xFF).isStreamOpen());
+        assertFalse(new StreamSocket(UConnection.PROTOCOL_V13, 0xFF).isStreamOpen());
+        assertTrue(new StreamSocket(UConnection.PROTOCOL_V13, 0x08).isStreamOpen());
+        assertTrue(new StreamSocket(UConnection.PROTOCOL_V13, 0x18).isStreamOpen());
         assertFalse(new StreamSocket(UConnection.PROTOCOL_V13, 0x07).isStreamOpen());
+    }
+
+    /**
+     * A PROTOCOL_V13 CAS without the stream protocol closes the connection on a stream code too.
+     */
+    @Test
+    public void aV13CasWithoutStreamsIsSentNoStreamRequest() throws Exception {
+        StreamSocket socket = new StreamSocket(UConnection.PROTOCOL_V13, 0xFF);
+
+        assertEquals(-1, socket.getStream().init(5, new byte[16]));
+        assertNotImplemented(socket);
+        assertEquals(-1, socket.getStream().sendData(new byte[1], 0, 1));
+        assertNotImplemented(socket);
+        assertEquals("no request byte may reach the CAS", 0, socket.sent().length);
+    }
+
+    /**
+     * With a stream open the CAS refuses a PREPARE whole, the statement closes it carries included,
+     * so the closes wait for the first PREPARE after the stream.
+     */
+    @Test
+    public void deferredClosesWaitWhileAStreamIsOpen() throws Exception {
+        StreamSocket socket = new StreamSocket(UConnection.PROTOCOL_V13, 0x08);
+        socket.deferred_close_handle.add(7);
+        socket.refuseNextRequest(-1220, "a stream session is open on this connection");
+
+        try {
+            socket.prepareInternal("SELECT 1", (byte) 0, false);
+            fail("the CAS refused the PREPARE");
+        } catch (UJciException expected) {
+        }
+        assertEquals("the close is kept", 1, socket.deferred_close_handle.size());
+
+        socket.report(0);
+        socket.refuseNextRequest(-1, "any refusal");
+        try {
+            socket.prepareInternal("SELECT 1", (byte) 0, false);
+        } catch (UJciException expected) {
+        }
+        assertEquals(
+                "with no stream open the close goes out", 0, socket.deferred_close_handle.size());
     }
 
     /** A CAS older than PROTOCOL_V13 closes the connection on a function code it does not know. */

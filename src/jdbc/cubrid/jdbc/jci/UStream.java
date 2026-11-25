@@ -239,7 +239,8 @@ public final class UStream {
                 conn.checkReconnect();
                 if (conn.errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR) return -1;
                 /* an older CAS closes the connection on a function code it does not know */
-                if (conn.brokerProtocolVersion() < UConnection.PROTOCOL_V13) {
+                if (conn.brokerProtocolVersion() < UConnection.PROTOCOL_V13
+                        || conn.casPredatesStreams()) {
                     conn.errorHandler.setDBError(
                             UErrorCode.CAS_ER_NOT_IMPLEMENTED,
                             UErrorCode.codeToCASMessage(UErrorCode.CAS_ER_NOT_IMPLEMENTED));

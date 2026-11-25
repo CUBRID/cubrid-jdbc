@@ -3204,7 +3204,9 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             return;
         }
 
-        final SQLException refused = LbExceptions.streamNotSupported("COPY ... FROM STDIN");
+        final SQLException refused =
+                LbExceptions.streamNotSupported(
+                        "a statement that opens a byte stream, such as COPY ... FROM STDIN");
         try {
             ((CUBRIDConnection) leg).streamAbort();
         } catch (SQLException abortFailed) {

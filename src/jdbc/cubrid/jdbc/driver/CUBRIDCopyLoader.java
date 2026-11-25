@@ -31,39 +31,57 @@
 
 package cubrid.jdbc.driver;
 
+import cubrid.jdbc.jci.UConnection;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
-import java.io.UnsupportedEncodingException;
+import java.nio.Buffer;
+import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
+import java.nio.charset.Charset;
+import java.nio.charset.CharsetEncoder;
+import java.nio.charset.CodingErrorAction;
 import java.sql.SQLException;
 import java.sql.Statement;
 
 /**
- * Loads a stream into a table through COPY ... FROM STDIN.
+ * Loads a byte or character source into a table through COPY ... FROM STDIN.
  *
- * <p>The connection already exposes the transport itself -- {@link
+ * <p>The connection already exposes the upload itself -- {@link
  * CUBRIDConnection#streamData(byte[])} and {@link CUBRIDConnection#streamEnd()} -- but using it
- * means running the statement, cutting the payload into chunks and closing the stream by hand. This
- * does those three in one call, so a caller hands over a stream and gets back the number of rows
- * loaded.
+ * means running the statement, cutting the source into chunks and ending the upload by hand. {@code
+ * copyIn ()} does those three in one call and returns the number of rows loaded.
  *
- * <p>The payload is opaque here: the format is whatever the statement's {@code WITH (FORMAT ...)}
- * says, and the bytes are passed through untouched.
+ * <p>A byte source is sent untouched, in the format the statement's {@code WITH (FORMAT ...)}
+ * names. A character source is encoded with the connection's {@code charSet}, as {@code setString
+ * ()} encodes a value, because COPY stores the bytes it receives without converting them. A lone
+ * surrogate, or a character the {@code charSet} cannot encode, is sent as the charset's
+ * replacement, {@code '?'} for UTF-8 and EUC-KR.
+ *
+ * <p>{@code copyIn ()} takes a COPY ... FROM STDIN statement. Another statement runs as {@code
+ * executeUpdate ()} runs it, committed under auto-commit, and then {@code copyIn ()} fails with
+ * -21120 before it reads the source.
+ *
+ * <p>The source is the caller's: {@code copyIn ()} reads it to its end and does not close it. While
+ * {@code copyIn ()} runs, no other thread may use the connection: the upload has no handle of its
+ * own, so a statement run in between can end it or open another one.
  *
  * <pre>
  * CUBRIDCopyLoader loader = ((CUBRIDConnection) conn).getCopyLoader();
  * long rows = loader.copyIn("COPY t FROM STDIN WITH (FORMAT CSV)", in);
  * </pre>
  */
-public class CUBRIDCopyLoader {
+public final class CUBRIDCopyLoader {
 
-    /**
-     * Bytes read from the source before each send.
-     *
-     * <p>Every chunk is a synchronous round trip, so throughput over a remote link is bounded by
-     * round-trip time times chunk count. The default is large for that reason.
+    /*
+     * Bytes in each chunk. Every chunk is a synchronous round trip, so a load takes at least the
+     * chunk count times the round-trip time; the default is large for that reason, and a chunk is
+     * a full buffer, not what one read of the source returned.
      */
-    public static final int DEFAULT_BUFFER_SIZE = 1024 * 1024;
+    static final int DEFAULT_BUFFER_SIZE = 1024 * 1024;
+
+    /* chars asked of a Reader per read; the encoder fills the chunk from them */
+    private static final int CHARS_PER_READ = 8192;
 
     private final CUBRIDConnection con;
 
@@ -71,117 +89,148 @@ public class CUBRIDCopyLoader {
         this.con = con;
     }
 
-    /** Loads already-encoded bytes, reading the source in default-sized chunks. */
-    public long copyIn(String sql, InputStream from) throws SQLException {
-        return copyIn(sql, from, DEFAULT_BUFFER_SIZE);
-    }
-
     /**
-     * Loads already-encoded bytes.
+     * Loads a byte source in 1 MiB chunks.
      *
      * @param sql a COPY ... FROM STDIN statement
-     * @param from the payload, in the format the statement names
-     * @param bufferSize bytes read from {@code from} before each send
+     * @param source the payload, in the format the statement names
      * @return rows loaded, as the server counted them
      */
-    public long copyIn(String sql, InputStream from, int bufferSize) throws SQLException {
-        if (sql == null || from == null) {
-            throw con.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
-        }
-        if (bufferSize <= 0) {
-            throw con.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
-        }
-
-        /* before open (): failing to allocate must not leave a stream open */
-        byte[] buffer = new byte[bufferSize];
-
-        open(sql);
-
-        try {
-            int len;
-            while ((len = from.read(buffer)) > 0) {
-                con.streamData(buffer, 0, len);
-            }
-        } catch (IOException e) {
-            /* The source failed, not the server. Ending the stream would load
-             * the rows sent so far, so abort it instead, then report the read. */
-            CUBRIDException err =
-                    con.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
-            abort(err);
-            throw err;
-        } catch (SQLException e) {
-            /* from streamData (): the server refused the chunk or the
-             * connection failed, and either way the stream is already gone */
-            throw e;
-        } catch (Throwable e) {
-            /* Anything else the source throws, Errors included, aborts the
-             * stream the same way and reaches the caller as it is. */
-            abort(e);
-            throw e;
-        }
-
-        return con.streamEnd();
-    }
-
-    /** Loads CSV text, encoded as UTF-8. */
-    public long copyIn(String sql, Reader from) throws SQLException {
-        return copyIn(sql, from, DEFAULT_BUFFER_SIZE);
+    public long copyIn(String sql, InputStream source) throws SQLException {
+        return copyIn(sql, source, DEFAULT_BUFFER_SIZE);
     }
 
     /**
-     * Loads CSV text, encoded as UTF-8.
+     * Loads a byte source.
      *
-     * @param bufferSize characters read from {@code from} before each send
+     * @param sql a COPY ... FROM STDIN statement
+     * @param source the payload, in the format the statement names
+     * @param bufferSize bytes in each chunk
+     * @return rows loaded, as the server counted them
      */
-    public long copyIn(String sql, Reader from, int bufferSize) throws SQLException {
-        if (sql == null || from == null) {
+    public long copyIn(String sql, InputStream source, int bufferSize) throws SQLException {
+        check(sql, source, bufferSize);
+
+        /* before the statement runs, so a failure to allocate leaves no upload open */
+        byte[] chunk = new byte[bufferSize];
+
+        return load(
+                sql,
+                () -> {
+                    int len;
+                    do {
+                        len = fill(source, chunk);
+                        if (len > 0) {
+                            con.streamData(chunk, 0, len);
+                        }
+                    } while (len
+                            == chunk.length); /* a chunk filled short ends at the source's end */
+                });
+    }
+
+    /**
+     * Loads a character source in 1 MiB chunks, encoded with the connection's {@code charSet}.
+     *
+     * @param sql a COPY ... FROM STDIN statement
+     * @param source the payload as text, in the format the statement names
+     * @return rows loaded, as the server counted them
+     */
+    public long copyIn(String sql, Reader source) throws SQLException {
+        return copyIn(sql, source, DEFAULT_BUFFER_SIZE);
+    }
+
+    /**
+     * Loads a character source, encoded with the connection's {@code charSet}.
+     *
+     * @param sql a COPY ... FROM STDIN statement
+     * @param source the payload as text, in the format the statement names
+     * @param bufferSize bytes in each chunk, raised to what two characters can take
+     * @return rows loaded, as the server counted them
+     */
+    public long copyIn(String sql, Reader source, int bufferSize) throws SQLException {
+        check(sql, source, bufferSize);
+
+        CharsetEncoder encoder = encoder();
+
+        /* An empty chunk takes any one character or surrogate pair. Both buffers
+         * before the statement runs, as above. */
+        int least = 2 * (int) Math.ceil(encoder.maxBytesPerChar());
+        ByteBuffer chunk = ByteBuffer.allocate(Math.max(bufferSize, least));
+        CharBuffer chars = CharBuffer.allocate(CHARS_PER_READ);
+
+        return load(
+                sql,
+                () -> {
+                    boolean end = false;
+                    while (!end) {
+                        end = read(source, chars) < 0;
+                        ((Buffer) chars).flip();
+                        encodeAll(encoder, chars, chunk);
+                        if (end) {
+                            /* nothing follows a high surrogate still left, which becomes the replacement */
+                            room(chunk, least);
+                            encoder.encode(chars, chunk, true);
+                            room(chunk, least);
+                            while (encoder.flush(chunk).isOverflow()) {
+                                send(chunk);
+                            }
+                        }
+                        chars.compact();
+                    }
+                    send(chunk);
+                });
+    }
+
+    private interface Sender {
+        void sendAll() throws IOException, SQLException;
+    }
+
+    private void check(String sql, Object source, int bufferSize) throws SQLException {
+        if (sql == null || source == null || bufferSize <= 0) {
             throw con.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
         }
-        /* the buffer below holds one char more */
-        if (bufferSize <= 0 || bufferSize == Integer.MAX_VALUE) {
-            throw con.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
+        if (con.isClosed()) {
+            throw con.createCUBRIDException(CUBRIDJDBCErrorCode.connection_closed, null);
         }
+    }
 
-        /* One char more than a read asks for: a high surrogate that ends a
-         * read is held there for its low half, because encoding the two
-         * halves apart turns each into '?'. Allocated before open (), so a
-         * failure to allocate leaves no stream open. */
-        char[] buffer = new char[bufferSize + 1];
-        int held = 0;
+    private CharsetEncoder encoder() throws SQLException {
+        try {
+            return Charset.forName(con.u_con.getCharset())
+                    .newEncoder()
+                    .onMalformedInput(CodingErrorAction.REPLACE)
+                    .onUnmappableCharacter(CodingErrorAction.REPLACE);
+        } catch (IllegalArgumentException | UnsupportedOperationException e) {
+            /* a charSet Java does not know, or one it can only decode */
+            CUBRIDException err =
+                    con.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, null);
+            err.initCause(e);
+            throw err;
+        }
+    }
 
+    /* Runs the statement, sends the source and ends the upload. */
+    private long load(String sql, Sender sender) throws SQLException {
         open(sql);
 
         try {
-            int len;
-            while ((len = from.read(buffer, held, bufferSize)) > 0) {
-                int end = held + len;
-                held = Character.isHighSurrogate(buffer[end - 1]) ? 1 : 0;
-                byte[] encoded = new String(buffer, 0, end - held).getBytes("UTF-8");
-                if (encoded.length > 0) {
-                    con.streamData(encoded, 0, encoded.length);
-                }
-                if (held > 0) {
-                    buffer[0] = buffer[end - 1];
-                }
-            }
-            /* No low half follows the end of the input; encode the high
-             * surrogate alone, as encoding the whole text would. */
-            if (held > 0) {
-                byte[] encoded = new String(buffer, 0, held).getBytes("UTF-8");
-                con.streamData(encoded, 0, encoded.length);
-            }
-        } catch (UnsupportedEncodingException e) {
-            CUBRIDException err = con.createCUBRIDException(CUBRIDJDBCErrorCode.invalid_value, e);
-            abort(err);
-            throw err;
+            sender.sendAll();
         } catch (IOException e) {
+            /* The source failed, not the server. Ending the upload would load
+             * the rows sent so far, so it is given up instead. */
             CUBRIDException err =
-                    con.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, e);
+                    con.createCUBRIDException(CUBRIDJDBCErrorCode.ioexception_in_stream, null);
+            err.initCause(e);
             abort(err);
             throw err;
         } catch (SQLException e) {
+            /* A chunk the server refused ended the upload there; a call the
+             * driver refused before sending it did not. */
+            if (uploadOpen()) {
+                abort(e);
+            }
             throw e;
-        } catch (Throwable e) {
+        } catch (RuntimeException | Error e) {
             abort(e);
             throw e;
         }
@@ -189,18 +238,100 @@ public class CUBRIDCopyLoader {
         return con.streamEnd();
     }
 
+    /* A statement that opened no upload is not COPY ... FROM STDIN; the source is left unread. */
     private void open(String sql) throws SQLException {
-        Statement st = con.createStatement();
-        try {
+        try (Statement st = con.createStatement()) {
             st.executeUpdate(sql);
-        } finally {
-            st.close();
+        }
+
+        if (!uploadOpen()) {
+            throw con.createCUBRIDException(
+                    CUBRIDJDBCErrorCode.invalid_value,
+                    " - the statement opened no upload; copyIn () takes COPY ... FROM STDIN",
+                    null);
         }
     }
 
-    /* Gives up the stream instead of ending it. If the abort fails too --
-     * the connection lost, most likely -- that failure is attached to the
-     * reason the caller is given rather than thrown in its place. */
+    /* whether the server still holds the upload; false once the connection is gone */
+    private boolean uploadOpen() {
+        UConnection u = con.u_con;
+        return u != null && u.isStreamOpen();
+    }
+
+    /* Fills the chunk unless the source ends first; a read of 0 is not the end. */
+    private static int fill(InputStream source, byte[] chunk) throws IOException {
+        int len = 0;
+        while (len < chunk.length) {
+            int asked = chunk.length - len;
+            int n = source.read(chunk, len, asked);
+            if (n < 0) {
+                break;
+            }
+            if (n > asked) {
+                throw new IOException("the source returned " + n + " bytes for " + asked);
+            }
+            len += n;
+        }
+        return len;
+    }
+
+    /* Reads into the room the buffer has, without the copy Reader.read (CharBuffer) makes;
+     * -1 at the end of the source. */
+    private static int read(Reader source, CharBuffer chars) throws IOException {
+        int asked = chars.remaining();
+        int n = source.read(chars.array(), chars.arrayOffset() + chars.position(), asked);
+        if (n > asked) {
+            throw new IOException("the source returned " + n + " chars for " + asked);
+        }
+        if (n > 0) {
+            ((Buffer) chars).position(chars.position() + n);
+        }
+        return n;
+    }
+
+    /*
+     * Encodes all of chars but a high surrogate at its end, which waits for its low half. The
+     * chunk goes whenever the next character does not fit: an encoder reports that as overflow,
+     * or as underflow with the character left unread (the single-byte encoders of JDK 8 do).
+     */
+    private void encodeAll(CharsetEncoder encoder, CharBuffer chars, ByteBuffer chunk)
+            throws SQLException {
+        while (true) {
+            encoder.encode(chars, chunk, false);
+            int left = chars.remaining();
+            if (left == 0
+                    || (left == 1 && Character.isHighSurrogate(chars.get(chars.position())))) {
+                return;
+            }
+            if (chunk.position() == 0) {
+                throw new IllegalStateException(
+                        encoder.charset() + " encodes nothing into an empty chunk");
+            }
+            send(chunk);
+        }
+    }
+
+    /* Sends the chunk unless it has room for at least bytes more. */
+    private void room(ByteBuffer chunk, int bytes) throws SQLException {
+        if (chunk.remaining() < bytes) {
+            send(chunk);
+        }
+    }
+
+    /*
+     * The casts to Buffer keep flip (), clear () and position (int) Buffer's own: JDK 9 and later
+     * declare covariant ones in CharBuffer and ByteBuffer, which a jar built there for Java 8
+     * without --release would link and not find on Java 8.
+     */
+    private void send(ByteBuffer chunk) throws SQLException {
+        if (chunk.position() > 0) {
+            con.streamData(chunk.array(), chunk.arrayOffset(), chunk.position());
+            ((Buffer) chunk).clear();
+        }
+    }
+
+    /* Gives the upload up. A failure to do so is attached to the reason the
+     * caller is given, not thrown in its place. */
     private void abort(Throwable reason) {
         try {
             con.streamAbort();

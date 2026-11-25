@@ -665,8 +665,8 @@ public class CUBRIDConnection implements Connection {
         checkIsOpen();
         /* A statement that opened a stream session is not finished when execute
          * returns -- the bytes still have to be sent -- so committing here would
-         * end the stream before the first chunk. The CAS holds this commit and
-         * pays it at the stream's END, with the mode the statement ran in. */
+         * end the stream before the first chunk. The CAS makes this commit itself
+         * at the stream's END, in the mode the statement ran in. */
         if (auto_commit && !u_con.isStreamOpen()) commit();
     }
 
@@ -677,7 +677,9 @@ public class CUBRIDConnection implements Connection {
         }
 
         checkIsOpen();
-        /* With a stream open the CAS refused this statement; a rollback would drop the stream. */
+        /* With a stream open the CAS refused this statement and kept the stream, which a
+         * rollback would drop. A statement that got no reply has cleared the bit, so the
+         * rollback that closes a lost connection still runs. */
         if (auto_commit && !u_con.isStreamOpen()) rollback();
     }
 

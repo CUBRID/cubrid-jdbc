@@ -253,9 +253,14 @@ public final class UStream {
             } catch (UJciException e) {
                 conn.logException(e);
                 e.toUError(conn.errorHandler);
+                if (e.getJciError() != UErrorCode.ER_DBMS) {
+                    /* no usable reply: the CAS and its stream may be gone, so start over */
+                    conn.clientSocketClose();
+                }
             } catch (IOException e) {
                 conn.logException(e);
                 conn.errorHandler.setErrorCode(UErrorCode.ER_COMMUNICATION);
+                conn.clientSocketClose();
             } catch (Exception e) {
                 conn.logException(e);
                 conn.errorHandler.setErrorCode(UErrorCode.ER_UNKNOWN);

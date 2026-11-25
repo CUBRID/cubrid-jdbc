@@ -1874,12 +1874,11 @@ public abstract class UConnection {
     UInputBuffer send_recv_msg(boolean recv_result, int timeout) throws UJciException, IOException {
         byte prev_casinfo[] = casInfo;
         UInputBuffer inputBuffer;
-        outBuffer.sendData();
         /* set cas info to UConnection member variable and return InputBuffer */
         if (timeout > 0) {
-            inputBuffer = receive(timeout * 1000 + READ_TIMEOUT);
+            inputBuffer = exchange(timeout * 1000 + READ_TIMEOUT);
         } else {
-            inputBuffer = receive(0);
+            inputBuffer = exchange(0);
         }
 
         if (UJCIUtil.isConsoleDebug()) {
@@ -1897,9 +1896,8 @@ public abstract class UConnection {
 
     UInputBuffer send_recv_msg(boolean recv_result) throws UJciException, IOException {
         byte prev_casinfo[] = casInfo;
-        outBuffer.sendData();
         /* set cas info to UConnection member variable and return InputBuffer */
-        UInputBuffer inputBuffer = receive(0);
+        UInputBuffer inputBuffer = exchange(0);
 
         if (UJCIUtil.isConsoleDebug()) {
             printCasInfo(prev_casinfo, casInfo);
@@ -1912,6 +1910,32 @@ public abstract class UConnection {
             createJciException(UErrorCode.ER_COMMUNICATION);
         }
         return send_recv_msg(true);
+    }
+
+    /*
+     * Sends the request and takes the reply. A request that gets no whole reply clears the
+     * STREAM_OPEN bit of the last one: the CAS that reported the stream may be gone, and the
+     * stream with it. A server error is a reply, and its CAS info is the current one.
+     */
+    private UInputBuffer exchange(int headerTimeout) throws UJciException, IOException {
+        try {
+            outBuffer.sendData();
+            return receive(headerTimeout);
+        } catch (IOException e) {
+            forgetStreamOpen();
+            throw e;
+        } catch (UJciException e) {
+            if (e.getJciError() != UErrorCode.ER_DBMS) {
+                forgetStreamOpen();
+            }
+            throw e;
+        }
+    }
+
+    private void forgetStreamOpen() {
+        if (casInfo != null) {
+            casInfo[CAS_INFO_ADDITIONAL_FLAG] &= ~CAS_INFO_FLAG_MASK_STREAM_OPEN;
+        }
     }
 
     private UInputBuffer receive(int headerTimeout) throws UJciException, IOException {
@@ -1954,7 +1978,8 @@ public abstract class UConnection {
      * commits at the stream's END.
      *
      * Older servers leave every bit above the three known masks at 1, so the
-     * answer is only meaningful from PROTOCOL_V13 on.
+     * answer is only meaningful from PROTOCOL_V13 on. A request that got no
+     * reply clears the bit (exchange ()).
      */
     public boolean isStreamOpen() {
         if (protocolVersion < PROTOCOL_V13 || casInfo == null) {

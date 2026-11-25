@@ -31,6 +31,7 @@
 package cubrid.jdbc.driver;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -91,6 +92,27 @@ public final class StreamConnectionTest {
         conn.autoCommit();
         assertEquals(1, socket.commits());
         conn.autoRollback();
+        assertEquals(1, socket.rollbacks());
+    }
+
+    /**
+     * A statement that meets a lost CAS while a stream is open gets no reply. The stream went with
+     * the CAS, so the statement is rolled back as any other, and that rollback is what lets a
+     * connection whose CAS is gone reconnect.
+     */
+    @Test
+    public void aStatementWithNoReplyIsRolledBack() throws Exception {
+        StreamSocket socket = new StreamSocket(UConnection.PROTOCOL_V13, STREAM_OPEN);
+        CUBRIDConnection conn = new CUBRIDConnection(socket, "jdbc:cubrid:stream", "dba");
+        socket.loseCas();
+
+        try {
+            conn.prepareStatement("SELECT 1");
+            fail("the CAS is gone");
+        } catch (SQLException expected) {
+            assertEquals(UErrorCode.ER_ILLEGAL_DATA_SIZE, expected.getErrorCode());
+        }
+        assertFalse(socket.isStreamOpen());
         assertEquals(1, socket.rollbacks());
     }
 

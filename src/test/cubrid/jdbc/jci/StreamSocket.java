@@ -36,6 +36,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.Vector;
 
 /**
  * A connected socket with no server behind it, like {@code LegTransactionEndNotifyTest}'s: the CAS
@@ -62,6 +63,7 @@ public final class StreamSocket extends UConnection {
         brokerInfo[BROKER_INFO_FUNCTION_FLAG] = CAS_RENEWED_ERROR_CODE;
         output = new DataOutputStream(sent);
         outBuffer = new UOutputBuffer(this);
+        deferred_close_handle = new Vector<Integer>();
         report(additionalFlags);
     }
 
@@ -87,6 +89,16 @@ public final class StreamSocket extends UConnection {
         ByteBuffer reply = ByteBuffer.allocate(8 + 4 + body.length);
         reply.putInt(4 + body.length).put(casInfo).putInt(0).put(body);
         input = new UTimedDataInputStream(new ByteArrayInputStream(reply.array()), "cas", 0);
+    }
+
+    /** The CAS is gone: the next request reads end of stream where its reply should be. */
+    public void loseCas() {
+        input = new UTimedDataInputStream(new ByteArrayInputStream(new byte[0]), "cas", 0);
+    }
+
+    /** Whether the next request reconnects first. */
+    public boolean reconnects() {
+        return needReconnection;
     }
 
     /** Every request sent so far, as it went on the wire. */

@@ -168,6 +168,21 @@ public final class StreamRequestTest {
         assertEquals("no request byte may reach the CAS", 0, socket.sent().length);
     }
 
+    /**
+     * A stream request that gets no reply leaves no stream behind: the CAS and its stream may be
+     * gone, so the bit is cleared and the next request reconnects.
+     */
+    @Test
+    public void aStreamRequestWithNoReplyForgetsTheStream() throws Exception {
+        StreamSocket socket = new StreamSocket(UConnection.PROTOCOL_V13, 0x08);
+        socket.loseCas();
+
+        assertEquals(-1, socket.getStream().sendData(new byte[1], 0, 1));
+        assertEquals(UErrorCode.ER_ILLEGAL_DATA_SIZE, socket.getRecentError().getErrorCode());
+        assertFalse(socket.isStreamOpen());
+        assertTrue("the next request reconnects", socket.reconnects());
+    }
+
     private static void assertInvalidArgument(final UConnection socket) {
         assertEquals(UErrorCode.ER_INVALID_ARGUMENT, socket.getRecentError().getErrorCode());
     }

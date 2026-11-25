@@ -53,6 +53,8 @@ public final class StreamSocket extends UConnection {
 
     private boolean autoCommit = true;
 
+    private String charset = "UTF-8";
+
     /**
      * @param protocolVersion the protocol version the CAS reported at connect
      * @param additionalFlags the additional-flag byte of the CAS's last reply
@@ -106,6 +108,16 @@ public final class StreamSocket extends UConnection {
     /** Every request sent so far, as it went on the wire. */
     public byte[] sent() {
         return sent.toByteArray();
+    }
+
+    /** The connection's charSet property, which the COPY loader encodes a Reader with. */
+    public void useCharset(final String charset) {
+        this.charset = charset;
+    }
+
+    @Override
+    public String getCharset() {
+        return charset;
     }
 
     public int commits() {

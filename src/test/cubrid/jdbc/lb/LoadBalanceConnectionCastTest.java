@@ -39,6 +39,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import cubrid.jdbc.driver.CUBRIDConnection;
+import cubrid.jdbc.driver.CUBRIDJDBCErrorCode;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.connection.SimpleEndpointConnManager;
@@ -194,6 +195,7 @@ public final class LoadBalanceConnectionCastTest {
             conn.getCopyLoader();
             fail("getCopyLoader() must be refused, not run against the null inherited socket");
         } catch (SQLException expected) {
+            assertEquals(CUBRIDJDBCErrorCode.not_supported, expected.getErrorCode());
             assertTrue(
                     "the message must name the refused API: " + expected.getMessage(),
                     expected.getMessage().contains("getCopyLoader()"));

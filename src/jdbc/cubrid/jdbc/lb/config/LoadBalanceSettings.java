@@ -142,9 +142,9 @@ public class LoadBalanceSettings {
     }
 
     /**
-     * {@link #fromUrl(ParsedUrl)} with the connection properties. An LB or classic-only option in
-     * {@code info} counts as one in the URL, and wins, as a property does over a URL option in
-     * core.
+     * {@link #fromUrl(LoadBalanceUrlParser.ParsedUrl)} with the connection properties. An LB or
+     * classic-only option in {@code info} counts as one in the URL, and wins, as a property does
+     * over a URL option in core.
      *
      * @param parsed the structurally parsed URI URL
      * @param info the connection properties; may be {@code null}

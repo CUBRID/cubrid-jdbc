@@ -75,17 +75,29 @@ public final class RoutedSql {
         return text;
     }
 
-    /** The target hint, or {@code null} if the string has none. */
+    /**
+     * The target hint, or {@code null} if the string has none.
+     *
+     * @return the hint
+     */
     public HintSet.TargetHint getHint() {
         return hint;
     }
 
-    /** Whether this is a {@code TO_RO} string that changes the session or assigns a variable. */
+    /**
+     * Whether this is a {@code TO_RO} string that changes the session or assigns a variable.
+     *
+     * @return whether it is
+     */
     public boolean changesSession() {
         return changesSession;
     }
 
-    /** Classified on first use: a transaction or a hint decides without it. */
+    /**
+     * Classified on first use: a transaction or a hint decides without it.
+     *
+     * @return the classification
+     */
     public SqlClassification getClassification() {
         if (classification == null) {
             classification = classifier.classify(text);

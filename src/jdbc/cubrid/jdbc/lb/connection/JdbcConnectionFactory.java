@@ -45,6 +45,12 @@ public interface JdbcConnectionFactory {
     /**
      * Opens {@code url} reporting {@code userUrl} in errors and to the CAS, as core does behind a
      * URI URL. A test double has no URL to report, so by default the two-argument form opens it.
+     *
+     * @param url the classic URL to open
+     * @param info the connection properties
+     * @param userUrl the URL to report, already masked
+     * @return the connection
+     * @throws SQLException if the connect fails
      */
     default Connection getConnection(String url, Properties info, String userUrl)
             throws SQLException {

@@ -1037,6 +1037,10 @@ public class LBStatement extends CUBRIDStatement {
     /**
      * An execution on {@code stmt} succeeded: it now answers for the update count, and for the
      * generated keys when it was an update, as core's executeUpdate/execute remake them.
+     *
+     * @param stmt the physical statement that ran
+     * @param rs its result set, or null
+     * @param update whether it was an update
      */
     protected void recordExec(final Statement stmt, final ResultSet rs, final boolean update) {
         lastRs = rs;
@@ -1066,6 +1070,8 @@ public class LBStatement extends CUBRIDStatement {
     /**
      * An execution starts on {@code next}. Core completes the previous one first, closing its
      * result set even when this one then fails.
+     *
+     * @param next the physical statement about to run
      */
     protected void beginExecution(final Statement next) {
         closeResultOfAnotherStatement(next);

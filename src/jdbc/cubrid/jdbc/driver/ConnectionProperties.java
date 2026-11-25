@@ -540,6 +540,8 @@ public class ConnectionProperties {
     /**
      * The TLS mode this connection runs in: {@code sslmode} when given, otherwise derived from
      * {@code useSSL} so that an URL written before this property existed keeps its behaviour.
+     *
+     * @return the TLS mode
      */
     public SslMode getSslMode() {
         SslMode mode = SslMode.fromLabel(sslMode.getValueAsString());
@@ -737,7 +739,12 @@ public class ConnectionProperties {
         return preparedStmtCacheSqlLimit.getValueAsInteger();
     }
 
-    /** Whether the prepared-statement cache keeps a statement of {@code sql}. */
+    /**
+     * Whether the prepared-statement cache keeps a statement of {@code sql}.
+     *
+     * @param sql the statement text
+     * @return whether the cache keeps it
+     */
     public boolean isPrepStmtCache(String sql) {
         return getPrepStmtCache() && sql.length() <= getPrepStmtCacheSqlLimit();
     }

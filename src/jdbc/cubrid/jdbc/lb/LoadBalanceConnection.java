@@ -1638,7 +1638,12 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         return config.getStatementCacheOptions().isPrepStmtCache(sql);
     }
 
-    /** Core's close leaves open a statement whose SQL its cache holds. */
+    /**
+     * Core's close leaves open a statement whose SQL its cache holds.
+     *
+     * @param sql the statement text
+     * @return whether the statement cache holds a statement of it
+     */
     public boolean isStatementCached(final String sql) {
         return prepStmtCache != null && prepStmtCache.get(sql) != null;
     }
@@ -2034,7 +2039,12 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         return holdability != null ? holdability.intValue() : ResultSet.HOLD_CURSORS_OVER_COMMIT;
     }
 
-    /** The holdability a statement created without one takes: the connection's, as in core. */
+    /**
+     * The holdability a statement created without one takes: the connection's, as in core.
+     *
+     * @return the holdability
+     * @throws SQLException if the open leg cannot report it
+     */
     public int statementHoldability() throws SQLException {
         final Connection leg = openLeg();
         if (leg != null) {
@@ -2047,6 +2057,10 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     /**
      * The holdability a statement asking for {@code requested} reports: core's statement decides it
      * on an open leg. With no leg open yet there is no server to ask, and HOLD stays HOLD.
+     *
+     * @param requested the holdability asked for
+     * @return the holdability the statement reports
+     * @throws SQLException if the open leg cannot report it
      */
     public int statementHoldability(final int requested) throws SQLException {
         final UConnection socket = openLegSocket();
@@ -3325,8 +3339,8 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     /**
-     * {@link #afterStatementSucceeded(String, RouteTarget)} for a statement that took values from
-     * {@code ?}. A login or a lock timeout that did runs on the other legs with them, as one
+     * {@link #afterStatementSucceeded(String, Router.RouteTarget)} for a statement that took values
+     * from {@code ?}. A login or a lock timeout that did runs on the other legs with them, as one
      * written out runs from its text.
      *
      * @param sql the statement as the application issued it

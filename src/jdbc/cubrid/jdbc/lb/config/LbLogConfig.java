@@ -112,7 +112,11 @@ public final class LbLogConfig {
         return sqlMode;
     }
 
-    /** Whether statements are logged as issued, values included. */
+    /**
+     * Whether statements are logged as issued, values included.
+     *
+     * @return whether they are
+     */
     public boolean isSqlRaw() {
         return SQL_RAW.equals(sqlMode);
     }

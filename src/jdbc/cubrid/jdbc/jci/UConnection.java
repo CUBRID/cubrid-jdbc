@@ -2047,7 +2047,11 @@ public abstract class UConnection {
         sessionId = newSessionId;
     }
 
-    /** The server session this connection is in; a reconnect that could not keep it changes it. */
+    /**
+     * The server session this connection is in; a reconnect that could not keep it changes it.
+     *
+     * @return a copy of the session id
+     */
     public byte[] getSessionId() {
         return sessionId.clone();
     }

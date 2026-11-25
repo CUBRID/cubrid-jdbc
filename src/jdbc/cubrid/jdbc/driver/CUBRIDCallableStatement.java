@@ -75,6 +75,8 @@ public class CUBRIDCallableStatement extends CUBRIDPreparedStatement implements 
     /**
      * For a logical callable statement that owns no {@link UStatement}; see {@link
      * CUBRIDPreparedStatement#CUBRIDPreparedStatement(CUBRIDConnection)}.
+     *
+     * @param c the connection the statement reports
      */
     protected CUBRIDCallableStatement(CUBRIDConnection c) {
         super(c);

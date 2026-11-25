@@ -390,7 +390,11 @@ public final class SessionSetStatement {
         return boundKey;
     }
 
-    /** Whether the statement changed anything LB tracks. */
+    /**
+     * Whether the statement changed anything LB tracks.
+     *
+     * @return whether it did
+     */
     public boolean changesSession() {
         return !replay.isEmpty()
                 || !pins.isEmpty()

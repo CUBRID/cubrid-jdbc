@@ -88,10 +88,20 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
 
     /** The session's write leg, as this statement needs it; the connection supplies it. */
     public interface WriteLeg {
-        /** Whether {@code leg} is still the session's write leg. Asks no server. */
+        /**
+         * Whether {@code leg} is still the session's write leg. Asks no server.
+         *
+         * @param leg a physical connection
+         * @return whether it is the write leg
+         */
         boolean is(Connection leg);
 
-        /** The write leg, for the command that is running. */
+        /**
+         * The write leg, for the command that is running.
+         *
+         * @return the write leg
+         * @throws SQLException if the session cannot open it
+         */
         Connection now() throws SQLException;
 
         /**
@@ -99,13 +109,30 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
          * runs: the failback is attempted, and the route is logged and counted. A statement that
          * {@code ranBefore} first has what that run left open in autocommit committed, as core
          * commits it at the next run, so that it does not hold the failback.
+         *
+         * @param ranBefore whether this statement ran before
+         * @return the write leg
+         * @throws SQLException if the commit or the leg fails
          */
         Connection forRun(boolean ranBefore) throws SQLException;
 
-        /** Prepares the CALL on {@code leg}, as the application's prepareCall did. */
+        /**
+         * Prepares the CALL on {@code leg}, as the application's prepareCall did.
+         *
+         * @param leg the write leg
+         * @return the physical statement
+         * @throws SQLException if the prepare fails
+         */
         CallableStatement prepare(Connection leg) throws SQLException;
 
-        /** Runs {@code command} as prepareCall runs, rebinding a leg whose broker is gone. */
+        /**
+         * Runs {@code command} as prepareCall runs, rebinding a leg whose broker is gone.
+         *
+         * @param <T> the command's result type
+         * @param command the command
+         * @return the command's result
+         * @throws SQLException if the command fails
+         */
         <T> T asCommand(SqlExecution<T> command) throws SQLException;
     }
 

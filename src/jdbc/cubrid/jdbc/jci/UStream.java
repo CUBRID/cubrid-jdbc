@@ -145,8 +145,8 @@ public final class UStream {
                 });
     }
 
-    /* Reads at most max bytes into buf at offset; replyFlags[0] gets the reply flags. Returns the
-     * bytes read. */
+    /* Reads at most max bytes into buf at offset, and the core sends at most READ_MAX_CHUNK of them;
+     * replyFlags[0] gets the reply flags. Returns the bytes read. */
     // UFunctionCode.STREAM_READ
     public int read(
             final long handle,
@@ -159,7 +159,6 @@ public final class UStream {
                 handle > 0
                         && buf != null
                         && max > 0
-                        && max <= READ_MAX_CHUNK
                         && offset >= 0
                         && offset <= buf.length
                         && max <= buf.length - offset

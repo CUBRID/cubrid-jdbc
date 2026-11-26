@@ -146,6 +146,19 @@ public final class StreamConnectionTest {
         assertEquals("the abort was sent", UFunctionCode.STREAM_ABORT.getCode(), socket.sent()[8]);
     }
 
+    /**
+     * A pool that keeps the physical connection checks it with isValid () before lending it, so a
+     * connection whose upload was left open is not valid: the CAS refuses its statements.
+     */
+    @Test
+    public void aConnectionWithAnUploadOpenIsNotValid() throws Exception {
+        StreamSocket socket = new StreamSocket(UConnection.PROTOCOL_V13, STREAM_OPEN);
+        CUBRIDConnection conn = new CUBRIDConnection(socket, "jdbc:cubrid:stream", "dba");
+
+        assertFalse(conn.isValid(1));
+        assertEquals("nothing was sent", 0, socket.sent().length);
+    }
+
     /** The CAS refuses a second open while an upload is open, and leaves the upload as it was. */
     @Test
     public void anInvalidUseOfAStreamSurfacesWithTheServerCode() throws Exception {

@@ -1042,7 +1042,8 @@ public class CUBRIDConnection implements Connection {
      * (COPY <table> FROM STDIN) or, inside the driver, by streamInit() for a kind the driver opens
      * itself. Send the payload with streamData(), then streamEnd() to finish; streamEnd() returns
      * the 64-bit value the kind defines (the rows loaded for COPY, an upload token for
-     * internal-LOB).
+     * internal-LOB). Until streamEnd() or streamAbort() the connection runs no statement, so a
+     * stream given up is aborted before the connection goes back to a pool.
      */
     synchronized int streamInit(int streamKind, byte[] config) throws SQLException {
         checkIsOpen();
@@ -1264,6 +1265,9 @@ public class CUBRIDConnection implements Connection {
         }
 
         if (isClosedWithoutLock()) return false;
+        /* An upload left open refuses every statement until END or ABORT. A pool that keeps the
+         * physical connection, and sends no rollback in auto-commit, evicts it on this answer. */
+        if (u_con.isStreamOpen()) return false;
 
         return u_con.isValid(timeout * 1000);
     }

@@ -119,6 +119,12 @@ public final class StreamSocket extends UConnection {
     @Override
     protected void checkReconnect() {}
 
+    /** The broker reports the CAS alive. */
+    @Override
+    public boolean isValid(final int timeout) {
+        return true;
+    }
+
     @Override
     public int getPrepStmtCacheSize() {
         return 0;

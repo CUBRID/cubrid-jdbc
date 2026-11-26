@@ -196,6 +196,23 @@ public final class StreamRequestTest {
         assertEquals(-1, replyFlags[0]);
     }
 
+    /** A read may ask more than READ_MAX_CHUNK: it goes out as asked, and the core bounds it. */
+    @Test
+    public void aReadAboveTheChunkSizeIsSentAsAsked() throws Exception {
+        StreamSocket socket = new StreamSocket(UConnection.PROTOCOL_V13, 0);
+        socket.replyNext(
+                ByteBuffer.allocate(4 + 4 + 2).putInt(2).putInt(0).put(new byte[] {1, 2}).array());
+        int max = UStream.READ_MAX_CHUNK + 1;
+        byte[] buf = new byte[max];
+
+        assertEquals(2, socket.getStream().read(7L, buf, 0, max, (byte) 0, new int[1]));
+        byte[] sent = socket.sent();
+        assertEquals(
+                "max comes before the flags byte and its length",
+                max,
+                ByteBuffer.wrap(sent, sent.length - 9, 4).getInt());
+    }
+
     /** A buffer range the call cannot use is refused before anything is sent. */
     @Test
     public void aRangeOutsideTheBufferIsRefusedBeforeSending() throws Exception {

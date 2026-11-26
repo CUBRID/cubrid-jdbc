@@ -47,8 +47,6 @@ import cubrid.jdbc.driver.CUBRIDConnection;
 import cubrid.jdbc.driver.CUBRIDXid;
 import cubrid.sql.CUBRIDOID;
 import cubrid.sql.CUBRIDOIDImpl;
-import cubrid.sql.CUBRIDTimestamp;
-import cubrid.sql.CUBRIDTimestamptz;
 import java.io.IOException;
 import java.util.Calendar;
 import java.util.TimeZone;
@@ -351,11 +349,7 @@ class UInputBuffer {
         return UDateTimeFields.ofTime(cal.getTimeInMillis(), hour, minute, second);
     }
 
-    private CUBRIDTimestamp readTimestamp(boolean is_tz) throws UJciException {
-        return (CUBRIDTimestamp) UDateTimeFields.sqlValueOf(readTimestampFields(is_tz));
-    }
-
-    UDateTimeFields readTimestampFields(boolean is_tz) throws UJciException {
+    UDateTimeFields readTimestamp(boolean is_tz) throws UJciException {
         int year, month, day, hour, minute, second;
         year = readShort();
         month = readShort();
@@ -389,37 +383,18 @@ class UInputBuffer {
                 cal.getTimeInMillis(), year, month, day, hour, minute, second);
     }
 
-    CUBRIDTimestamptz readTimestamptz(int size) throws UJciException {
-        CUBRIDTimestamp cubrid_ts;
-        String timezone;
-        int tmp_position;
-        int ts_size;
-
+    UDateTimeTzFields readTimestamptz(int size) throws UJciException {
         if (position + size > capacity) {
             throw uconn.createJciException(UErrorCode.ER_ILLEGAL_DATA_SIZE);
         }
 
-        tmp_position = position;
-        cubrid_ts = readTimestamp(true);
-
-        ts_size = position - tmp_position;
-
-        if (ts_size > 0) {
-            timezone = new String(buffer, position, size - ts_size - 1);
-            position += size - ts_size;
-        } else {
-            timezone = "";
-            position++;
-        }
-
-        return CUBRIDTimestamptz.valueOf(cubrid_ts, timezone);
+        int start = position;
+        UDateTimeFields fields = readTimestamp(true);
+        String timezone = readTimezone(size, position - start);
+        return fields == null ? null : fields.atTimezone(timezone);
     }
 
-    private CUBRIDTimestamp readDatetime(boolean is_tz) throws UJciException {
-        return (CUBRIDTimestamp) UDateTimeFields.sqlValueOf(readDatetimeFields(is_tz));
-    }
-
-    UDateTimeFields readDatetimeFields(boolean is_tz) throws UJciException {
+    UDateTimeFields readDatetime(boolean is_tz) throws UJciException {
         int year, month, day, hour, minute, second, millisecond;
         year = readShort();
         month = readShort();
@@ -454,35 +429,22 @@ class UInputBuffer {
                 cal.getTimeInMillis(), year, month, day, hour, minute, second, millisecond);
     }
 
-    CUBRIDTimestamptz readDatetimetz(int size) throws UJciException {
-        CUBRIDTimestamp cubrid_ts;
-        String timezone;
-        int tmp_position;
-        int ts_size;
-
+    UDateTimeTzFields readDatetimetz(int size) throws UJciException {
         if (position + size > capacity) {
             throw uconn.createJciException(UErrorCode.ER_ILLEGAL_DATA_SIZE);
         }
 
-        tmp_position = position;
-        cubrid_ts = readDatetime(true);
+        int start = position;
+        UDateTimeFields fields = readDatetime(true);
+        String timezone = readTimezone(size, position - start);
+        return fields == null ? null : fields.atTimezone(timezone);
+    }
 
-        if (cubrid_ts == null) {
-            /* zero datetime NULL behavior */
-            return null;
-        }
-
-        ts_size = position - tmp_position;
-
-        if (ts_size > 0) {
-            timezone = new String(buffer, position, size - ts_size - 1);
-            position += size - ts_size;
-        } else {
-            timezone = "";
-            position++;
-        }
-
-        return CUBRIDTimestamptz.valueOf(cubrid_ts, timezone);
+    /* The time zone text after the fields, which ends with a NUL. */
+    private String readTimezone(int size, int fieldsSize) {
+        String timezone = new String(buffer, position, size - fieldsSize - 1);
+        position += size - fieldsSize;
+        return timezone;
     }
 
     CUBRIDOID readOID(CUBRIDConnection con) throws UJciException {

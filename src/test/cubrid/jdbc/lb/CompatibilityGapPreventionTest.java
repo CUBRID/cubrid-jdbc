@@ -172,7 +172,6 @@ public final class CompatibilityGapPreventionTest {
         LoadBalanceConnection connection = new LoadBalanceConnection(LbTestSettings.defaults());
         assertUnsupportedMessageStartsWithPrefix(connection, "createArrayOf");
         assertUnsupportedMessageStartsWithPrefix(connection, "createStruct");
-        assertUnsupportedMessageStartsWithPrefix(connection, "getTypeMap");
         assertUnsupportedMessageStartsWithPrefix(connection, "setTypeMap");
     }
 
@@ -276,6 +275,19 @@ public final class CompatibilityGapPreventionTest {
         assertFalse(connection.isValid(1));
     }
 
+    @Test
+    public void assertTypeMapIsEmptyAndRefusedAfterClose() throws Exception {
+        LoadBalanceConnection connection = new LoadBalanceConnection(LbTestSettings.defaults());
+        assertTrue(connection.getTypeMap().isEmpty());
+        connection.close();
+        try {
+            connection.getTypeMap();
+            fail("Expected SQLException");
+        } catch (SQLException ex) {
+            assertEquals(CUBRIDJDBCErrorCode.connection_closed, ex.getErrorCode());
+        }
+    }
+
     private static void assertUnsupportedMessageStartsWithPrefix(
             final LoadBalanceConnection connection, final String api) throws SQLException {
         try {
@@ -283,8 +295,6 @@ public final class CompatibilityGapPreventionTest {
                 connection.createArrayOf("VARCHAR", new Object[] {"v"});
             } else if ("createStruct".equals(api)) {
                 connection.createStruct("S", new Object[] {Integer.valueOf(1)});
-            } else if ("getTypeMap".equals(api)) {
-                connection.getTypeMap();
             } else if ("setTypeMap".equals(api)) {
                 connection.setTypeMap(null);
             }

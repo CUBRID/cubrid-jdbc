@@ -4,14 +4,6 @@
 <project default="dist-cubrid" name="CUBRID JDBC Driver">
     <property name="output" value="${basedir}/output"/>
     <property file="${output}/build.properties" />
-    <!-- Without build.sh (e.g. `ant test` right after a clone) there is no build.properties: fall
-         back to VERSION with serial 0000, as gen_version.cmake does when git gives no count. -->
-    <loadfile property="base-version" srcFile="${basedir}/VERSION">
-        <filterchain>
-            <striplinebreaks/>
-        </filterchain>
-    </loadfile>
-    <property name="version" value="${base-version}.0000"/>
     <property name="cubrid-jar-file" value="${basedir}/cubrid-jdbc-${version}.jar"/>
     <property name="cubrid-src-jar-file" value="${basedir}/cubrid-jdbc-${version}-sources.jar"/>
     <property name="cubrid-doc-jar-file" value="${basedir}/cubrid-jdbc-${version}-javadoc.jar"/>
@@ -38,7 +30,6 @@
     <target name="src-jar-cubrid" depends="clean">
         <mkdir dir="${bin-cubrid}"/>
         <mkdir dir="${src-cubrid}"/>
-        <touch file="${output}/CUBRID-JDBC-${version}" mkdirs="true"/>
         <copy file="${output}/CUBRID-JDBC-${version}" tofile="${src-cubrid}/CUBRID-JDBC-${version}"/>
         <copy todir="${src-cubrid}" filtering="true">
             <fileset dir="${src}/jdbc">
@@ -90,7 +81,7 @@
     <property name="test.lib.url" value="https://raw.githubusercontent.com/CUBRID/3rdparty/develop/junit"/>
 
     <path id="test.classpath">
-        <pathelement location="${bin-cubrid}"/>
+        <pathelement location="${cubrid-jar-file}"/>
         <pathelement location="${bin-test}"/>
         <fileset dir="${test.lib}">
             <include name="*.jar"/>
@@ -116,7 +107,21 @@
         </fail>
     </target>
 
-    <target name="compile-test" depends="compile-cubrid, fetch-test-libs">
+    <!-- The tests run against the jar that build.sh built: they neither clean nor rebuild it. -->
+    <target name="check-build">
+        <fail unless="version" message="output/build.properties not found: run ./build.sh first, or use ./gradlew test."/>
+        <fail message="${cubrid-jar-file} not found: run ./build.sh first.">
+            <condition>
+                <not>
+                    <available file="${cubrid-jar-file}"/>
+                </not>
+            </condition>
+        </fail>
+    </target>
+
+    <!-- bin-test starts empty, so a deleted or renamed test does not leave a class that test still finds. -->
+    <target name="compile-test" depends="check-build, fetch-test-libs">
+        <delete dir="${bin-test}"/>
         <mkdir dir="${bin-test}"/>
         <javac destdir="${bin-test}" source="1.8" target="1.8" encoding="UTF-8" debug="true" deprecation="off" includeantruntime="no">
             <src path="${test.src}"/>

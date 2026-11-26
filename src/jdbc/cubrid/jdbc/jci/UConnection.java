@@ -506,6 +506,11 @@ public abstract class UConnection {
     // UFunctionCode.GET_SCHEMA_INFO
     public synchronized UStatement getSchemaInfo(
             int type, String arg1, String arg2, byte flag, int shard_id) {
+        return getSchemaInfo(type, arg1, arg2, null, flag, shard_id);
+    }
+
+    public synchronized UStatement getSchemaInfo(
+            int type, String arg1, String arg2, String arg3, byte flag, int shard_id) {
         UStatement returnValue = null;
 
         errorHandler = new UError(this);
@@ -517,7 +522,9 @@ public abstract class UConnection {
             errorHandler.setErrorCode(UErrorCode.ER_SCHEMA_TYPE);
             return null;
         }
-        if (flag < 0 || flag > 3) {
+        boolean hasParameterPattern =
+                type == USchType.SCH_PROCEDURE_COLUMNS || type == USchType.SCH_FUNCTION_COLUMNS;
+        if (flag < 0 || flag > (hasParameterPattern ? 7 : 3)) {
             errorHandler.setErrorCode(UErrorCode.ER_ILLEGAL_FLAG);
             return null;
         }
@@ -535,6 +542,7 @@ public abstract class UConnection {
             outBuffer.addByte(flag);
 
             outBuffer.addInt(shard_id);
+            if (arg3 != null) outBuffer.addStringWithNull(arg3);
 
             UInputBuffer inBuffer;
             inBuffer = send_recv_msg();

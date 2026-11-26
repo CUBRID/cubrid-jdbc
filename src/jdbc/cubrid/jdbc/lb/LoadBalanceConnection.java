@@ -2055,12 +2055,33 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         return catalog;
     }
 
-    public void setSchema(String schema) throws SQLException {
-        throw LbExceptions.featureNotSupported();
+    public void setSchema(final String schema) throws SQLException {
+        checkClosed();
+        if (isSessionInitialized()) {
+            runRwCommand(
+                    "setSchema",
+                    new SqlExecution<Void>() {
+                        public Void run() throws SQLException {
+                            getPhysicalConnForCmd(SessionLeg.RW).setSchema(schema);
+                            return null;
+                        }
+                    });
+        }
     }
 
     public String getSchema() throws SQLException {
-        throw LbExceptions.featureNotSupported();
+        checkClosed();
+        if (isSessionInitialized()) {
+            return runRwCommand(
+                    "getSchema",
+                    new SqlExecution<String>() {
+                        public String run() throws SQLException {
+                            return getPhysicalConnForCmd(SessionLeg.RW).getSchema();
+                        }
+                    });
+        }
+
+        return null;
     }
 
     public int getHoldability() throws SQLException {
@@ -2179,7 +2200,8 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     public Map<String, Class<?>> getTypeMap() throws SQLException {
-        throw LbExceptions.featureNotSupported();
+        checkClosed();
+        return new HashMap<String, Class<?>>();
     }
 
     public void setTypeMap(Map<String, Class<?>> map) throws SQLException {

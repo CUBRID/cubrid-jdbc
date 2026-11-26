@@ -55,12 +55,17 @@ import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Calendar;
+import java.util.Locale;
 import java.util.TimeZone;
 import javax.transaction.xa.Xid;
 
 class UOutputBuffer {
     private static final int NANOS_PER_MILLI = 1000000;
+    private static final DateTimeFormatter OFFSET_TEXT =
+            DateTimeFormatter.ofPattern("xxxxx", Locale.ROOT);
 
     private UConnection u_con;
     private OutputStream output;
@@ -325,6 +330,23 @@ class UOutputBuffer {
         return 4 + 14 + timezone_len;
     }
 
+    int addDatetimetz(OffsetDateTime value) throws IOException {
+        /* xxxxx writes an offset of 0 as +00:00; CUBRID does not accept Z. */
+        String timezone = OFFSET_TEXT.format(value);
+
+        dataBuffer.writeInt(14 + timezone.length());
+        dataBuffer.writeShort(value.getYear());
+        dataBuffer.writeShort(value.getMonthValue());
+        dataBuffer.writeShort(value.getDayOfMonth());
+        dataBuffer.writeShort(value.getHour());
+        dataBuffer.writeShort(value.getMinute());
+        dataBuffer.writeShort(value.getSecond());
+        dataBuffer.writeShort(value.getNano() / NANOS_PER_MILLI);
+        dataBuffer.write(timezone.getBytes(), 0, timezone.length());
+
+        return 4 + 14 + timezone.length();
+    }
+
     int addOID(CUBRIDOID value) throws IOException {
         byte[] b = value.getOID();
 
@@ -499,6 +521,8 @@ class UOutputBuffer {
             case UUType.U_TYPE_DATETIMELTZ:
                 if (value == null) {
                     return addDatetimetz(UGetTypeConvertedValue.getTimestamptz(new Timestamp(0)));
+                } else if (value instanceof OffsetDateTime) {
+                    return addDatetimetz((OffsetDateTime) value);
                 } else {
                     return addDatetimetz(UGetTypeConvertedValue.getTimestamptz(value));
                 }

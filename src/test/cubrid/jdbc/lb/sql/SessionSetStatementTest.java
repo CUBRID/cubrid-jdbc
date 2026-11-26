@@ -571,7 +571,7 @@ public class SessionSetStatementTest {
                 rr,
                 isolation(
                         "SET TRANSACTION ISOLATION LEVEL"
-                                + " READ COMMITTED CLASS, REPEATABLE READ INSTANCES"));
+                                + " REPEATABLE READ CLASS, REPEATABLE READ INSTANCES"));
         assertEquals(
                 0,
                 isolation(

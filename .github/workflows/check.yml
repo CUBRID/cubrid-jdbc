@@ -112,6 +112,35 @@ jobs:
           java-version: '8'
       - name: Run gradle test
         run: ./gradlew test --no-daemon
+      # Gradle prints nothing when every test passes, so the counts go to the run's Summary page.
+      - name: Test summary
+        if: ${{ !cancelled() }}
+        run: |
+          python3 - build/test-results/test >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          import glob, itertools, sys, xml.etree.ElementTree as ET
+          suites = [ET.parse(p).getroot() for p in sorted(glob.glob(sys.argv[1] + "/TEST-*.xml"))]
+          print("### Unit tests\n")
+          if not suites:
+              print("No test results: the build stopped before the tests ran.")
+              sys.exit()
+          def total(key):
+              return sum(int(s.get(key) or 0) for s in suites)
+          tests, failed, skipped = total("tests"), total("failures") + total("errors"), total("skipped")
+          seconds = sum(float(s.get("time") or 0) for s in suites)
+          print("| Tests | Passed | Failed | Skipped | Time |\n|---:|---:|---:|---:|---:|")
+          print(f"| {tests} | {tests - failed - skipped} | {failed} | {skipped} | {seconds:.0f}s |")
+          failures = [(c, b) for s in suites for c in s.iter("testcase") for b in c if b.tag in ("failure", "error")]
+          if failures:
+              print("\n```")
+              for case, bad in failures:
+                  trace = (bad.text or "").splitlines()
+                  cause = list(itertools.takewhile(lambda line: not line.startswith("\tat "), trace))
+                  where = [line.strip() for line in trace if line.strip().startswith(f"at {case.get('classname')}.")]
+                  print(f"{case.get('classname')} > {case.get('name')}")
+                  for line in cause + where[:1]:
+                      print("    " + line)
+              print("```")
+          EOF
   build-parity:
     name: build-parity
     runs-on: ubuntu-latest

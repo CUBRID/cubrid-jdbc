@@ -1137,6 +1137,16 @@ public class CUBRIDConnection implements Connection {
         return result;
     }
 
+    /*
+     * Runs a statement that takes its data from the driver, such as COPY ... FROM STDIN, asking for
+     * the stream it opens: the CAS gives up a stream an execute opens without asking.
+     */
+    void executeForStream(String sql) throws SQLException {
+        try (Statement st = createStatement()) {
+            ((CUBRIDStatement) st).executeUpdateForStream(sql);
+        }
+    }
+
     /**
      * Returns a loader for COPY ... FROM STDIN on this connection, which runs the statement, sends
      * the source in chunks and ends the upload in one call.

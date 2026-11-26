@@ -43,10 +43,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
 import java.io.StringReader;
-import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -90,24 +88,11 @@ public final class CUBRIDCopyLoaderTest {
         }
 
         @Override
-        public synchronized Statement createStatement() {
-            return (Statement)
-                    Proxy.newProxyInstance(
-                            Statement.class.getClassLoader(),
-                            new Class<?>[] {Statement.class},
-                            (proxy, method, args) -> {
-                                if (method.getName().equals("executeUpdate")) {
-                                    calls.add("execute " + args[0]);
-                                    if (statementOpensUpload) {
-                                        socket.report(STREAM_OPEN);
-                                    }
-                                    return 0;
-                                }
-                                if (method.getName().equals("close")) {
-                                    return null;
-                                }
-                                throw new UnsupportedOperationException(method.getName());
-                            });
+        void executeForStream(String sql) {
+            calls.add("execute " + sql);
+            if (statementOpensUpload) {
+                socket.report(STREAM_OPEN);
+            }
         }
 
         @Override

@@ -42,7 +42,6 @@ import java.nio.charset.Charset;
 import java.nio.charset.CharsetEncoder;
 import java.nio.charset.CodingErrorAction;
 import java.sql.SQLException;
-import java.sql.Statement;
 
 /**
  * Loads a byte or character source into a table through COPY ... FROM STDIN.
@@ -240,9 +239,7 @@ public final class CUBRIDCopyLoader {
 
     /* A statement that opened no upload is not COPY ... FROM STDIN; the source is left unread. */
     private void open(String sql) throws SQLException {
-        try (Statement st = con.createStatement()) {
-            st.executeUpdate(sql);
-        }
+        con.executeForStream(sql);
 
         if (!uploadOpen()) {
             throw con.createCUBRIDException(

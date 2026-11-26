@@ -273,9 +273,10 @@ public final class LoadBalanceConnectionCastTest {
      * as a NullPointerException in the field.
      *
      * <p>The stream calls ({@code streamInit}, {@code streamData}, {@code streamEnd}, {@code
-     * streamAbort}) are called only by driver-internal code: the COPY loader, which this connection
-     * refuses, and the LOB upload, on the physical connection {@code createClob()} and {@code
-     * createBlob()} hand out, which is the write leg's here.
+     * streamAbort}) and {@code executeForStream(String)} are called only by driver-internal code:
+     * the COPY loader, which this connection refuses, and the LOB upload, on the physical
+     * connection {@code createClob()} and {@code createBlob()} hand out, which is the write leg's
+     * here.
      */
     @Test
     public void packagePrivateMembersAreTheKnownUnreachableSet() {
@@ -299,8 +300,8 @@ public final class LoadBalanceConnectionCastTest {
                         + " confirm nothing hands a LoadBalanceConnection to a caller of it",
                 "[closeConnection(), createCUBRIDException(UError),"
                         + " createCUBRIDException(int, String, Throwable),"
-                        + " createCUBRIDException(int, Throwable), isSavepointTopologySupported(),"
-                        + " isSchemaSupported(), prepare(String, byte),"
+                        + " createCUBRIDException(int, Throwable), executeForStream(String),"
+                        + " isSavepointTopologySupported(), isSchemaSupported(), prepare(String, byte),"
                         + " removeStatement(Statement), streamAbort(), streamData(byte[]),"
                         + " streamData(byte[], int, int), streamEnd(), streamInit(int, byte[])]",
                 packagePrivate.toString());

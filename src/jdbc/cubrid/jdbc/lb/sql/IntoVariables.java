@@ -33,6 +33,7 @@ package cubrid.jdbc.lb.sql;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Set;
 
@@ -64,6 +65,21 @@ public final class IntoVariables {
      * @return upper-cased names without a leading {@code :}; empty when there are none
      */
     public static Set<String> assignedBy(final String sql) {
+        final Set<String> read = assignedByReading(sql);
+        if (sql == null || sql.indexOf('\\') < 0) {
+            return read;
+        }
+        // As the classifier reads it: no_backslash_escapes is the server's, so both ways.
+        final String escaped = SqlLexer.withBackslashEscapes(sql);
+        if (escaped == null || escaped.equals(sql)) {
+            return read;
+        }
+        final Set<String> both = new LinkedHashSet<String>(read);
+        both.addAll(assignedByReading(escaped));
+        return both;
+    }
+
+    private static Set<String> assignedByReading(final String sql) {
         if (sql == null) {
             return Collections.emptySet();
         }

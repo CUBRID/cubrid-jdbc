@@ -63,6 +63,12 @@ public class IntoVariablesTest {
                 IntoVariables.assignedBy("select 1 into v1; select 2 to v2 from db_root"));
     }
 
+    /** Read both ways, as the classifier reads a backslash: the server's setting decides. */
+    @Test
+    public void aVariableAfterABackslashEscapedQuoteIsAssigned() {
+        assertEquals(names("V"), IntoVariables.assignedBy("SELECT 'It\\'s' INTO v FROM db_root"));
+    }
+
     @Test
     public void otherStatementsWithAnIntoClauseAssign() {
         assertEquals(

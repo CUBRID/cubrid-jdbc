@@ -427,6 +427,19 @@ public final class SessionSetStatement {
      * @return what it changed, never {@code null}
      */
     public static SessionSetStatement parse(final String sql) {
+        final SessionSetStatement read = parseReading(sql);
+        if (sql == null || sql.indexOf('\\') < 0) {
+            return read;
+        }
+        // As the classifier reads it: no_backslash_escapes is the server's, so both ways.
+        final String escaped = SqlLexer.withBackslashEscapes(sql);
+        if (escaped == null || escaped.equals(sql)) {
+            return read;
+        }
+        return new Builder().then(read).then(parseReading(escaped)).build();
+    }
+
+    private static SessionSetStatement parseReading(final String sql) {
         if (sql == null) {
             return NONE_RESULT;
         }

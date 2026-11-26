@@ -216,6 +216,17 @@ public class SessionSetStatementTest {
         assertFalse(SessionSetStatement.preparesOrDropsAStatement("EXECUTE s; DROP TABLE t"));
     }
 
+    /**
+     * With {@code no_backslash_escapes=no} the server reads {@code 'It\'s'} as one string and runs
+     * the SET after it; the parser reads the string both ways, as the classifier does.
+     */
+    @Test
+    public void aSetAfterABackslashEscapedQuoteIsSeen() {
+        assertEquals(
+                Arrays.asList("SET NAMES euckr"),
+                replayed("SELECT 'It\\'s' FROM t; SET NAMES euckr"));
+    }
+
     /** A name with no value fails in the engine; what it would have set is unknown. */
     @Test
     public void aNameWithNoValueIsAnUnknownChange() {

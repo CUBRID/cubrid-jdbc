@@ -51,6 +51,7 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.sql.CallableStatement;
 import java.sql.Connection;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Types;
@@ -152,6 +153,40 @@ public final class CallableFailbackTest {
 
         assertEquals(NODE1, conn.getCurrentRwEndpoint());
         assertFalse(cs.isClosed());
+    }
+
+    /** Failback closes the write connection, and with it a result set of the CALL still open. */
+    @Test
+    public void rwFailbackWaitsWhileAResultSetOfTheCallIsOpen() throws SQLException {
+        open(true);
+        CallableStatement cs = conn.prepareCall("CALL p(?, ?)");
+        ResultSet rs = cs.executeQuery();
+        masterComesBack();
+
+        write();
+        assertEquals(NODE2, conn.getCurrentRwEndpoint());
+        assertFalse(rs.isClosed());
+
+        rs.close();
+        write();
+        assertEquals(NODE1, conn.getCurrentRwEndpoint());
+    }
+
+    /** The same for a result set of SQL the statement ran on the write connection. */
+    @Test
+    public void rwFailbackWaitsWhileAResultSetOfSqlItRanIsOpen() throws SQLException {
+        open(true);
+        CallableStatement cs = conn.prepareCall("CALL p(?, ?)");
+        ResultSet rs = cs.executeQuery("SELECT LAST_INSERT_ID() FROM db_root");
+        masterComesBack();
+
+        write();
+        assertEquals(NODE2, conn.getCurrentRwEndpoint());
+        assertFalse(rs.isClosed());
+
+        rs.close();
+        write();
+        assertEquals(NODE1, conn.getCurrentRwEndpoint());
     }
 
     @Test
@@ -344,12 +379,18 @@ public final class CallableFailbackTest {
                                     return Boolean.valueOf(closed[0]);
                                 }
                                 if ("createStatement".equals(name)) {
-                                    return statement(Statement.class, node, closed, null);
+                                    return statement(
+                                            Statement.class, (Connection) p, node, closed, null);
                                 }
                                 if ("prepareCall".equals(name)) {
                                     PhysicalCall call = new PhysicalCall(node);
                                     prepared.add(call);
-                                    return statement(CallableStatement.class, node, closed, call);
+                                    return statement(
+                                            CallableStatement.class,
+                                            (Connection) p,
+                                            node,
+                                            closed,
+                                            call);
                                 }
                                 return zero(m.getReturnType());
                             }
@@ -358,11 +399,13 @@ public final class CallableFailbackTest {
 
     private Object statement(
             final Class<?> type,
+            final Connection leg,
             final Endpoint node,
             final boolean[] legClosed,
             final PhysicalCall record) {
         final boolean[] closed = {false};
         final int[] queryTimeout = {0};
+        final ResultSet[] current = {null};
         return Proxy.newProxyInstance(
                 type.getClassLoader(),
                 new Class<?>[] {type},
@@ -399,9 +442,40 @@ public final class CallableFailbackTest {
                         if ("getQueryTimeout".equals(name)) {
                             return Integer.valueOf(queryTimeout[0]);
                         }
+                        if ("getConnection".equals(name)) {
+                            return leg;
+                        }
+                        if ("executeQuery".equals(name)) {
+                            current[0] = resultSet(legClosed);
+                            return current[0];
+                        }
+                        if ("getResultSet".equals(name)) {
+                            return current[0];
+                        }
                         return zero(m.getReturnType());
                     }
                 });
+    }
+
+    /** A result set that is open until it or its leg is closed. */
+    private static ResultSet resultSet(final boolean[] legClosed) {
+        final boolean[] closed = {false};
+        return (ResultSet)
+                Proxy.newProxyInstance(
+                        ResultSet.class.getClassLoader(),
+                        new Class<?>[] {ResultSet.class},
+                        new InvocationHandler() {
+                            public Object invoke(final Object p, final Method m, final Object[] a) {
+                                if ("close".equals(m.getName())) {
+                                    closed[0] = true;
+                                    return null;
+                                }
+                                if ("isClosed".equals(m.getName())) {
+                                    return Boolean.valueOf(closed[0] || legClosed[0]);
+                                }
+                                return zero(m.getReturnType());
+                            }
+                        });
     }
 
     private static String args(final Object[] a) {

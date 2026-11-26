@@ -357,6 +357,25 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
                 lastRanSql ? statementDelegate.getGeneratedKeys() : call.getGeneratedKeys(), this);
     }
 
+    /**
+     * See {@link LBStatement#openCursorConnection()}: a result set of the CALL or of SQL this
+     * statement ran.
+     *
+     * @return the connection holding an open cursor, or null
+     */
+    public Connection openCursorConnection() {
+        final Connection underSql = statementDelegate.openCursorConnection();
+        if (underSql != null) {
+            return underSql;
+        }
+        try {
+            final ResultSet rs = call.getResultSet();
+            return rs == null || rs.isClosed() ? null : call.getConnection();
+        } catch (SQLException closedOrGone) {
+            return null; // a result set that cannot answer cannot be read either
+        }
+    }
+
     @Override
     public void close() throws SQLException {
         final boolean legGone = attached() == null;

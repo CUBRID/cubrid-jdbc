@@ -3918,6 +3918,8 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                 underCursor = ((LBPreparedStatement) each).openCursorConnection();
             } else if (each instanceof LBStatement) {
                 underCursor = ((LBStatement) each).openCursorConnection();
+            } else if (each instanceof LBCallableStatement) {
+                underCursor = ((LBCallableStatement) each).openCursorConnection();
             }
             if (underCursor == physical) {
                 return true;

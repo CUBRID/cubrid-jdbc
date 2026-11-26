@@ -196,7 +196,7 @@ public final class ResolvedRoleTopology {
         }
 
         try {
-            final int port = Integer.parseInt(value.trim());
+            final int port = Integer.parseInt(value);
             if (port < MIN_PORT || port > MAX_PORT) {
                 throw LbExceptions.optionValueIncompatible(key, value);
             }

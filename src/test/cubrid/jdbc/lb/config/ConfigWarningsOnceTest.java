@@ -94,15 +94,13 @@ public class ConfigWarningsOnceTest {
     }
 
     @Test
-    public void lbLogWarningsAreGivenOncePerJvm() {
+    public void lbLogWarningsAreGivenOncePerJvm() throws SQLException {
         for (int i = 0; i < 3; i++) {
             LbLogConfig.parse(options(LbLogConfig.OPT_SQL, "raw"));
-            LbLogConfig.parse(options(LbLogConfig.OPT_SQL, "bogus"));
-            LbLogConfig.parse(options(LbLogConfig.OPT_SQL_MAX_LEN, "-1"));
-            LbLogConfig.parse(options(LbLogConfig.OPT_DIST_INTERVAL_SEC, "x"));
         }
 
-        assertEquals(warnings.toString(), 4, warnings.size());
+        // raw only; a bad value refuses the URL instead
+        assertEquals(warnings.toString(), 1, warnings.size());
     }
 
     @Test

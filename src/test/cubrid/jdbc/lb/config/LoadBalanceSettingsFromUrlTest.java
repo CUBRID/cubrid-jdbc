@@ -159,6 +159,56 @@ public class LoadBalanceSettingsFromUrlTest {
     }
 
     /**
+     * The broker ports and the LB log options are checked as core checks its properties too: no
+     * trimming, a bad value refuses the URL instead of a WARN and the default, {@code +n} is taken.
+     */
+    @Test
+    public void portAndLogValuesAreCheckedAsCoreChecksItsProperties() throws SQLException {
+        final String url = "jdbc:cubrid:loadbalance://node1,node2;replica=rep1/testdb:::?";
+        final String[][] refused = {
+            {"rwPort= 33000", "rwPort"},
+            {"roPort=33002 &rwPort=33000", "roPort"},
+            {"soPort= 33004", "soPort"},
+            {"lbLogSql=bogus", "lbLogSql"},
+            {"lbLogSql= raw", "lbLogSql"},
+            {"lbLogSqlMaxLen=-1", "lbLogSqlMaxLen"},
+            {"lbLogSqlMaxLen= 5", "lbLogSqlMaxLen"},
+            {"lbLogDistIntervalSec=x", "lbLogDistIntervalSec"},
+        };
+        for (String[] each : refused) {
+            try {
+                configOf(url + each[0]);
+                fail(each[0] + " must be refused");
+            } catch (SQLException expected) {
+                assertTrue(
+                        expected.getMessage(),
+                        expected.getMessage().contains("uncompitable value for the " + each[1]));
+            }
+        }
+
+        LoadBalanceSettings c =
+                configOf(
+                        url + "rwPort=+33000&lbLogSql=RAW&lbLogSqlMaxLen=0&lbLogDistIntervalSec=0");
+        assertEquals("node1:33000", c.getResolvedTopology().getMaster().getRw().getId());
+        assertTrue(c.getLbLogConfig().isSqlRaw());
+        assertEquals(0, c.getLbLogConfig().getSqlMaxLen());
+
+        for (String name :
+                new String[] {"rwPort", "lbLogSql", "lbLogSqlMaxLen", "lbLogDistIntervalSec"}) {
+            java.util.Properties info = new java.util.Properties();
+            info.setProperty(name, "");
+            try {
+                LoadBalanceSettings.fromUrl(LoadBalanceUrlParser.parse(url), info);
+                fail("an empty " + name + " property must be refused");
+            } catch (SQLException expected) {
+                assertTrue(
+                        expected.getMessage(),
+                        expected.getMessage().contains("'' uncompitable value for the " + name));
+            }
+        }
+    }
+
+    /**
      * Core drops {@code key=} from a URL for the default, but refuses an empty value given as a
      * connection property for a boolean or integer property. A text property takes it.
      */

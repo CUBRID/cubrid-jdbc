@@ -30,6 +30,8 @@
 
 package cubrid.jdbc.lb.config;
 
+import cubrid.jdbc.lb.LbExceptions;
+import java.sql.SQLException;
 import java.util.Map;
 import java.util.logging.Logger;
 
@@ -85,8 +87,9 @@ public final class LbLogConfig {
      *
      * @param options the URL's raw option map; may be {@code null}
      * @return the parsed config, or {@link #DEFAULTS} when {@code options} is {@code null}
+     * @throws SQLException if a value is not one the option takes, as core refuses a bad property
      */
-    static LbLogConfig parse(final Map<String, String> options) {
+    static LbLogConfig parse(final Map<String, String> options) throws SQLException {
         if (options == null) {
             return DEFAULTS;
         }
@@ -149,11 +152,11 @@ public final class LbLogConfig {
      * routing must not, by that act alone, start writing application data into a file. {@code raw}
      * is available but has to be asked for.
      */
-    private static String parseSqlMode(final String value) {
-        if (value == null || value.trim().length() == 0) {
+    private static String parseSqlMode(final String value) throws SQLException {
+        if (value == null) {
             return SQL_MASKED;
         }
-        String v = value.trim().toLowerCase();
+        String v = value.toLowerCase();
         if (SQL_OFF.equals(v) || SQL_MASKED.equals(v)) {
             return v;
         }
@@ -167,14 +170,7 @@ public final class LbLogConfig {
                             + " log file. Use 'masked' unless the raw text is required.");
             return SQL_RAW;
         }
-        LoadBalanceOptionValidator.warnOnce(
-                LOGGER,
-                "option '"
-                        + OPT_SQL
-                        + "' must be one of off/masked/raw ('"
-                        + value
-                        + "'); using default masked");
-        return SQL_MASKED;
+        throw LbExceptions.optionValueIncompatible(OPT_SQL, value);
     }
 
     private static String find(final Map<String, String> options, final String key) {
@@ -186,29 +182,20 @@ public final class LbLogConfig {
         return null;
     }
 
+    /** As core's {@code IntegerConnectionProperty}: an untrimmed integer of 0 or more. */
     private static int parseNonNegativeInt(
-            final String value, final int defaultValue, final String key) {
-        if (value == null || value.trim().length() == 0) {
+            final String value, final int defaultValue, final String key) throws SQLException {
+        if (value == null) {
             return defaultValue;
         }
         try {
-            int parsed = Integer.parseInt(value.trim());
+            final int parsed = Integer.parseInt(value);
             if (parsed >= 0) {
                 return parsed;
             }
-            LoadBalanceOptionValidator.warnOnce(
-                    LOGGER,
-                    "option '" + key + "' must not be negative; using default " + defaultValue);
-        } catch (NumberFormatException e) {
-            LoadBalanceOptionValidator.warnOnce(
-                    LOGGER,
-                    "option '"
-                            + key
-                            + "' is not an integer ('"
-                            + value
-                            + "'); using default "
-                            + defaultValue);
+        } catch (NumberFormatException notANumber) {
+            // refused below
         }
-        return defaultValue;
+        throw LbExceptions.optionValueIncompatible(key, value);
     }
 }

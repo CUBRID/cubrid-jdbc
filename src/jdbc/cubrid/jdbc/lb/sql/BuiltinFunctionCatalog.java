@@ -602,15 +602,16 @@ final class BuiltinFunctionCatalog {
     }
 
     /**
-     * Keyword that reads the node's configuration without parentheses; it must route to RW like the
-     * call form. {@code DBTIMEZONE} is not a reserved word, so a column of that name runs on RW
-     * too.
+     * Keyword that answers from the node without parentheses: its configuration ({@code
+     * DBTIMEZONE}, routed like the call form) or its current transaction ({@code
+     * LOCAL_TRANSACTION_ID}). {@code DBTIMEZONE} is not a reserved word, so a column of that name
+     * runs on RW too.
      *
      * @param upperAsciiName identifier, upper-cased ASCII
      * @return {@code true} if the bare name answers from the node that runs it
      */
     static boolean isNodeKeyword(final String upperAsciiName) {
-        return "DBTIMEZONE".equals(upperAsciiName);
+        return "DBTIMEZONE".equals(upperAsciiName) || "LOCAL_TRANSACTION_ID".equals(upperAsciiName);
     }
 
     /**

@@ -1217,6 +1217,17 @@ public class KeywordSqlClassifierTest {
         assertEquals(SqlClassification.READ, classifier.classify("SELECT * FROM db_class"));
     }
 
+    /** The current transaction's id is the node's: a read node answers with one of its own. */
+    @Test
+    public void localTransactionIdRunsOnRw() {
+        assertEquals(
+                SqlClassification.UNKNOWN,
+                classifier.classify("SELECT LOCAL_TRANSACTION_ID FROM db_root"));
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify("SELECT 'LOCAL_TRANSACTION_ID' FROM t"));
+    }
+
     /** Each node answers these from its own configuration. */
     @Test
     public void nodeConfigurationRunsOnRw() {

@@ -354,19 +354,17 @@ public final class LoadBalanceUrlParser {
     private static Map<String, String> parseOptions(final String optionsStr, final String url)
             throws SQLException {
         final Map<String, String> options = new LinkedHashMap<String, String>();
-        if (optionsStr == null || optionsStr.length() == 0) {
+        if (optionsStr == null) {
             return options;
         }
 
+        // As core's URL grammar: every option is key=value with a value, so an empty '?', an empty
+        // option between separators and an empty value are refused, whatever the key.
         final String[] entries = optionsStr.split("[&;]", -1);
         for (int i = 0; i < entries.length; i++) {
             final String entry = entries[i];
-            if (entry.length() == 0) {
-                continue;
-            }
-
             final int eq = entry.indexOf('=');
-            if (eq <= 0) {
+            if (eq <= 0 || eq == entry.length() - 1) {
                 throw LbExceptions.invalidUrl(
                         "malformed option '" + entry + "' (expected key=value): " + url, null);
             }

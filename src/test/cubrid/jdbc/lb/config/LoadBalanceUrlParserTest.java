@@ -332,6 +332,24 @@ public class LoadBalanceUrlParserTest {
         assertParseFails("jdbc:cubrid:loadbalance://n1/db:::?novalue");
     }
 
+    /** Core's URL takes no empty value, empty '?' or empty option (-21107), whatever the key. */
+    @Test
+    public void rejectsAnEmptyValueOrAnEmptyOptionAsCoreDoes() {
+        for (String tail :
+                new String[] {
+                    "?",
+                    "?&",
+                    "?rwPort=33000&",
+                    "?rwPort=33000&&roPort=33002",
+                    "?rwPort=33000;",
+                    "?readWeight=",
+                    "?lbLogSql=",
+                    "?connectTimeout="
+                }) {
+            assertParseFails("jdbc:cubrid:loadbalance://n1/db:::" + tail);
+        }
+    }
+
     private static void assertParseFails(String url) {
         try {
             LoadBalanceUrlParser.parse(url);

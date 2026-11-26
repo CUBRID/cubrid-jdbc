@@ -113,8 +113,7 @@ public class LoadBalanceSettingsFromUrlTest {
 
     /**
      * m35: a metrics value is checked as core checks its properties - even with metrics off (core
-     * refuses {@code logSlowQueries=false&slowQueryThresholdMillis=-1}), with no trimming, and an
-     * empty value is the default.
+     * refuses {@code logSlowQueries=false&slowQueryThresholdMillis=-1}) and with no trimming.
      */
     @Test
     public void metricsValuesAreCheckedAsCoreChecksItsProperties() throws SQLException {
@@ -142,16 +141,12 @@ public class LoadBalanceSettingsFromUrlTest {
             }
         }
 
-        MetricsConfig m =
-                configOf(url + "metricsPrometheusPort=&metricsIntervalSec=").getMetricsConfig();
-        assertEquals(9400, m.getPrometheusPort());
-        assertEquals(60, m.getIntervalSec());
         // core takes on/yes and reads them as false: useSSL=on leaves SSL off
         assertFalse(
                 configOf(url + "metricsEnabled=on&metricsExport=csv")
                         .getMetricsConfig()
                         .isEnabled());
-        m =
+        MetricsConfig m =
                 configOf(url + "metricsEnabled=TRUE&metricsExport=CSV&metricsPrometheusPort=+9401")
                         .getMetricsConfig();
         assertTrue(m.isEnabled() && m.exportsCsv());
@@ -198,7 +193,8 @@ public class LoadBalanceSettingsFromUrlTest {
             java.util.Properties info = new java.util.Properties();
             info.setProperty(name, "");
             try {
-                LoadBalanceSettings.fromUrl(LoadBalanceUrlParser.parse(url), info);
+                LoadBalanceSettings.fromUrl(
+                        LoadBalanceUrlParser.parse(url.substring(0, url.length() - 1)), info);
                 fail("an empty " + name + " property must be refused");
             } catch (SQLException expected) {
                 assertTrue(
@@ -209,8 +205,8 @@ public class LoadBalanceSettingsFromUrlTest {
     }
 
     /**
-     * Core drops {@code key=} from a URL for the default, but refuses an empty value given as a
-     * connection property for a boolean or integer property. A text property takes it.
+     * Core refuses an empty value given as a connection property for a boolean or integer property,
+     * as its URL refuses {@code key=}. A text property takes it.
      */
     @Test
     public void emptyMetricsValueInPropertiesIsRefusedAsCoreRefusesIt() throws SQLException {

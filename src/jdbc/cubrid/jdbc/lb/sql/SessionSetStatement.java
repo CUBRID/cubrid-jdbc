@@ -684,18 +684,14 @@ public final class SessionSetStatement {
             return pin(UNKNOWN_PIN);
         }
         final String list = stmt.substring(open + 1, close - 1).replace("''", "'");
+        final List<String[]> pairs = parameterPairs(list);
+        if (pairs == null) {
+            return pin(UNKNOWN_PIN);
+        }
         final Builder result = new Builder();
-        for (final String assignment : list.split(";")) {
-            final String trimmed = assignment.trim();
-            if (trimmed.length() == 0) {
-                continue;
-            }
-            final int eq = trimmed.indexOf('=');
-            if (eq <= 0) {
-                return pin(UNKNOWN_PIN);
-            }
-            final String name = trimmed.substring(0, eq).trim().toLowerCase(Locale.ROOT);
-            final String value = trimmed.substring(eq + 1).trim();
+        for (final String[] pair : pairs) {
+            final String name = pair[0].toLowerCase(Locale.ROOT);
+            final String value = asListValue(pair[1]);
             if (REPLAYED_PARAMS.contains(name)) {
                 result.then(
                         replay(
@@ -712,6 +708,74 @@ public final class SessionSetStatement {
             }
         }
         return result.build();
+    }
+
+    /**
+     * The name=value pairs of a parameter list as the engine's prm_get_next_param_value() reads
+     * them: a name ends at white space or '=', which may be left out; an unquoted value ends at
+     * white space or ';', which is optional between pairs. Null where the engine refuses the list.
+     */
+    private static List<String[]> parameterPairs(final String list) {
+        final List<String[]> pairs = new ArrayList<String[]>();
+        final int n = list.length();
+        int p = skipSpaces(list, 0);
+        while (p < n) {
+            final int nameStart = p;
+            while (p < n && !Character.isWhitespace(list.charAt(p)) && list.charAt(p) != '=') {
+                p++;
+            }
+            final String name = list.substring(nameStart, p);
+            p = skipSpaces(list, p);
+            if (p < n && list.charAt(p) == '=') {
+                p = skipSpaces(list, p + 1);
+            }
+            if (p >= n || name.length() == 0) {
+                return null;
+            }
+            final StringBuilder value = new StringBuilder();
+            final char quote = list.charAt(p);
+            if (quote == '"' || quote == '\'') {
+                p++;
+                while (p < n && list.charAt(p) != quote) {
+                    if (list.charAt(p) == '\\' && p + 1 < n) {
+                        p++;
+                    }
+                    value.append(list.charAt(p++));
+                }
+                if (p >= n) {
+                    return null;
+                }
+                p++;
+            } else {
+                while (p < n && !Character.isWhitespace(list.charAt(p)) && list.charAt(p) != ';') {
+                    value.append(list.charAt(p++));
+                }
+            }
+            // The engine takes one ';' and white space between pairs; a list it refuses fails on
+            // RW and is not replayed.
+            while (p < n && (Character.isWhitespace(list.charAt(p)) || list.charAt(p) == ';')) {
+                p++;
+            }
+            pairs.add(new String[] {name, value.toString()});
+        }
+        return pairs;
+    }
+
+    private static int skipSpaces(final String text, final int from) {
+        int p = from;
+        while (p < text.length() && Character.isWhitespace(text.charAt(p))) {
+            p++;
+        }
+        return p;
+    }
+
+    /** A value as one token of a parameter list again: quoted when it would not read as one. */
+    private static String asListValue(final String value) {
+        boolean plain = value.length() > 0 && value.charAt(0) != '"' && value.charAt(0) != '\'';
+        for (int i = 0; plain && i < value.length(); i++) {
+            plain = !Character.isWhitespace(value.charAt(i)) && value.charAt(i) != ';';
+        }
+        return plain ? value : '"' + value.replace("\\", "\\\\").replace("\"", "\\\"") + '"';
     }
 
     /**

@@ -173,6 +173,46 @@ public class SessionSetStatementTest {
         assertEquals(1, s.getReplay().size());
     }
 
+    /**
+     * The engine splits a parameter list on white space too (prm_get_next_param_value): the ';'
+     * between pairs and the '=' after a name are optional.
+     */
+    @Test
+    public void aListSplitOnWhiteSpaceIsReadAsTheEngineReadsIt() {
+        SessionSetStatement s =
+                SessionSetStatement.parse(
+                        "SET SYSTEM PARAMETERS 'group_concat_max_len=4096 default_week_format=3'");
+        assertEquals(Arrays.asList("group_concat_max_len"), s.getNonSessionParams());
+        assertEquals(
+                Arrays.asList("SET SYSTEM PARAMETERS 'default_week_format=3'"),
+                new ArrayList<String>(s.getReplay().values()));
+
+        s =
+                SessionSetStatement.parse(
+                        "SET SYSTEM PARAMETERS 'default_week_format=3 group_concat_max_len=4096'");
+        assertEquals(Arrays.asList("group_concat_max_len"), s.getNonSessionParams());
+        assertEquals(
+                Arrays.asList("SET SYSTEM PARAMETERS 'default_week_format=3'"),
+                new ArrayList<String>(s.getReplay().values()));
+
+        assertEquals(
+                Arrays.asList("SET SYSTEM PARAMETERS 'default_week_format=3'"),
+                replayed(
+                        "SET SYSTEM PARAMETERS"
+                                + " 'optimizer_enable_merge_join=no default_week_format=3'"));
+        assertEquals(
+                Arrays.asList("SET SYSTEM PARAMETERS 'default_week_format=3'"),
+                replayed("SET SYSTEM PARAMETERS 'default_week_format 3'"));
+    }
+
+    /** A name with no value fails in the engine; what it would have set is unknown. */
+    @Test
+    public void aNameWithNoValueIsAnUnknownChange() {
+        assertEquals(
+                only(SessionSetStatement.UNKNOWN_PIN),
+                pins("SET SYSTEM PARAMETERS 'default_week_format'"));
+    }
+
     @Test
     public void parametersThatChangeNoReadAreIgnored() {
         assertUntracked("set system parameters 'xasl_debug_dump=yes'");

@@ -614,6 +614,39 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                 : target;
     }
 
+    /**
+     * Whether the read leg's own connection, not the RW one it may share, is closed under LB: core
+     * closes a connection whose network timeout expired, and a failure on it is the leg's.
+     *
+     * @return whether it is closed
+     */
+    public boolean isOwnReadLegClosed() {
+        final EndpointConnManager mgr = connMgr;
+        if (mgr == null) {
+            return false;
+        }
+        final Connection ro = mgr.boundConnection(SessionLeg.RO);
+        if (ro == null || ro == mgr.boundConnection(SessionLeg.RW)) {
+            return false;
+        }
+        try {
+            return ro.isClosed();
+        } catch (SQLException unreadable) {
+            return true;
+        }
+    }
+
+    /**
+     * Moves the read leg as a failed read moves it, for a prepare that timed out on it.
+     *
+     * @param cause the failure on the read leg
+     * @throws SQLException if no other read endpoint can be bound
+     */
+    public void recoverReadLeg(final SQLException cause) throws SQLException {
+        recoverPhyBinding(
+                buildRecoveryCtx(RouteTarget.TO_READ_ONLY, getCurrentRoEndpoint()), cause);
+    }
+
     public PhysicalRecoveryContext buildRecoveryCtx(
             final RouteTarget target, final Endpoint failedEp) throws SQLException {
         if (failedEp == null) {

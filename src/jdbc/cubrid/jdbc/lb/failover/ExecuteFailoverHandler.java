@@ -194,7 +194,10 @@ public final class ExecuteFailoverHandler {
             return timedRun(connection, routeTarget, timed, execution);
         } catch (SQLException ex) {
             RouteTarget failedLeg = connection.failedLegTarget(routeTarget);
-            if (!isBrokerFailure(ex) && !isReadLegNetworkTimeout(failedLeg, ex)) {
+            // A statement on a read leg core closed when its timeout expired fails as closed.
+            final boolean readLegClosed =
+                    failedLeg == RouteTarget.TO_READ_ONLY && connection.isOwnReadLegClosed();
+            if (!isBrokerFailure(ex) && !isReadLegNetworkTimeout(failedLeg, ex) && !readLegClosed) {
                 // Not a broker failure: the statement itself failed and no leg is rebound.
                 // Recorded, so a log showing no failover after an error is explained rather than
                 // silent.

@@ -33,6 +33,7 @@ package cubrid.jdbc.lb.statement;
 import cubrid.jdbc.driver.CUBRIDPreparedStatement;
 import cubrid.jdbc.jci.ReconnectPolicy;
 import cubrid.jdbc.jci.UBatchResult;
+import cubrid.jdbc.jci.UErrorCode;
 import cubrid.jdbc.jci.UStatementCacheData;
 import cubrid.jdbc.lb.LbExceptions;
 import cubrid.jdbc.lb.LoadBalanceConnection;
@@ -218,6 +219,22 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
             }
             rememberPrepared(phyPsProvider.preparedForBindCheck());
         } catch (SQLException ex) {
+            // The read node stopped answering and core closed that leg: move it as a failed read
+            // would and prepare there, so the execution does not dial the stopped node again.
+            if (onReadLeg
+                    && !forBindCheck
+                    && (ex.getErrorCode() == UErrorCode.ER_NETWORK_TIMEOUT
+                            || ownerConn.isOwnReadLegClosed())) {
+                ownerConn.settleReadLegRollback(false);
+                try {
+                    ownerConn.recoverReadLeg(ex);
+                    phyPsProvider.prepareOnBoundReadEndpoint(sql);
+                    rememberPrepared(phyPsProvider.preparedForBindCheck());
+                } catch (SQLException deferred) {
+                    // prepared again by the execution, through the failover path
+                }
+                return;
+            }
             // A malformed reply is core's to report, as its prepareStatement does. A setter
             // reports none of them.
             final boolean reported =

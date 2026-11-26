@@ -172,6 +172,49 @@ public class LoadBalanceConnectionNetworkTimeoutTest {
     }
 
     /**
+     * The read leg's broker stops answering while a statement is prepared there: core fails the
+     * prepare with -21031 and closes the leg. The read moves on and runs, as a Statement's does.
+     */
+    @Test
+    public void aPrepareThatTimedOutOnTheReadLegFailsOverAndTheReadRuns() throws SQLException {
+        LoadBalanceConnection conn = newConnection();
+        try {
+            conn.prepareStatement("SELECT a FROM t").executeQuery();
+            Leg stopped = leg("nt2:33001");
+            stopped.timesOutNextPrepare = true;
+
+            conn.prepareStatement("SELECT b FROM t").executeQuery();
+
+            assertTrue(stopped.closed);
+            assertFalse(conn.isClosed());
+        } finally {
+            conn.close();
+        }
+    }
+
+    /**
+     * A statement prepared before the read leg stopped answering: core's execute times out on the
+     * way, closes the leg with the statement and reports the statement closed (-21103). The read
+     * moves on and runs, as when the execute itself times out.
+     */
+    @Test
+    public void aStatementPreparedBeforeTheReadLegTimedOutRunsAfterTheFailover()
+            throws SQLException {
+        LoadBalanceConnection conn = newConnection();
+        try {
+            PreparedStatement held = conn.prepareStatement("SELECT a FROM t");
+            held.executeQuery();
+            leg("nt2:33001").closesWithinNextExecute = true;
+
+            held.executeQuery();
+
+            assertFalse(conn.isClosed());
+        } finally {
+            conn.close();
+        }
+    }
+
+    /**
      * A read leg closed outside a statement (a fetch that timed out) is replaced by the next read.
      * It holds no transaction: a transaction keeps every statement on RW.
      */
@@ -333,6 +376,10 @@ public class LoadBalanceConnectionNetworkTimeoutTest {
         volatile boolean closed;
         // The next execute outlasts the timeout: core fails it with -21031 and closes the leg.
         volatile boolean timesOutNext;
+        // The same for the next prepare.
+        volatile boolean timesOutNextPrepare;
+        // The next execute times out before its own request: the statement is closed with the leg.
+        volatile boolean closesWithinNextExecute;
         // The broker is gone: setting autocommit fails as a lost connection does.
         volatile boolean refusesAutoCommit;
         final Connection connection;
@@ -388,6 +435,12 @@ public class LoadBalanceConnectionNetworkTimeoutTest {
             if ("getAutoCommit".equals(name)) {
                 return Boolean.TRUE;
             }
+            if ("prepareStatement".equals(name) && timesOutNextPrepare) {
+                timesOutNextPrepare = false;
+                closed = true;
+                throw new SQLException(
+                        "Network timeout expired.", null, UErrorCode.ER_NETWORK_TIMEOUT);
+            }
             if ("prepareStatement".equals(name)) {
                 return statement(proxy);
             }
@@ -414,6 +467,12 @@ public class LoadBalanceConnectionNetworkTimeoutTest {
                                     }
                                     if ("getConnection".equals(name)) {
                                         return owner;
+                                    }
+                                    if (name.startsWith("execute") && closesWithinNextExecute) {
+                                        closesWithinNextExecute = false;
+                                        closed = true;
+                                        throw new CUBRIDException(
+                                                CUBRIDJDBCErrorCode.prepared_statement_closed);
                                     }
                                     if (name.startsWith("execute") && timesOutNext) {
                                         timesOutNext = false;

@@ -550,6 +550,41 @@ public class SessionSetStatementTest {
                         Collections.singleton(SessionSetStatement.TIMEZONE_KEY)));
     }
 
+    /**
+     * The level set through the isolation_level parameter, by number or by the engine's names, and
+     * the INSTANCES half of a CLASS/INSTANCES pair, which the engine takes as the level.
+     */
+    @Test
+    public void isolationLevelOfTheParameterAndOfAClassInstancesPairIsRead() {
+        final int rr = java.sql.Connection.TRANSACTION_REPEATABLE_READ;
+        final int ser = java.sql.Connection.TRANSACTION_SERIALIZABLE;
+        assertEquals(ser, isolation("SET SYSTEM PARAMETERS 'isolation_level=6'"));
+        assertEquals(ser, isolation("SET SYSTEM PARAMETERS 'isolation_level=TRAN_SERIALIZABLE'"));
+        assertEquals(rr, isolation("SET SYSTEM PARAMETERS 'isolation_level=rep_read'"));
+        assertEquals(0, isolation("SET SYSTEM PARAMETERS 'isolation_level=4'"));
+        assertEquals(
+                0,
+                isolation(
+                        "SET TRANSACTION ISOLATION LEVEL"
+                                + " REPEATABLE READ CLASS, READ COMMITTED INSTANCES"));
+        assertEquals(
+                rr,
+                isolation(
+                        "SET TRANSACTION ISOLATION LEVEL"
+                                + " READ COMMITTED CLASS, REPEATABLE READ INSTANCES"));
+        assertEquals(
+                0,
+                isolation(
+                        "SET TRANSACTION ISOLATION LEVEL"
+                                + " READ COMMITTED INSTANCES, REPEATABLE READ CLASS"));
+        assertEquals(
+                ser, isolation("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE, LOCK TIMEOUT 5"));
+    }
+
+    private static int isolation(final String sql) {
+        return SessionSetStatement.isolationAboveReadCommitted(sql);
+    }
+
     @Test
     public void isolationLevelOfASetTransactionIsRead() {
         final int rr = java.sql.Connection.TRANSACTION_REPEATABLE_READ;

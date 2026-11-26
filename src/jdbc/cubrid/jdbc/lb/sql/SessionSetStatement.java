@@ -879,20 +879,28 @@ public final class SessionSetStatement {
     }
 
     /**
-     * The level a {@code SET TRANSACTION ISOLATION LEVEL} statement sets, when a read on another
-     * node cannot honour it.
+     * The level a {@code SET TRANSACTION ISOLATION LEVEL} statement or the {@code isolation_level}
+     * parameter sets, when a read on another node cannot honour it. Of a CLASS/INSTANCES pair the
+     * engine takes the INSTANCES level.
      *
      * @param sql the statement, as kept for replay
      * @return {@link java.sql.Connection#TRANSACTION_REPEATABLE_READ} or {@link
      *     java.sql.Connection#TRANSACTION_SERIALIZABLE}, or 0 for any other level
      */
     public static int isolationAboveReadCommitted(final String sql) {
-        int pos = 0;
-        while (pos < sql.length() && !"LEVEL".equals(wordAt(sql, pos))) {
-            final int next = skipWord(sql, pos);
-            pos = next > pos ? next : pos + 1;
+        final String parameter = "SET SYSTEM PARAMETERS 'isolation_level=";
+        if (sql.startsWith(parameter)) {
+            return isolationOfParameter(sql.substring(parameter.length(), sql.lastIndexOf('\'')));
         }
-        final int level = SqlLexer.skipWhitespaceAndComments(sql, skipWord(sql, pos));
+        final int levelWord = wordPosition(sql, 0, "LEVEL");
+        if (levelWord < 0) {
+            return 0;
+        }
+        int level = SqlLexer.skipWhitespaceAndComments(sql, skipWord(sql, levelWord));
+        final int instances = wordPosition(sql, level, "INSTANCES");
+        if (instances >= 0 && sql.lastIndexOf(',', instances) > level) {
+            level = SqlLexer.skipWhitespaceAndComments(sql, sql.lastIndexOf(',', instances) + 1);
+        }
         final String name = wordAt(sql, level);
         if ("SERIALIZABLE".equals(name) || sql.startsWith("6", level)) {
             return java.sql.Connection.TRANSACTION_SERIALIZABLE;
@@ -901,6 +909,31 @@ public final class SessionSetStatement {
             return java.sql.Connection.TRANSACTION_REPEATABLE_READ;
         }
         return 0;
+    }
+
+    /** A value of the engine's isolation_level parameter: a number or one of its names. */
+    private static int isolationOfParameter(final String value) {
+        String name = value.toLowerCase(Locale.ROOT);
+        if (name.startsWith("tran_")) {
+            name = name.substring("tran_".length());
+        }
+        if ("6".equals(name) || "serializable".equals(name) || "no_phantom_read".equals(name)) {
+            return java.sql.Connection.TRANSACTION_SERIALIZABLE;
+        }
+        if ("5".equals(name) || "rep_read".equals(name) || "rep_class_rep_instance".equals(name)) {
+            return java.sql.Connection.TRANSACTION_REPEATABLE_READ;
+        }
+        return 0;
+    }
+
+    /** Where the word {@code word} starts at or after {@code from}, or -1. */
+    private static int wordPosition(final String sql, final int from, final String word) {
+        int pos = from;
+        while (pos < sql.length() && !word.equals(wordAt(sql, pos))) {
+            final int next = skipWord(sql, pos);
+            pos = next > pos ? next : pos + 1;
+        }
+        return pos < sql.length() ? pos : -1;
     }
 
     /**

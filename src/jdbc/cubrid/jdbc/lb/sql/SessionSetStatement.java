@@ -593,7 +593,9 @@ public final class SessionSetStatement {
                 i++;
                 continue;
             }
-            final int nameEnd = variableEnd(stmt, i + 1);
+            // '@' is a token of its own: white space or a comment may come before the name.
+            final int nameStart = SqlLexer.skipWhitespaceAndComments(stmt, i + 1);
+            final int nameEnd = variableEnd(stmt, nameStart);
             final int op = SqlLexer.skipWhitespaceAndComments(stmt, nameEnd);
             int value = -1;
             if (stmt.startsWith(":=", op)) {
@@ -601,7 +603,7 @@ public final class SessionSetStatement {
             } else if (inSet && depth == 0 && op < stmt.length() && stmt.charAt(op) == '=') {
                 value = op + 1;
             }
-            if (value >= 0 && isCollectExecStats(stmt, i + 1, nameEnd)) {
+            if (value >= 0 && isCollectExecStats(stmt, nameStart, nameEnd)) {
                 collects = Boolean.valueOf(!isBareZero(stmt, value));
             }
             i = Math.max(nameEnd, i + 1);
@@ -970,7 +972,8 @@ public final class SessionSetStatement {
                 inSet = startsWithSet(sql, i);
             }
             if (c == '@') {
-                final int next = SqlLexer.skipWhitespaceAndComments(sql, variableEnd(sql, i + 1));
+                final int name = SqlLexer.skipWhitespaceAndComments(sql, i + 1);
+                final int next = SqlLexer.skipWhitespaceAndComments(sql, variableEnd(sql, name));
                 if (sql.startsWith(":=", next)
                         || (inSet && next < sql.length() && sql.charAt(next) == '=')) {
                     return true;

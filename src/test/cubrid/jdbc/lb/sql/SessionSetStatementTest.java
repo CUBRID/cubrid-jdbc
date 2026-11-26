@@ -227,6 +227,18 @@ public class SessionSetStatementTest {
                 replayed("SELECT 'It\\'s' FROM t; SET NAMES euckr"));
     }
 
+    /** The engine reads '@' as a token of its own: white space or a comment may follow it. */
+    @Test
+    public void aVariableNameAfterSpaceOrCommentIsSeen() {
+        assertEquals(
+                only(SessionSetStatement.EXEC_STATS_PIN), pins("SET @ collect_exec_stats = 1"));
+        assertEquals(
+                only(SessionSetStatement.EXEC_STATS_PIN),
+                pins("SET @/* on */collect_exec_stats = 1"));
+        assertTrue(
+                SessionSetStatement.assignsUserVariable("SELECT /*+ TO_RO */ a, @ v := 1 FROM t"));
+    }
+
     /** A name with no value fails in the engine; what it would have set is unknown. */
     @Test
     public void aNameWithNoValueIsAnUnknownChange() {

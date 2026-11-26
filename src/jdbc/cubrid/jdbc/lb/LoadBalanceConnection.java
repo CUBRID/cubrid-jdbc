@@ -2320,7 +2320,10 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                     public CallableStatement run() throws SQLException {
                         // Before the prepare, which opens a transaction that would hold it.
                         failbackRwIfStatementAllows();
-                        return new LBCallableStatement(LoadBalanceConnection.this, sql, writeLeg);
+                        final LBCallableStatement cs =
+                                new LBCallableStatement(LoadBalanceConnection.this, sql, writeLeg);
+                        trackStatement(cs); // the URL query timeout, closed with the connection
+                        return cs;
                     }
                 });
     }

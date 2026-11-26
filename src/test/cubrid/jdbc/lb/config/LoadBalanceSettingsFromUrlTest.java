@@ -169,6 +169,7 @@ public class LoadBalanceSettingsFromUrlTest {
             {"lbLogSqlMaxLen=-1", "lbLogSqlMaxLen"},
             {"lbLogSqlMaxLen= 5", "lbLogSqlMaxLen"},
             {"lbLogDistIntervalSec=x", "lbLogDistIntervalSec"},
+            {"lbLogSqlMaxLen=5 ", "lbLogSqlMaxLen"},
         };
         for (String[] each : refused) {
             try {

@@ -332,6 +332,20 @@ public class LoadBalanceUrlParserTest {
         assertParseFails("jdbc:cubrid:loadbalance://n1/db:::?novalue");
     }
 
+    /**
+     * Core does not trim the URL: white space after the last value is part of that value, and after
+     * the credentials it makes the URL invalid.
+     */
+    @Test
+    public void keepsWhiteSpaceAtTheEndAsCoreDoes() throws SQLException {
+        assertParseFails("jdbc:cubrid:loadbalance://n1/db::: ");
+        assertEquals(
+                "1 ",
+                LoadBalanceUrlParser.parse("jdbc:cubrid:loadbalance://n1/db:::?connectTimeout=1 ")
+                        .getOptions()
+                        .get("connectTimeout"));
+    }
+
     /** Core's URL takes no empty value, empty '?' or empty option (-21107), whatever the key. */
     @Test
     public void rejectsAnEmptyValueOrAnEmptyOptionAsCoreDoes() {

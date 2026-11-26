@@ -84,20 +84,22 @@ public final class LoadBalanceUrlParser {
 
         // Every error below quotes the URL, and it reaches the logs: never with the password.
         final String url = CUBRIDDriver.maskInvalidUriUrl(rawUrl);
-        final String trimmed = rawUrl.trim();
+        // Kept whole, as core keeps its URL: white space at the end belongs to the last option's
+        // value, or makes the URL invalid after the credentials.
+        final String whole = rawUrl;
 
-        final int sep = trimmed.indexOf(SCHEME_SEPARATOR);
+        final int sep = whole.indexOf(SCHEME_SEPARATOR);
         if (sep < 0) {
             throw LbExceptions.invalidUrl(
                     "URI URL must contain '" + SCHEME_SEPARATOR + "': " + url, null);
         }
 
-        final String variant = parseScheme(trimmed.substring(0, sep), url);
-        final String rest = trimmed.substring(sep + SCHEME_SEPARATOR.length());
+        final String variant = parseScheme(whole.substring(0, sep), url);
+        final String rest = whole.substring(sep + SCHEME_SEPARATOR.length());
 
         final String beforeOptions;
         final String optionsStr;
-        final int optionsAt = CUBRIDDriver.uriOptionsStart(trimmed);
+        final int optionsAt = CUBRIDDriver.uriOptionsStart(whole);
         final int qIdx = optionsAt < 0 ? -1 : optionsAt - (sep + SCHEME_SEPARATOR.length());
         if (qIdx >= 0) {
             beforeOptions = rest.substring(0, qIdx);

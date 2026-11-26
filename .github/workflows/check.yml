@@ -162,7 +162,7 @@ jobs:
           mkdir -p output
           cmake -DCUBRID_JDBC_SOURCE_DIR="$PWD" -DCUBRID_JDBC_OUTPUT_DIR="$PWD/output" -P cmake/gen_version.cmake
           version=$(cat output/VERSION-DIST)
-          ant compile-test dist-cubrid
+          ant dist-cubrid compile-test
           mkdir -p "$RUNNER_TEMP/ant"
           mv cubrid-jdbc-*.jar "$RUNNER_TEMP/ant/"
           ./gradlew buildJdbc --no-daemon

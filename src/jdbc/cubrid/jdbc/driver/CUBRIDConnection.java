@@ -1038,12 +1038,13 @@ public class CUBRIDConnection implements Connection {
     }
 
     /*
-     * Shared client->server byte-stream transport. A stream is opened either by a statement
-     * (COPY <table> FROM STDIN) or, inside the driver, by streamInit() for a kind the driver opens
+     * Shared client->server byte-stream transport, for the driver's own callers: the COPY loader and
+     * the LOB code. A stream is opened either by a statement that asked for it
+     * (CUBRIDStatement.executeUpdateForStream ()) or by streamInit() for a kind the driver opens
      * itself. Send the payload with streamData(), then streamEnd() to finish; streamEnd() returns
-     * the 64-bit value the kind defines (the rows loaded for COPY, an upload token for
-     * internal-LOB). Until streamEnd() or streamAbort() the connection runs no statement, so a
-     * stream given up is aborted before the connection goes back to a pool.
+     * the 64-bit value the kind defines (the rows loaded for COPY, an upload token for a LOB value).
+     * Until streamEnd() or streamAbort() the connection runs no statement, so a stream given up is
+     * aborted before the connection goes back to a pool.
      */
     synchronized int streamInit(int streamKind, byte[] config) throws SQLException {
         checkIsOpen();
@@ -1064,12 +1065,12 @@ public class CUBRIDConnection implements Connection {
         return result;
     }
 
-    public synchronized int streamData(byte[] data) throws SQLException {
+    synchronized int streamData(byte[] data) throws SQLException {
         /* a null chunk is refused below as an invalid argument */
         return streamData(data, 0, data == null ? 0 : data.length);
     }
 
-    public synchronized int streamData(byte[] data, int start, int len) throws SQLException {
+    synchronized int streamData(byte[] data, int start, int len) throws SQLException {
         checkIsOpen();
         int result;
 
@@ -1088,7 +1089,7 @@ public class CUBRIDConnection implements Connection {
         return result;
     }
 
-    public synchronized long streamEnd() throws SQLException {
+    synchronized long streamEnd() throws SQLException {
         checkIsOpen();
         long result;
 
@@ -1116,7 +1117,7 @@ public class CUBRIDConnection implements Connection {
      * the opening statement left open with a rollback, not the commit it
      * deferred.
      */
-    public synchronized int streamAbort() throws SQLException {
+    synchronized int streamAbort() throws SQLException {
         checkIsOpen();
         int result;
 

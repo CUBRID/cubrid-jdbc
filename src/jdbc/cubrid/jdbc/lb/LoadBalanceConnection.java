@@ -600,9 +600,10 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     /**
-     * The route target whose leg a failed execution recovers. A read on the shared RW connection
-     * (roOnRw) failed on the RW leg: recovered as a read, it climbed the RO ladder again and got
-     * the same dead RW connection back. Recovering the RW leg moves the read with it.
+     * The route target whose leg a failed execution recovers. A read on the RW connection (roOnRw,
+     * or a master-read session's) failed on the RW leg: recovered as a read, it climbed the RO
+     * ladder again and got the same dead RW connection back. Recovering the RW leg moves the read
+     * with it.
      *
      * @param target the route target of the failed execution
      * @return {@code TO_READ_WRITE} for such a read, otherwise {@code target}
@@ -703,10 +704,17 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         Endpoint endpoint = endpointSelection.getEndpoint();
         lastExecEndpoint = endpoint;
         String fallbackReason = endpointSelection.getFallbackReason();
-        // A read on the shared RW connection (roOnRw) stays bound to its RO endpoint but runs, and
-        // fails, on the RW leg: the records and failover name that leg.
-        lastExecOnRwConn = FallbackReason.RO_PHYSICAL.equals(fallbackReason);
-        lastExecRanOn = lastExecOnRwConn ? currentOrManagerEndpoint(SessionLeg.RW) : endpoint;
+        // A read on the RW connection runs, and fails, on the RW leg: under roOnRw it stays bound
+        // to its RO endpoint, and a master-read session's read endpoint is the RW one. The records
+        // and failover name that leg.
+        final Endpoint rwNow = currentOrManagerEndpoint(SessionLeg.RW);
+        lastExecOnRwConn =
+                FallbackReason.RO_PHYSICAL.equals(fallbackReason)
+                        || (target == RouteTarget.TO_READ_ONLY
+                                && endpoint != null
+                                && rwNow != null
+                                && endpoint.getId().equals(rwNow.getId()));
+        lastExecRanOn = lastExecOnRwConn ? rwNow : endpoint;
         // The execute path's decision; a metadata call has none and is read here.
         final Router.RouteDecision decision =
                 statementRoute != null

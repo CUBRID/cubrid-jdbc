@@ -889,6 +889,45 @@ public final class SessionSetStatement {
     }
 
     /**
+     * Whether a statement of {@code sql} prepares a named statement or drops one ({@code PREPARE},
+     * {@code DEALLOCATE PREPARE}, {@code DROP PREPARE}). It lives in the session of the leg that
+     * ran it, as a variable does.
+     *
+     * @param sql the statement string
+     * @return whether it does
+     */
+    public static boolean preparesOrDropsAStatement(final String sql) {
+        if (sql == null) {
+            return false;
+        }
+        int start = 0;
+        int i = 0;
+        while (i <= sql.length()) {
+            if (i < sql.length()) {
+                final int after = SqlLexer.skipCommentOrQuoted(sql, i);
+                if (after != i) {
+                    i = after;
+                    continue;
+                }
+                if (sql.charAt(i) != ';') {
+                    i++;
+                    continue;
+                }
+            }
+            final String first = wordAt(sql, start);
+            if ("PREPARE".equals(first)
+                    || "DEALLOCATE".equals(first)
+                    || "DROP".equals(first)
+                            && "PREPARE".equals(wordAt(sql, skipWord(sql, start)))) {
+                return true;
+            }
+            start = i + 1;
+            i++;
+        }
+        return false;
+    }
+
+    /**
      * Whether {@code sql} assigns a user variable: {@code SET @v = ..}, or {@code @v := ..} in any
      * statement. The variable then exists only in the session of the leg that ran the string, and
      * reads of it go to RW.

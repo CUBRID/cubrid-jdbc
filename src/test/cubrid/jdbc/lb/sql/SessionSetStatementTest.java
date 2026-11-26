@@ -205,6 +205,17 @@ public class SessionSetStatementTest {
                 replayed("SET SYSTEM PARAMETERS 'default_week_format 3'"));
     }
 
+    @Test
+    public void aStatementThatPreparesOrDropsANamedStatementIsFound() {
+        assertTrue(SessionSetStatement.preparesOrDropsAStatement("PREPARE s FROM 'SELECT 1'"));
+        assertTrue(
+                SessionSetStatement.preparesOrDropsAStatement(
+                        "SELECT 1; /* c */ deallocate prepare s"));
+        assertTrue(SessionSetStatement.preparesOrDropsAStatement("SELECT 1;DROP PREPARE s"));
+        assertFalse(SessionSetStatement.preparesOrDropsAStatement("SELECT 'PREPARE s' FROM t"));
+        assertFalse(SessionSetStatement.preparesOrDropsAStatement("EXECUTE s; DROP TABLE t"));
+    }
+
     /** A name with no value fails in the engine; what it would have set is unknown. */
     @Test
     public void aNameWithNoValueIsAnUnknownChange() {

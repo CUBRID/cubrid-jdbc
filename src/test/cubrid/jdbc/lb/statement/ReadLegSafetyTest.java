@@ -953,15 +953,32 @@ public class ReadLegSafetyTest {
         assertEquals(1, legs.count("rw", "select i from n where i1 = 3"));
     }
 
-    /** A variable the application put on the read leg with a hint stays there, with its reads. */
+    /**
+     * A TO_RO string that makes an INTO variable runs on RW, as one with a SET does: core has the
+     * variable in its one session, so its reads find it in either form, {@code v} or {@code :v}.
+     */
     @Test
-    public void variableCreatedOnReadLegByHintIsNotFollowedToRw() throws SQLException {
+    public void hintedReadStringThatAssignsAnIntoVariableRunsOnRw() throws SQLException {
         Statement st = conn.createStatement();
         st.execute("SELECT /*+ TO_RO */ x INTO v FROM t");
         st.executeQuery("SELECT v");
+        st.executeQuery("SELECT :v FROM t");
 
-        assertEquals(
-                Arrays.asList("SELECT /*+ TO_RO */ x INTO v FROM t", "SELECT v"), legs.log("ro"));
+        assertEquals(1, legs.count("rw", "SELECT /*+ TO_RO */ x INTO v FROM t"));
+        assertEquals(1, legs.count("rw", "SELECT v"));
+        assertEquals(1, legs.count("rw", "SELECT :v FROM t"));
+        assertEquals(Collections.<String>emptyList(), legs.log("ro"));
+    }
+
+    /** A statement a TO_RO string prepares, or a variable it drops, is RW's session's too. */
+    @Test
+    public void hintedReadStringThatPreparesOrDropsRunsOnRw() throws SQLException {
+        Statement st = conn.createStatement();
+        st.execute("SELECT /*+ TO_RO */ 1; PREPARE s FROM 'SELECT 1'");
+        st.execute("SELECT /*+ TO_RO */ 1; DEALLOCATE PREPARE s");
+        st.execute("SELECT /*+ TO_RO */ 1; DROP VARIABLE v");
+
+        assertEquals(Collections.<String>emptyList(), legs.log("ro"));
     }
 
     /** The check runs at execute time: the statement was prepared before the variable existed. */

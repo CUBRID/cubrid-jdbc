@@ -35,7 +35,9 @@ import java.io.IOException;
 /*
  * The byte-stream requests of PROTOCOL_V13 (UFunctionCode.STREAM_*). An upload, opened by a
  * statement (COPY ... FROM STDIN) or by init (), takes sendData () until end () or abort (). A
- * download is opened by readOpen (), read until eof and then released. Each request holds the
+ * download is opened by readOpen (), read until eof and then released. A download handle lasts
+ * only as long as the transaction that opened it: a commit ends it, and in auto-commit so does any
+ * other statement on the connection, after which a read fails with -1218. Each request holds the
  * connection's lock and leaves its error in the connection's error handler, as the requests of
  * UConnection do; a request that fails returns -1.
  */

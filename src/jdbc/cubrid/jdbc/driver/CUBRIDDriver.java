@@ -462,6 +462,9 @@ public class CUBRIDDriver implements Driver {
      * {@code user:password@} in front of the host, which {@link #maskUriUrlPassword} does not read
      * as credentials: with an {@code '@'} after the scheme, all of it up to the options is masked.
      *
+     * <p>For the driver's load-balance path, which is in another package; it is not an API for
+     * applications.
+     *
      * @param url the URL the error quotes; may be {@code null}
      * @return the URL to quote
      */
@@ -642,6 +645,9 @@ public class CUBRIDDriver implements Driver {
      * The options of the file {@code CUBRID_JDBC_PROP} names, which take the place of a URL's
      * options on connect, or {@code null} when the variable is not set. A load-balanced connection
      * reads them once and gives its legs the ones they may take.
+     *
+     * <p>For the driver's load-balance path, which is in another package; it is not an API for
+     * applications.
      *
      * @return the options, or {@code null}
      * @throws SQLException if the file is missing, unreadable, empty, or holds an option a URL

@@ -742,6 +742,9 @@ public class ConnectionProperties {
     /**
      * Whether the prepared-statement cache keeps a statement of {@code sql}.
      *
+     * <p>For the driver's load-balance path, which is in another package; it is not an API for
+     * applications.
+     *
      * @param sql the statement text
      * @return whether the cache keeps it
      */

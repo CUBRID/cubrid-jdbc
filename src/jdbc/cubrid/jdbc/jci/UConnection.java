@@ -2050,6 +2050,9 @@ public abstract class UConnection {
     /**
      * The server session this connection is in; a reconnect that could not keep it changes it.
      *
+     * <p>For the driver's load-balance path, which is in another package; it is not an API for
+     * applications.
+     *
      * @return a copy of the session id
      */
     public byte[] getSessionId() {

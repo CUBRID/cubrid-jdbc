@@ -4,14 +4,6 @@
 <project default="dist-cubrid" name="CUBRID JDBC Driver">
     <property name="output" value="${basedir}/output"/>
     <property file="${output}/build.properties" />
-    <!-- Without build.sh (e.g. `ant test` right after a clone) there is no build.properties: fall
-         back to VERSION with serial 0000, as gen_version.cmake does when git gives no count. -->
-    <loadfile property="base-version" srcFile="${basedir}/VERSION">
-        <filterchain>
-            <striplinebreaks/>
-        </filterchain>
-    </loadfile>
-    <property name="version" value="${base-version}.0000"/>
     <property name="cubrid-jar-file" value="${basedir}/cubrid-jdbc-${version}.jar"/>
     <property name="cubrid-src-jar-file" value="${basedir}/cubrid-jdbc-${version}-sources.jar"/>
     <property name="cubrid-doc-jar-file" value="${basedir}/cubrid-jdbc-${version}-javadoc.jar"/>
@@ -38,7 +30,6 @@
     <target name="src-jar-cubrid" depends="clean">
         <mkdir dir="${bin-cubrid}"/>
         <mkdir dir="${src-cubrid}"/>
-        <touch file="${output}/CUBRID-JDBC-${version}" mkdirs="true"/>
         <copy file="${output}/CUBRID-JDBC-${version}" tofile="${src-cubrid}/CUBRID-JDBC-${version}"/>
         <copy todir="${src-cubrid}" filtering="true">
             <fileset dir="${src}/jdbc">
@@ -116,7 +107,12 @@
         </fail>
     </target>
 
-    <target name="compile-test" depends="compile-cubrid, fetch-test-libs">
+    <!-- The version comes from output/build.properties, which build.sh writes. -->
+    <target name="check-version">
+        <fail unless="version" message="output/build.properties not found: run ./build.sh first, or use ./gradlew test."/>
+    </target>
+
+    <target name="compile-test" depends="check-version, compile-cubrid, fetch-test-libs">
         <mkdir dir="${bin-test}"/>
         <javac destdir="${bin-test}" source="1.8" target="1.8" encoding="UTF-8" debug="true" deprecation="off" includeantruntime="no">
             <src path="${test.src}"/>

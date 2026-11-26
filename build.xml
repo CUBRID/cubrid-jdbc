@@ -81,7 +81,7 @@
     <property name="test.lib.url" value="https://raw.githubusercontent.com/CUBRID/3rdparty/develop/junit"/>
 
     <path id="test.classpath">
-        <pathelement location="${bin-cubrid}"/>
+        <pathelement location="${cubrid-jar-file}"/>
         <pathelement location="${bin-test}"/>
         <fileset dir="${test.lib}">
             <include name="*.jar"/>
@@ -107,12 +107,19 @@
         </fail>
     </target>
 
-    <!-- The version comes from output/build.properties, which build.sh writes. -->
-    <target name="check-version">
+    <!-- The tests run against the jar that build.sh built: they neither clean nor rebuild it. -->
+    <target name="check-build">
         <fail unless="version" message="output/build.properties not found: run ./build.sh first, or use ./gradlew test."/>
+        <fail message="${cubrid-jar-file} not found: run ./build.sh first.">
+            <condition>
+                <not>
+                    <available file="${cubrid-jar-file}"/>
+                </not>
+            </condition>
+        </fail>
     </target>
 
-    <target name="compile-test" depends="check-version, compile-cubrid, fetch-test-libs">
+    <target name="compile-test" depends="check-build, fetch-test-libs">
         <mkdir dir="${bin-test}"/>
         <javac destdir="${bin-test}" source="1.8" target="1.8" encoding="UTF-8" debug="true" deprecation="off" includeantruntime="no">
             <src path="${test.src}"/>

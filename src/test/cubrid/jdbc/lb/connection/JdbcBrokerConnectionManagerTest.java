@@ -186,9 +186,9 @@ public class JdbcBrokerConnectionManagerTest {
             mgr.bindSession(rw1, ro, topo);
             fail("Expected SQLException");
         } catch (SQLException e) {
-            assertTrue(e instanceof CUBRIDException);
-            assertEquals(LbTestAccess.lb_broker_group_exhausted, e.getErrorCode());
-            assertTrue(e.getMessage().contains("group=RW"));
+            // core's own error, as a core connect reports it whether or not it had altHosts
+            assertEquals(UErrorCode.ER_CONNECTION, e.getErrorCode());
+            assertEquals("unreachable", e.getMessage());
         }
         mgr.releasePhysicalConnections();
         UUnreachableHostList.getInstance().remove(rw1.getId());

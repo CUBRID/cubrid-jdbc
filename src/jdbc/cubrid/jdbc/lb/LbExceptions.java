@@ -188,6 +188,16 @@ public final class LbExceptions {
         return withDetail(LbJDBCErrorCode.lb_broker_candidates_filtered, detail, null);
     }
 
+    /**
+     * Whether {@code ex} is {@link #brokerGroupExhausted}'s: every candidate of a group failed.
+     *
+     * @param ex the failure
+     * @return whether it is
+     */
+    public static boolean isBrokerGroupExhausted(final SQLException ex) {
+        return ex.getErrorCode() == LbJDBCErrorCode.lb_broker_group_exhausted;
+    }
+
     public static CUBRIDException brokerGroupExhausted(
             final String groupLabel, final String tried, final SQLException firstFailure) {
         return withDetail(

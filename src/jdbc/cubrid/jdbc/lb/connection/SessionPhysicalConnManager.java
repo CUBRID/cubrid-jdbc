@@ -449,8 +449,23 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
      * listed: the write leg has no fallback, so skipping it would fail getConnection() undialed.
      */
     private BindResult openRwForBind(final List<Endpoint> rwOrder) throws SQLException {
-        return openFirstReachablePerGroup(
-                Collections.singletonList(rwOrder), "RW", Collections.<String>emptySet(), 0, true);
+        try {
+            return openFirstReachablePerGroup(
+                    Collections.singletonList(rwOrder),
+                    "RW",
+                    Collections.<String>emptySet(),
+                    0,
+                    true);
+        } catch (SQLException exhausted) {
+            // Core reports the error of a broker it could not connect to, with altHosts or not.
+            // The brokers tried go to the log.
+            final Throwable cause = exhausted.getCause();
+            if (LbExceptions.isBrokerGroupExhausted(exhausted) && cause instanceof SQLException) {
+                LbLog.warn(LOGGER, logContext, "LB BIND [RW]: " + exhausted.getMessage());
+                throw (SQLException) cause;
+            }
+            throw exhausted;
+        }
     }
 
     public synchronized void bindSessionWithReadTarget(

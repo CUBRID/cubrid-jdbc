@@ -177,7 +177,14 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
         this.lbConnection = lbConnection;
         this.sql = sql;
         this.writeLeg = writeLeg;
-        this.statementDelegate = new LBStatement(lbConnection);
+        // Core's prepareCall statement is forward-only, read-only and closes its cursors at commit,
+        // and runs SQL as itself.
+        this.statementDelegate =
+                new LBStatement(
+                        lbConnection,
+                        ResultSet.TYPE_FORWARD_ONLY,
+                        ResultSet.CONCUR_READ_ONLY,
+                        ResultSet.CLOSE_CURSORS_AT_COMMIT);
         this.parameterBinder =
                 new ParameterBinder(
                         new ParameterBinder.BindCheck() {

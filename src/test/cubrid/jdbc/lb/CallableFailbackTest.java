@@ -80,6 +80,8 @@ public final class CallableFailbackTest {
     private final Set<String> down = new HashSet<String>();
     // Every physical CallableStatement prepared, in order, with what it was asked.
     private final List<PhysicalCall> prepared = new ArrayList<PhysicalCall>();
+    // The type, concurrency and holdability of every physical Statement created, in order.
+    private final List<String> createdWith = new ArrayList<String>();
     private LoadBalanceConnection conn;
 
     private void open(final boolean masterDown) throws SQLException {
@@ -187,6 +189,26 @@ public final class CallableFailbackTest {
         rs.close();
         write();
         assertEquals(NODE1, conn.getCurrentRwEndpoint());
+    }
+
+    /**
+     * Core's prepareCall statement is forward-only, read-only and closes its cursors at commit,
+     * whatever the connection's holdability, and runs SQL as that statement.
+     */
+    @Test
+    public void sqlItRunsHasTheCursorKindOfCoresCallableStatement() throws SQLException {
+        open(false);
+        CallableStatement cs = conn.prepareCall("CALL p(?, ?)");
+
+        cs.executeQuery("SELECT LAST_INSERT_ID() FROM db_root");
+
+        assertEquals(
+                Arrays.asList(
+                                ResultSet.TYPE_FORWARD_ONLY,
+                                ResultSet.CONCUR_READ_ONLY,
+                                ResultSet.CLOSE_CURSORS_AT_COMMIT)
+                        .toString(),
+                createdWith.get(createdWith.size() - 1));
     }
 
     @Test
@@ -378,7 +400,11 @@ public final class CallableFailbackTest {
                                 if ("isClosed".equals(name)) {
                                     return Boolean.valueOf(closed[0]);
                                 }
+                                if ("getHoldability".equals(name)) {
+                                    return Integer.valueOf(ResultSet.HOLD_CURSORS_OVER_COMMIT);
+                                }
                                 if ("createStatement".equals(name)) {
+                                    createdWith.add(Arrays.toString(a));
                                     return statement(
                                             Statement.class, (Connection) p, node, closed, null);
                                 }

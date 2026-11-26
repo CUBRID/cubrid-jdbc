@@ -142,9 +142,49 @@ public final class MasterReadSessionRwFailureTest {
         assertEquals(NODE2, conn.getCurrentRwEndpoint());
     }
 
+    /**
+     * With no read broker reachable when the write leg moved, reads ride the new write connection.
+     * The read leg leaving it when a read broker returns leaves it to the write leg, session and
+     * all.
+     */
+    @Test
+    public void aReadFailbackLeavesTheWriteConnectionToTheWriteLeg() throws SQLException {
+        open();
+        down.add(NODE1.getId());
+        down.add(NODE2_RO.getId());
+        Statement st = conn.createStatement();
+        try {
+            st.executeUpdate("UPDATE t SET a = 1"); // moves the write leg to node2
+        } catch (SQLException maybeApplied) {
+            // not run again on node2: it may have been applied
+        }
+        st.execute("SET @y = 7");
+        down.remove(NODE2_RO.getId());
+        UUnreachableHostList.getInstance().remove(NODE2_RO.getId());
+
+        st.executeQuery("SELECT a FROM t"); // the read leg climbs to node2's read broker
+        st.executeQuery("SELECT @y");
+
+        List<Leg> writeLegs = legsTo(NODE2);
+        assertEquals(1, writeLegs.size());
+        assertFalse(writeLegs.get(0).closed);
+        assertEquals(Arrays.asList("SET @y = 7", "SELECT @y"), writeLegs.get(0).ran);
+    }
+
+    private List<Leg> legsTo(final Endpoint node) {
+        List<Leg> found = new ArrayList<Leg>();
+        for (Leg each : legs) {
+            if (each.node.equals(node)) {
+                found.add(each);
+            }
+        }
+        return found;
+    }
+
     /** A leg whose statements fail while its node is down, as a broker that went away. */
     private final class Leg extends FakePhysicalConnection {
         private final Endpoint node;
+        private final List<String> ran = new ArrayList<String>();
         private final UConnection socket =
                 new UConnection() {
                     public void endTransaction(final boolean type) {}
@@ -217,6 +257,7 @@ public final class MasterReadSessionRwFailureTest {
                                                     null,
                                                     UErrorCode.ER_COMMUNICATION);
                                         }
+                                        ran.add((String) a[0]);
                                     }
                                     Class<?> returns = m.getReturnType();
                                     if (returns == Boolean.TYPE) {

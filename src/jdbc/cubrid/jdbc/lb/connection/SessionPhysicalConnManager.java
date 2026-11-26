@@ -2172,9 +2172,15 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
             final Connection newConn,
             final boolean rwFallback)
             throws SQLException {
-        Connection previous = connsByEpId.get(previousRoEp.getId());
-        connsByEpId.remove(previousRoEp.getId());
-        dropPrepForEp(previousRoEp.getId());
+        // A read leg that rode the write connection leaves it to the write leg: the key and the
+        // connection, with its session, are the write leg's.
+        final boolean leavesTheRwConn =
+                sessRwEp != null && previousRoEp.getId().equals(sessRwEp.getId());
+        Connection previous = leavesTheRwConn ? null : connsByEpId.get(previousRoEp.getId());
+        if (!leavesTheRwConn) {
+            connsByEpId.remove(previousRoEp.getId());
+            dropPrepForEp(previousRoEp.getId());
+        }
 
         setRoOnRw(
                 rwFallback,

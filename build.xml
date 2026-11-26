@@ -119,7 +119,9 @@
         </fail>
     </target>
 
+    <!-- bin-test starts empty, so a deleted or renamed test does not leave a class that test still finds. -->
     <target name="compile-test" depends="check-build, fetch-test-libs">
+        <delete dir="${bin-test}"/>
         <mkdir dir="${bin-test}"/>
         <javac destdir="${bin-test}" source="1.8" target="1.8" encoding="UTF-8" debug="true" deprecation="off" includeantruntime="no">
             <src path="${test.src}"/>

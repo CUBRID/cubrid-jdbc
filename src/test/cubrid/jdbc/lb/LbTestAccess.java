@@ -139,4 +139,17 @@ public final class LbTestAccess {
     public static SessionLeg fromRouteTarget(final RouteTarget target) {
         return SessionLeg.fromRouteTarget(target);
     }
+
+    /** The JVM's count of open LB connections, which the last close's flush waits for. */
+    public static java.util.concurrent.atomic.AtomicInteger liveConnections() {
+        return (java.util.concurrent.atomic.AtomicInteger)
+                LbTestReflection.staticField(LbRuntime.class, "LIVE");
+    }
+
+    /** The shutdown flush hook LB keeps while a connection is open, or null. */
+    public static Thread exitFlushHook() {
+        synchronized (LbRuntime.class) {
+            return (Thread) LbTestReflection.staticField(LbRuntime.class, "hook");
+        }
+    }
 }

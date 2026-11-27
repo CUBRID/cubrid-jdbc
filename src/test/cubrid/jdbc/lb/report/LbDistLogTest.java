@@ -44,7 +44,6 @@ import cubrid.jdbc.lb.metrics.MetricsRegistry;
 import cubrid.jdbc.lb.metrics.MetricsTestAccess;
 import cubrid.jdbc.lb.metrics.RuntimeMetrics;
 import cubrid.jdbc.lb.sql.SqlClassification;
-import java.lang.reflect.Field;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -268,9 +267,7 @@ public class LbDistLogTest {
      */
     @Test
     public void aConnectionOpenedWhileTheLastOneClosesKeepsTheShutdownFlush() throws Exception {
-        final Field live = LoadBalanceConnection.class.getDeclaredField("LIVE_CONNECTIONS");
-        live.setAccessible(true);
-        final AtomicInteger liveConnections = (AtomicInteger) live.get(null);
+        final AtomicInteger liveConnections = LbTestAccess.liveConnections();
         final int others = liveConnections.getAndSet(0); // connections other tests left open
         final CountDownLatch writingFinal = new CountDownLatch(1);
         final CountDownLatch opened = new CountDownLatch(1);
@@ -320,9 +317,7 @@ public class LbDistLogTest {
             opened.countDown();
             closing.join();
 
-            Field hook = LbDistLog.class.getDeclaredField("hook");
-            hook.setAccessible(true);
-            assertNotNull("a live connection has no shutdown flush", hook.get(null));
+            assertNotNull("a live connection has no shutdown flush", LbTestAccess.exitFlushHook());
         } finally {
             opened.countDown();
             lbLogger.removeHandler(pause);

@@ -111,7 +111,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BooleanSupplier;
@@ -132,8 +131,6 @@ import java.util.logging.Logger;
  */
 public class LoadBalanceConnection extends CUBRIDConnection {
     private static final AtomicLong CONNECTION_SEQUENCE = new AtomicLong(1L);
-    // Open LB connections in this JVM; the last close flushes the held-back log records.
-    private static final AtomicInteger LIVE_CONNECTIONS = new AtomicInteger();
     // Monotonic id source for per-logical-PreparedStatement prep-cache ownership.
     private static final AtomicLong PS_OWNER_SEQ = new AtomicLong(0L);
     private final LoadBalanceSettings config;
@@ -265,7 +262,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         this.failback = new LegFailback(this, config, sessionState);
         this.sessionSets = new SessionSets(this, sessionState, LbLog.conn(connectionId));
         maybeStartMetrics(config);
-        LIVE_CONNECTIONS.incrementAndGet();
+        LbRuntime.connectionOpened();
         LbLog.fine(LOGGER, LbLog.conn(connectionId), "LB CONN: opened");
     }
 
@@ -1458,16 +1455,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             sessionTopology = null;
             sessionInitialized = false;
         }
-        // The shutdown hooks that also flush these race java.util.logging's own, which removes
-        // every handler first; a pool closing its last connection is the dependable point.
-        if (LIVE_CONNECTIONS.decrementAndGet() == 0) {
-            LbLogDedup.drain();
-            LbDistLog.drainFinal();
-            // A connection opened meanwhile found the shutdown flush that drain has now removed.
-            if (LIVE_CONNECTIONS.get() > 0) {
-                LbDistLog.configure(config);
-            }
-        }
+        LbRuntime.connectionClosed();
     }
 
     public synchronized boolean isClosed() throws SQLException {

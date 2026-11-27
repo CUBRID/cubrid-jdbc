@@ -173,8 +173,8 @@ public final class LbKit implements AutoCloseable {
     /**
      * I3 — no unrequested execution: a statement that changes data or calls a routine runs no more
      * often than the application sent it. Reads may run again after a failure, and session SETs and
-     * a user switch ({@code CALL login(..) ON CLASS db_user}) are replayed by design, so they are
-     * not counted.
+     * a user switch ({@code login} on the class db_user) are replayed by design, so they are not
+     * counted.
      *
      * @param sent the statements the application sent, one entry per execution
      */
@@ -206,6 +206,17 @@ public final class LbKit implements AutoCloseable {
         return extra;
     }
 
+    /** How many times {@code endpointId} ran {@code sql} without an error. */
+    public int runs(final String endpointId, final String sql) {
+        int n = 0;
+        for (KitServer.Request r : server.requests()) {
+            if (r.code == 0 && r.endpoint.equals(endpointId) && sql.equals(executedText(r.what))) {
+                n++;
+            }
+        }
+        return n;
+    }
+
     private static String executedText(final String what) {
         for (String verb : new String[] {"EXECUTE ", "CALL ", "BATCH "}) {
             if (what.startsWith(verb)) {
@@ -219,7 +230,7 @@ public final class LbKit implements AutoCloseable {
         final String t = text.trim().toUpperCase(java.util.Locale.ROOT);
         return t.startsWith("SELECT")
                 || t.startsWith("SET ")
-                || (t.startsWith("CALL LOGIN") && t.contains(" ON CLASS DB_USER"));
+                || (t.startsWith("CALL LOGIN") && t.contains("CLASS DB_USER"));
     }
 
     @Override

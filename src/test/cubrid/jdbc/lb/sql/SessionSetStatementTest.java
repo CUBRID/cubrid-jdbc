@@ -135,6 +135,37 @@ public class SessionSetStatementTest {
         assertUntracked("CALL [login]");
     }
 
+    /**
+     * Without the class db_user as its target the server runs a stored procedure named login, or
+     * fails; running it again on another leg would run the procedure again (r5 M3).
+     */
+    @Test
+    public void loginWithoutTheDbUserClassIsAProcedureCall() {
+        assertUntracked("CALL login('alice', '10.0.0.1')");
+        assertUntracked("CALL login(?, ?)");
+        assertNull(SessionSetStatement.parse("CALL login(?, ?)").getBoundKey());
+        assertUntracked("CALL login('u', ') ON CLASS db_user')");
+        assertUntracked("CALL login('u', 'pw') ON CLASS login_audit");
+        assertUntracked("CALL login('u', 'pw') ON db_user");
+    }
+
+    /** The server also takes the class as the first argument, and its name quoted. */
+    @Test
+    public void loginOnTheDbUserClassGivenFirstOrQuotedIsLogin() {
+        final String key = SessionSetStatement.LOGIN_KEY;
+        assertEquals(
+                "CALL login(CLASS db_user, 'u', 'pw')",
+                replay("CALL login(CLASS db_user, 'u', 'pw')").get(key));
+        assertEquals(
+                "call login( /* c */ class [DB_USER] , 'u', 'pw')",
+                replay("call login( /* c */ class [DB_USER] , 'u', 'pw')").get(key));
+        assertEquals(
+                "CALL login('u', f(')')) ON /* c */ CLASS \"db_user\"",
+                replay("CALL login('u', f(')')) ON /* c */ CLASS \"db_user\"").get(key));
+        assertEquals(
+                key, SessionSetStatement.parse("CALL login(CLASS db_user, ?, ?)").getBoundKey());
+    }
+
     /** A parameter LB cannot place pins. */
     @Test
     public void unknownParameterPinsUntilClose() {

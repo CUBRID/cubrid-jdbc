@@ -142,18 +142,26 @@ public class LbKitTest {
         assertEquals(Collections.<String>emptyList(), kit.legLeaks());
     }
 
-    /** r5 M3: a user procedure named login is run again on the read leg (no ON CLASS db_user). */
+    /**
+     * r5 M3: without the class db_user as its target, {@code CALL login(..)} runs a stored
+     * procedure named login, once, where the application ran it. A login on db_user reaches the
+     * read leg.
+     */
     @Test
-    public void knownDefect_r5M3_aUserProcedureNamedLoginRunsAgain() throws Exception {
+    public void aProcedureNamedLoginRunsOnceAndALoginReachesTheReadLeg() throws Exception {
         final Connection conn = kit.open("readWeight=slave:1");
-        conn.createStatement().execute("CALL login('alice')");
+        final Statement st = conn.createStatement();
+        st.execute("CALL login('alice')");
+        st.execute("CALL login('u', 'pw') ON CLASS db_user");
+        st.execute("CALL login(CLASS db_user, 'v', 'pw')");
+        rows(st.executeQuery("SELECT a FROM t"));
 
-        knownDefect(
-                "r5 M3",
-                () ->
-                        assertEquals(
-                                Collections.<String>emptyList(),
-                                kit.unrequestedExecutions(Arrays.asList("CALL login('alice')"))));
+        assertEquals(
+                Collections.<String>emptyList(),
+                kit.unrequestedExecutions(Arrays.asList("CALL login('alice')")));
+        assertEquals(0, kit.runs(kit.ro(2), "CALL login('alice')"));
+        assertEquals(1, kit.runs(kit.ro(2), "CALL login('u', 'pw') ON CLASS db_user"));
+        assertEquals(1, kit.runs(kit.ro(2), "CALL login(CLASS db_user, 'v', 'pw')"));
     }
 
     /**

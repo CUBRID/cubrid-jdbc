@@ -48,17 +48,18 @@ import java.util.Set;
  * <p>A {@code SET} changes the server session it runs on, and the RW and read legs are two
  * sessions. Session-scoped settings ({@code SET NAMES}, {@code SET TIMEZONE}, session system
  * parameters) are {@link #getReplay() replayed} on the read leg so reads see what the application
- * set, and so are tracing and {@code CALL login(...)}. A change the read leg cannot be given keeps
- * the session's reads on RW for a {@link #getPins() reason} that a later statement may {@link
- * #getUnpins() release}, as turning statistics collection off does. A server- or CAS-wide parameter
- * is neither copied to another node nor pinned: it is {@link #getNonSessionParams() reported}.
+ * set, and so are tracing and a login ({@code CALL login(..) ON CLASS db_user}). A change the read
+ * leg cannot be given keeps the session's reads on RW for a {@link #getPins() reason} that a later
+ * statement may {@link #getUnpins() release}, as turning statistics collection off does. A server-
+ * or CAS-wide parameter is neither copied to another node nor pinned: it is {@link
+ * #getNonSessionParams() reported}.
  */
 public final class SessionSetStatement {
 
     /** Pin reason of execution statistics collection, released by setting it to 0. */
     static final String EXEC_STATS_PIN = "EXEC_STATS";
 
-    /** Replay key of {@code CALL login(...)}, which changes the session's user. */
+    /** Replay key of {@code login} on the class db_user, which changes the session's user. */
     static final String LOGIN_KEY = "LOGIN";
 
     /**
@@ -497,6 +498,11 @@ public final class SessionSetStatement {
         return "SET".equals(wordAt(sql, pos));
     }
 
+    /**
+     * Whether the statement switches the session's user: {@code login} called on the class db_user,
+     * as {@code login(..) ON CLASS db_user} or {@code login(CLASS db_user, ..)}. Without that
+     * target the server runs a stored procedure named login, or fails.
+     */
     private static boolean callsLogin(final String sql, final int pos) {
         if (!"CALL".equals(wordAt(sql, pos))) {
             return false;
@@ -511,8 +517,52 @@ public final class SessionSetStatement {
             nameEnd = skipWord(sql, name);
             routine = wordAt(sql, name);
         }
-        final int after = SqlLexer.skipWhitespaceAndComments(sql, nameEnd);
-        return "LOGIN".equals(routine) && after < sql.length() && sql.charAt(after) == '(';
+        final int open = SqlLexer.skipWhitespaceAndComments(sql, nameEnd);
+        if (!"LOGIN".equals(routine) || open >= sql.length() || sql.charAt(open) != '(') {
+            return false;
+        }
+        if (namesDbUserClass(sql, open + 1)) {
+            return true;
+        }
+        final int close = closingParen(sql, open);
+        return close >= 0
+                && "ON".equals(wordAt(sql, close + 1))
+                && namesDbUserClass(sql, skipWord(sql, close + 1));
+    }
+
+    /** {@code CLASS db_user} at {@code pos}, past white space and comments, quoted or not. */
+    private static boolean namesDbUserClass(final String sql, final int pos) {
+        if (!"CLASS".equals(wordAt(sql, pos))) {
+            return false;
+        }
+        final int start = SqlLexer.skipWhitespaceAndComments(sql, skipWord(sql, pos));
+        final int end = variableEnd(sql, start);
+        final String name =
+                start < end && KeywordSqlClassifier.isQuotedIdentifierStart(sql.charAt(start))
+                        ? KeywordSqlClassifier.extractQuotedIdentifierUpper(sql, start, end)
+                        : sql.substring(start, end);
+        return "DB_USER".equalsIgnoreCase(name);
+    }
+
+    /** Position of the {@code )} that closes the {@code (} at {@code open}, or -1. */
+    private static int closingParen(final String sql, final int open) {
+        int depth = 0;
+        int i = open;
+        while (i < sql.length()) {
+            final int after = SqlLexer.skipCommentOrQuoted(sql, i);
+            if (after != i) {
+                i = after;
+                continue;
+            }
+            final char c = sql.charAt(i);
+            if (c == '(') {
+                depth++;
+            } else if (c == ')' && --depth == 0) {
+                return i;
+            }
+            i++;
+        }
+        return -1;
     }
 
     /** {@code stmt} starts with SET and holds a single statement (no top-level ';'). */

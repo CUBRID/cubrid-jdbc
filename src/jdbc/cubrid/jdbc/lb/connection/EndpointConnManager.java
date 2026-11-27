@@ -111,6 +111,14 @@ public interface EndpointConnManager extends PhysicalResourceReleaser {
             EndpointTopology topology)
             throws SQLException;
 
+    /**
+     * Where this session's legs are now. Takes no lock, so a reader on another thread or connection
+     * does not wait while this session dials a broker.
+     *
+     * @return the current binding, {@link LegBinding#UNBOUND} before binding and after release
+     */
+    LegBinding binding();
+
     Endpoint getSessionEndpoint(SessionLeg leg);
 
     /**

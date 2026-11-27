@@ -40,10 +40,6 @@ import java.util.Map;
 public final class StateTestAccess {
     private StateTestAccess() {}
 
-    public static boolean isBound(final CurrentReadEndpointHolder holder) {
-        return holder.getCurrentRoEndpoint() != null;
-    }
-
     public static Map<String, Integer> getLiveHomeCounts(final SharedSelectorState state) {
         return state.getLiveHomeCounts();
     }

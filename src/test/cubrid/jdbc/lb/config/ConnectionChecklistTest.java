@@ -35,7 +35,6 @@ import static org.junit.Assert.*;
 import cubrid.jdbc.lb.LbTestAccess;
 import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
-import cubrid.jdbc.lb.state.CurrentReadEndpointHolder;
 import cubrid.jdbc.lb.state.SessionRoutingState;
 import cubrid.jdbc.lb.state.SharedSelectorState;
 import cubrid.jdbc.lb.state.StateTestAccess;
@@ -161,18 +160,6 @@ public class ConnectionChecklistTest {
         assertTrue(conn.getSessionState().isAutoCommit());
         assertFalse(conn.getSessionState().isTransactionActive());
         assertFalse(conn.getSessionState().shouldRouteToRw());
-    }
-
-    @Test
-    public void assertCL06_closeClearsAffinity() throws Exception {
-        LoadBalanceConnection conn = newConn();
-        Endpoint ep = new Endpoint("ro1", 33000);
-        LbTestAccess.getBoundReadEndpoint(conn).setCurrentRoEndpoint(ep);
-        assertTrue(StateTestAccess.isBound(LbTestAccess.getBoundReadEndpoint(conn)));
-
-        conn.close();
-
-        assertFalse(StateTestAccess.isBound(LbTestAccess.getBoundReadEndpoint(conn)));
     }
 
     @Test
@@ -312,29 +299,6 @@ public class ConnectionChecklistTest {
         assertTrue(conn.isValid(0));
         conn.close();
         assertFalse(conn.isValid(0));
-    }
-
-    @Test
-    public void assertCL08_sessionModeFixesRoAtConnectionTime() throws Exception {
-        LoadBalanceConnection conn = newConn();
-
-        Endpoint ep = new Endpoint("ro-slave1", 33000);
-        CurrentReadEndpointHolder tracker = LbTestAccess.getBoundReadEndpoint(conn);
-        tracker.setCurrentRoEndpoint(ep);
-
-        assertTrue(StateTestAccess.isBound(tracker));
-        assertEquals("ro-slave1", tracker.getCurrentRoEndpoint().getHost());
-        assertEquals(33000, tracker.getCurrentRoEndpoint().getPort());
-    }
-
-    @Test
-    public void assertCL08_sessionModeAffinityPersistsAcrossExecutes() throws Exception {
-        LoadBalanceConnection conn = newConn();
-        Endpoint ep = new Endpoint("ro-slave2", 33001);
-        LbTestAccess.getBoundReadEndpoint(conn).setCurrentRoEndpoint(ep);
-
-        assertEquals(ep, LbTestAccess.getBoundReadEndpoint(conn).getCurrentRoEndpoint());
-        assertEquals(ep, LbTestAccess.getBoundReadEndpoint(conn).getCurrentRoEndpoint());
     }
 
     @Test

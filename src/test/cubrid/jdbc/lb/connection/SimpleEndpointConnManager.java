@@ -151,6 +151,12 @@ public final class SimpleEndpointConnManager implements EndpointConnManager {
         return readOnRw;
     }
 
+    public synchronized LegBinding binding() {
+        return sessionRwEndpoint == null
+                ? LegBinding.UNBOUND
+                : new LegBinding(sessionRwEndpoint, sessionRoEndpoint, false);
+    }
+
     public synchronized Endpoint getSessionEndpoint(final SessionLeg role) {
         if (role == null) {
             throw new IllegalArgumentException("SessionLeg must not be null");

@@ -162,6 +162,8 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
 
     private EndpointTopology sessTopo;
     private boolean roOnRw;
+    // sessRwEp, sessRoEp and roOnRw as of the last completed change; see publishBinding.
+    private volatile LegBinding binding = LegBinding.UNBOUND;
     // The write leg closed under this session (core's network timeout): never reopened, see
     // ensureConn.
     private volatile boolean legClosedUnderneath;
@@ -289,6 +291,16 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
     public synchronized void bindSession(
             final Endpoint rwEndpoint, final Endpoint roEndpoint, final EndpointTopology topology)
             throws SQLException {
+        try {
+            bindSessionLocked(rwEndpoint, roEndpoint, topology);
+        } finally {
+            publishBinding();
+        }
+    }
+
+    private void bindSessionLocked(
+            final Endpoint rwEndpoint, final Endpoint roEndpoint, final EndpointTopology topology)
+            throws SQLException {
         if (rwEndpoint == null) {
             throw LbExceptions.internalState("missing RW endpoint");
         }
@@ -378,6 +390,15 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
 
     public synchronized void bindSessionRwOnly(
             final Endpoint rwEndpoint, final EndpointTopology topology) throws SQLException {
+        try {
+            bindSessionRwOnlyLocked(rwEndpoint, topology);
+        } finally {
+            publishBinding();
+        }
+    }
+
+    private void bindSessionRwOnlyLocked(final Endpoint rwEndpoint, final EndpointTopology topology)
+            throws SQLException {
         if (rwEndpoint == null) {
             throw LbExceptions.internalState("missing RW endpoint");
         }
@@ -474,19 +495,32 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
             final boolean readReusesRw,
             final EndpointTopology topology)
             throws SQLException {
+        try {
+            bindSessionWithReadTargetLocked(masterRw, readEndpoint, readReusesRw, topology);
+        } finally {
+            publishBinding();
+        }
+    }
+
+    private void bindSessionWithReadTargetLocked(
+            final Endpoint masterRw,
+            final Endpoint readEndpoint,
+            final boolean readReusesRw,
+            final EndpointTopology topology)
+            throws SQLException {
         if (masterRw == null) {
             throw LbExceptions.internalState("missing RW endpoint");
         }
 
         if (!readReusesRw) {
             // slave/replica read: open a separate RO/SO physical connection.
-            bindSession(masterRw, readEndpoint, topology);
+            bindSessionLocked(masterRw, readEndpoint, topology);
             return;
         }
 
         // master read: reuse the master RW physical connection — one physical connection.
         // Mechanically identical to RW-only: the RO role maps onto the RW endpoint/connection.
-        bindSessionRwOnly(masterRw, topology);
+        bindSessionRwOnlyLocked(masterRw, topology);
         placeReadRidingRw(masterRw, topology, "BIND");
     }
 
@@ -850,9 +884,22 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         return ep == null ? null : connsByEpId.get(ep.getId());
     }
 
+    public LegBinding binding() {
+        return binding;
+    }
+
+    /**
+     * Publishes the legs at the end of every public method that changes them, so a reader without
+     * this monitor never sees a change half done.
+     */
+    private void publishBinding() {
+        binding =
+                sessRwEp == null ? LegBinding.UNBOUND : new LegBinding(sessRwEp, sessRoEp, roOnRw);
+    }
+
     /** {@inheritDoc} */
-    public synchronized boolean isReadOnRwConnection() {
-        return roOnRw;
+    public boolean isReadOnRwConnection() {
+        return binding.isReadOnRwFallback();
     }
 
     public synchronized boolean isRwTxOpenOnServer() {
@@ -1031,6 +1078,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
     public synchronized void releaseBindings() {
         closePrepLocked();
         closeConnsLocked();
+        publishBinding();
     }
 
     public synchronized void releasePreparedStatements() {
@@ -1508,8 +1556,8 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         return roPhysical != rwPhysical ? roPhysical : null;
     }
 
-    public synchronized String getRoFallbackReason() {
-        if (roOnRw) {
+    public String getRoFallbackReason() {
+        if (binding.isReadOnRwFallback()) {
             return RO_PHYSICAL_FAILOVER_REASON;
         }
 
@@ -1526,6 +1574,15 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
     }
 
     public synchronized PhysicalRecoveryResult recoverRw(final PhysicalRecoveryContext ctx)
+            throws SQLException {
+        try {
+            return recoverRwLocked(ctx);
+        } finally {
+            publishBinding();
+        }
+    }
+
+    private PhysicalRecoveryResult recoverRwLocked(final PhysicalRecoveryContext ctx)
             throws SQLException {
         if (ctx == null) {
             throw new IllegalArgumentException("PhysicalRecoveryContext must not be null");
@@ -1584,6 +1641,16 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
     }
 
     synchronized PhysicalRecoveryResult recoverRo(
+            final PhysicalRecoveryContext ctx, final String rwFallbackReasonOverride)
+            throws SQLException {
+        try {
+            return recoverRoLocked(ctx, rwFallbackReasonOverride);
+        } finally {
+            publishBinding();
+        }
+    }
+
+    private PhysicalRecoveryResult recoverRoLocked(
             final PhysicalRecoveryContext ctx, final String rwFallbackReasonOverride)
             throws SQLException {
         if (ctx == null) {
@@ -1721,6 +1788,14 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
      *     already at the best endpoint, none better reachable, or the reconnect failed)
      */
     public synchronized Endpoint restoreRoIfRecovered() throws SQLException {
+        try {
+            return restoreRoIfRecoveredLocked();
+        } finally {
+            publishBinding();
+        }
+    }
+
+    private Endpoint restoreRoIfRecoveredLocked() throws SQLException {
         if (!config.isReadFailbackEnabled() || homeReadEp == null || sessTopo == null) {
             return null;
         }
@@ -1819,6 +1894,14 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
      * @throws SQLException if the rebind fails after opening the probe connection
      */
     public synchronized Endpoint restoreRwIfRecovered() throws SQLException {
+        try {
+            return restoreRwIfRecoveredLocked();
+        } finally {
+            publishBinding();
+        }
+    }
+
+    private Endpoint restoreRwIfRecoveredLocked() throws SQLException {
         if (!config.isWriteFailbackEnabled() || homeRwEp == null || sessTopo == null) {
             return null;
         }

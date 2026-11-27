@@ -38,7 +38,6 @@ import cubrid.jdbc.lb.metrics.RuntimeMetrics;
 import cubrid.jdbc.lb.route.RoutedSql;
 import cubrid.jdbc.lb.route.Router;
 import cubrid.jdbc.lb.route.Router.RouteTarget;
-import cubrid.jdbc.lb.state.CurrentReadEndpointHolder;
 import cubrid.jdbc.lb.state.SharedSelectorState;
 import java.sql.SQLException;
 import java.util.Collection;
@@ -113,11 +112,6 @@ public final class LbTestAccess {
             final LoadBalanceConnection connection, final EndpointTopology topology)
             throws SQLException {
         connection.initSessionBindings(topology);
-    }
-
-    public static CurrentReadEndpointHolder getBoundReadEndpoint(
-            final LoadBalanceConnection connection) {
-        return (CurrentReadEndpointHolder) LbTestReflection.field(connection, "boundReadEndpoint");
     }
 
     public static SharedSelectorState getSharedSelectorState(

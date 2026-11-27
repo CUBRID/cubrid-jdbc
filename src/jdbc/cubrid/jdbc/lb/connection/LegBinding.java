@@ -73,6 +73,17 @@ public final class LegBinding {
         return readOnRwFallback;
     }
 
+    /**
+     * Whether reads run on the write leg's connection: by design (master role, RW-only) or after a
+     * fallback.
+     */
+    public boolean readSharesRwConnection() {
+        return readOnRwFallback
+                || (readEndpoint != null
+                        && rwEndpoint != null
+                        && readEndpoint.getId().equals(rwEndpoint.getId()));
+    }
+
     /** Where reads run: the write endpoint during a fallback, the read endpoint otherwise. */
     public Endpoint getReadRunsOn() {
         return readOnRwFallback ? rwEndpoint : readEndpoint;

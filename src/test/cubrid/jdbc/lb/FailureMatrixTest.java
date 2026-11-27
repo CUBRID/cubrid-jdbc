@@ -53,8 +53,8 @@ import org.junit.runners.Parameterized.Parameters;
 /**
  * Rule 1 from core, over every cell: core talks only to the master, so a fault on another node must
  * not change what reads return. A read whose cursor is on the failing node may fail while the
- * application reads it (spec 15.5.5); every read after it returns the same rows as before, and the
- * failed node is not dialed again for them.
+ * application reads it (spec 15.5.5); every read after it returns the same rows as before, and once
+ * one of them has found the node failed, it is not dialed again.
  *
  * <p>Cells that fail today are listed in {@link #KNOWN} with the review item; such a cell passes
  * while it fails, and fails once it is fixed, so the fix removes it from the list.
@@ -88,11 +88,6 @@ public class FailureMatrixTest {
 
     /** Cells that fail today, with the review item that describes the defect. */
     static final Map<String, String> KNOWN = new HashMap<String, String>();
-
-    static {
-        KNOWN.put("SLAVE_READ/STATEMENT/DIAL_TIMEOUT/DURING_FETCH", "r5 M2");
-        KNOWN.put("SLAVE_READ/PREPARED/DIAL_TIMEOUT/DURING_FETCH", "r5 M2");
-    }
 
     @Parameters(name = "{0}/{1}/{2}/{3}")
     public static Collection<Object[]> cells() {

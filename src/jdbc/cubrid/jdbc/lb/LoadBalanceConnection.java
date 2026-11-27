@@ -611,18 +611,23 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     /**
-     * Whether the read leg's own connection, not the RW one it may share, is closed under LB: core
-     * closes a connection whose network timeout expired, and a failure on it is the leg's.
+     * Whether the read leg's own connection, not the RW one it may share, is closed or gone under
+     * LB: core closes a connection whose network timeout expired, a setter drops a read leg that
+     * failed, and a reopen that failed leaves none. A failure on it is the leg's.
      *
-     * @return whether it is closed
+     * @return whether it is closed or gone
      */
     public boolean isOwnReadLegClosed() {
         final EndpointConnManager mgr = connMgr;
-        if (mgr == null) {
+        final LegBinding legs = binding();
+        if (mgr == null || legs.getReadEndpoint() == null || legs.readSharesRwConnection()) {
             return false;
         }
         final Connection ro = mgr.boundConnection(SessionLeg.RO);
-        if (ro == null || ro == mgr.boundConnection(SessionLeg.RW)) {
+        if (ro == null) {
+            return true;
+        }
+        if (ro == mgr.boundConnection(SessionLeg.RW)) {
             return false;
         }
         try {

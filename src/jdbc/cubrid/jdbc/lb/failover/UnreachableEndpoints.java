@@ -135,8 +135,9 @@ public final class UnreachableEndpoints {
     }
 
     /**
-     * Whether {@code ex} is a timeout: the statement ran out of time, which says nothing about the
-     * broker. A failed connect never looks like this - the core reports it as ER_CONNECTION.
+     * Whether {@code ex} is a timeout: on an open connection the statement ran out of time, which
+     * says nothing about the broker. A dial that times out reports ER_TIMEOUT too (a leg's URL has
+     * no altHosts), so the dial paths judge it by {@link #shouldMarkUnreachable} instead.
      *
      * @param ex the failure to classify
      * @return whether a timeout appears anywhere in the chain

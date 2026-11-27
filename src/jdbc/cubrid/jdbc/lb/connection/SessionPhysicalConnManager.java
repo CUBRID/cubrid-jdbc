@@ -819,43 +819,11 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
                     unreachFilter.markReachable(ep);
                     return new BindResult(ep, conn);
                 } catch (SQLException ex) {
-                    final boolean refused = !UnreachableEndpoints.shouldMarkUnreachable(ex);
-                    if (refused && "RW".equals(groupLabel)) {
+                    if ("RW".equals(groupLabel)
+                            && !UnreachableEndpoints.shouldMarkUnreachable(ex)) {
                         throw ex;
                     }
-                    if (refused) {
-                        // Per endpoint and code: every new session dials it again.
-                        LbLogDedup.warn(
-                                LOGGER,
-                                logContext,
-                                "CONNECT_REFUSED|" + ep.getId() + "|" + ex.getErrorCode(),
-                                "LB CONNECT REFUSED ["
-                                        + groupLabel
-                                        + "] endpoint="
-                                        + ep.getId()
-                                        + " is up but refused the session -> trying next"
-                                        + " candidate | cause: "
-                                        + causeOf(ex));
-                    } else {
-                        unreachFilter.markUnreachable(ep, ex);
-                        unreachFilter.healthCheckConnectsAs(
-                                config.buildPhysicalJdbcSpec(clientInfo, ep));
-                        backoff.startWindow(ep.getId(), System.nanoTime());
-                        // Surface WHY this candidate was skipped (otherwise swallowed unless all
-                        // fail), so a fallback onto a non-master RW is traceable to its root
-                        // connect failure. FINE, not WARNING: skipping a candidate is the ladder
-                        // working as designed, and the outcome that matters - which endpoint the
-                        // session ended up on - is already a WARNING from the BIND/FAILOVER record.
-                        LbLog.fine(
-                                LOGGER,
-                                logContext,
-                                "LB CONNECT FAILED ["
-                                        + groupLabel
-                                        + "] endpoint="
-                                        + ep.getId()
-                                        + " -> trying next candidate | cause: "
-                                        + causeOf(ex));
-                    }
+                    noteDialFailure(ep, ex, groupLabel);
                     if (firstFailure == null) {
                         firstFailure = ex;
                     }
@@ -869,6 +837,47 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         }
 
         throw LbExceptions.brokerGroupExhausted(groupLabel, tried.toString(), firstFailure);
+    }
+
+    /**
+     * Records a failed dial, the ladder's and a read leg's reopen alike. A broker that cannot be
+     * reached joins the unreachable list and starts its probe window, so no session dials it again
+     * before the probe; one that refused the session is up, and is only logged.
+     */
+    private void noteDialFailure(final Endpoint ep, final SQLException ex, final String groupLabel)
+            throws SQLException {
+        if (!UnreachableEndpoints.shouldMarkUnreachable(ex)) {
+            // Per endpoint and code: every new session dials it again.
+            LbLogDedup.warn(
+                    LOGGER,
+                    logContext,
+                    "CONNECT_REFUSED|" + ep.getId() + "|" + ex.getErrorCode(),
+                    "LB CONNECT REFUSED ["
+                            + groupLabel
+                            + "] endpoint="
+                            + ep.getId()
+                            + " is up but refused the session -> trying next"
+                            + " candidate | cause: "
+                            + causeOf(ex));
+            return;
+        }
+        unreachFilter.markUnreachable(ep, ex);
+        unreachFilter.healthCheckConnectsAs(config.buildPhysicalJdbcSpec(clientInfo, ep));
+        backoff.startWindow(ep.getId(), System.nanoTime());
+        // Surface WHY this candidate was skipped (otherwise swallowed unless all fail), so a
+        // fallback onto a non-master RW is traceable to its root connect failure. FINE, not
+        // WARNING: skipping a candidate is the ladder working as designed, and the outcome that
+        // matters - which endpoint the session ended up on - is already a WARNING from the
+        // BIND/FAILOVER record.
+        LbLog.fine(
+                LOGGER,
+                logContext,
+                "LB CONNECT FAILED ["
+                        + groupLabel
+                        + "] endpoint="
+                        + ep.getId()
+                        + " -> trying next candidate | cause: "
+                        + causeOf(ex));
     }
 
     public synchronized Endpoint getSessionEndpoint(final SessionLeg leg) {
@@ -1342,7 +1351,16 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         }
 
         if (isSessionLeg(endpoint)) {
-            physical = openConnection(endpoint);
+            try {
+                physical = openConnection(endpoint);
+            } catch (SQLException dialFailed) {
+                // A read leg that cannot be reopened is lost, and the caller moves it. Recorded as
+                // the ladder records a dial, so no session dials the node again before its probe.
+                if (!endpoint.equals(sessRwEp)) {
+                    noteDialFailure(endpoint, dialFailed, "RO");
+                }
+                throw dialFailed;
+            }
             connsByEpId.put(endpoint.getId(), physical);
             return physical;
         }

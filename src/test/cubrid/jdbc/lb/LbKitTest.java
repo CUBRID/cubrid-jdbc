@@ -48,9 +48,9 @@ import org.junit.After;
 import org.junit.Test;
 
 /**
- * LB on the kit cluster. The invariants hold in every scenario; the {@code knownDefect} tests pin
- * defects found in review r5 that are not fixed yet: each passes while the defect is there and
- * fails once it is gone, so the fix removes it from this list.
+ * LB on the kit cluster. The invariants hold in every scenario. A defect found but not fixed yet is
+ * pinned with {@link #knownDefect}: such a test passes while the defect is there and fails once it
+ * is gone, so the fix turns it into a plain test. None is pinned today.
  */
 public class LbKitTest {
     private final LbKit kit = new LbKit(2);
@@ -167,11 +167,12 @@ public class LbKitTest {
     }
 
     /**
-     * r5 M2: after a read leg is closed by a fetch timeout, a silent read node is dialed again for
-     * the next read, which then fails; core reads on the master and never sees the slave.
+     * r5 M2: a read leg closed by a fetch timeout is reopened on the next read. When its node stays
+     * silent the reopen fails, the node is listed unreachable and the read moves as a failed read
+     * does; core reads on the master and never sees the slave. Later reads do not dial the node.
      */
     @Test
-    public void knownDefect_r5M2_aSilentReadNodeIsDialedAgainForTheNextRead() throws Exception {
+    public void aSilentReadNodeIsLeftAfterOneFailedReopen() throws Exception {
         final Connection conn = kit.open("readWeight=slave:1");
         conn.setNetworkTimeout(Executors.newSingleThreadExecutor(), 1000);
         final Statement st = conn.createStatement();
@@ -187,16 +188,32 @@ public class LbKitTest {
             // the read in flight is lost
         }
 
-        knownDefect(
-                "r5 M2",
-                () -> {
-                    final int dials = kit.server.dials(kit.ro(2));
-                    assertEquals(expected, rows(st.executeQuery("SELECT a FROM t")));
-                    assertEquals(
-                            "the silent node is not dialed again",
-                            dials,
-                            kit.server.dials(kit.ro(2)));
-                });
+        assertEquals(expected, rows(st.executeQuery("SELECT a FROM t")));
+        final int dials = kit.server.dials(kit.ro(2));
+        assertEquals(expected, rows(st.executeQuery("SELECT a FROM t")));
+        assertEquals("the silent node is not dialed again", dials, kit.server.dials(kit.ro(2)));
+        assertEquals(Collections.<String>emptyList(), kit.legLeaks());
+    }
+
+    /**
+     * r5 M2, the other way a read leg goes: a setter that times out on it drops it. The next read
+     * reopens it; when its node stays silent the read moves, as above.
+     */
+    @Test
+    public void aReadLegDroppedByASetterMovesWhenItsNodeStaysSilent() throws Exception {
+        final Connection conn = kit.open("readWeight=slave:1");
+        conn.setNetworkTimeout(Executors.newSingleThreadExecutor(), 1000);
+        final Statement st = conn.createStatement();
+        final List<Integer> expected = rows(st.executeQuery("SELECT a FROM t"));
+
+        kit.server.fault(kit.ro(2), KitServer.Fault.DIAL_TIMEOUT);
+        conn.setTransactionIsolation(Connection.TRANSACTION_REPEATABLE_READ);
+
+        assertEquals(expected, rows(st.executeQuery("SELECT a FROM t")));
+        final int dials = kit.server.dials(kit.ro(2));
+        assertEquals(expected, rows(st.executeQuery("SELECT a FROM t")));
+        assertEquals("the silent node is not dialed again", dials, kit.server.dials(kit.ro(2)));
+        assertEquals(Collections.<String>emptyList(), kit.legLeaks());
     }
 
     /**

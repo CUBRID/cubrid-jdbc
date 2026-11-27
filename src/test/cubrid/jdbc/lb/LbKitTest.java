@@ -306,4 +306,20 @@ public class LbKitTest {
         }
         assertTrue(kit.log().toString(), recorded);
     }
+
+    /**
+     * r5 D2: a prepare on the write connection that gets no answer (-21024) fails in
+     * prepareStatement(), as core's does, instead of waiting again in the execution.
+     */
+    @Test
+    public void aWritePrepareThatTimesOutFailsInPrepareStatement() throws Exception {
+        final Connection conn = kit.open("readWeight=slave:1");
+        kit.server.failRequest("PREPARE UPDATE t SET a = 1", cubrid.jdbc.jci.UErrorCode.ER_TIMEOUT);
+        try {
+            conn.prepareStatement("UPDATE t SET a = 1");
+            fail("core reports the timeout from prepareStatement");
+        } catch (SQLException timedOut) {
+            assertEquals(cubrid.jdbc.jci.UErrorCode.ER_TIMEOUT, timedOut.getErrorCode());
+        }
+    }
 }

@@ -181,7 +181,15 @@ public final class KitServer implements JdbcConnectionFactory {
      * error does: the connection stays.
      */
     public void failStatement(final String sql, final int code) {
-        failing.put("EXECUTE " + sql, Integer.valueOf(code));
+        failRequest("EXECUTE " + sql, code);
+    }
+
+    /**
+     * The request {@code what}, as {@link Request#what} records it, fails on every node with {@code
+     * code}; the connection stays.
+     */
+    public void failRequest(final String what, final int code) {
+        failing.put(what, Integer.valueOf(code));
     }
 
     /** How long a dial to a silent host blocks before ER_TIMEOUT. */

@@ -42,8 +42,9 @@ import java.util.Properties;
 
 /**
  * In-memory LB settings, built from a URI {@code loadbalance://} URL by {@link #fromUrl}: role
- * topology with resolved ports ({@link #getResolvedTopology()}) plus {@link #getReadWeight()}.
- * Every other LB behavior is pinned to the {@code DEFAULT_*} values, which no URL option changes.
+ * topology with resolved ports ({@link #getResolvedTopology()}), {@link #getReadWeight()}, and the
+ * metrics, log and statement-cache options. Every other LB behavior is pinned to the {@code
+ * DEFAULT_*} values, which no URL option changes.
  */
 public class LoadBalanceSettings {
     /**
@@ -62,9 +63,9 @@ public class LoadBalanceSettings {
     private static final boolean DEFAULT_RT_FAILOVER_RETRY_ONCE = true;
 
     /**
-     * Max connect dials within each role group while recovering the binding. Counts dials, not
+     * Max connect dials within each role group while recovering the read leg. Counts dials, not
      * candidates — an excluded endpoint is skipped without consuming the budget. {@code 0} means
-     * try the entire group.
+     * try the entire group. RW recovery and binding try every candidate.
      */
     private static final int DEFAULT_RT_FAILOVER_MAX_ATTEMPTS = 1;
 

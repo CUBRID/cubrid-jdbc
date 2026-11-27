@@ -434,7 +434,8 @@ public final class MetricsRegistry {
     }
 
     /**
-     * Immutable count of one distinct read-leg movement: {@code role}, {@code from} to {@code to}.
+     * Immutable count of one distinct leg movement (read or write): {@code role}, {@code from} to
+     * {@code to}.
      */
     static final class Transition {
         private final String role;

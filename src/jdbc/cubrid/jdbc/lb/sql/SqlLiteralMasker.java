@@ -93,7 +93,6 @@ public final class SqlLiteralMasker {
             // Checked at the top so every branch below is covered. Testing it only after appending
             // a plain character let a masked value or a quoted region carry the buffer past the
             // cap, and stopping exactly at the cap produced a truncated record with no ellipsis.
-            // stopping exactly at the cap produced a truncated record with no ellipsis on it.
             if (maxLen > 0 && out.length() >= maxLen) {
                 break;
             }

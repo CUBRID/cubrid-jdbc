@@ -42,7 +42,6 @@ import java.util.Map;
 public final class MetricsTestAccess {
     private MetricsTestAccess() {}
 
-    /** Empties the registry, each collection under the lock the registry itself takes for it. */
     /**
      * Stops both exporters and forgets them, as the driver does once no LB connection has been live
      * for a while, so the next {@code configure} starts fresh.
@@ -71,6 +70,7 @@ public final class MetricsTestAccess {
         }
     }
 
+    /** Empties the registry, each collection under the lock the registry itself takes for it. */
     public static void clearForTests() {
         collection("LIVE").clear();
         map("PROBES").clear();

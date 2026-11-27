@@ -41,9 +41,10 @@ import java.util.logging.Logger;
 /**
  * Immutable, URL-derived settings for LB metrics export.
  *
- * <p>These options come <b>only</b> from a {@code loadbalance} URL ({@link LoadBalanceUrlParser}
- * accepts no other), and {@link cubrid.jdbc.lb.LoadBalanceConnection} is the only place that acts
- * on this config, so the exporters can never run outside loadbalance.
+ * <p>These options come <b>only</b> from a {@code loadbalance} URL and that connection's properties
+ * ({@link LoadBalanceUrlParser} accepts no other URL), and {@link
+ * cubrid.jdbc.lb.LoadBalanceConnection} is the only place that acts on this config, so the
+ * exporters can never run outside loadbalance.
  *
  * <p>Recognized URL options (all camelCase, case-insensitive):
  *

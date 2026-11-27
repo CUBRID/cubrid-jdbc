@@ -225,8 +225,6 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     // restoreSessionSetsAfterReconnect.
     private final Map<Connection, byte[]> legSessions =
             Collections.synchronizedMap(new WeakHashMap<Connection, byte[]>());
-    // True while a READ the read-only broker refused runs again on RW, so that route is recorded
-    // with RO_WRITE_REJECTED rather than NONE.
     // Why a read the read leg could not serve is running again on RW, or null when none is.
     private volatile String rejectedReadReason = null;
     // The routing decision of the statement the execute path is running, or null outside it.
@@ -2224,7 +2222,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         throw LbExceptions.featureNotSupported();
     }
 
-    /* ===== Connection: unsupported deferred API =====*/
+    /* ===== Connection: CALL, savepoint, LOB, isValid; unsupported createNClob etc. =====*/
     /**
      * A {@code CALL} runs on the write endpoint. The statement returned wraps the physical one of
      * that leg and passes every call to it, so the OUT-parameter API is core's and the vendor casts
@@ -2504,10 +2502,10 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         // write socket was closed behind LB's back.
         //
         if (connMgr != null) {
-            // Opt-in (write.failback.on.validate): the pool probes idle and borrowed connections,
-            // so this is a chance for a displaced RW leg to self-correct without waiting for
-            // traffic. Gated on no active transaction, because the application may also call
-            // isValid() mid-transaction.
+            // Off: LoadBalanceSettings pins isWriteFailbackOnValidate() to false and no URL option
+            // sets it. When on, the pool probes idle and borrowed connections, so this is a chance
+            // for a displaced RW leg to self-correct without waiting for traffic. Gated on no
+            // active transaction, because the application may also call isValid() mid-transaction.
             if (config.isWriteFailbackOnValidate() && !sessionState.isTransactionActive()) {
                 attemptRwFailback();
             }
@@ -2568,7 +2566,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     /* ===== inherited from CUBRIDConnection: nothing may be left inherited =====*/
-    /**
+    /*
      * This class extends {@code CUBRIDConnection} so an application that casts to the driver's own
      * connection class keeps working on a {@code loadbalance://} URL:
      *
@@ -2794,15 +2792,6 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     /**
-     * Serve one {@link LBDatabaseMetaData} call: resolve the current write endpoint's metadata and
-     * record the routing decision. Exists so the metadata subclass needs a single entry point here
-     * instead of widening {@code recordRwCmd}.
-     *
-     * @param commandName the metadata call being served
-     * @return the physical metadata of the current write endpoint
-     * @throws SQLException if the write endpoint cannot be bound
-     */
-    /**
      * Runs one {@link LBDatabaseMetaData} call that reaches the server through the failover
      * handler.
      *
@@ -2827,6 +2816,15 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                 .executeCommandWithFailover(this, RouteTarget.TO_READ_WRITE, label, true, query);
     }
 
+    /**
+     * Serve one {@link LBDatabaseMetaData} call: resolve the current write endpoint's metadata and
+     * record the routing decision. Exists so the metadata subclass needs a single entry point here
+     * instead of widening {@code recordRwCmd}.
+     *
+     * @param commandName the metadata call being served
+     * @return the physical metadata of the current write endpoint
+     * @throws SQLException if the write endpoint cannot be bound
+     */
     DatabaseMetaData rwMetaDataRecordingCall(final String commandName) throws SQLException {
         DatabaseMetaData delegate = rwMetaData();
         recordRwCmd("Call: " + commandName);
@@ -2875,8 +2873,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      * cast replaces the reflective lookup that was needed when core and LB shipped as separate
      * JARs; a delegate of another type fails with the same {@code physicalDelegateFailed}
      * SQLException the reflective {@code NoSuchMethodException} path produced. {@code label} names
-     * the call in error messages (may differ from the method name for overloads, e.g.
-     * "Login(String)").
+     * the call in error messages.
      */
     private static CUBRIDConnection extConn(final Connection physicalConnection, final String label)
             throws SQLException {

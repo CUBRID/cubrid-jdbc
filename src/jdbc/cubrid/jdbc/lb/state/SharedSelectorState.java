@@ -34,19 +34,19 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * DataSource-scoped (pool-shared) mutable state used by {@link
- * cubrid.jdbc.lb.route.RoleReadSelector} when picking read brokers.
+ * Cluster-scoped mutable state used by {@link cubrid.jdbc.lb.route.RoleReadSelector} when picking
+ * read brokers.
  *
  * <p>This is <strong>not</strong> per-connection routing state. Transaction boundaries live in
  * {@link SessionRoutingState} on each {@link cubrid.jdbc.lb.LoadBalanceConnection}. {@code
- * SharedSelectorState} only carries algorithm counters, so that new logical connections from the
- * same DataSource neither all start at the same round-robin position nor re-derive the pool's read
- * distribution from scratch.
+ * SharedSelectorState} only carries algorithm counters, so that new logical connections to the same
+ * cluster neither all start at the same round-robin position nor re-derive the read distribution
+ * from scratch.
  *
- * <p>The DataSource creates one instance, and every {@code LoadBalanceConnection} it makes gets the
- * same reference through {@link
- * cubrid.jdbc.lb.LoadBalanceConnection#setSharedSelectorState(SharedSelectorState)}. On session
- * binding, {@link cubrid.jdbc.lb.route.RoleReadSelector} reads and updates the counters here.
+ * <p>{@link SharedSelectorStateRegistry} keeps one instance per cluster (db, endpoints and
+ * readWeight). Every LB connection to that cluster gets it, whatever pool, user or other option it
+ * has, so the live counts balance the pools together. On session binding, {@link
+ * cubrid.jdbc.lb.route.RoleReadSelector} reads and updates the counters here.
  *
  * <p>Contents:
  *
@@ -66,10 +66,10 @@ import java.util.Map;
  * were replaced; see {@link #acquireIndexByPopulation(String[], int[])}.
  *
  * <p>Thread-safety: all mutating methods are {@code synchronized}. Safe to share across threads
- * that create connections from one DataSource.
+ * that create connections to the cluster.
  *
- * <p>If {@code null} is passed to selection policies, round-robin falls back to the first
- * candidate.
+ * <p>Without an instance, group round-robin falls back to the first candidate, and weighted role
+ * selection between two or more roles throws {@code IllegalArgumentException}.
  */
 public class SharedSelectorState {
     /**
@@ -171,7 +171,7 @@ public class SharedSelectorState {
     /**
      * Sessions currently holding {@code key} as their weighted home; 0 when unknown.
      *
-     * @param key home-slot key (endpoint id)
+     * @param key home key, {@code role:<label>}
      * @return the number of sessions holding that home, or {@code 0}
      */
     synchronized int liveHomeCount(final String key) {

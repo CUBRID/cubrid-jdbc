@@ -50,7 +50,7 @@ import java.sql.SQLException;
  */
 public interface EndpointConnManager extends PhysicalResourceReleaser {
 
-    /** Applies the owning session's state (autoCommit/isolation/schema/...) to a physical conn. */
+    /** Applies the owning session's state (autoCommit/isolation/SETs/...) to a physical conn. */
     interface SessionStateApplier {
         void applyTo(Connection physical) throws SQLException;
     }

@@ -46,9 +46,9 @@ import java.util.logging.Logger;
  * no connection in scope keep using the plain {@code Logger} API and render as {@code -}.
  *
  * <p>Records are built directly and passed to {@link Logger#log(LogRecord)} rather than going
- * through {@code Logger.warning(String)}. That is not only for the parameter: it also leaves the
- * record's source class and method unset, which is what keeps the formatter from ever triggering
- * JUL's stack-walking caller inference.
+ * through {@code Logger.warning(String)}. That is not only for the parameter: it also lets the
+ * record's source class be set to the logger name, which is what keeps the formatter from ever
+ * triggering JUL's stack-walking caller inference.
  */
 public final class LbLog {
     /**

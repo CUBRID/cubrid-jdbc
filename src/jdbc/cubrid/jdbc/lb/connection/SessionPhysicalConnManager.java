@@ -575,8 +575,8 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
     /**
      * Opens a temporary read connection for a master-read session whose RW leg was displaced. The
      * ladder is the normal read order anchored on the master ({@link #readCandidateOrder}) minus
-     * the master RW itself, so the master's OWN read broker is preferred when it is still up (same
-     * node, master-fresh reads, no hop) before a sibling slave RO or a replica SO.
+     * the master RW itself: the slave ROs, rotated per session, then the replica SOs. The master's
+     * own RO broker is not in the topology, so it is never a candidate.
      *
      * <p>Best effort: when no read rung is reachable the session keeps reading on the displaced RW
      * connection, which is the pre-existing behavior. Logged per transition, as RW failover moves
@@ -2436,7 +2436,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
 
         // Single chokepoint for every fresh physical connection (initial bind, recoverRw/recoverRo,
         // failoverRoToRw, restoreRoIfRecovered/restoreRwIfRecovered, ensureConn reopen). Re-apply
-        // the session state (autoCommit/isolation/schema/lockTimeout/casChangeMode/holdability) so
+        // the session state (autoCommit/isolation/lockTimeout/casChangeMode/holdability/SETs) so
         // a connection opened mid-session is not left at the driver defaults.
         if (sessionStateApplier != null) {
             try {

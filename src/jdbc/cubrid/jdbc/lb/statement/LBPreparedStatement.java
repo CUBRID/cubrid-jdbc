@@ -1175,10 +1175,10 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
         PreparedStatement ps =
                 phyPsProvider.getPreparedStatement(statementDelegate.effectiveTarget(target), sql);
         rememberPrepared(ps);
-        // The physical PS comes from the session cache, so statement attributes (queryTimeout,
-        // maxRows, fetchSize, maxFieldSize, escapeProcessing) are re-applied on every execution:
-        // another logical PS sharing the endpoint may have changed them.
-        // applyStmtProps also invokes applyVendorFlags.
+        // The physical PS is this logical PS's own (its owner id is in the cache key), but the
+        // setters (queryTimeout, maxRows, fetchSize, maxFieldSize, escapeProcessing) reach only the
+        // delegate, and one prepared again after a leg change has none of them. So they are
+        // re-applied on every execution; applyStmtProps also invokes applyVendorFlags.
         statementDelegate.applyStmtProps(ps);
         statementDelegate.beginExecution(ps);
 

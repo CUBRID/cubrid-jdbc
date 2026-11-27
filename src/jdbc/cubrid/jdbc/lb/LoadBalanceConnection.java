@@ -611,6 +611,18 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     /**
+     * The leg a call on the bound read endpoint runs on: the write leg when reads share its
+     * connection, the read leg otherwise.
+     *
+     * @return {@code TO_READ_WRITE} or {@code TO_READ_ONLY}
+     */
+    public RouteTarget boundReadLegTarget() {
+        return binding().readSharesRwConnection()
+                ? RouteTarget.TO_READ_WRITE
+                : RouteTarget.TO_READ_ONLY;
+    }
+
+    /**
      * Whether the read leg's own connection, not the RW one it may share, is closed or gone under
      * LB: core closes a connection whose network timeout expired, a setter drops a read leg that
      * failed, and a reopen that failed leaves none. A failure on it is the leg's.

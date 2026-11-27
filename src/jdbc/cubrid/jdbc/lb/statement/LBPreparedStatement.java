@@ -31,15 +31,13 @@
 package cubrid.jdbc.lb.statement;
 
 import cubrid.jdbc.driver.CUBRIDPreparedStatement;
-import cubrid.jdbc.jci.ReconnectPolicy;
 import cubrid.jdbc.jci.UBatchResult;
-import cubrid.jdbc.jci.UErrorCode;
 import cubrid.jdbc.jci.UStatementCacheData;
 import cubrid.jdbc.lb.LbExceptions;
 import cubrid.jdbc.lb.LoadBalanceConnection;
 import cubrid.jdbc.lb.failover.ExecuteFailoverHandler;
+import cubrid.jdbc.lb.failover.ExecuteFailoverHandler.LegFailure;
 import cubrid.jdbc.lb.failover.ExecuteFailoverHandler.SqlExecution;
-import cubrid.jdbc.lb.failover.UnreachableEndpoints;
 import cubrid.jdbc.lb.route.RoutedSql;
 import cubrid.jdbc.lb.route.Router.RouteDecision;
 import cubrid.jdbc.lb.route.Router.RouteTarget;
@@ -219,12 +217,14 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
             }
             rememberPrepared(phyPsProvider.preparedForBindCheck());
         } catch (SQLException ex) {
-            // The read node stopped answering and core closed that leg: move it as a failed read
+            final LegFailure failure =
+                    ExecuteFailoverHandler.classify(
+                            ex,
+                            onReadLeg ? ownerConn.boundReadLegTarget() : RouteTarget.TO_READ_WRITE,
+                            ownerConn);
+            // The read node stopped answering and its leg is closed: move it as a failed read
             // would and prepare there, so the execution does not dial the stopped node again.
-            if (onReadLeg
-                    && !forBindCheck
-                    && (ex.getErrorCode() == UErrorCode.ER_NETWORK_TIMEOUT
-                            || ownerConn.isOwnReadLegClosed())) {
+            if (failure == LegFailure.READ_LEG_LOST && !forBindCheck) {
                 ownerConn.settleReadLegRollback(false);
                 try {
                     ownerConn.recoverReadLeg(ex);
@@ -235,14 +235,10 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
                 }
                 return;
             }
-            // A malformed reply is core's to report, as its prepareStatement does. A setter
-            // reports none of them.
+            // A statement failure is core's to report, as its prepareStatement does; a broker
+            // failure waits for the execution's failover. A setter reports none of them.
             final boolean reported =
-                    !forBindCheck
-                            && (writeTxOpen
-                                    || ExecuteFailoverHandler.isMalformedReply(ex)
-                                    || !ReconnectPolicy.isRetriableSqlException(ex)
-                                            && !UnreachableEndpoints.shouldMarkUnreachable(ex));
+                    !forBindCheck && (writeTxOpen || failure == LegFailure.STATEMENT);
             ownerConn.settleReadLegRollback(reported);
             if (reported) {
                 throw ex;

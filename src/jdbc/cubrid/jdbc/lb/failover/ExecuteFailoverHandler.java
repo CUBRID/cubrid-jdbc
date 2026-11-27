@@ -95,15 +95,41 @@ public final class ExecuteFailoverHandler {
         return connection.getLbConfig().getLbLogConfig().isSqlRaw();
     }
 
+    /** What a failed physical call says about the leg it ran on. */
+    public enum LegFailure {
+        /** The broker answered and the call failed: nothing to recover. */
+        STATEMENT,
+        /** The broker went away or could not be reached: rebind the leg. */
+        BROKER_DOWN,
+        /**
+         * A read leg on its own connection is closed or gone under LB: core's network timeout
+         * closed it, a setter dropped it, or reopening it failed. Core never reads from that node,
+         * so the leg moves as a dead broker's does. On the write leg's connection a timeout closes
+         * the session instead, as on core's one connection.
+         */
+        READ_LEG_LOST
+    }
+
     /**
-     * Whether core closed a read leg on its own connection because its network timeout expired.
-     * Core never reads from that node, so the leg fails over as a dead broker's does and the read
-     * runs again. On the write leg's connection the timeout closes the session, as on core's one.
+     * Classifies a failure on {@code failedLeg}: the one rule for executions, commands and
+     * prepares.
+     *
+     * @param ex the failure
+     * @param failedLeg the leg the call ran on; a read on the write leg's connection ran on RW
+     * @param connection the logical connection, asked whether its read leg's own connection is
+     *     closed
+     * @return what the failure says about the leg
      */
-    private static boolean isReadLegNetworkTimeout(
-            final RouteTarget failedLeg, final SQLException ex) {
-        return failedLeg == RouteTarget.TO_READ_ONLY
-                && ex.getErrorCode() == UErrorCode.ER_NETWORK_TIMEOUT;
+    public static LegFailure classify(
+            final SQLException ex,
+            final RouteTarget failedLeg,
+            final LoadBalanceConnection connection) {
+        if (failedLeg == RouteTarget.TO_READ_ONLY
+                && (ex.getErrorCode() == UErrorCode.ER_NETWORK_TIMEOUT
+                        || connection.isOwnReadLegClosed())) {
+            return LegFailure.READ_LEG_LOST;
+        }
+        return isBrokerFailure(ex) ? LegFailure.BROKER_DOWN : LegFailure.STATEMENT;
     }
 
     <T> T executeWithFailover(
@@ -194,10 +220,7 @@ public final class ExecuteFailoverHandler {
             return timedRun(connection, routeTarget, timed, execution);
         } catch (SQLException ex) {
             RouteTarget failedLeg = connection.failedLegTarget(routeTarget);
-            // A statement on a read leg core closed when its timeout expired fails as closed.
-            final boolean readLegClosed =
-                    failedLeg == RouteTarget.TO_READ_ONLY && connection.isOwnReadLegClosed();
-            if (!isBrokerFailure(ex) && !isReadLegNetworkTimeout(failedLeg, ex) && !readLegClosed) {
+            if (classify(ex, failedLeg, connection) == LegFailure.STATEMENT) {
                 // Not a broker failure: the statement itself failed and no leg is rebound.
                 // Recorded, so a log showing no failover after an error is explained rather than
                 // silent.

@@ -256,4 +256,31 @@ public class LbKitTest {
         conn.commit();
         assertEquals(kit.rw(1), conn.getCurrentRwEndpoint().getId());
     }
+
+    /**
+     * r5 m17: reads that share the write connection (a master-role session, or one whose read
+     * brokers all failed) prepare there. A prepare that times out fails as core's does, with -21031
+     * from prepareStatement, and the session is closed.
+     */
+    @Test
+    public void aPrepareThatTimesOutOnTheWriteConnectionFailsAsOnCore() throws Exception {
+        assertPrepareTimesOutAsOnCore(kit.open("readWeight=master:1"));
+
+        kit.server.fault(kit.ro(1), KitServer.Fault.REFUSE);
+        kit.server.fault(kit.ro(2), KitServer.Fault.REFUSE);
+        kit.brokerBack(kit.rw(1));
+        assertPrepareTimesOutAsOnCore(kit.open("readWeight=slave:1"));
+    }
+
+    private void assertPrepareTimesOutAsOnCore(final Connection conn) throws Exception {
+        conn.setNetworkTimeout(Executors.newSingleThreadExecutor(), 1000);
+        kit.server.fault(kit.rw(1), KitServer.Fault.DIAL_TIMEOUT);
+        try {
+            conn.prepareStatement("SELECT a FROM t");
+            fail("core reports the timeout from prepareStatement");
+        } catch (SQLException timedOut) {
+            assertEquals(cubrid.jdbc.jci.UErrorCode.ER_NETWORK_TIMEOUT, timedOut.getErrorCode());
+        }
+        assertTrue("core's timeout closed the connection", conn.isClosed());
+    }
 }

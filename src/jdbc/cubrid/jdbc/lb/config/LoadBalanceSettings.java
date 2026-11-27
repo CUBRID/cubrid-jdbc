@@ -187,14 +187,16 @@ public class LoadBalanceSettings {
         Map<String, String> propagated =
                 LoadBalanceOptionValidator.validate(options).getRetainedOptions();
         Map<String, String> coreOptions = parsed.getOptions();
+        // Core checks the URL's options before the file takes their place.
+        JdbcEndpointConnSpecFactory.checkPropagatable(coreOptions);
         if (propFile != null) {
             coreOptions = new LinkedHashMap<String, String>();
             for (String name : propFile.stringPropertyNames()) {
                 coreOptions.put(name, propFile.getProperty(name));
             }
             propagated = LoadBalanceOptionValidator.validate(coreOptions).getRetainedOptions();
+            JdbcEndpointConnSpecFactory.checkPropagatable(coreOptions);
         }
-        JdbcEndpointConnSpecFactory.checkPropagatable(propagated);
         final MetricsConfig metrics = MetricsConfig.parse(options);
         final LbLogConfig lbLog = LbLogConfig.parse(options);
 

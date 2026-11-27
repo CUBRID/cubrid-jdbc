@@ -125,15 +125,17 @@ final class JdbcEndpointConnSpecFactory {
     }
 
     /**
-     * Refuses, while the URL is parsed, an option the broker URL could not carry. The core driver
-     * would refuse the URL on every leg's connect instead, far from the option that caused it.
+     * Refuses, while the URL is parsed, an option core's URL grammar refuses, as core refuses its
+     * URL: the statement cache and classic-only options too, which LB keeps off the legs. LB's own
+     * options follow their own rules.
      *
-     * @param options the options a loadbalance URL propagates
+     * @param options the options of a loadbalance URL, or of its CUBRID_JDBC_PROP file
      * @throws SQLException naming the first option the core URL grammar rejects
      */
     static void checkPropagatable(final Map<String, String> options) throws SQLException {
         for (Map.Entry<String, String> e : options.entrySet()) {
-            if (!isPropagated(e.getKey())) {
+            if (OptionKeys.containsIgnoreCase(
+                    LoadBalanceOptionValidator.LOADBALANCE_ONLY, e.getKey())) {
                 continue;
             }
             final String value = e.getValue() == null ? "" : e.getValue();
@@ -142,8 +144,8 @@ final class JdbcEndpointConnSpecFactory {
                 throw LbExceptions.invalidUrl(
                         "option '"
                                 + e.getKey()
-                                + "' cannot reach the broker: the name takes letters, digits and"
-                                + " '_', the value must be non-empty without '&', '=' or '?'",
+                                + "' is not valid in a CUBRID URL: the name takes letters, digits"
+                                + " and '_', the value must be non-empty without '&', '=' or '?'",
                         null);
             }
         }

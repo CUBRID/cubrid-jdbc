@@ -69,7 +69,7 @@ public class PreviousSpecKeysTest {
         } catch (SQLException e) {
             assertTrue(
                     e.getMessage(), e.getMessage().contains("cubrid.lb.runtime.failover.enabled"));
-            assertTrue(e.getMessage(), e.getMessage().contains("cannot reach the broker"));
+            assertTrue(e.getMessage(), e.getMessage().contains("is not valid in a CUBRID URL"));
         }
     }
 

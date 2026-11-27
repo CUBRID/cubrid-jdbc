@@ -315,6 +315,35 @@ public class LoadBalanceSettingsFromUrlTest {
         assertEquals(1, c.getReadWeight().weightOf(NodeRole.MASTER));
     }
 
+    /**
+     * r5 m12: core refuses a URL whose options its grammar cannot read, the statement cache options
+     * included, and does so before CUBRID_JDBC_PROP replaces them. A stray '?' no longer drops the
+     * option after it.
+     */
+    @Test
+    public void optionsCoreRefusesFailTheUrlWithOrWithoutTheFile() throws SQLException {
+        final String base = "jdbc:cubrid:loadbalance://node1,node2/testdb:::";
+        final String[] refused = {
+            "?usePreparedStmtCache=true?charSet=utf-8",
+            "?usePreparedStmtCache=true&preparedStmtCacheSize=5=6",
+            "?connectTimeout=1?2",
+            "?cubrid.lb.mode=x"
+        };
+        final java.util.Properties file = new java.util.Properties();
+        file.setProperty("connectTimeout", "5");
+        for (String options : refused) {
+            for (java.util.Properties propFile : new java.util.Properties[] {null, file}) {
+                try {
+                    LoadBalanceSettings.fromUrl(
+                            LoadBalanceUrlParser.parse(base + options), null, propFile);
+                    fail("core refuses " + options + (propFile == null ? "" : " (with the file)"));
+                } catch (SQLException expected) {
+                    assertTrue(expected.getMessage(), expected.getMessage().contains("option '"));
+                }
+            }
+        }
+    }
+
     /** A file that only sets keys LB keeps off the legs is still a valid file. */
     @Test
     public void propFileWithOnlyClassicOnlyKeysLeavesTheLegsWithoutOptions() throws SQLException {

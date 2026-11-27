@@ -230,7 +230,7 @@ public final class LbKit implements AutoCloseable {
         final String t = text.trim().toUpperCase(java.util.Locale.ROOT);
         return t.startsWith("SELECT")
                 || t.startsWith("SET ")
-                || (t.startsWith("CALL LOGIN") && t.contains("CLASS DB_USER"));
+                || (t.startsWith("CALL ") && t.contains("LOGIN") && t.contains("CLASS DB_USER"));
     }
 
     @Override

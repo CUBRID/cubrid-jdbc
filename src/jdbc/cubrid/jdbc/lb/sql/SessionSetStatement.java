@@ -499,26 +499,26 @@ public final class SessionSetStatement {
     }
 
     /**
-     * Whether the statement switches the session's user: {@code login} called on the class db_user,
-     * as {@code login(..) ON CLASS db_user} or {@code login(CLASS db_user, ..)}. Without that
-     * target the server runs a stored procedure named login, or fails.
+     * Whether the statement switches the session's user: {@code login}, under any owner, called on
+     * the class db_user, as {@code login(..) ON CLASS db_user} or {@code login(CLASS db_user, ..)}.
+     * Without that target the server runs a stored procedure named login, or fails.
      */
     private static boolean callsLogin(final String sql, final int pos) {
         if (!"CALL".equals(wordAt(sql, pos))) {
             return false;
         }
-        final int name = SqlLexer.skipWhitespaceAndComments(sql, skipWord(sql, pos));
-        final String routine;
-        final int nameEnd;
-        if (name < sql.length() && KeywordSqlClassifier.isQuotedIdentifierStart(sql.charAt(name))) {
-            nameEnd = SqlLexer.skipCommentOrQuoted(sql, name);
-            routine = KeywordSqlClassifier.extractQuotedIdentifierUpper(sql, name, nameEnd);
-        } else {
-            nameEnd = skipWord(sql, name);
-            routine = wordAt(sql, name);
+        int name = SqlLexer.skipWhitespaceAndComments(sql, skipWord(sql, pos));
+        int nameEnd = variableEnd(sql, name);
+        int open = SqlLexer.skipWhitespaceAndComments(sql, nameEnd);
+        if (open < sql.length() && sql.charAt(open) == '.') {
+            // The owner: the server calls the method of the class whatever owner is written.
+            name = SqlLexer.skipWhitespaceAndComments(sql, open + 1);
+            nameEnd = variableEnd(sql, name);
+            open = SqlLexer.skipWhitespaceAndComments(sql, nameEnd);
         }
-        final int open = SqlLexer.skipWhitespaceAndComments(sql, nameEnd);
-        if (!"LOGIN".equals(routine) || open >= sql.length() || sql.charAt(open) != '(') {
+        if (!isName(sql, name, nameEnd, "LOGIN")
+                || open >= sql.length()
+                || sql.charAt(open) != '(') {
             return false;
         }
         if (namesDbUserClass(sql, open + 1)) {
@@ -536,12 +536,17 @@ public final class SessionSetStatement {
             return false;
         }
         final int start = SqlLexer.skipWhitespaceAndComments(sql, skipWord(sql, pos));
-        final int end = variableEnd(sql, start);
+        return isName(sql, start, variableEnd(sql, start), "DB_USER");
+    }
+
+    /** Whether the name in {@code [start, end)}, quoted or not, is {@code upperName}. */
+    private static boolean isName(
+            final String sql, final int start, final int end, final String upperName) {
         final String name =
                 start < end && KeywordSqlClassifier.isQuotedIdentifierStart(sql.charAt(start))
                         ? KeywordSqlClassifier.extractQuotedIdentifierUpper(sql, start, end)
                         : sql.substring(start, end);
-        return "DB_USER".equalsIgnoreCase(name);
+        return upperName.equalsIgnoreCase(name);
     }
 
     /** Position of the {@code )} that closes the {@code (} at {@code open}, or -1. */

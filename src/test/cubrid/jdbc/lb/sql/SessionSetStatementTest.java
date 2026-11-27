@@ -149,6 +149,23 @@ public class SessionSetStatementTest {
         assertUntracked("CALL login('u', 'pw') ON db_user");
     }
 
+    /** The server drops an owner before the name: a login under any owner is a login. */
+    @Test
+    public void loginUnderAnOwnerIsLogin() {
+        final String key = SessionSetStatement.LOGIN_KEY;
+        assertEquals(
+                "CALL dba.login('u', 'pw') ON CLASS db_user",
+                replay("CALL dba.login('u', 'pw') ON CLASS db_user").get(key));
+        assertEquals(
+                "CALL [dba] . \"login\"('u', 'pw') ON CLASS db_user",
+                replay("CALL [dba] . \"login\"('u', 'pw') ON CLASS db_user").get(key));
+        assertEquals(
+                "CALL u_2.login(CLASS db_user, 'u', 'pw')",
+                replay("CALL u_2.login(CLASS db_user, 'u', 'pw')").get(key));
+        assertUntracked("CALL dba.login('alice')");
+        assertUntracked("CALL login.p('u') ON CLASS db_user");
+    }
+
     /** The server also takes the class as the first argument, and its name quoted. */
     @Test
     public void loginOnTheDbUserClassGivenFirstOrQuotedIsLogin() {

@@ -154,6 +154,7 @@ public class LbKitTest {
         st.execute("CALL login('alice')");
         st.execute("CALL login('u', 'pw') ON CLASS db_user");
         st.execute("CALL login(CLASS db_user, 'v', 'pw')");
+        st.execute("CALL dba.login('w', 'pw') ON CLASS db_user");
         rows(st.executeQuery("SELECT a FROM t"));
 
         assertEquals(
@@ -162,6 +163,7 @@ public class LbKitTest {
         assertEquals(0, kit.runs(kit.ro(2), "CALL login('alice')"));
         assertEquals(1, kit.runs(kit.ro(2), "CALL login('u', 'pw') ON CLASS db_user"));
         assertEquals(1, kit.runs(kit.ro(2), "CALL login(CLASS db_user, 'v', 'pw')"));
+        assertEquals(1, kit.runs(kit.ro(2), "CALL dba.login('w', 'pw') ON CLASS db_user"));
     }
 
     /**

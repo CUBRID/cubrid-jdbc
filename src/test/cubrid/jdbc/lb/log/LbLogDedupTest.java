@@ -96,8 +96,12 @@ public class LbLogDedupTest {
         assertEquals(3, captured.messages.size());
     }
 
+    /**
+     * r5 m13: what a window held back is reported as that window's, on its own line, before the
+     * next occurrence; the next occurrence, which may come hours later, carries no tally.
+     */
     @Test
-    public void theNextOccurrenceAfterTheWindowReportsWhatWasHeldBack()
+    public void theNextOccurrenceAfterTheWindowFollowsTheTallyOfThatWindow()
             throws InterruptedException {
         long window = 5L;
 
@@ -108,10 +112,32 @@ public class LbLogDedupTest {
         Thread.sleep(window * 2L);
         LbLogDedup.warn(logger, null, KEY, MESSAGE, window);
 
-        assertEquals(2, captured.messages.size());
+        assertEquals(3, captured.messages.size());
         assertTrue(
-                "the tally travels with the next admitted record: " + captured.messages.get(1),
-                captured.messages.get(1).indexOf("(+9 more in the previous") >= 0);
+                captured.messages.get(1),
+                captured.messages.get(1).startsWith("LB SUPPRESSED: 9 further occurrence(s)"));
+        assertEquals(MESSAGE, captured.messages.get(2));
+    }
+
+    /**
+     * r5 m10: keys that carry a statement shape can fill the map. Reaching the cap writes what is
+     * held back before the map is emptied.
+     */
+    @Test
+    public void reachingTheKeyCapWritesWhatWasHeldBack() {
+        LbLogDedup.warn(logger, null, KEY, MESSAGE);
+        LbLogDedup.warn(logger, null, KEY, MESSAGE);
+        for (int i = 0; i < 300; i++) {
+            LbLogDedup.warn(logger, null, "RO REJECTED|-181|SELECT c" + i, "LB RO REJECTED " + i);
+        }
+
+        int summaries = 0;
+        for (String m : captured.messages) {
+            if (m.startsWith("LB SUPPRESSED: 1 further occurrence(s) of [" + KEY + "]")) {
+                summaries++;
+            }
+        }
+        assertEquals("summaries of the held-back burst", 1, summaries);
     }
 
     @Test

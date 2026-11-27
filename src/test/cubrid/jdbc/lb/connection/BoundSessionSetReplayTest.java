@@ -88,7 +88,7 @@ public final class BoundSessionSetReplayTest {
         conn = LbTestAccess.newLoadBalanceConnection(settings);
         LbTestAccess.setConnectionManager(
                 conn,
-                new SessionPhysicalConnManager(
+                ConnectionTestAccess.newSessionPhysicalConnManager(
                         LOGICAL_URL,
                         new Properties(),
                         settings,

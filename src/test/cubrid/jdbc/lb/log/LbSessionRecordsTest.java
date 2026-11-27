@@ -109,7 +109,7 @@ public class LbSessionRecordsTest {
         SessionPhysicalConnManager mgr = newManager(new AtomicBoolean(true));
         mgr.setLogContext("conn#3");
 
-        mgr.bindSession(RW, RO, topo);
+        mgr.bindSessionWithReadTarget(RW, RO, false, topo);
 
         String bind = onlyMatching("LB BIND: ");
         assertTrue(bind, bind.indexOf("rw=rwnode:34000") >= 0);
@@ -125,7 +125,7 @@ public class LbSessionRecordsTest {
                 new EndpointTopology(RW, Arrays.asList(RO), Collections.<Endpoint>emptyList());
         SessionPhysicalConnManager mgr = newManager(new AtomicBoolean(false));
 
-        mgr.bindSession(RW, RO, topo);
+        mgr.bindSessionWithReadTarget(RW, RO, false, topo);
 
         String fallback = onlyMatching("LB READ ON RW:");
         assertTrue(fallback, fallback.indexOf("reads moved onto the RW connection") >= 0);
@@ -146,7 +146,7 @@ public class LbSessionRecordsTest {
         AtomicBoolean roUp = new AtomicBoolean(false);
         SessionPhysicalConnManager mgr = newManager(roUp);
 
-        mgr.bindSession(RW, RO, topo);
+        mgr.bindSessionWithReadTarget(RW, RO, false, topo);
         roUp.set(true);
         mgr.restoreRoIfRecovered();
 
@@ -166,9 +166,9 @@ public class LbSessionRecordsTest {
                 new EndpointTopology(RW, Arrays.asList(RO), Collections.<Endpoint>emptyList());
         SessionPhysicalConnManager mgr = newManager(new AtomicBoolean(false));
 
-        mgr.bindSession(RW, RO, topo);
+        mgr.bindSessionWithReadTarget(RW, RO, false, topo);
         int afterBind = allMatching("LB READ ON RW:").size();
-        mgr.releaseBindings();
+        mgr.releasePhysicalConnections();
 
         assertEquals(
                 "a close is not a transition; there is no bound session to attribute one to",
@@ -196,7 +196,7 @@ public class LbSessionRecordsTest {
         for (int i = 0; i < 2; i++) {
             ConnectionTestAccess.newSessionPhysicalConnManager(
                             LOGICAL_URL, new Properties(), LbTestSettings.defaults(), refusingRo)
-                    .bindSession(RW, RO, topo);
+                    .bindSessionWithReadTarget(RW, RO, false, topo);
         }
 
         String refused = onlyMatching("LB CONNECT REFUSED [RO]");

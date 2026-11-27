@@ -276,7 +276,8 @@ public final class CoreSilentReconnectStateTest {
         LoadBalanceConnection conn = LbTestAccess.newLoadBalanceConnection(settings);
         LbTestAccess.setConnectionManager(
                 conn,
-                new SessionPhysicalConnManager(LOGICAL_URL, new Properties(), settings, factory));
+                ConnectionTestAccess.newSessionPhysicalConnManager(
+                        LOGICAL_URL, new Properties(), settings, factory));
         LbTestAccess.setSharedSelectorState(conn, new SharedSelectorState());
         LbTestAccess.initSessionBindings(
                 conn,

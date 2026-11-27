@@ -156,7 +156,6 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     private final long connectionId = CONNECTION_SEQUENCE.getAndIncrement();
     private final RoutingMetricsRecorder routingMetrics;
     private EndpointConnManager connMgr = null;
-    private PhysicalResourceReleaser physicalResourceReleaser = new NoOpPhysicalResourceReleaser();
     private SharedSelectorState selState = null;
     // The role whose weighted-home slot this session holds in selState, so close() can give it
     // back. volatile for the same reason as `closed`: close() may run on another thread.
@@ -253,19 +252,6 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     // healthy connections shows up as a population of very short lifetimes, which cannot be seen
     // from the close record alone.
     private final long createdAtNanos = System.nanoTime();
-
-    public interface PhysicalResourceReleaser {
-
-        void releasePreparedStatements();
-
-        void releasePhysicalConnections();
-    }
-
-    private static final class NoOpPhysicalResourceReleaser implements PhysicalResourceReleaser {
-        public void releasePreparedStatements() {}
-
-        public void releasePhysicalConnections() {}
-    }
 
     /**
      * Builds a connection without the URL the application wrote, so it reports none; {@link
@@ -498,19 +484,11 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         return selState;
     }
 
-    void setPhysicalResourceReleaser(final PhysicalResourceReleaser lifecycle) {
-        if (lifecycle == null) {
-            throw new IllegalArgumentException("PhysicalResourceReleaser must not be null");
-        }
-        this.physicalResourceReleaser = lifecycle;
-    }
-
     void setConnectionManager(final EndpointConnManager connectionManager) {
         if (connectionManager == null) {
             throw new IllegalArgumentException("EndpointConnManager must not be null");
         }
         this.connMgr = connectionManager;
-        setPhysicalResourceReleaser(connectionManager);
         // The manager logs bind/failback/probe records but has no identity of its own; give it this
         // session's so its lines carry the same conn# column as the connection's own.
         connectionManager.setLogContext(LbLog.conn(connectionId));
@@ -1554,11 +1532,15 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     private void releasePreparedStatements() {
-        physicalResourceReleaser.releasePreparedStatements();
+        if (connMgr != null) {
+            connMgr.releasePreparedStatements();
+        }
     }
 
     private void releasePhysicalConnections() {
-        physicalResourceReleaser.releasePhysicalConnections();
+        if (connMgr != null) {
+            connMgr.releasePhysicalConnections();
+        }
     }
 
     /** Also starts the statement at the URL's queryTimeout, as core's addStatement does. */

@@ -49,8 +49,13 @@ public final class ConnectionTestAccess {
             final Properties clientInfo,
             final LoadBalanceSettings loadBalanceSettings,
             final JdbcConnectionFactory connectionFactory) {
+        // An unshared backoff at the default interval; the driver passes the pool-shared one.
         return new SessionPhysicalConnManager(
-                logicalJdbcUrl, clientInfo, loadBalanceSettings, connectionFactory);
+                logicalJdbcUrl,
+                clientInfo,
+                loadBalanceSettings,
+                connectionFactory,
+                new RecoveryBackoff(LoadBalanceSettings.DEFAULT_RT_RECOVERY_PROBE_INTERVAL_MS));
     }
 
     public static SessionPhysicalConnManager newSessionPhysicalConnManager(

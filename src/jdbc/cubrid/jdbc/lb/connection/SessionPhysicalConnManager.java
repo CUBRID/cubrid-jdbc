@@ -188,21 +188,6 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         RO
     }
 
-    SessionPhysicalConnManager(
-            final String logicalJdbcUrl,
-            final Properties clientInfo,
-            final LoadBalanceSettings loadBalanceSettings,
-            final JdbcConnectionFactory connectionFactory) {
-        // Legacy/test convenience: an unshared backoff at the default interval. The real path
-        // (openFromSettings) injects the pool-shared instance from RecoveryBackoffRegistry.
-        this(
-                logicalJdbcUrl,
-                clientInfo,
-                loadBalanceSettings,
-                connectionFactory,
-                new RecoveryBackoff(LoadBalanceSettings.DEFAULT_RT_RECOVERY_PROBE_INTERVAL_MS));
-    }
-
     public SessionPhysicalConnManager(
             final String logicalJdbcUrl,
             final Properties clientInfo,
@@ -287,21 +272,6 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
      */
     private void clearRoOnRw() {
         roOnRw = false;
-    }
-
-    public synchronized void bindSession(final Endpoint rwEndpoint, final Endpoint roEndpoint)
-            throws SQLException {
-        bindSession(rwEndpoint, roEndpoint, null);
-    }
-
-    public synchronized void bindSession(
-            final Endpoint rwEndpoint, final Endpoint roEndpoint, final EndpointTopology topology)
-            throws SQLException {
-        try {
-            bindSessionLocked(rwEndpoint, roEndpoint, topology);
-        } finally {
-            publishBinding();
-        }
     }
 
     private void bindSessionLocked(
@@ -391,15 +361,6 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
                 closeQuietly(rwConn);
                 closeConnsLocked();
             }
-        }
-    }
-
-    public synchronized void bindSessionRwOnly(
-            final Endpoint rwEndpoint, final EndpointTopology topology) throws SQLException {
-        try {
-            bindSessionRwOnlyLocked(rwEndpoint, topology);
-        } finally {
-            publishBinding();
         }
     }
 
@@ -972,10 +933,10 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
      * RW is bound yet, so a not-yet-initialized session is not evicted.
      *
      * <p><b>Contention:</b> this method is {@code synchronized} on the session monitor, which
-     * {@code bindSession}/{@code recoverRw}/{@code recoverRo} hold while connecting in {@code
-     * openFirstReachable} (up to the connect timeout). A pool validation thread calling this during
-     * a failover blocks until that connect returns - acceptable under one user per session, but a
-     * known trade-off.
+     * {@code bindSessionWithReadTarget}/{@code recoverRw}/{@code recoverRo} hold while connecting
+     * in {@code openFirstReachable} (up to the connect timeout). A pool validation thread calling
+     * this during a failover blocks until that connect returns - acceptable under one user per
+     * session, but a known trade-off.
      *
      * <p>No timeout parameter: {@code Connection.isValid(int)} has one because a driver is expected
      * to validate over the wire, and this does not. Taking one would advertise a network probe that
@@ -1091,7 +1052,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
                         + (cause == null ? "" : " | cause: " + causeOf(cause)));
     }
 
-    public synchronized void releaseBindings() {
+    private void releaseBindings() {
         closePrepLocked();
         closeConnsLocked();
         publishBinding();
@@ -1114,11 +1075,6 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         if (released) {
             throw LbExceptions.connectionClosed();
         }
-    }
-
-    public synchronized PreparedStatement prepareStatement(
-            final Endpoint endpoint, final String sql) throws SQLException {
-        return prepareStatement(endpoint, sql, SHARED_PREP_OWNER);
     }
 
     public synchronized PreparedStatement prepareStatement(
@@ -1850,10 +1806,11 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
             return null; // already at the best rung
         }
 
-        // Master-read session: its read home IS the RW endpoint (see bindSessionRwOnly). Reuse the
-        // live RW connection instead of opening a second one to the same broker - the second would
-        // land on the same connsByEpId key, displace the RW connection and close it, so a read-path
-        // failback would tear down the write leg. Reuse also restores exactly the bind-time state.
+        // Master-read session: its read home IS the RW endpoint (see bindSessionRwOnlyLocked).
+        // Reuse the live RW connection instead of opening a second one to the same broker - the
+        // second would land on the same connsByEpId key, displace the RW connection and close it,
+        // so a read-path failback would tear down the write leg. Reuse also restores exactly the
+        // bind-time state.
         final Endpoint bestRung = targets.get(0);
         if (sessRwEp != null && bestRung.getId().equals(sessRwEp.getId())) {
             final Endpoint reused = rebindReadOntoRwConn(bestRung);
@@ -2036,8 +1993,8 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
 
     /**
      * Rebinds the read role onto the live RW physical connection — the master-read state {@link
-     * #bindSessionRwOnly} produces — without opening anything. {@code roOnRw} stays {@code false}
-     * because for such a session the RW endpoint IS the weighted home, not a fallback rung.
+     * #bindSessionRwOnlyLocked} produces — without opening anything. {@code roOnRw} stays {@code
+     * false} because for such a session the RW endpoint IS the weighted home, not a fallback rung.
      *
      * @param rwEp the RW endpoint, which is also this session's read home
      * @return {@code rwEp} when the read role was rebound, or {@code null} when there is no usable

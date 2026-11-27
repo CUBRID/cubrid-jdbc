@@ -30,8 +30,6 @@
 
 package cubrid.jdbc.lb.connection;
 
-import cubrid.jdbc.lb.LoadBalanceConnection;
-import cubrid.jdbc.lb.LoadBalanceConnection.PhysicalResourceReleaser;
 import cubrid.jdbc.lb.SessionLeg;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
@@ -45,10 +43,10 @@ import java.sql.SQLException;
  * Session physical JDBC bindings: RW/RO (and failover), prepareStatement, transaction propagation,
  * and standalone physical commands.
  *
- * <p>Implementations: {@link SessionPhysicalConnManager}. {@link #bindSession} may try alternate
- * brokers from {@link cubrid.jdbc.lb.config.EndpointTopology} on connect failure.
+ * <p>Implementations: {@link SessionPhysicalConnManager}. {@link #bindSessionWithReadTarget} may
+ * try alternate brokers from {@link cubrid.jdbc.lb.config.EndpointTopology} on connect failure.
  */
-public interface EndpointConnManager extends PhysicalResourceReleaser {
+public interface EndpointConnManager {
 
     /** Applies the owning session's state (autoCommit/isolation/SETs/...) to a physical conn. */
     interface SessionStateApplier {
@@ -57,8 +55,8 @@ public interface EndpointConnManager extends PhysicalResourceReleaser {
 
     /**
      * Registers the hook that re-applies the logical session state to every freshly opened physical
-     * connection; set by the owning {@link LoadBalanceConnection}. Managers without a
-     * re-application concern may ignore it.
+     * connection; set by the owning {@link cubrid.jdbc.lb.LoadBalanceConnection}. Managers without
+     * a re-application concern may ignore it.
      *
      * @param applier the session-state applier to invoke on each new physical connection
      */
@@ -66,28 +64,12 @@ public interface EndpointConnManager extends PhysicalResourceReleaser {
 
     /**
      * Registers the identifier this manager's log records are attributed to ({@code conn#7}), set
-     * by the owning {@link LoadBalanceConnection}. A manager built directly in a unit test never
-     * gets one and its records render with the no-context marker.
+     * by the owning {@link cubrid.jdbc.lb.LoadBalanceConnection}. A manager built directly in a
+     * unit test never gets one and its records render with the no-context marker.
      *
      * @param context the connection context for log records; may be {@code null}
      */
     void setLogContext(String context);
-
-    void bindSession(Endpoint rwEndpoint, Endpoint roEndpoint) throws SQLException;
-
-    void bindSession(Endpoint rwEndpoint, Endpoint roEndpoint, EndpointTopology topology)
-            throws SQLException;
-
-    /**
-     * Binds a session with only an RW endpoint when no RO broker is configured. A single physical
-     * connection is opened and serves both read and write SQL permanently (no RO physical
-     * connection, no RO self-healing).
-     *
-     * @param rwEndpoint the RW broker endpoint serving both reads and writes
-     * @param topology the endpoint topology used for failover
-     * @throws SQLException if the physical connection cannot be opened
-     */
-    void bindSessionRwOnly(Endpoint rwEndpoint, EndpointTopology topology) throws SQLException;
 
     /**
      * Role-model session binding. Writes always run on {@code masterRw}; this logical connection's
@@ -138,9 +120,11 @@ public interface EndpointConnManager extends PhysicalResourceReleaser {
      */
     boolean isReadOnRwConnection();
 
-    void releaseBindings();
+    /** Closes the session's physical prepared statements, as {@code Connection.close()} does. */
+    void releasePreparedStatements();
 
-    PreparedStatement prepareStatement(Endpoint endpoint, String sql) throws SQLException;
+    /** Closes the session's physical connections; no leg is opened after this. */
+    void releasePhysicalConnections();
 
     /**
      * Prepare owned by a specific logical PreparedStatement (ownerId), so its physical PS is not

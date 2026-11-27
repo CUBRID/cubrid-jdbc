@@ -108,7 +108,7 @@ public final class ServerErrorMessageInLogTest {
         LoadBalanceConnection conn = LbTestAccess.newLoadBalanceConnection(settings);
         LbTestAccess.setConnectionManager(
                 conn,
-                new SessionPhysicalConnManager(
+                ConnectionTestAccess.newSessionPhysicalConnManager(
                         "jdbc:cubrid:localhost:30000:testdb:public::",
                         new Properties(),
                         settings,

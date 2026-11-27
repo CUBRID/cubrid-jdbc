@@ -46,7 +46,7 @@ import java.sql.SQLException;
 import java.util.HashMap;
 import java.util.Map;
 
-public final class SimpleEndpointConnManager implements EndpointConnManager {
+public class SimpleEndpointConnManager implements EndpointConnManager {
 
     /** No real server behind this fake, so the conservative answer: work may be open. */
     public boolean isRwTxOpenOnServer() {

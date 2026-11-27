@@ -115,7 +115,7 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
         RecoveryBackoff backoff = new RecoveryBackoff(3600000);
         SessionPhysicalConnManager mgr = newManager(backoff, countingFactory(down, dials, 0));
         try {
-            mgr.bindSession(clRw, sl1, slaves);
+            mgr.bindSessionWithReadTarget(clRw, sl1, false, slaves);
             down.addAll(Arrays.asList(sl1.getId(), sl2.getId(), sl3.getId()));
             UUnreachableHostList.getInstance().add(sl2.getId());
             UUnreachableHostList.getInstance().add(sl3.getId());
@@ -139,7 +139,7 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
         RecoveryBackoff backoff = new RecoveryBackoff(3600000);
         SessionPhysicalConnManager mgr = newManager(backoff, countingFactory(down, dials, 0));
         try {
-            mgr.bindSession(clRw, sl1, slaves);
+            mgr.bindSessionWithReadTarget(clRw, sl1, false, slaves);
             down.addAll(Arrays.asList(sl1.getId(), sl2.getId(), sl3.getId()));
             mgr.recoverRo(roCtx(sl1, slaves));
             // All back but still listed; their windows have passed.
@@ -170,8 +170,8 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
         SessionPhysicalConnManager a = newManager(backoff, countingFactory(down, dials, 0));
         SessionPhysicalConnManager b = newManager(backoff, countingFactory(down, dials, 0));
         try {
-            a.bindSession(clRw, sl1, slaves);
-            b.bindSession(clRw, sl1, slaves);
+            a.bindSessionWithReadTarget(clRw, sl1, false, slaves);
+            b.bindSessionWithReadTarget(clRw, sl1, false, slaves);
 
             assertEquals(Integer.valueOf(1), dials.get(sl1.getId()));
         } finally {
@@ -190,8 +190,8 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
         SessionPhysicalConnManager a = newManager(backoff, countingFactory(down, dials, 700));
         SessionPhysicalConnManager b = newManager(backoff, countingFactory(down, dials, 700));
         try {
-            a.bindSession(clRw, sl1, slaves);
-            b.bindSession(clRw, sl1, slaves);
+            a.bindSessionWithReadTarget(clRw, sl1, false, slaves);
+            b.bindSessionWithReadTarget(clRw, sl1, false, slaves);
 
             assertEquals(Integer.valueOf(1), dials.get(sl1.getId()));
         } finally {
@@ -206,7 +206,7 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
         assertTrue(backoff.tryClaimProbe(RO_ID, System.nanoTime()));
         SessionPhysicalConnManager mgr = newManager(backoff, alwaysUpFactory());
         try {
-            mgr.bindSession(rw, ro, topo);
+            mgr.bindSessionWithReadTarget(rw, ro, false, topo);
 
             assertEquals("NONE", mgr.getRoFallbackReason());
         } finally {
@@ -223,8 +223,8 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
         SessionPhysicalConnManager mgrA = newManager(shared, countingFactory(down, dials, 0));
         SessionPhysicalConnManager mgrB = newManager(shared, countingFactory(down, dials, 0));
         try {
-            mgrA.bindSession(rw, ro, topo);
-            mgrB.bindSession(rw, ro, topo);
+            mgrA.bindSessionWithReadTarget(rw, ro, false, topo);
+            mgrB.bindSessionWithReadTarget(rw, ro, false, topo);
 
             assertEquals(Integer.valueOf(1), dials.get(RO_ID));
         } finally {
@@ -246,7 +246,7 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
                     Thread.sleep(80);
                 }
                 sessions[i] = newManager(shared, countingFactory(down, dials, 0));
-                sessions[i].bindSession(rw, ro, topo);
+                sessions[i].bindSessionWithReadTarget(rw, ro, false, topo);
             }
 
             assertEquals("the second session falls in the window", 2, (int) dials.get(RO_ID));
@@ -266,7 +266,7 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
 
         try {
             // Bind while RO is down -> roOnRw fallback, RO marked unreachable.
-            mgr.bindSession(rw, ro, topo);
+            mgr.bindSessionWithReadTarget(rw, ro, false, topo);
             assertEquals(
                     SessionPhysicalConnManager.RO_PHYSICAL_FAILOVER_REASON,
                     mgr.getRoFallbackReason());
@@ -293,7 +293,7 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
                 newManager(new RecoveryBackoff(3600000), roGatedFactory(roUp));
 
         try {
-            mgr.bindSession(rw, ro, topo);
+            mgr.bindSessionWithReadTarget(rw, ro, false, topo);
 
             // The bind failure started the window, so no probe -> stays roOnRw.
             assertNull(mgr.restoreRoIfRecovered());
@@ -338,7 +338,7 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
         SessionPhysicalConnManager mgr = newManager(new RecoveryBackoff(50), factory);
         try {
             // Both RO rungs down at bind -> roOnRw, both JCI-listed.
-            mgr.bindSession(bkRw, ro1, roTopo);
+            mgr.bindSessionWithReadTarget(bkRw, ro1, false, roTopo);
             assertEquals(
                     SessionPhysicalConnManager.RO_PHYSICAL_FAILOVER_REASON,
                     mgr.getRoFallbackReason());
@@ -369,7 +369,7 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
 
         SessionPhysicalConnManager mgr = newManager(new RecoveryBackoff(3000), alwaysUpFactory());
         try {
-            mgr.bindSession(rw1, bkRo, rwTopo);
+            mgr.bindSessionWithReadTarget(rw1, bkRo, false, rwTopo);
 
             // rw2 is still on the JCI list (e.g. failed earlier, broker since restarted).
             UUnreachableHostList.getInstance().add(rw2.getId());
@@ -397,7 +397,7 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
 
         SessionPhysicalConnManager mgr = newManager(new RecoveryBackoff(3000), alwaysUpFactory());
         try {
-            mgr.bindSession(rw1, bkRo, rwTopo);
+            mgr.bindSessionWithReadTarget(rw1, bkRo, false, rwTopo);
             UUnreachableHostList.getInstance().add(rw2.getId());
 
             // rw2 backoff-due but hard-excluded via ctx -> recovery must not use it.
@@ -426,7 +426,7 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
 
         SessionPhysicalConnManager mgr = newManager(new RecoveryBackoff(3000), alwaysUpFactory());
         try {
-            mgr.bindSession(rw1, bkRo, rwTopo);
+            mgr.bindSessionWithReadTarget(rw1, bkRo, false, rwTopo);
 
             PhysicalRecoveryResult result = mgr.recoverRw(rwCtx(rw1, rwTopo, null));
 
@@ -465,7 +465,7 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
         Set<String> down = new HashSet<String>();
         SessionPhysicalConnManager mgr = newManager(new RecoveryBackoff(3000), downFactory(down));
         try {
-            mgr.bindSession(rw1, triRo, rwTopo);
+            mgr.bindSessionWithReadTarget(rw1, triRo, false, rwTopo);
 
             down.add(rw1.getId());
             down.add(rw2.getId());
@@ -490,7 +490,7 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
 
         SessionPhysicalConnManager mgr = newManager(new RecoveryBackoff(3000), alwaysUpFactory());
         try {
-            mgr.bindSession(bkRw, ro1, roTopo);
+            mgr.bindSessionWithReadTarget(bkRw, ro1, false, roTopo);
             UUnreachableHostList.getInstance().add(ro2.getId());
 
             PhysicalRecoveryResult result = mgr.recoverRo(roCtx(ro1, roTopo));
@@ -527,7 +527,7 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
 
         SessionPhysicalConnManager mgr = newManager(new RecoveryBackoff(3000), factory);
         try {
-            mgr.bindSession(bkRw, ro1, roTopo);
+            mgr.bindSessionWithReadTarget(bkRw, ro1, false, roTopo);
             UUnreachableHostList.getInstance().add(ro2.getId());
             roDown.set(true);
 
@@ -556,7 +556,7 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
 
         SessionPhysicalConnManager mgr = newManager(new RecoveryBackoff(3000), alwaysUpFactory());
         try {
-            mgr.bindSession(bkRw, ro1, roTopo);
+            mgr.bindSessionWithReadTarget(bkRw, ro1, false, roTopo);
             UUnreachableHostList.getInstance().add(ro2.getId());
 
             // ro2 backoff-due but ctx-hard-excluded -> must not be used; RO group is exhausted
@@ -591,7 +591,7 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
 
         SessionPhysicalConnManager mgr = newManager(new RecoveryBackoff(3000), alwaysUpFactory());
         try {
-            mgr.bindSession(rw1, bkRo, rwTopo);
+            mgr.bindSessionWithReadTarget(rw1, bkRo, false, rwTopo);
             // Backoff-due candidates exist, but the tx guard must still fire first.
             UUnreachableHostList.getInstance().add(rw2.getId());
 
@@ -640,8 +640,8 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
 
         try {
             // Both sessions bind while RO is down -> both roOnRw, RO listed.
-            mgrA.bindSession(rw, ro, topo);
-            mgrB.bindSession(rw, ro, topo);
+            mgrA.bindSessionWithReadTarget(rw, ro, false, topo);
+            mgrB.bindSessionWithReadTarget(rw, ro, false, topo);
             assertEquals(
                     SessionPhysicalConnManager.RO_PHYSICAL_FAILOVER_REASON,
                     mgrB.getRoFallbackReason());
@@ -673,7 +673,7 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
                 newManager(new RecoveryBackoff(intervalMs), roGatedFactory(roUp));
 
         try {
-            mgr.bindSession(rw, ro, topo);
+            mgr.bindSessionWithReadTarget(rw, ro, false, topo);
             assertNull(mgr.restoreRoIfRecovered()); // still down: held, or a failed probe
 
             roUp.set(true);
@@ -697,7 +697,7 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
         UUnreachableHostList.getInstance().add(RW_ID);
         SessionPhysicalConnManager mgr = newManager(new RecoveryBackoff(3000), alwaysUpFactory());
         try {
-            mgr.bindSessionRwOnly(rw, topo);
+            mgr.bindSessionWithReadTarget(rw, rw, true, topo);
 
             assertEquals(rw, mgr.getSessionEndpoint(SessionLeg.RW));
             assertFalse(UUnreachableHostList.getInstance().contains(RW_ID));
@@ -715,7 +715,7 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
         assertTrue(backoff.tryClaimProbe(RW_ID, System.nanoTime()));
         SessionPhysicalConnManager mgr = newManager(backoff, alwaysUpFactory());
         try {
-            mgr.bindSessionRwOnly(rw, topo);
+            mgr.bindSessionWithReadTarget(rw, rw, true, topo);
 
             assertEquals(rw, mgr.getSessionEndpoint(SessionLeg.RW));
         } finally {
@@ -731,7 +731,7 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
         UUnreachableHostList.getInstance().add(RO_ID);
         SessionPhysicalConnManager mgr = newManager(new RecoveryBackoff(3000), alwaysUpFactory());
         try {
-            mgr.bindSession(rw, ro, topo);
+            mgr.bindSessionWithReadTarget(rw, ro, false, topo);
 
             assertEquals(rw, mgr.getSessionEndpoint(SessionLeg.RW));
             assertEquals("NONE", mgr.getRoFallbackReason());
@@ -760,7 +760,7 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
                 };
         SessionPhysicalConnManager mgr = newManager(backoff, factory);
         try {
-            mgr.bindSession(rw, ro, topo);
+            mgr.bindSessionWithReadTarget(rw, ro, false, topo);
 
             assertEquals(
                     SessionPhysicalConnManager.RO_PHYSICAL_FAILOVER_REASON,
@@ -787,7 +787,7 @@ public class SessionPhysicalConnManagerBackoffRecoveryTest {
 
         SessionPhysicalConnManager mgr = newManager(backoff, alwaysUpFactory());
         try {
-            mgr.bindSession(rw1, bkRo, rwTopo);
+            mgr.bindSessionWithReadTarget(rw1, bkRo, false, rwTopo);
             UUnreachableHostList.getInstance().add(bkRo.getId());
 
             mgr.recoverRw(rwCtx(rw1, rwTopo, null));

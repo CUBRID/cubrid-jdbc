@@ -70,7 +70,7 @@ public class SessionPhysicalConnManagerRoRestoreTest {
 
         try {
             // Bind while RO is down -> reads fall back to the RW physical connection.
-            mgr.bindSession(rw, ro, topo);
+            mgr.bindSessionWithReadTarget(rw, ro, false, topo);
             assertEquals(
                     SessionPhysicalConnManager.RO_PHYSICAL_FAILOVER_REASON,
                     mgr.getRoFallbackReason());
@@ -113,7 +113,7 @@ public class SessionPhysicalConnManagerRoRestoreTest {
 
         SessionPhysicalConnManager mgr = newManager(new AtomicBoolean(true));
         try {
-            mgr.bindSession(rw, ro, topo);
+            mgr.bindSessionWithReadTarget(rw, ro, false, topo);
             assertEquals("NONE", mgr.getRoFallbackReason());
             assertNull(mgr.restoreRoIfRecovered());
         } finally {
@@ -137,7 +137,8 @@ public class SessionPhysicalConnManagerRoRestoreTest {
                     }
                 };
 
-        return new SessionPhysicalConnManager(LOGICAL_URL, new Properties(), config, factory);
+        return ConnectionTestAccess.newSessionPhysicalConnManager(
+                LOGICAL_URL, new Properties(), config, factory);
     }
 
     private static Connection connectionProxy() {

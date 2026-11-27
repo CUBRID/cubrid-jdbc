@@ -114,7 +114,8 @@ public class SessionPhysicalConnManagerBudgetSkipTest {
                     }
                 };
 
-        return new SessionPhysicalConnManager(LOGICAL_URL, new Properties(), config, factory);
+        return ConnectionTestAccess.newSessionPhysicalConnManager(
+                LOGICAL_URL, new Properties(), config, factory);
     }
 
     private static Connection connectionProxy() {

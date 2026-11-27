@@ -101,7 +101,7 @@ public class SessionPhysicalConnManagerRwFailbackTest {
         SessionPhysicalConnManager mgr = newManager(down, UErrorCode.CAS_ER_FREE_SERVER);
         try {
             markDown(down, NODE1_RW);
-            mgr.bindSession(NODE1_RW, NODE2_RO, topology());
+            mgr.bindSessionWithReadTarget(NODE1_RW, NODE2_RO, false, topology());
 
             // Displaced: writes are on the sibling RW, but home stays the master.
             assertEquals(NODE2_RW, mgr.getSessionEndpoint(SessionLeg.RW));
@@ -124,7 +124,7 @@ public class SessionPhysicalConnManagerRwFailbackTest {
         Set<String> down = new HashSet<String>();
         SessionPhysicalConnManager mgr = newManager(down, UErrorCode.ER_COMMUNICATION);
         try {
-            mgr.bindSession(NODE1_RW, NODE2_RO, topology());
+            mgr.bindSessionWithReadTarget(NODE1_RW, NODE2_RO, false, topology());
             assertEquals(NODE1_RW, mgr.getSessionEndpoint(SessionLeg.RW));
             assertNull(mgr.restoreRwIfRecovered());
         } finally {
@@ -138,7 +138,7 @@ public class SessionPhysicalConnManagerRwFailbackTest {
         SessionPhysicalConnManager mgr = newManager(down, UErrorCode.ER_COMMUNICATION);
         try {
             markDown(down, NODE1_RW);
-            mgr.bindSession(NODE1_RW, NODE2_RO, topology());
+            mgr.bindSessionWithReadTarget(NODE1_RW, NODE2_RO, false, topology());
             assertEquals(NODE2_RW, mgr.getSessionEndpoint(SessionLeg.RW));
 
             // Still down: the probe fails, the session keeps writing on the sibling.
@@ -162,7 +162,7 @@ public class SessionPhysicalConnManagerRwFailbackTest {
                         null);
         try {
             markDown(down, NODE1_RW);
-            mgr.bindSession(NODE1_RW, NODE2_RO, topology());
+            mgr.bindSessionWithReadTarget(NODE1_RW, NODE2_RO, false, topology());
             assertEquals(NODE2_RW, mgr.getSessionEndpoint(SessionLeg.RW));
 
             markUp(down, NODE1_RW);
@@ -178,7 +178,7 @@ public class SessionPhysicalConnManagerRwFailbackTest {
         Set<String> down = new HashSet<String>();
         SessionPhysicalConnManager mgr = newManager(down, UErrorCode.ER_COMMUNICATION);
         try {
-            mgr.bindSession(NODE1_RW, NODE2_RO, topology());
+            mgr.bindSessionWithReadTarget(NODE1_RW, NODE2_RO, false, topology());
             assertEquals(NODE1_RW, mgr.getSessionEndpoint(SessionLeg.RW));
 
             markDown(down, NODE1_RW);
@@ -223,7 +223,7 @@ public class SessionPhysicalConnManagerRwFailbackTest {
         SessionPhysicalConnManager mgr =
                 newManager(down, UErrorCode.ER_COMMUNICATION, config, null, null);
         try {
-            mgr.bindSession(NODE1_RW, NODE2_RO, topology());
+            mgr.bindSessionWithReadTarget(NODE1_RW, NODE2_RO, false, topology());
             markDown(down, NODE1_RW);
             assertEquals(NODE2_RW, mgr.recoverRw(rwFailure(NODE1_RW)).getBoundEndpoint());
             markUp(down, NODE1_RW);
@@ -317,7 +317,8 @@ public class SessionPhysicalConnManagerRwFailbackTest {
         try {
             markDown(down, NODE1_RW);
             markDown(down, NODE2_RO);
-            mgr.bindSession(NODE1_RW, NODE2_RO, topology()); // RO down -> roOnRw on the sibling RW
+            mgr.bindSessionWithReadTarget(
+                    NODE1_RW, NODE2_RO, false, topology()); // RO down -> roOnRw on the sibling RW
             assertEquals(NODE2_RW, mgr.getSessionEndpoint(SessionLeg.RW));
             assertEquals(
                     SessionPhysicalConnManager.RO_PHYSICAL_FAILOVER_REASON,
@@ -347,14 +348,14 @@ public class SessionPhysicalConnManagerRwFailbackTest {
                         null);
         try {
             markDown(down, NODE1_RW);
-            mgr.bindSession(NODE1_RW, NODE2_RO, topology());
-            PreparedStatement psOld = mgr.prepareStatement(NODE2_RW, "UPDATE t SET a = 1");
+            mgr.bindSessionWithReadTarget(NODE1_RW, NODE2_RO, false, topology());
+            PreparedStatement psOld = mgr.prepareStatement(NODE2_RW, "UPDATE t SET a = 1", null);
 
             markUp(down, NODE1_RW);
             assertEquals(NODE1_RW, mgr.restoreRwIfRecovered());
 
             assertEquals("displaced sibling RW connection must be closed", 1, node2Closes.get());
-            PreparedStatement psNew = mgr.prepareStatement(NODE1_RW, "UPDATE t SET a = 1");
+            PreparedStatement psNew = mgr.prepareStatement(NODE1_RW, "UPDATE t SET a = 1", null);
             assertNotSame(
                     "stale prep bound to the displaced connection must be dropped", psOld, psNew);
         } finally {
@@ -563,7 +564,8 @@ public class SessionPhysicalConnManagerRwFailbackTest {
                     }
                 };
 
-        return new SessionPhysicalConnManager(LOGICAL_URL, new Properties(), config, factory);
+        return ConnectionTestAccess.newSessionPhysicalConnManager(
+                LOGICAL_URL, new Properties(), config, factory);
     }
 
     /**

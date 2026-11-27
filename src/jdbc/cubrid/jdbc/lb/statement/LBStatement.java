@@ -665,8 +665,8 @@ public class LBStatement extends CUBRIDStatement {
      * @param <T> the execution's result type
      * @param sql the statement as the application issued it
      * @param route the statement's routing decision, which the routing records name
-     * @param retrySafe whether re-running {@code execution} is safe with respect to the statement's
-     *     parameters; a consumed stream parameter cannot be replayed
+     * @param retrySafe whether running {@code execution} again after a rebind is safe; a CALL
+     *     passes {@code false}
      * @param execution the physical execution to run
      * @return the execution's result
      * @throws SQLException if the execution fails and cannot be recovered or retried

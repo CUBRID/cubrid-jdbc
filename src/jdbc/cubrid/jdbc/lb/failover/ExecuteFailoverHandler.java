@@ -132,6 +132,31 @@ public final class ExecuteFailoverHandler {
         return isBrokerFailure(ex) ? LegFailure.BROKER_DOWN : LegFailure.STATEMENT;
     }
 
+    /**
+     * Why the rebound leg does not run the call again, or {@code null} when it does. The decision
+     * and its record come from here, so the record names the reason that applied.
+     */
+    private static String replayWithheld(
+            final LoadBalanceConnection connection,
+            final RouteTarget routeTarget,
+            final boolean retrySafe,
+            final SQLException ex) {
+        if (!connection.getLbConfig().isRuntimeFailoverRetryOnce()) {
+            return "retry disabled";
+        }
+        if (!retrySafe) {
+            return "a CALL, a connection command or a session property is not replayed here";
+        }
+        // Core reports ER_CONNECTION when it could not send, and also when an autocommit
+        // statement lost its answer and the reconnect was refused; with altHosts core sends the
+        // request to the next host either way, and so does this.
+        if (routeTarget == RouteTarget.TO_READ_WRITE
+                && ex.getErrorCode() != UErrorCode.ER_CONNECTION) {
+            return "write may already have been applied";
+        }
+        return null;
+    }
+
     <T> T executeWithFailover(
             final LoadBalanceConnection connection,
             final RouteTarget routeTarget,
@@ -149,10 +174,9 @@ public final class ExecuteFailoverHandler {
      * @param connection the logical LB connection issuing the statement
      * @param routeTarget the route target the statement was classified to
      * @param sql the SQL being executed, for logging and re-prepare
-     * @param retrySafe whether re-running {@code execution} after a rebind is safe with respect to
-     *     the statement's parameters. Streams/readers bound as parameters are consumed by the first
-     *     execution and cannot be replayed, so the caller passes {@code false} to forbid retry.
-     *     Plain statements with no parameters pass {@code true}.
+     * @param retrySafe whether running {@code execution} again after a rebind is safe. A CALL, a
+     *     connection command and a session property pass {@code false}; a setter applies its value
+     *     again itself. Parameters are no reason: stream and reader values are read when set.
      * @param execution the physical execution to run
      * @return the execution's result
      * @throws SQLException if the execution fails and cannot be recovered/retried
@@ -260,21 +284,11 @@ public final class ExecuteFailoverHandler {
                 throw ex;
             }
 
-            // Rebind the endpoint (done above) but do NOT re-run when re-execution is unsafe:
-            //  - writes (TO_READ_WRITE): the server may have already applied the statement before
-            //    the connection dropped, so replaying risks a duplicate INSERT / double UPDATE.
-            //    Unless core reports a connect failure (ER_CONNECTION). Core gives that when it
-            //    could not send, and also when an autocommit statement lost its answer and the
-            //    reconnect was refused; with altHosts core sends the request to the next host
-            //    either way, and so does this.
-            //  - retrySafe == false: a consumed stream/reader parameter cannot be replayed.
-            // In both cases propagate the original exception so the caller decides.
-            if (!connection.getLbConfig().isRuntimeFailoverRetryOnce()
-                    || (routeTarget == RouteTarget.TO_READ_WRITE
-                            && ex.getErrorCode() != UErrorCode.ER_CONNECTION)
-                    || !retrySafe) {
-                // The leg IS rebound; only the replay is withheld. Naming which of the three
-                // reasons applies separates "failover worked, the caller redoes the statement" from
+            // The leg is rebound (above); a write that may have been applied, and a call that is
+            // not replayed here, still propagate the original exception so the caller decides.
+            final String withheld = replayWithheld(connection, routeTarget, retrySafe, ex);
+            if (withheld != null) {
+                // Naming the reason separates "failover worked, the caller redoes the call" from
                 // "failover did nothing", which look identical from the exception alone.
                 LbLog.fine(
                         LOGGER,
@@ -282,11 +296,7 @@ public final class ExecuteFailoverHandler {
                         "LB RETRY ["
                                 + routeTarget
                                 + "]: leg rebound but not replayed ("
-                                + (!connection.getLbConfig().isRuntimeFailoverRetryOnce()
-                                        ? "retry disabled"
-                                        : routeTarget == RouteTarget.TO_READ_WRITE
-                                                ? "write may already have been applied"
-                                                : "a consumed stream parameter cannot be replayed")
+                                + withheld
                                 + ") -> the caller decides");
                 throw ex;
             }

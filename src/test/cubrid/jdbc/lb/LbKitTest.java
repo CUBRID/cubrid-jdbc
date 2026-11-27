@@ -283,4 +283,27 @@ public class LbKitTest {
         }
         assertTrue("core's timeout closed the connection", conn.isClosed());
     }
+
+    /**
+     * r5 m6: a session property that a failover rebinds is set again by the setter, not replayed as
+     * a write; the record says which.
+     */
+    @Test
+    public void aSetterAfterFailoverIsNotRecordedAsAWrite() throws Exception {
+        final Connection conn = kit.open("readWeight=slave:1");
+        kit.server.fault(kit.rw(1), KitServer.Fault.REFUSE);
+
+        conn.setTransactionIsolation(Connection.TRANSACTION_REPEATABLE_READ);
+
+        assertEquals(kit.rw(2), ((LoadBalanceConnection) conn).getCurrentRwEndpoint().getId());
+        boolean recorded = false;
+        for (String line : kit.log()) {
+            if (line.contains("leg rebound but not replayed")) {
+                recorded = true;
+                assertTrue(line, !line.contains("write may already have been applied"));
+                assertTrue(line, line.contains("session property"));
+            }
+        }
+        assertTrue(kit.log().toString(), recorded);
+    }
 }

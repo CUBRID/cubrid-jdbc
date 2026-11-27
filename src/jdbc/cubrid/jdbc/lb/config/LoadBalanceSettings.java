@@ -56,8 +56,8 @@ public class LoadBalanceSettings {
     private static final boolean DEFAULT_RT_FAILOVER_ENABLED = true;
 
     /**
-     * Re-execute the same SQL once after physical-binding recovery succeeds. Ignored for writes and
-     * for statements whose parameters cannot be replayed.
+     * Re-execute the same SQL once after physical-binding recovery succeeds. A write runs again
+     * only when connecting failed; a CALL, a connection command and a session property never do.
      */
     private static final boolean DEFAULT_RT_FAILOVER_RETRY_ONCE = true;
 

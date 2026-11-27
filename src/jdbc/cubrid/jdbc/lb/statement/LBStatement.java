@@ -562,8 +562,9 @@ public class LBStatement extends CUBRIDStatement {
         }
     }
 
+    /** Core's rule: closed itself, or its connection is. */
     public boolean isClosed() throws SQLException {
-        return closed;
+        return closed || super.isClosed();
     }
 
     public void cancel() throws SQLException {
@@ -645,7 +646,7 @@ public class LBStatement extends CUBRIDStatement {
     }
 
     protected void checkClosed() throws SQLException {
-        if (closed) {
+        if (isClosed()) {
             throw LbExceptions.statementClosed();
         }
     }

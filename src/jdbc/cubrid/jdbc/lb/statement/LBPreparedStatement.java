@@ -43,6 +43,7 @@ import cubrid.jdbc.lb.route.Router.RouteDecision;
 import cubrid.jdbc.lb.route.Router.RouteTarget;
 import cubrid.jdbc.lb.sql.SessionSetStatement;
 import cubrid.jdbc.lb.sql.SqlClassifier;
+import cubrid.jdbc.lb.sql.SqlFacts;
 import cubrid.sql.CUBRIDOID;
 import cubrid.sql.CUBRIDTimestamptz;
 import java.io.InputStream;
@@ -148,7 +149,7 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
                             }
                         });
         this.sqlCaches = SqlCaches.compute(sql, lbConnection.sqlClassifier());
-        this.valuesGoToOtherLegs = SessionSetStatement.parse(sql).getBoundKey() != null;
+        this.valuesGoToOtherLegs = SqlFacts.of(sql).sessionSet().getBoundKey() != null;
         if (SessionSetStatement.changesCompilation(
                 lbConnection.getSessionState().getReadPinReasons())) {
             statementDelegate.markPreparedUnderReadPin();

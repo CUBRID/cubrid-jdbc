@@ -37,7 +37,7 @@ import cubrid.jdbc.lb.LbExceptions;
 import cubrid.jdbc.lb.LoadBalanceConnection;
 import cubrid.jdbc.lb.failover.ExecuteFailoverHandler.SqlExecution;
 import cubrid.jdbc.lb.route.RoutedSql;
-import cubrid.jdbc.lb.sql.SessionSetStatement;
+import cubrid.jdbc.lb.sql.SqlFacts;
 import cubrid.sql.CUBRIDOID;
 import cubrid.sql.CUBRIDTimestamptz;
 import java.io.InputStream;
@@ -194,7 +194,7 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
                                 return attached;
                             }
                         });
-        this.valuesGoToOtherLegs = SessionSetStatement.parse(sql).getBoundKey() != null;
+        this.valuesGoToOtherLegs = SqlFacts.of(sql).sessionSet().getBoundKey() != null;
         this.leg = writeLeg.now();
         this.call = writeLeg.prepare(leg);
     }

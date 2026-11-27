@@ -64,12 +64,11 @@ import cubrid.jdbc.lb.route.RoleReadSelector;
 import cubrid.jdbc.lb.route.RoutedSql;
 import cubrid.jdbc.lb.route.Router;
 import cubrid.jdbc.lb.route.Router.RouteTarget;
-import cubrid.jdbc.lb.sql.HintParser;
-import cubrid.jdbc.lb.sql.IntoVariables;
 import cubrid.jdbc.lb.sql.SessionSetStatement;
 import cubrid.jdbc.lb.sql.SqlClassification;
 import cubrid.jdbc.lb.sql.SqlClassifier;
 import cubrid.jdbc.lb.sql.SqlClassifierRegistry;
+import cubrid.jdbc.lb.sql.SqlFacts;
 import cubrid.jdbc.lb.sql.SqlLiteralMasker;
 import cubrid.jdbc.lb.state.RecoveryBackoff;
 import cubrid.jdbc.lb.state.RecoveryBackoffRegistry;
@@ -3325,7 +3324,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      * @param sql the statement about to run
      */
     public void beforeSessionSet(final String sql) {
-        if (!SessionSetStatement.parse(sql).changesSession()) {
+        if (!SqlFacts.of(sql).sessionSet().changesSession()) {
             return;
         }
         final List<Statement> open;
@@ -3368,11 +3367,12 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     public void afterStatementSucceeded(
             final String sql, final RouteTarget ranOn, final BoundRun withValues) {
         sessionState.setLastStatementOnReadLeg(ranOn == RouteTarget.TO_READ_ONLY);
+        final SqlFacts facts = SqlFacts.of(sql);
         if (ranOn == RouteTarget.TO_READ_WRITE) {
-            sessionState.addSessionVariables(IntoVariables.assignedBy(sql));
-            sessionState.removeSessionVariables(IntoVariables.droppedBy(sql));
+            sessionState.addSessionVariables(facts.assignedVariables());
+            sessionState.removeSessionVariables(facts.droppedVariables());
         }
-        final SessionSetStatement set = SessionSetStatement.parse(sql);
+        final SessionSetStatement set = facts.sessionSet();
         if (!set.changesSession()) {
             return;
         }
@@ -3412,14 +3412,15 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      * @param sql the statement as the application issued it
      */
     public void afterStatementFailed(final String sql) {
+        final SqlFacts facts = SqlFacts.of(sql);
         pinReads(
                 sql,
-                SessionSetStatement.parse(sql).getPinsIfFailed(),
+                facts.sessionSet().getPinsIfFailed(),
                 "a statement string with a session change failed; the SETs before the failing"
                         + " statement may have run on RW");
         // Likewise a variable an INTO before the failing statement created. Such a string runs on
         // RW: an INTO sends it there.
-        sessionState.addSessionVariables(IntoVariables.assignedIfFailed(sql));
+        sessionState.addSessionVariables(facts.assignedIfFailed());
     }
 
     /**
@@ -3572,7 +3573,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                 && sessionState.isAutoCommit()
                 && !sessionState.isTransactionActive()
                 && readLegRefusal(failure) != null
-                && !HintParser.parse(sql).hasTargetHint();
+                && !SqlFacts.of(sql).hints().hasTargetHint();
     }
 
     /**

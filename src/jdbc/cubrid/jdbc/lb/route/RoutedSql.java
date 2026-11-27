@@ -30,12 +30,10 @@
 
 package cubrid.jdbc.lb.route;
 
-import cubrid.jdbc.lb.sql.HintParser;
 import cubrid.jdbc.lb.sql.HintSet;
-import cubrid.jdbc.lb.sql.IntoVariables;
-import cubrid.jdbc.lb.sql.SessionSetStatement;
 import cubrid.jdbc.lb.sql.SqlClassification;
 import cubrid.jdbc.lb.sql.SqlClassifier;
+import cubrid.jdbc.lb.sql.SqlFacts;
 
 /**
  * What one SQL string means for routing: its target hint, whether it changes the session, and its
@@ -60,20 +58,20 @@ public final class RoutedSql {
     }
 
     public static RoutedSql of(final String sql, final SqlClassifier classifier) {
-        final String text = sql == null ? "" : sql;
-        final HintSet hints = HintParser.parse(text);
+        final SqlFacts facts = SqlFacts.of(sql);
+        final HintSet hints = facts.hints();
         final HintSet.TargetHint hint = hints.hasTargetHint() ? hints.getTargetHint() : null;
         // Only a TO_RO string is asked: a change made on the read leg alone would reach neither RW
         // nor the read legs opened later, and a variable or a prepared statement made there is
         // used on RW.
         final boolean changesSession =
                 hint == HintSet.TargetHint.TO_RO
-                        && (SessionSetStatement.parse(text).changesSession()
-                                || SessionSetStatement.assignsUserVariable(text)
-                                || !IntoVariables.assignedBy(text).isEmpty()
-                                || !IntoVariables.droppedBy(text).isEmpty()
-                                || SessionSetStatement.preparesOrDropsAStatement(text));
-        return new RoutedSql(text, classifier, hint, changesSession);
+                        && (facts.sessionSet().changesSession()
+                                || facts.assignsUserVariable()
+                                || !facts.assignedVariables().isEmpty()
+                                || !facts.droppedVariables().isEmpty()
+                                || facts.preparesOrDropsAStatement());
+        return new RoutedSql(facts.text(), classifier, hint, changesSession);
     }
 
     public String getText() {

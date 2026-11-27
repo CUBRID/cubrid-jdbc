@@ -122,4 +122,23 @@ public class IntoVariablesTest {
         assertFalse(
                 IntoVariables.isReferencedIn("select 1 from t", Collections.<String>emptySet()));
     }
+
+    /** r5 m18: a routine's body is compiled, not run, so its INTO creates no variable. */
+    @Test
+    public void aRoutineDefinitionAssignsNothing() {
+        assertTrue(
+                IntoVariables.assignedBy(
+                                "CREATE OR REPLACE FUNCTION f(p INT) RETURN INT AS a INT; b INT;"
+                                        + " BEGIN SELECT 1 INTO a FROM db_root; SELECT 2 INTO b"
+                                        + " FROM db_root; RETURN a + b; END;")
+                        .isEmpty());
+        assertTrue(
+                IntoVariables.assignedBy(
+                                "create procedure p() as x int; begin select 1 into x from"
+                                        + " db_root; end;")
+                        .isEmpty());
+        assertTrue(
+                IntoVariables.droppedBy("CREATE PROCEDURE p() AS BEGIN NULL; END; DROP VARIABLE x")
+                        .isEmpty());
+    }
 }

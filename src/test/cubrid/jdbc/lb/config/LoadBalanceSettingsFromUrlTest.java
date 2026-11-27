@@ -344,6 +344,37 @@ public class LoadBalanceSettingsFromUrlTest {
         }
     }
 
+    /**
+     * r5 n6: like the other LB options, readWeight, metricsExport and metricsPrometheusBind refuse
+     * a value with white space around it (spec 13.3), in the URL or in the Properties.
+     */
+    @Test
+    public void lbOptionValuesWithWhiteSpaceAroundThemAreRefused() {
+        final String base = "jdbc:cubrid:loadbalance://node1,node2/testdb:::";
+        final String[] urls = {
+            base + "?readWeight=slave:1 ",
+            base + "?metricsEnabled=true&metricsExport=prometheus ",
+            base + "?metricsEnabled=true&metricsExport=prometheus&metricsPrometheusBind=127.0.0.1 "
+        };
+        for (String url : urls) {
+            assertRefused(url, null);
+        }
+        for (String weight : new String[] {" master:1 ", "   "}) {
+            final java.util.Properties info = new java.util.Properties();
+            info.setProperty("readWeight", weight);
+            assertRefused(base, info);
+        }
+    }
+
+    private static void assertRefused(final String url, final java.util.Properties info) {
+        try {
+            LoadBalanceSettings.fromUrl(LoadBalanceUrlParser.parse(url), info, null);
+            fail("refused: '" + url + "' " + info);
+        } catch (SQLException expected) {
+            assertTrue(expected.getMessage(), expected.getMessage().contains("uncompitable value"));
+        }
+    }
+
     /** A file that only sets keys LB keeps off the legs is still a valid file. */
     @Test
     public void propFileWithOnlyClassicOnlyKeysLeavesTheLegsWithoutOptions() throws SQLException {

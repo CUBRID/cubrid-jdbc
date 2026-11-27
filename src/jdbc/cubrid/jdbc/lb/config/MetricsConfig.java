@@ -153,11 +153,12 @@ public final class MetricsConfig {
         }
 
         String bind = find(options, OPT_PROMETHEUS_BIND);
-        if (bind != null && bind.trim().length() == 0) {
+        OptionKeys.refuseSurroundingSpace(OPT_PROMETHEUS_BIND, bind);
+        if (bind != null && bind.length() == 0) {
             bind = null;
         }
 
-        return new MetricsConfig(true, exports, port, bind == null ? null : bind.trim(), interval);
+        return new MetricsConfig(true, exports, port, bind, interval);
     }
 
     public boolean isEnabled() {
@@ -245,6 +246,7 @@ public final class MetricsConfig {
     /** A comma list of prometheus and csv; another target refuses the URL, as a bad value does. */
     private static Set<String> parseExports(final String value) throws SQLException {
         final Set<String> exports = new LinkedHashSet<String>();
+        OptionKeys.refuseSurroundingSpace(OPT_EXPORT, value);
         if (value == null) {
             return exports;
         }

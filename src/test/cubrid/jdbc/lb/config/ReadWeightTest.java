@@ -120,7 +120,7 @@ public class ReadWeightTest {
         ParsedRoleTopology topo = topologyOf("jdbc:cubrid:loadbalance://n1,n2;replica=r1/db:::");
 
         assertEquals(1, ReadWeight.resolve(null, topo).weightOf(NodeRole.REPLICA));
-        assertEquals(1, ReadWeight.resolve("   ", topo).weightOf(NodeRole.SLAVE));
+        assertEquals(1, ReadWeight.resolve("", topo).weightOf(NodeRole.SLAVE));
     }
 
     @Test

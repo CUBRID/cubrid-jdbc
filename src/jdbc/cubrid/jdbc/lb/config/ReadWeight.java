@@ -82,14 +82,16 @@ public final class ReadWeight {
      * Resolve weights: parse {@code spec} when present, otherwise the topology-based default (each
      * existing role gets {@code 1}).
      *
-     * @param spec the {@code readWeight} spec; {@code null}/blank selects the topology default
+     * @param spec the {@code readWeight} spec; {@code null} or empty selects the topology default,
+     *     white space around it is refused
      * @param topology the role topology the weights are validated against
      * @return the resolved weights
      * @throws SQLException if the spec is malformed or inconsistent with the topology
      */
     static ReadWeight resolve(final String spec, final ParsedRoleTopology topology)
             throws SQLException {
-        if (spec == null || spec.trim().length() == 0) {
+        OptionKeys.refuseSurroundingSpace("readWeight", spec);
+        if (spec == null || spec.length() == 0) {
             return defaultsFor(topology);
         }
 

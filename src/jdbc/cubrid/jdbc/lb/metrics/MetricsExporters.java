@@ -154,8 +154,25 @@ public final class MetricsExporters {
     }
 
     /**
-     * Called by the CSV writer when it stops itself after an idle stretch, so the next {@link
-     * #configure} starts a new one instead of assuming one is already running.
+     * Stops the CSV writer {@code self} when still no LB connection is live. Under the lock {@link
+     * #configure} takes, and a connection registers before it configures, so a connection that
+     * opened after the idle check either keeps this writer or finds it stopped and starts another.
+     *
+     * @return whether the writer stopped
+     */
+    private static boolean csvStoppedIfIdle(final Thread self) {
+        synchronized (LOCK) {
+            if (MetricsRegistry.liveCount() > 0) {
+                return false;
+            }
+            csvStopped(self);
+            return true;
+        }
+    }
+
+    /**
+     * Called by the CSV writer when it stops itself, so the next {@link #configure} starts a new
+     * one instead of assuming one is already running.
      */
     private static void csvStopped(final Thread self) {
         synchronized (LOCK) {
@@ -269,17 +286,20 @@ public final class MetricsExporters {
                 new Thread(
                         new Runnable() {
                             public void run() {
-                                int idlePeriods = 0;
-                                while (idlePeriods < IDLE_PERIODS_BEFORE_STOP) {
-                                    try {
-                                        Thread.sleep(periodMs);
-                                    } catch (InterruptedException stopped) {
-                                        return;
+                                do {
+                                    int idlePeriods = 0;
+                                    while (idlePeriods < IDLE_PERIODS_BEFORE_STOP) {
+                                        try {
+                                            Thread.sleep(periodMs);
+                                        } catch (InterruptedException stopped) {
+                                            return;
+                                        }
+                                        idlePeriods =
+                                                MetricsRegistry.liveCount() == 0
+                                                        ? idlePeriods + 1
+                                                        : 0;
                                     }
-                                    idlePeriods =
-                                            MetricsRegistry.liveCount() == 0 ? idlePeriods + 1 : 0;
-                                }
-                                prometheusIdle(server);
+                                } while (!prometheusIdle(server));
                             }
                         },
                         "lb-metrics-prometheus-idle");
@@ -289,10 +309,19 @@ public final class MetricsExporters {
         prometheusWatch = watch;
     }
 
-    private static void prometheusIdle(final HttpServer server) {
+    /**
+     * Stops the Prometheus endpoint {@code server} when still no LB connection is live; see {@link
+     * #csvStoppedIfIdle}.
+     *
+     * @return whether the watch is over: the server stopped here or was stopped or replaced
+     */
+    private static boolean prometheusIdle(final HttpServer server) {
         synchronized (LOCK) {
             if (prometheusServer != server) {
-                return; // stopped or replaced meanwhile
+                return true; // stopped or replaced meanwhile
+            }
+            if (MetricsRegistry.liveCount() > 0) {
+                return false;
             }
             server.stop(0);
             ((ExecutorService) server.getExecutor()).shutdown();
@@ -303,6 +332,7 @@ public final class MetricsExporters {
         LOGGER.info(
                 "LB metrics: no live LB connections -> stopping the Prometheus exporter; it"
                         + " restarts with the next connection");
+        return true;
     }
 
     private static void startCsv(final int intervalSec) {
@@ -646,8 +676,13 @@ public final class MetricsExporters {
                                         + (IDLE_PERIODS_BEFORE_STOP * periodMs / 1000L)
                                         + "s -> stopping the CSV exporter; it restarts with the next"
                                         + " connection");
-                        csvStopped(Thread.currentThread());
-                        return;
+                        if (csvStoppedIfIdle(Thread.currentThread())) {
+                            return;
+                        }
+                        LOGGER.info(
+                                "LB metrics: a connection opened meanwhile -> the CSV exporter"
+                                        + " keeps running");
+                        idlePeriods = 0;
                     }
                 } else {
                     idlePeriods = 0;

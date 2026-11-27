@@ -35,6 +35,8 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import cubrid.jdbc.jci.UUnreachableHostList;
+import cubrid.jdbc.lb.LbKit;
+import cubrid.jdbc.lb.LbTestReflection;
 import cubrid.jdbc.lb.config.ConfigTestAccess;
 import cubrid.jdbc.lb.config.MetricsConfig;
 import cubrid.jdbc.lb.sql.SqlClassification;
@@ -52,6 +54,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 import java.util.logging.Handler;
 import java.util.logging.LogRecord;
 import java.util.logging.Logger;
@@ -228,6 +231,59 @@ public class MetricsExportersTest {
             return c.getResponseCode();
         } finally {
             c.disconnect();
+        }
+    }
+
+    /**
+     * r5 m9: a connection that opens while the idle CSV writer is stopping keeps a writer running.
+     * The writer is held in its "stopping" record, the window between finding no live connection
+     * and taking the lock, while the pool opens a connection.
+     */
+    @Test(timeout = 60000)
+    public void aConnectionOpenedAsTheIdleCsvWriterStopsKeepsAWriterRunning() throws Exception {
+        final String options =
+                "readWeight=slave:1&metricsEnabled=true&metricsExport=csv&metricsIntervalSec=1";
+        final CountDownLatch deciding = new CountDownLatch(1);
+        final CountDownLatch opened = new CountDownLatch(1);
+        final Logger exporterLog = Logger.getLogger(MetricsExporters.class.getName());
+        final Handler hold =
+                new Handler() {
+                    @Override
+                    public void publish(final LogRecord r) {
+                        if (String.valueOf(r.getMessage()).contains("stopping the CSV exporter")) {
+                            deciding.countDown();
+                            try {
+                                opened.await();
+                            } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                            }
+                        }
+                    }
+
+                    @Override
+                    public void flush() {}
+
+                    @Override
+                    public void close() {}
+                };
+        exporterLog.addHandler(hold);
+        final LbKit kit = new LbKit(2);
+        try {
+            kit.open(options).close(); // starts the writer and leaves no live connection
+            deciding.await(); // the writer found none for five periods
+            kit.open(options);
+            opened.countDown();
+            Thread.sleep(1500L);
+
+            final Thread writer =
+                    (Thread) LbTestReflection.staticField(MetricsExporters.class, "csvThread");
+            assertTrue("a CSV writer runs for the live connection", writer != null);
+            assertTrue(writer.isAlive());
+        } finally {
+            opened.countDown();
+            exporterLog.removeHandler(hold);
+            kit.close();
+            MetricsExporters.stop();
         }
     }
 

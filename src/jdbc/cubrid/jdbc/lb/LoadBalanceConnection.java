@@ -335,13 +335,20 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         // setEnabled turns events on too; the DIST-only path switches them back off so it does not
         // pay for a per-statement string nobody reads.
         routingMetrics.runtimeMetrics().setEventsEnabled(forExport);
-        // Exporters first: registered only once nothing else here can fail.
-        MetricsExporters.configure(config.getMetricsConfig());
+        // Registered before the exporters are started: one stopping for want of a live connection
+        // checks again under the lock configure() takes, so it sees this one or is stopped by then.
         MetricsRegistry.register(
                 routingMetrics.runtimeMetrics(),
                 buildEndpointRoleMap(config),
                 new WeakBindingView(this));
         metricsRegistered = true;
+        try {
+            MetricsExporters.configure(config.getMetricsConfig());
+        } catch (RuntimeException startFailed) {
+            MetricsRegistry.unregister(routingMetrics.runtimeMetrics());
+            metricsRegistered = false;
+            throw startFailed;
+        }
     }
 
     /**

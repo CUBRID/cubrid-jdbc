@@ -166,12 +166,6 @@ public final class FailoverCoverageArchitectureTest {
             "EXEMPT",
             "the write leg of a property setter; the read leg goes through applyToOpenReadLeg"
         },
-        {
-            "LoadBalanceConnection#setCASChangeMode",
-            "1",
-            "EXEMPT",
-            "the write leg of a property setter; the read leg goes through applyToOpenReadLeg"
-        },
 
         // --- EXEMPT: recovery would be meaningless or self-defeating ---
         {

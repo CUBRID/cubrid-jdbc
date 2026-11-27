@@ -1815,16 +1815,10 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     /**
-     * Sets the CAS change mode on both session legs. Applications typically call this on every pool
-     * checkout, so the read leg is attempted even when the write leg failed - the read leg must not
-     * be collateral damage of a write-leg failure (the same reason as {@link #forEachSessPhyConn},
-     * which this mirrors; the RW leg's return value is why it is written out rather than
-     * delegated). The logical value is kept only when the write leg took it, so a failed call is
-     * not replayed onto connections opened later by {@link #applySessionStateTo}; a read-leg-only
-     * failure keeps it, so the value is restored on the next read leg the session binds.
-     *
-     * <p>Only the write leg's previous mode is returned: there is one return slot for two legs, and
-     * the write leg is the authoritative one.
+     * Sets the CAS change mode as the other session properties are set: on both legs, the write leg
+     * rebound when its broker is down (ISSUE-6), the value kept only when the write leg took it.
+     * Returns the write leg's previous mode, core's answer for its one connection. The value is
+     * kept only afterwards, so a write leg opened by the rebind starts at the previous mode.
      */
     public int setCASChangeMode(final int mode) throws SQLException {
         checkClosed();
@@ -1833,52 +1827,28 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             return 0;
         }
 
-        SQLException rwFailure = null;
-        int previousMode = 0;
-        try {
-            Connection rwPhysical = getPhysicalConnForCmd(SessionLeg.RW);
-            previousMode = extConn(rwPhysical, "setCASChangeMode").setCASChangeMode(mode);
-        } catch (SQLException failure) {
-            rwFailure = failure;
-        }
-
-        SQLException roFailure = null;
-        try {
-            requireConnMgr()
-                    .applyToOpenReadLeg(
-                            "setCASChangeMode",
-                            new EndpointConnManager.SessionStateApplier() {
-                                public void applyTo(final Connection physical) throws SQLException {
-                                    extConn(physical, "setCASChangeMode").setCASChangeMode(mode);
+        // The write leg answers first; a failed attempt on it answers nothing.
+        final int[] previousMode = new int[1];
+        final boolean[] answered = new boolean[1];
+        final LegOutcome outcome =
+                forEachSessPhyConn(
+                        new PhyConnAction() {
+                            public void apply(final Connection physical) throws SQLException {
+                                final int was =
+                                        extConn(physical, "setCASChangeMode")
+                                                .setCASChangeMode(mode);
+                                if (!answered[0]) {
+                                    previousMode[0] = was;
+                                    answered[0] = true;
                                 }
-                            });
-        } catch (SQLException failure) {
-            roFailure = failure;
-            if (rwFailure != null) {
-                if (failure != rwFailure) {
-                    rwFailure.addSuppressed(failure);
-                }
-                LbLog.warn(
-                        LOGGER,
-                        LbLog.conn(connectionId),
-                        "LB SESSION PROP [RO]: setCASChangeMode failed on the read leg while the"
-                                + " write leg was already failing; reporting the write failure |"
-                                + " cause: "
-                                + causeOf(failure));
-            }
-        }
-
-        if (rwFailure == null) {
+                            }
+                        });
+        if (!outcome.rwFailed()) {
             this.casChangeMode = Integer.valueOf(mode);
-        } else {
-            throw rwFailure;
         }
-        if (roFailure != null) {
-            throw roFailure;
-        }
-
+        outcome.rethrow();
         recordRwCmd("setCASChangeMode");
-        return previousMode;
+        return previousMode[0];
     }
 
     /**

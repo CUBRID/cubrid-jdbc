@@ -98,19 +98,15 @@ import java.sql.Savepoint;
 import java.sql.Statement;
 import java.sql.Struct;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
-import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
@@ -214,13 +210,8 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     private final ReentrantLock legEndLock = new ReentrantLock();
     // A read leg's rollback, held until its statement settles (settleReadLegRollback).
     private volatile CUBRIDConnection heldReadLegRollback = null;
-    // SQL SETs re-run on every leg opened later (replay key -> statement), in the order they last
-    // ran, so a newer SET of the same setting replaces the older one.
-    private final Map<String, Replayed> sessionSets = new LinkedHashMap<String, Replayed>();
-    // The server session each leg was in when it last got the session SETs; see
-    // restoreSessionSetsAfterReconnect.
-    private final Map<Connection, byte[]> legSessions =
-            Collections.synchronizedMap(new WeakHashMap<Connection, byte[]>());
+    // The SQL SETs this session ran, kept for the legs that lack them.
+    private final SessionSets sessionSets;
     // Why a read the read leg could not serve is running again on RW, or null when none is.
     private volatile String rejectedReadReason = null;
     // The routing decision of the statement the execute path is running, or null outside it.
@@ -283,6 +274,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         this.routingMetrics =
                 new RoutingMetricsRecorder(connectionId, config, sessionState, sqlClassifier);
         this.failback = new LegFailback(this, config, sessionState);
+        this.sessionSets = new SessionSets(this, sessionState, LbLog.conn(connectionId));
         maybeStartMetrics(config);
         LIVE_CONNECTIONS.incrementAndGet();
         LbLog.fine(LOGGER, LbLog.conn(connectionId), "LB CONN: opened");
@@ -1748,7 +1740,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             this.transactionIsolation = previous;
         }
         outcome.rethrow();
-        forgetSessionSet(SessionSetStatement.ISOLATION_LEVEL_KEY);
+        sessionSets.forgetSessionSet(SessionSetStatement.ISOLATION_LEVEL_KEY);
         if (isSessionInitialized()) {
             recordRwCmd("setTransactionIsolation");
         }
@@ -1786,7 +1778,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             this.lockTimeout = previous;
         }
         outcome.rethrow();
-        forgetSessionSet(SessionSetStatement.LOCK_TIMEOUT_KEY);
+        sessionSets.forgetSessionSet(SessionSetStatement.LOCK_TIMEOUT_KEY);
         if (!isSessionInitialized()) {
             return;
         }
@@ -3239,131 +3231,44 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         if (holdability != null) {
             physical.setHoldability(holdability.intValue());
         }
-        runSessionSets(physical, sessionSetsSnapshot());
-        rememberLegSession(physical, sessionOf(physical));
+        sessionSets.applyTo(physical);
     }
 
     /**
-     * Core reconnects a leg by itself and tells no one. When the CAS could not keep the server
-     * session over it, that leg alone has none of the SETs LB ran on it, and its statements would
-     * run under other settings than the other leg's. A read leg on its own connection is closed, to
-     * reopen with the session state; the write leg runs the SETs again, once it holds no
-     * transaction they would run inside.
+     * Core reconnects a leg by itself and tells no one; see {@link
+     * SessionSets#restoreSessionSetsAfterReconnect}.
      *
      * @param target the leg a statement is about to run on, or just ran on
      * @return whether a read leg was closed, so a read that just ran on it should run again
      */
     public boolean restoreSessionSetsAfterReconnect(final RouteTarget target) {
-        final List<Replayed> sets = sessionSetsSnapshot();
-        if (sets.isEmpty() || connMgr == null || !isSessionInitialized()) {
-            return false; // nothing a new session would lack
-        }
-        final Connection rw = connMgr.boundConnection(SessionLeg.RW);
-        final Connection leg =
-                target == RouteTarget.TO_READ_ONLY ? connMgr.boundConnection(SessionLeg.RO) : rw;
-        final byte[] session = leg == null ? null : sessionOf(leg);
-        final byte[] applied = leg == null ? null : legSessions.get(leg);
-        if (session == null || applied == null || Arrays.equals(session, applied)) {
-            return false;
-        }
-        if (leg != rw) {
-            try {
-                leg.close();
-            } catch (SQLException alreadyGone) {
-                // A leg that is closed is replaced by the next read on it either way.
-            }
-            LbLog.warn(
-                    LOGGER,
-                    LbLog.conn(connectionId),
-                    "LB SESSION RENEWED [RO]: core reconnected the read leg into a new server"
-                            + " session, which has none of the session SETs; the leg is closed and"
-                            + " reopens with them");
-            return true;
-        }
-        if (connMgr.isRwTxOpenOnServer()) {
-            return false;
-        }
-        // Remembered whether or not the SETs run: a SET the server now refuses is refused again.
-        rememberLegSession(rw, session);
-        try {
-            runSessionSets(rw, sets);
-            LbLog.warn(
-                    LOGGER,
-                    LbLog.conn(connectionId),
-                    "LB SESSION RENEWED [RW]: core reconnected the write leg into a new server"
-                            + " session; the session SETs ran on it again | sets="
-                            + sets.size());
-        } catch (SQLException failed) {
-            LbLog.warn(
-                    LOGGER,
-                    LbLog.conn(connectionId),
-                    "LB SESSION RENEWED [RW]: core reconnected the write leg into a new server"
-                            + " session and running the session SETs on it again failed; it runs"
-                            + " without them | cause: "
-                            + causeOf(failed));
-        }
-        return false;
-    }
-
-    private void rememberLegSession(final Connection leg, final byte[] session) {
-        if (session != null) {
-            legSessions.put(leg, session);
-        }
-    }
-
-    /** The server session {@code leg} is in, or null when it has no core connection to ask. */
-    private static byte[] sessionOf(final Connection leg) {
-        try {
-            final UConnection socket =
-                    leg instanceof CUBRIDConnection
-                            ? ((CUBRIDConnection) leg).getUConnection()
-                            : null;
-            return socket == null ? null : socket.getSessionId();
-        } catch (SQLException unreadable) {
-            return null;
-        }
+        return sessionSets.restoreSessionSetsAfterReconnect(target);
     }
 
     /**
-     * Core prepared every open statement on its one session before a session {@code SET}, and the
-     * server keeps what a statement was compiled under. One with no physical statement yet on a leg
-     * it can run on is prepared there now, before the SET reaches that leg, or its first run there
-     * would compile under the new setting.
+     * Prepares open statements before a session {@code SET}; see {@link
+     * SessionSets#beforeSessionSet}.
      *
      * @param sql the statement about to run
      */
     public void beforeSessionSet(final String sql) {
-        if (!SqlFacts.of(sql).sessionSet().changesSession()) {
-            return;
-        }
-        for (Statement each : openStatementsSnapshot()) {
-            if (each instanceof LBPreparedStatement) {
-                final LBPreparedStatement prepared = (LBPreparedStatement) each;
-                prepared.prepareOnWriteLeg();
-                prepared.prepareOnReadLeg();
-            }
-        }
+        sessionSets.beforeSessionSet(sql);
     }
 
     /**
-     * Records what a statement that just succeeded changed in its session. A SQL {@code SET} ran
-     * only on the leg it was routed to (RW): a session-scoped one is replayed on the read leg now
-     * and on every leg opened later; one the read leg cannot be given keeps reads on RW until a
-     * later statement undoes it or the connection closes. Variables an {@code INTO/TO} clause
-     * created on RW are remembered so reads naming them follow, until a {@code DROP VARIABLE}
-     * removes them. Its leg is where a following {@code ROW_COUNT()} runs.
+     * Records what a statement that succeeded changed in its session; see {@link
+     * SessionSets#afterStatementSucceeded(String, RouteTarget, BoundRun)}.
      *
      * @param sql the statement as the application issued it
      * @param ranOn the leg it ran on
      */
     public void afterStatementSucceeded(final String sql, final RouteTarget ranOn) {
-        afterStatementSucceeded(sql, ranOn, null);
+        sessionSets.afterStatementSucceeded(sql, ranOn);
     }
 
     /**
      * {@link #afterStatementSucceeded(String, Router.RouteTarget)} for a statement that took values
-     * from {@code ?}. A login or a lock timeout that did runs on the other legs with them, as one
-     * written out runs from its text.
+     * from {@code ?}.
      *
      * @param sql the statement as the application issued it
      * @param ranOn the leg it ran on
@@ -3371,68 +3276,22 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      */
     public void afterStatementSucceeded(
             final String sql, final RouteTarget ranOn, final BoundRun withValues) {
-        sessionState.setLastStatementOnReadLeg(ranOn == RouteTarget.TO_READ_ONLY);
-        final SqlFacts facts = SqlFacts.of(sql);
-        if (ranOn == RouteTarget.TO_READ_WRITE) {
-            sessionState.addSessionVariables(facts.assignedVariables());
-            sessionState.removeSessionVariables(facts.droppedVariables());
-        }
-        final SessionSetStatement set = facts.sessionSet();
-        if (!set.changesSession()) {
-            return;
-        }
-        final String boundKey = withValues == null ? null : set.getBoundKey();
-        if (boundKey != null) {
-            replaySessionSet(
-                    sql, Collections.singletonMap(boundKey, new Replayed(sql, withValues)));
-        } else {
-            if (!set.getReplay().isEmpty()) {
-                final Map<String, Replayed> written = new LinkedHashMap<String, Replayed>();
-                for (Map.Entry<String, String> each : set.getReplay().entrySet()) {
-                    written.put(each.getKey(), new Replayed(each.getValue(), null));
-                }
-                replaySessionSet(sql, written);
-            }
-            pinReads(sql, set.getPins(), "a session change the read leg does not have ran on RW");
-        }
-        unpinReads(set.getUnpins(), sqlForLog(sql));
-        if (!set.getNonSessionParams().isEmpty()) {
-            LbLog.warn(
-                    LOGGER,
-                    LbLog.conn(connectionId),
-                    "LB SESSION SET: "
-                            + set.getNonSessionParams()
-                            + " is not a session parameter; it changed the RW node only and read"
-                            + " nodes keep their own value, so reads are not pinned"
-                            + sqlForLog(sql));
-        }
+        sessionSets.afterStatementSucceeded(sql, ranOn, withValues);
     }
 
     /**
-     * Records what a statement that failed on RW may have changed. CUBRID keeps the SETs and
-     * variables a multi-statement string made before the failing statement; which ones is not
-     * known, so each setting the string touches keeps reads on RW until a later statement sets it
-     * again, and each variable it assigns is read on RW.
+     * Records what a statement that failed on RW may have changed; see {@link
+     * SessionSets#afterStatementFailed}.
      *
      * @param sql the statement as the application issued it
      */
     public void afterStatementFailed(final String sql) {
-        final SqlFacts facts = SqlFacts.of(sql);
-        pinReads(
-                sql,
-                facts.sessionSet().getPinsIfFailed(),
-                "a statement string with a session change failed; the SETs before the failing"
-                        + " statement may have run on RW");
-        // Likewise a variable an INTO before the failing statement created. Such a string runs on
-        // RW: an INTO sends it there.
-        sessionState.addSessionVariables(facts.assignedIfFailed());
+        sessionSets.afterStatementFailed(sql);
     }
 
     /**
-     * Records a batch the server answered with a {@link java.sql.BatchUpdateException}. Each entry
-     * whose count is not {@link Statement#EXECUTE_FAILED} changed the session as it would have
-     * alone, and is the statement a following {@code ROW_COUNT()} reports on; a batch in which
-     * every entry failed leaves that with the statement before it, as on core.
+     * Records a batch the server answered with a {@link java.sql.BatchUpdateException}; see {@link
+     * SessionSets#afterBatchAnswered}.
      *
      * @param sqls the batch entries, in order
      * @param counts the update counts the server answered, possibly {@code null}
@@ -3440,105 +3299,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      */
     public void afterBatchAnswered(
             final List<String> sqls, final int[] counts, final RouteTarget ranOn) {
-        final int answered = counts == null ? 0 : Math.min(sqls.size(), counts.length);
-        for (int i = 0; i < answered; i++) {
-            if (counts[i] == Statement.EXECUTE_FAILED) {
-                afterStatementFailed(sqls.get(i));
-            } else {
-                afterStatementSucceeded(sqls.get(i), ranOn);
-            }
-        }
-    }
-
-    private void replaySessionSet(final String sql, final Map<String, Replayed> replay) {
-        synchronized (sessionSets) {
-            for (Map.Entry<String, Replayed> each : replay.entrySet()) {
-                sessionSets.remove(each.getKey());
-                sessionSets.put(each.getKey(), each.getValue());
-            }
-        }
-        if (connMgr != null && isSessionInitialized()) {
-            final Collection<Replayed> statements = replay.values();
-            try {
-                connMgr.applyToOpenReadLeg(
-                        "session SET",
-                        new EndpointConnManager.SessionStateApplier() {
-                            public void applyTo(final Connection physical) throws SQLException {
-                                runSessionSets(physical, statements);
-                            }
-                        });
-            } catch (SQLException rejected) {
-                // A reopened leg would reject it again: keep reads where the SET took effect.
-                pinReads(
-                        sql,
-                        replay.keySet(),
-                        "the read leg rejected a SET that ran on RW (" + causeOf(rejected) + ")");
-                return;
-            }
-        }
-        // The read leg has these settings now, or gets them when it opens.
-        unpinReads(replay.keySet(), sqlForLog(sql));
-    }
-
-    private void pinReads(final String sql, final Collection<String> reasons, final String what) {
-        if (reasons.isEmpty() || sessionState.pinReadsToRw(reasons).isEmpty()) {
-            return;
-        }
-        LbLog.warn(
-                LOGGER,
-                LbLog.conn(connectionId),
-                "LB SESSION PIN: "
-                        + what
-                        + "; this session's reads stay on RW until a later statement undoes it or"
-                        + " the connection closes | reasons="
-                        + sessionState.getReadPinReasons()
-                        + sqlForLog(sql));
-    }
-
-    private void unpinReads(final Collection<String> reasons, final String cause) {
-        if (!sessionState.unpinReads(reasons)) {
-            return;
-        }
-        LbLog.info(
-                LOGGER,
-                LbLog.conn(connectionId),
-                "LB SESSION UNPIN: the last change that kept reads on RW was undone; reads are"
-                        + " distributed again"
-                        + cause);
-    }
-
-    /**
-     * A JDBC setter now owns {@code key}'s setting on both legs: drop the SQL {@code SET} of it, or
-     * a leg opened later would get the older SQL value on top of the setter's, and release a pin a
-     * bound SQL value of it left.
-     */
-    private void forgetSessionSet(final String key) {
-        synchronized (sessionSets) {
-            sessionSets.remove(key);
-        }
-        unpinReads(Collections.singleton(key), " | by=a JDBC setter");
-    }
-
-    private List<Replayed> sessionSetsSnapshot() {
-        synchronized (sessionSets) {
-            return new ArrayList<Replayed>(sessionSets.values());
-        }
-    }
-
-    private static void runSessionSets(
-            final Connection physical, final Collection<Replayed> statements) throws SQLException {
-        for (Replayed each : statements) {
-            if (each.withValues != null) {
-                each.withValues.on(physical);
-                continue;
-            }
-            Statement statement = physical.createStatement();
-            try {
-                statement.execute(each.sql);
-            } finally {
-                statement.close();
-            }
-        }
+        sessionSets.afterBatchAnswered(sqls, counts, ranOn);
     }
 
     /**
@@ -3547,17 +3308,6 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      */
     public interface BoundRun {
         void on(Connection physical) throws SQLException;
-    }
-
-    /** A session SET kept for the other legs: its text, or the statement with a run's values. */
-    private static final class Replayed {
-        private final String sql;
-        private final BoundRun withValues;
-
-        Replayed(final String sql, final BoundRun withValues) {
-            this.sql = sql;
-            this.withValues = withValues;
-        }
     }
 
     /**
@@ -3624,7 +3374,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     /** A failure for a log line, a server error with its message only under lbLogSql=raw. */
-    private String causeOf(final SQLException failure) {
+    String causeOf(final SQLException failure) {
         return LbLog.cause(failure, config.getLbLogConfig().isSqlRaw());
     }
 
@@ -3676,7 +3426,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         }
     }
 
-    private String sqlForLog(final String sql) {
+    String sqlForLog(final String sql) {
         final LbLogConfig logConfig = config.getLbLogConfig();
         final String mode = logConfig.getSqlMode();
         if (LbLogConfig.SQL_OFF.equals(mode)) {
@@ -3799,12 +3549,9 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      * another node honours.
      */
     private int sessionIsolation() {
-        final Replayed bySql;
-        synchronized (sessionSets) {
-            bySql = sessionSets.get(SessionSetStatement.ISOLATION_LEVEL_KEY);
-        }
+        final String bySql = sessionSets.isolationSql();
         if (bySql != null) {
-            return SessionSetStatement.isolationAboveReadCommitted(bySql.sql);
+            return SessionSetStatement.isolationAboveReadCommitted(bySql);
         }
         final Integer bySetter = transactionIsolation;
         return bySetter == null ? 0 : bySetter.intValue();

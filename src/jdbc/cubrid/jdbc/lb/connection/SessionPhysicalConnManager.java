@@ -1250,15 +1250,11 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         return conn == null || !conn.isClosed();
     }
 
-    public synchronized void closePrepStmts() throws SQLException {
-        closePrepLocked();
-    }
-
     /**
      * Closes only the physical prepared statements owned by one logical PreparedStatement. Wired to
      * {@code LBPreparedStatement.close()} so closing one logical PS does not destroy the cached
-     * physical PS (and open ResultSets) of other logical PS on the same connection. The
-     * session-wide {@link #closePrepStmts()} stays reserved for Connection.close().
+     * physical PS (and open ResultSets) of other logical PS on the same connection. Closing the
+     * connection releases all of them ({@link #releasePreparedStatements()}).
      */
     public void closePrepForOwner(final String ownerId) throws SQLException {
         final String owner = owner(ownerId);
@@ -2419,10 +2415,6 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
             }
         }
         return false;
-    }
-
-    public String getLogicalJdbcUrl() {
-        return logicalJdbcUrl;
     }
 
     private Connection openConnection(final Endpoint endpoint) throws SQLException {

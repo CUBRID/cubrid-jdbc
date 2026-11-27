@@ -125,35 +125,6 @@ public final class MetricsExporters {
     }
 
     /**
-     * Stops both exporters and forgets them, so a following {@link #configure} can start fresh.
-     *
-     * <p>For the redeploy case. Both exporters are daemons, so a JVM exit needs nothing from this,
-     * but undeploying a web application is not a JVM exit: the CSV thread keeps running and its
-     * {@code Runnable} holds the webapp's class loader - the classic container-side leak. A
-     * container hook, or the application's own shutdown path, can call this to release both.
-     */
-    static void stop() {
-        synchronized (LOCK) {
-            if (prometheusServer != null) {
-                prometheusServer.stop(0);
-                ((ExecutorService) prometheusServer.getExecutor()).shutdown();
-                prometheusServer = null;
-            }
-            if (prometheusWatch != null) {
-                prometheusWatch.interrupt();
-                prometheusWatch = null;
-            }
-            prometheusStarted = false;
-
-            if (csvThread != null) {
-                csvThread.interrupt();
-                csvThread = null;
-            }
-            csvStarted = false;
-        }
-    }
-
-    /**
      * Stops the CSV writer {@code self} when still no LB connection is live. Under the lock {@link
      * #configure} takes, and a connection registers before it configures, so a connection that
      * opened after the idle check either keeps this writer or finds it stopped and starts another.

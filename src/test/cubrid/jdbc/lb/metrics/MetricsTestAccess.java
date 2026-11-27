@@ -43,6 +43,34 @@ public final class MetricsTestAccess {
     private MetricsTestAccess() {}
 
     /** Empties the registry, each collection under the lock the registry itself takes for it. */
+    /**
+     * Stops both exporters and forgets them, as the driver does once no LB connection has been live
+     * for a while, so the next {@code configure} starts fresh.
+     */
+    public static void stopExporters() {
+        synchronized (LbTestReflection.staticField(MetricsExporters.class, "LOCK")) {
+            final com.sun.net.httpserver.HttpServer server =
+                    (com.sun.net.httpserver.HttpServer)
+                            LbTestReflection.staticField(
+                                    MetricsExporters.class, "prometheusServer");
+            if (server != null) {
+                server.stop(0);
+                ((java.util.concurrent.ExecutorService) server.getExecutor()).shutdown();
+            }
+            for (String thread : new String[] {"prometheusWatch", "csvThread"}) {
+                final Thread t =
+                        (Thread) LbTestReflection.staticField(MetricsExporters.class, thread);
+                if (t != null) {
+                    t.interrupt();
+                }
+                LbTestReflection.setStatic(MetricsExporters.class, thread, null);
+            }
+            LbTestReflection.setStatic(MetricsExporters.class, "prometheusServer", null);
+            LbTestReflection.setStatic(MetricsExporters.class, "prometheusStarted", Boolean.FALSE);
+            LbTestReflection.setStatic(MetricsExporters.class, "csvStarted", Boolean.FALSE);
+        }
+    }
+
     public static void clearForTests() {
         collection("LIVE").clear();
         map("PROBES").clear();

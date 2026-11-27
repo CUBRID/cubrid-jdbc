@@ -91,16 +91,6 @@ public final class SimpleEndpointConnManager implements EndpointConnManager {
 
     private int rollbackPhysicalTransactionCallCount;
 
-    private String logicalJdbcUrl;
-
-    public synchronized void setLogicalJdbcUrl(final String logicalJdbcUrl) {
-        this.logicalJdbcUrl = logicalJdbcUrl;
-    }
-
-    public synchronized String getLogicalJdbcUrl() {
-        return logicalJdbcUrl;
-    }
-
     public synchronized void bindSession(final Endpoint rwEndpoint, final Endpoint roEndpoint)
             throws SQLException {
         bindSession(rwEndpoint, roEndpoint, null);
@@ -248,13 +238,9 @@ public final class SimpleEndpointConnManager implements EndpointConnManager {
         return prepareStatement(endpoint, sql);
     }
 
-    public synchronized void closePrepStmts() throws SQLException {
+    public synchronized void closePrepForOwner(final String ownerId) throws SQLException {
         preparedStatements.clear();
         closePreparedStatementsCallCount++;
-    }
-
-    public synchronized void closePrepForOwner(final String ownerId) throws SQLException {
-        closePrepStmts();
     }
 
     public synchronized Connection getPhyConn(final Endpoint endpoint) throws SQLException {

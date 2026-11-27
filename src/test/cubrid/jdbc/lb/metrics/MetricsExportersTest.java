@@ -147,7 +147,7 @@ public class MetricsExportersTest {
             assertTrue(accepts(InetAddress.getLoopbackAddress(), port));
             assertFalse("reachable from " + external.getHostAddress(), accepts(external, port));
         } finally {
-            MetricsExporters.stop();
+            MetricsTestAccess.stopExporters();
         }
     }
 
@@ -161,7 +161,7 @@ public class MetricsExportersTest {
         try {
             assertTrue(accepts(external, port));
         } finally {
-            MetricsExporters.stop();
+            MetricsTestAccess.stopExporters();
         }
     }
 
@@ -194,7 +194,7 @@ public class MetricsExportersTest {
                     "the next connection starts it again",
                     accepts(InetAddress.getLoopbackAddress(), port));
         } finally {
-            MetricsExporters.stop();
+            MetricsTestAccess.stopExporters();
         }
     }
 
@@ -215,7 +215,7 @@ public class MetricsExportersTest {
             assertEquals(404, status(port, "GET", "/metricsX"));
         } finally {
             stalled.close();
-            MetricsExporters.stop();
+            MetricsTestAccess.stopExporters();
         }
     }
 
@@ -283,7 +283,7 @@ public class MetricsExportersTest {
             opened.countDown();
             exporterLog.removeHandler(hold);
             kit.close();
-            MetricsExporters.stop();
+            MetricsTestAccess.stopExporters();
         }
     }
 
@@ -323,7 +323,7 @@ public class MetricsExportersTest {
                 Thread.sleep(50L);
             }
         } finally {
-            MetricsExporters.stop();
+            MetricsTestAccess.stopExporters();
             csv.removeHandler(capture);
             csv.setUseParentHandlers(true);
         }
@@ -362,7 +362,7 @@ public class MetricsExportersTest {
                 MetricsExporters.configure(prometheus(other, 60));
             }
         } finally {
-            MetricsExporters.stop();
+            MetricsTestAccess.stopExporters();
             exporters.removeHandler(capture);
             exporters.setUseParentHandlers(true);
         }
@@ -392,7 +392,7 @@ public class MetricsExportersTest {
                 MetricsExporters.configure(csv(300));
             }
         } finally {
-            MetricsExporters.stop();
+            MetricsTestAccess.stopExporters();
             release(capture);
         }
 
@@ -424,7 +424,7 @@ public class MetricsExportersTest {
             MetricsExporters.configure(prometheus(free, 60));
             assertTrue("a free port is bound at once", accepts(loopback, free));
         } finally {
-            MetricsExporters.stop();
+            MetricsTestAccess.stopExporters();
             release(capture);
             busyA.close();
             busyB.close();

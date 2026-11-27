@@ -193,8 +193,6 @@ public interface EndpointConnManager extends PhysicalResourceReleaser {
             int resultSetHoldability)
             throws SQLException;
 
-    void closePrepStmts() throws SQLException;
-
     /**
      * Close only the physical prepared statements owned by one logical PreparedStatement.
      *
@@ -224,8 +222,6 @@ public interface EndpointConnManager extends PhysicalResourceReleaser {
     void rollbackPhyTx() throws SQLException;
 
     String getRoFallbackReason();
-
-    String getLogicalJdbcUrl();
 
     /**
      * Runtime failover of the bound RW physical connection. Managers that do not support physical

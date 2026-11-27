@@ -1,0 +1,233 @@
+/*
+ * Copyright (C) 2008 Search Solution Corporation.
+ * Copyright (c) 2016 CUBRID Corporation.
+ *
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met:
+ *
+ * - Redistributions of source code must retain the above copyright notice, this list of conditions
+ * and the following disclaimer.
+ *
+ * - Redistributions in binary form must reproduce the above copyright notice, this list of
+ * conditions and the following disclaimer in the documentation and/or other materials provided
+ * with the distribution.
+ *
+ * - Neither the name of the <ORGANIZATION> nor the names of its contributors may be used to endorse
+ * or promote products derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER
+ * IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
+ * OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ */
+
+package cubrid.jdbc.lb;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+
+import cubrid.jdbc.driver.KitServer;
+import java.sql.CallableStatement;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.Executors;
+import org.junit.After;
+import org.junit.Test;
+
+/**
+ * LB on the kit cluster. The invariants hold in every scenario; the {@code knownDefect} tests pin
+ * defects found in review r5 that are not fixed yet: each passes while the defect is there and
+ * fails once it is gone, so the fix removes it from this list.
+ */
+public class LbKitTest {
+    private final LbKit kit = new LbKit(2);
+
+    @After
+    public void tearDown() {
+        kit.close();
+    }
+
+    interface Check {
+        void run() throws Exception;
+    }
+
+    /** Passes while {@code check} fails; fails once the defect {@code issue} is fixed. */
+    static void knownDefect(final String issue, final Check check) throws Exception {
+        try {
+            check.run();
+        } catch (AssertionError stillThere) {
+            return;
+        } catch (SQLException stillThere) {
+            return;
+        }
+        fail(issue + " no longer fails: move this check out of the known defects");
+    }
+
+    static List<Integer> rows(final ResultSet rs) throws SQLException {
+        final List<Integer> out = new ArrayList<Integer>();
+        while (rs.next()) {
+            out.add(rs.getInt(1));
+        }
+        return out;
+    }
+
+    @Test
+    public void readsRunOnTheSlaveWritesOnTheMasterAndCloseLeavesNoLeg() throws Exception {
+        final Connection conn = kit.open("readWeight=slave:1");
+        final Statement st = conn.createStatement();
+
+        assertEquals(3, rows(st.executeQuery("SELECT a FROM t")).size());
+        assertEquals(1, st.executeUpdate("UPDATE t SET a = 1"));
+        assertEquals(Collections.<String>emptyList(), kit.legLeaks());
+
+        conn.close();
+
+        assertEquals(Collections.<String>emptyList(), kit.legLeaks());
+        assertEquals(Collections.emptyList(), kit.server.live());
+        boolean readOnSlave = false;
+        boolean writeOnMaster = false;
+        for (KitServer.Request r : kit.server.requests()) {
+            readOnSlave |= r.what.equals("EXECUTE SELECT a FROM t") && r.endpoint.equals(kit.ro(2));
+            writeOnMaster |=
+                    r.what.equals("EXECUTE UPDATE t SET a = 1") && r.endpoint.equals(kit.rw(1));
+        }
+        assertTrue(kit.server.requests().toString(), readOnSlave && writeOnMaster);
+    }
+
+    @Test
+    public void aSlaveThatGoesAwayDoesNotChangeTheResultOfReads() throws Exception {
+        final Connection conn = kit.open("readWeight=slave:1");
+        final Statement st = conn.createStatement();
+        final List<Integer> before = rows(st.executeQuery("SELECT a FROM t"));
+
+        kit.server.fault(kit.ro(2), KitServer.Fault.REFUSE);
+
+        assertEquals(before, rows(st.executeQuery("SELECT a FROM t")));
+        assertEquals(before, rows(st.executeQuery("SELECT a FROM t")));
+        assertEquals(Collections.<String>emptyList(), kit.legLeaks());
+    }
+
+    @Test
+    public void aWriteLostOnTheMasterIsReportedAndNotRunAgain() throws Exception {
+        final Connection conn = kit.open("readWeight=slave:1");
+        final Statement st = conn.createStatement();
+        st.executeQuery("SELECT a FROM t").close();
+
+        kit.server.fault(kit.rw(1), KitServer.Fault.LOST_ON_REQUEST);
+        try {
+            st.executeUpdate("UPDATE t SET a = 2");
+            fail("a write the master did not answer is reported");
+        } catch (SQLException lost) {
+            assertEquals(cubrid.jdbc.jci.UErrorCode.ER_COMMUNICATION, lost.getErrorCode());
+        }
+        st.executeUpdate("UPDATE t SET a = 3");
+
+        assertEquals(
+                Collections.<String>emptyList(),
+                kit.unrequestedExecutions(
+                        Arrays.asList("UPDATE t SET a = 2", "UPDATE t SET a = 3")));
+        assertEquals(Collections.<String>emptyList(), kit.legLeaks());
+    }
+
+    /** r5 M3: a user procedure named login is run again on the read leg (no ON CLASS db_user). */
+    @Test
+    public void knownDefect_r5M3_aUserProcedureNamedLoginRunsAgain() throws Exception {
+        final Connection conn = kit.open("readWeight=slave:1");
+        conn.createStatement().execute("CALL login('alice')");
+
+        knownDefect(
+                "r5 M3",
+                () ->
+                        assertEquals(
+                                Collections.<String>emptyList(),
+                                kit.unrequestedExecutions(Arrays.asList("CALL login('alice')"))));
+    }
+
+    /**
+     * r5 M2: after a read leg is closed by a fetch timeout, a silent read node is dialed again for
+     * the next read, which then fails; core reads on the master and never sees the slave.
+     */
+    @Test
+    public void knownDefect_r5M2_aSilentReadNodeIsDialedAgainForTheNextRead() throws Exception {
+        final Connection conn = kit.open("readWeight=slave:1");
+        conn.setNetworkTimeout(Executors.newSingleThreadExecutor(), 1000);
+        final Statement st = conn.createStatement();
+        final List<Integer> expected = rows(st.executeQuery("SELECT a FROM t"));
+
+        final ResultSet rs = st.executeQuery("SELECT a FROM t");
+        assertTrue(rs.next());
+        kit.server.fault(kit.ro(2), KitServer.Fault.DIAL_TIMEOUT);
+        try {
+            rows(rs);
+            fail("a cursor on the node that went silent fails, as documented in spec 15.5.5");
+        } catch (SQLException documented) {
+            // the read in flight is lost
+        }
+
+        knownDefect(
+                "r5 M2",
+                () -> {
+                    final int dials = kit.server.dials(kit.ro(2));
+                    assertEquals(expected, rows(st.executeQuery("SELECT a FROM t")));
+                    assertEquals(
+                            "the silent node is not dialed again",
+                            dials,
+                            kit.server.dials(kit.ro(2)));
+                });
+    }
+
+    /**
+     * r5 m16: an open result of a CALL does not hold RW failback. Core's commit leaves it open here
+     * (ISSUE-34 skips the CALL after a removed PreparedStatement), then failback closes it.
+     */
+    @Test
+    public void knownDefect_r5m16_anOpenCallResultDoesNotHoldFailback() throws Exception {
+        final LoadBalanceConnection conn =
+                kit.open("readWeight=slave:1", "writeFailbackProbeIntervalMs", Integer.valueOf(0));
+        final Statement st = conn.createStatement();
+        kit.server.fault(kit.rw(1), KitServer.Fault.REFUSE);
+        try {
+            st.executeUpdate("UPDATE t SET a = 1");
+        } catch (SQLException moved) {
+            // the write leg moves to node 2
+        }
+        st.executeUpdate("UPDATE t SET a = 1");
+        assertEquals(kit.rw(2), conn.getCurrentRwEndpoint().getId());
+        kit.brokerBack(kit.rw(1));
+
+        conn.setAutoCommit(false);
+        final PreparedStatement before =
+                conn.prepareStatement(
+                        "UPDATE t SET a = 2",
+                        ResultSet.TYPE_FORWARD_ONLY,
+                        ResultSet.CONCUR_READ_ONLY,
+                        ResultSet.CLOSE_CURSORS_AT_COMMIT);
+        final CallableStatement cs = conn.prepareCall("CALL q()");
+        before.executeUpdate();
+        final ResultSet call = cs.executeQuery();
+        conn.commit();
+
+        knownDefect(
+                "r5 m16",
+                () -> {
+                    assertTrue("core's commit left the cursor open", !call.isClosed());
+                    assertEquals(
+                            "failback waits for the cursor",
+                            kit.rw(2),
+                            conn.getCurrentRwEndpoint().getId());
+                });
+    }
+}

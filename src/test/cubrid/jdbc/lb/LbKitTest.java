@@ -322,4 +322,67 @@ public class LbKitTest {
             assertEquals(cubrid.jdbc.jci.UErrorCode.ER_TIMEOUT, timedOut.getErrorCode());
         }
     }
+
+    /**
+     * r5 D1: two threads share one connection, as JDBC allows. Core runs one statement at a time on
+     * a connection, so a write waits for a read in flight. Here the write ran meanwhile, and when
+     * the read then failed with its broker down, its failure was taken for one of the write leg:
+     * the write connection was replaced by a new server session.
+     */
+    @Test(timeout = 60000)
+    public void aStatementWaitsForAnotherThreadsStatementOnTheSameConnection() throws Exception {
+        final LoadBalanceConnection conn = kit.open("readWeight=slave:1");
+        final String read = "SELECT a FROM t";
+        final String write = "UPDATE t SET a = 1";
+        final KitServer.Hold held = kit.server.hold("EXECUTE " + read);
+        final List<Throwable> failures = Collections.synchronizedList(new ArrayList<Throwable>());
+        final Thread reader = run(conn, read, failures);
+        assertTrue(held.reached.await(10, java.util.concurrent.TimeUnit.SECONDS));
+        final Thread writer = run(conn, write, failures);
+        writer.join(500);
+        final boolean wroteMeanwhile = sent("EXECUTE " + write);
+
+        kit.server.fault(kit.ro(2), KitServer.Fault.REFUSE);
+        held.release.countDown();
+        reader.join();
+        writer.join();
+        final Statement next = conn.createStatement();
+        next.executeUpdate(write);
+        next.close();
+
+        assertEquals("[]", failures.toString());
+        assertTrue("the write ran while the read was in flight", !wroteMeanwhile);
+        assertEquals("the write leg kept its connection", 1, kit.server.dials(kit.rw(1)));
+        for (String line : kit.log()) {
+            assertTrue(line, line.indexOf("failed=" + kit.rw(1)) < 0);
+        }
+    }
+
+    private static Thread run(
+            final Connection conn, final String sql, final List<Throwable> failures) {
+        final Thread t =
+                new Thread(
+                        new Runnable() {
+                            public void run() {
+                                try {
+                                    final Statement s = conn.createStatement();
+                                    s.execute(sql);
+                                    s.close();
+                                } catch (Throwable e) {
+                                    failures.add(e);
+                                }
+                            }
+                        });
+        t.start();
+        return t;
+    }
+
+    private boolean sent(final String what) {
+        for (KitServer.Request r : kit.server.requests()) {
+            if (r.what.equals(what)) {
+                return true;
+            }
+        }
+        return false;
+    }
 }

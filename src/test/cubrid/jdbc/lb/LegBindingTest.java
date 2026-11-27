@@ -30,7 +30,6 @@ package cubrid.jdbc.lb;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
 
 import cubrid.jdbc.driver.KitServer;
 import cubrid.jdbc.lb.metrics.MetricsRegistry;
@@ -118,7 +117,10 @@ public class LegBindingTest {
         }
     }
 
-    /** r5 m1: a read failing over while another thread closes the connection opens no leg. */
+    /**
+     * r5 m1: a read failing over while another thread closes the connection opens no leg. Since r5
+     * D1 the close waits for the statement, as core's synchronized close does.
+     */
     @Test(timeout = 30000)
     public void closeDuringReadRecoveryLeavesNoLeg() throws Exception {
         closeDuringRecovery("readWeight=slave:1", kit.ro(2), "SELECT a FROM t");
@@ -131,52 +133,43 @@ public class LegBindingTest {
     }
 
     /**
-     * The statement fails on {@code failing} and its thread waits for the recovery lock, which this
-     * thread holds while it closes the connection; the recovery then runs on a closed connection.
+     * The statement is in flight when another thread closes the connection; then its broker goes
+     * down. The close waits until the statement, its recovery included, is over, and closes the
+     * legs that recovery opened.
      */
     private void closeDuringRecovery(final String options, final String failing, final String sql)
             throws Exception {
         final LoadBalanceConnection conn = kit.open(options);
         conn.createStatement().executeQuery("SELECT a FROM t").close();
+        final KitServer.Hold held = kit.server.hold("EXECUTE " + sql);
+        final Future<?> statement =
+                threads.submit(
+                        (Callable<Boolean>)
+                                () -> {
+                                    try {
+                                        return conn.createStatement().execute(sql);
+                                    } catch (SQLException failed) {
+                                        return Boolean.FALSE; // a write is not run again
+                                    }
+                                });
+        assertTrue(held.reached.await(10, TimeUnit.SECONDS));
+        final Future<?> close =
+                threads.submit(
+                        (Callable<Void>)
+                                () -> {
+                                    conn.close();
+                                    return null;
+                                });
+        Thread.sleep(300);
+        assertTrue("close() waits for the statement in flight", !close.isDone());
+
         kit.server.fault(failing, KitServer.Fault.REFUSE);
-        final Object recoveryLock = LbTestReflection.field(conn, "recoveryLock");
-        final Future<?> statement;
-        synchronized (recoveryLock) {
-            statement =
-                    threads.submit((Callable<Boolean>) () -> conn.createStatement().execute(sql));
-            final Thread.State waiting = waitForBlockedThread();
-            assertEquals(Thread.State.BLOCKED, waiting);
-            conn.close();
-        }
-        try {
-            statement.get(10, TimeUnit.SECONDS);
-            fail("a statement on a closed connection fails");
-        } catch (java.util.concurrent.ExecutionException closed) {
-            assertTrue(
-                    String.valueOf(closed.getCause()), closed.getCause() instanceof SQLException);
-        }
+        held.release.countDown();
+        statement.get(10, TimeUnit.SECONDS);
+        close.get(10, TimeUnit.SECONDS);
+
+        assertTrue(conn.isClosed());
         assertEquals(Collections.<String>emptyList(), kit.legLeaks());
-    }
-
-    private Thread.State waitForBlockedThread() throws InterruptedException {
-        for (int i = 0; i < 500; i++) {
-            for (Thread t : Thread.getAllStackTraces().keySet()) {
-                if (t.getState() == Thread.State.BLOCKED && isInRecovery(t)) {
-                    return t.getState();
-                }
-            }
-            Thread.sleep(10);
-        }
-        return null;
-    }
-
-    private static boolean isInRecovery(final Thread t) {
-        for (StackTraceElement e : t.getStackTrace()) {
-            if (e.getMethodName().equals("recoverPhyBinding")) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /**

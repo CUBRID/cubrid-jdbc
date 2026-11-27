@@ -416,6 +416,12 @@ public class LBStatement extends CUBRIDStatement {
     }
 
     public boolean getMoreResults() throws SQLException {
+        synchronized (lbConnection) {
+            return getMoreResultsLocked();
+        }
+    }
+
+    private boolean getMoreResultsLocked() throws SQLException {
         checkClosed();
         if (lastExecStmt == null) {
             return false;
@@ -543,6 +549,12 @@ public class LBStatement extends CUBRIDStatement {
 
     /* ===== close warnings connection =====*/
     public void close() throws SQLException {
+        synchronized (lbConnection) {
+            closeLocked();
+        }
+    }
+
+    private void closeLocked() throws SQLException {
         try {
             closePhyStmts();
         } finally {
@@ -679,11 +691,15 @@ public class LBStatement extends CUBRIDStatement {
             final boolean retrySafe,
             final SqlExecution<T> execution)
             throws SQLException {
-        lbConnection.beginStatementRoute(route);
-        try {
-            return runStatement(sql, route.getTarget(), retrySafe, execution);
-        } finally {
-            lbConnection.endStatementRoute();
+        // One statement at a time on a connection, as core's synchronized (con): a statement of
+        // another thread waits, and what this one records about its leg is its own (r5 D1).
+        synchronized (lbConnection) {
+            lbConnection.beginStatementRoute(route);
+            try {
+                return runStatement(sql, route.getTarget(), retrySafe, execution);
+            } finally {
+                lbConnection.endStatementRoute();
+            }
         }
     }
 
@@ -754,7 +770,9 @@ public class LBStatement extends CUBRIDStatement {
      */
     int[] executeBatchWithFailover(final List<String> sqls, final SqlExecution<int[]> execution)
             throws SQLException {
-        return runBatch(sqls, 0, execution);
+        synchronized (lbConnection) {
+            return runBatch(sqls, 0, execution);
+        }
     }
 
     /**
@@ -769,7 +787,9 @@ public class LBStatement extends CUBRIDStatement {
     int[] executeBatchWithFailover(
             final String sql, final int rows, final SqlExecution<int[]> execution)
             throws SQLException {
-        return runBatch(Collections.singletonList(sql), rows, execution);
+        synchronized (lbConnection) {
+            return runBatch(Collections.singletonList(sql), rows, execution);
+        }
     }
 
     /**

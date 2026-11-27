@@ -386,6 +386,12 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
 
     @Override
     public void close() throws SQLException {
+        synchronized (lbConnection) {
+            closeLocked();
+        }
+    }
+
+    private void closeLocked() throws SQLException {
         final boolean legGone = attached() == null;
         is_closed = true; // core's own closed flag, which its isClosed() reads
         try {
@@ -1622,7 +1628,9 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
 
     @Override
     public boolean getMoreResults() throws SQLException {
-        return lastRanSql ? statementDelegate.getMoreResults() : call.getMoreResults();
+        synchronized (lbConnection) {
+            return lastRanSql ? statementDelegate.getMoreResults() : call.getMoreResults();
+        }
     }
 
     @Override
@@ -1679,9 +1687,11 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
 
     @Override
     public boolean getMoreResults(final int current) throws SQLException {
-        return lastRanSql
-                ? statementDelegate.getMoreResults(current)
-                : call.getMoreResults(current);
+        synchronized (lbConnection) {
+            return lastRanSql
+                    ? statementDelegate.getMoreResults(current)
+                    : call.getMoreResults(current);
+        }
     }
 
     @Override

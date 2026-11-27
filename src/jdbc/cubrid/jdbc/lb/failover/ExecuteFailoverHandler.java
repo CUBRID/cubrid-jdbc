@@ -188,7 +188,10 @@ public final class ExecuteFailoverHandler {
             final boolean retrySafe,
             final SqlExecution<T> execution)
             throws SQLException {
-        return run(connection, routeTarget, sql, retrySafe, true, execution);
+        // One operation at a time on a connection, as core's: recovery rebinds the session's legs.
+        synchronized (requireConnection(connection)) {
+            return run(connection, routeTarget, sql, retrySafe, true, execution);
+        }
     }
 
     /**
@@ -217,7 +220,16 @@ public final class ExecuteFailoverHandler {
             final boolean retrySafe,
             final SqlExecution<T> execution)
             throws SQLException {
-        return run(connection, routeTarget, label, retrySafe, false, execution);
+        synchronized (requireConnection(connection)) {
+            return run(connection, routeTarget, label, retrySafe, false, execution);
+        }
+    }
+
+    private static LoadBalanceConnection requireConnection(final LoadBalanceConnection connection) {
+        if (connection == null) {
+            throw new IllegalArgumentException("connection must not be null");
+        }
+        return connection;
     }
 
     private <T> T run(

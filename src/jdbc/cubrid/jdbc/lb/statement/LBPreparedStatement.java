@@ -730,6 +730,12 @@ public class LBPreparedStatement extends CUBRIDPreparedStatement {
 
     @Override
     public void close() throws SQLException {
+        synchronized (ownerConn) {
+            closeLocked();
+        }
+    }
+
+    private void closeLocked() throws SQLException {
         if (statementDelegate.isClosed() || ownerConn.isStatementCached(sql)) {
             return;
         }

@@ -39,6 +39,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 /**
  * A fake cluster for LB tests: brokers by {@code host:port}, each up or failing in one of the ways
@@ -111,6 +113,15 @@ public final class KitServer implements JdbcConnectionFactory {
 
         @Override
         public int request(final KitUConnection c, final String what) {
+            final Hold held = holds.remove(what);
+            if (held != null) {
+                held.reached.countDown();
+                try {
+                    held.release.await(30, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
             final int code = answer(c, what);
             final KitConnection owner = physicalOf(c);
             synchronized (requests) {
@@ -154,6 +165,7 @@ public final class KitServer implements JdbcConnectionFactory {
 
     private final Map<String, Node> nodes = new LinkedHashMap<String, Node>();
     private final Map<String, Integer> failing = new ConcurrentHashMap<String, Integer>();
+    private final Map<String, Hold> holds = new ConcurrentHashMap<String, Hold>();
     private final List<Request> requests = new ArrayList<Request>();
     private final List<KitConnection> opened = new ArrayList<KitConnection>();
     private volatile long dialTimeoutMillis;
@@ -190,6 +202,21 @@ public final class KitServer implements JdbcConnectionFactory {
      */
     public void failRequest(final String what, final int code) {
         failing.put(what, Integer.valueOf(code));
+    }
+
+    /** A request the broker holds until the test releases it. */
+    public static final class Hold {
+        /** Counted down when the request arrives. */
+        public final CountDownLatch reached = new CountDownLatch(1);
+        /** Count it down to let the broker answer, as the node stands then. */
+        public final CountDownLatch release = new CountDownLatch(1);
+    }
+
+    /** The next request {@code what}, on any node, waits until the hold is released. */
+    public Hold hold(final String what) {
+        final Hold h = new Hold();
+        holds.put(what, h);
+        return h;
     }
 
     /** How long a dial to a silent host blocks before ER_TIMEOUT. */

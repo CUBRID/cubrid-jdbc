@@ -56,6 +56,8 @@ public final class StreamConnectionTest {
 
     private static final int ER_STREAM_INVALID_USE = -1220;
 
+    private static final int ER_STREAM_NOT_SUPPORTED = -1219;
+
     @Test
     public void autoCommitWaitsWhileAStreamIsOpen() throws Exception {
         StreamSocket socket = new StreamSocket(UConnection.PROTOCOL_V13, STREAM_OPEN);
@@ -180,6 +182,49 @@ public final class StreamConnectionTest {
         }
         assertEquals("the open was sent", UFunctionCode.STREAM_INIT.getCode(), socket.sent()[8]);
         assertTrue("the upload is still open", socket.isStreamOpen());
+    }
+
+    /**
+     * An upload the driver opened out of a transaction is given up by taking the CAS back out of
+     * the transaction the upload began. No statement ran in it, so a statement with a result set
+     * open stays as it was.
+     */
+    @Test
+    public void givingUpAnUploadOpenedOutOfATransactionEndsNoStatement() throws Exception {
+        StreamSocket socket = new StreamSocket(UConnection.PROTOCOL_V13, 0);
+        socket.reportOutOfTransaction(0);
+        CUBRIDConnection conn = new CUBRIDConnection(socket, "jdbc:cubrid:stream", "dba");
+        RecordingOwner owner = new RecordingOwner(conn);
+        CUBRIDStatement open = statementLeftOpen(conn);
+
+        socket.replyNext(new byte[0], true, STREAM_OPEN);
+        conn.streamInit(5, new byte[16]);
+        socket.replyNext(new byte[0], false, 0);
+        conn.streamAbort();
+
+        assertEquals(Collections.emptyList(), owner.ends);
+        assertFalse(open.completed);
+    }
+
+    /** The same holds when the CAS refuses the open, and rolls back what its check began. */
+    @Test
+    public void aRefusedOpenOutOfATransactionEndsNoStatement() throws Exception {
+        StreamSocket socket = new StreamSocket(UConnection.PROTOCOL_V13, 0);
+        socket.reportOutOfTransaction(0);
+        CUBRIDConnection conn = new CUBRIDConnection(socket, "jdbc:cubrid:stream", "dba");
+        RecordingOwner owner = new RecordingOwner(conn);
+        CUBRIDStatement open = statementLeftOpen(conn);
+        socket.refuseNextRequest(
+                ER_STREAM_NOT_SUPPORTED, "Stream not supported: stream kind 99 is not registered");
+
+        try {
+            conn.streamInit(99, new byte[16]);
+            fail("the CAS refused the open");
+        } catch (SQLException expected) {
+            assertEquals(ER_STREAM_NOT_SUPPORTED, expected.getErrorCode());
+        }
+        assertEquals(Collections.emptyList(), owner.ends);
+        assertFalse(open.completed);
     }
 
     /**

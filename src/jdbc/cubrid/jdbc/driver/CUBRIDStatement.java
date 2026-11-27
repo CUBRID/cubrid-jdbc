@@ -983,6 +983,10 @@ public class CUBRIDStatement implements Statement {
 
         if (getResultSetHoldability() == ResultSet.HOLD_CURSORS_OVER_COMMIT) is_holdable = true;
 
+        if (streamRequested) {
+            /* the stream this execute opens ends the statement's transaction at END or ABORT */
+            con.streamOpenedOutOfTransaction = false;
+        }
         u_stmt.setStreamRequested(streamRequested);
         u_stmt.execute(
                 false,

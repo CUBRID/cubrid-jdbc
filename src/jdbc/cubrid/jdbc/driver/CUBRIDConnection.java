@@ -87,6 +87,8 @@ public class CUBRIDConnection implements Connection {
 
     protected UError error;
     private boolean ending;
+    /* streamInit () opened the open stream with no transaction on the CAS */
+    boolean streamOpenedOutOfTransaction;
 
     protected ArrayList<Statement> statements;
     protected CUBRIDDatabaseMetaData mdata;
@@ -743,12 +745,16 @@ public class CUBRIDConnection implements Connection {
     }
 
     /*
-     * In auto-commit the CAS ends the transaction itself at END (a commit) and at ABORT (a
-     * rollback). The driver then has nothing to send, only the cleanup its own commit or rollback
-     * does, so a holdable result set is kept by END as by any other commit.
+     * In auto-commit the CAS ends the transaction itself at END (a commit) and at ABORT or a
+     * refusal (a rollback). The driver then has nothing to send, only the cleanup its own commit or
+     * rollback does, so a holdable result set is kept by END as by any other commit.
+     *
+     * A stream streamInit () opened out of a transaction ends no transaction of the statements: no
+     * statement runs while it is open, and the CAS ends only what the stream began, or takes the
+     * connection back to where it was before the upload.
      */
     private void endedByStream(boolean commit) throws SQLException {
-        if (ending || !auto_commit || u_con.isActive()) {
+        if (ending || !auto_commit || u_con.isActive() || streamOpenedOutOfTransaction) {
             return;
         }
         ending = true;
@@ -1056,6 +1062,10 @@ public class CUBRIDConnection implements Connection {
         int result;
 
         synchronized (u_con) {
+            /* an open sent with a stream open is refused and leaves that stream as it was */
+            if (!u_con.isStreamOpen()) {
+                streamOpenedOutOfTransaction = !u_con.isActive();
+            }
             result = u_con.getStream().init(streamKind, config);
             error = u_con.getRecentError();
         }

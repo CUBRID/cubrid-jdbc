@@ -99,6 +99,11 @@ public final class RuntimeMetrics {
         this.eventsEnabled = eventsEnabled;
     }
 
+    /** Whether {@link #recordEvent} keeps events, so a caller can skip building one. */
+    public boolean isEventsEnabled() {
+        return enabled && eventsEnabled;
+    }
+
     public void incRoSelectionCount() {
         if (enabled) {
             roSelectionCount.incrementAndGet();

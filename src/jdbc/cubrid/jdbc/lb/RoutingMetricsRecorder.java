@@ -186,7 +186,6 @@ final class RoutingMetricsRecorder {
             metrics.incRwFallbackCount();
         }
 
-        SqlClassification classification = sqlClassifier.classify(sql);
         // Counted by the leg it ran on, so a statement the classifier could not place counts too.
         metrics.recordExec(
                 endpoint.getId(),
@@ -194,7 +193,11 @@ final class RoutingMetricsRecorder {
                         ? SqlClassification.READ
                         : SqlClassification.WRITE,
                 fallback);
+        if (!metrics.isEventsEnabled()) {
+            return;
+        }
 
+        SqlClassification classification = sqlClassifier.classify(sql);
         String event =
                 new MetricEvent()
                         .field("sqlType", classification.name())
@@ -313,6 +316,9 @@ final class RoutingMetricsRecorder {
             metrics.incRwFallbackCount();
         }
         metrics.incUnclassifiedHit(endpoint.getId());
+        if (!metrics.isEventsEnabled()) {
+            return;
+        }
 
         String event =
                 new MetricEvent()

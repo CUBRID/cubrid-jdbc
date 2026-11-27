@@ -389,13 +389,10 @@ public class LoadBalanceConnectionRwFailbackTriggerTest {
         final long justInside = last.longValue() + 2999L * 1000000L; // wraps past the long range
         final long atTheInterval = last.longValue() + 3000L * 1000000L;
 
-        assertFalse(
-                "before the first attempt",
-                LoadBalanceConnection.attemptedWithin(null, -1L, 3000L));
-        assertTrue(LoadBalanceConnection.attemptedWithin(last, justInside, 3000L));
-        assertFalse(LoadBalanceConnection.attemptedWithin(last, atTheInterval, 3000L));
-        assertFalse(
-                "no interval", LoadBalanceConnection.attemptedWithin(last, last.longValue(), 0L));
+        assertFalse("before the first attempt", LegFailback.attemptedWithin(null, -1L, 3000L));
+        assertTrue(LegFailback.attemptedWithin(last, justInside, 3000L));
+        assertFalse(LegFailback.attemptedWithin(last, atTheInterval, 3000L));
+        assertFalse("no interval", LegFailback.attemptedWithin(last, last.longValue(), 0L));
     }
 
     private void executeWrite(final LoadBalanceConnection conn) throws SQLException {

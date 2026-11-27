@@ -174,9 +174,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     private final Object recoveryLock = new Object();
     private final Object statementCacheLock = new Object();
     private boolean sessionInitialized;
-    // System.nanoTime() of the last attempt; null before the first, as nanoTime has no "never".
-    private Long lastReadFailbackAttemptNanos;
-    private Long lastRwFailbackAttemptNanos;
+    private final LegFailback failback;
     // close() may run on a pool-eviction thread other than the one using the connection. Atomic so
     // two threads closing at once release once, as core's synchronized close() does.
     private final AtomicBoolean closed = new AtomicBoolean();
@@ -284,6 +282,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         this.sessionState = new SessionRoutingState();
         this.routingMetrics =
                 new RoutingMetricsRecorder(connectionId, config, sessionState, sqlClassifier);
+        this.failback = new LegFailback(this, config, sessionState);
         maybeStartMetrics(config);
         LIVE_CONNECTIONS.incrementAndGet();
         LbLog.fine(LOGGER, LbLog.conn(connectionId), "LB CONN: opened");
@@ -728,8 +727,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             throws SQLException {
         // Before failback, which would replace a leg core closed with a new one.
         checkClosed();
-        maybeRestoreRoBinding(target);
-        failbackRwIfStatementAllows();
+        failback.beforeStatement(target);
         EndpointSelection endpointSelection = selectionForTarget(target);
 
         Endpoint endpoint = endpointSelection.getEndpoint();
@@ -833,7 +831,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                 // back between prepare time and execute time, the eager prepare lands on the old
                 // endpoint and execute re-prepares on the new one - the same SQL prepared on two
                 // brokers. Probing first (a throttled no-op when not displaced) keeps it to one.
-                maybeRestoreRoBinding(RouteTarget.TO_READ_ONLY);
+                failback.beforeReadPrepare();
 
                 // READ: prepare only the bound read endpoint. There is no eager RW leg;
                 // WRITE/UNKNOWN still prepare RW via prepareOnWriteEndpoint. A master-role or
@@ -1309,11 +1307,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         }
         sessionState.onTransactionBoundary();
         logTxBoundary("commit");
-        // Transaction boundary: nothing is in flight, so this is the safe point to move a displaced
-        // RW leg back to the master. Manual-commit sessions re-arm transactionActive here, so this
-        // hook — not the statement path — is what covers them (a pooled connection is reset with
-        // rollback() on return, which lands here too).
-        attemptRwFailback();
+        failback.afterTransactionEnd();
     }
 
     public void rollback() throws SQLException {
@@ -1331,7 +1325,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         }
         sessionState.onTransactionBoundary();
         logTxBoundary("rollback");
-        attemptRwFailback(); // same transaction boundary as commit(); see the comment there
+        failback.afterTransactionEnd();
     }
 
     /**
@@ -1542,6 +1536,13 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         }
     }
 
+    /** The statements open on this connection now; a copy, safe to walk while they close. */
+    List<Statement> openStatementsSnapshot() {
+        synchronized (openStatements) {
+            return new ArrayList<Statement>(openStatements);
+        }
+    }
+
     /** Also starts the statement at the URL's queryTimeout, as core's addStatement does. */
     void trackStatement(Statement stmt) throws SQLException {
         synchronized (openStatements) {
@@ -1608,8 +1609,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
             final LBPreparedStatement.PhysicalPsProvider provider)
             throws SQLException {
         ps.setPsProvider(provider);
-        // Before the prepare, which opens a transaction that would hold it.
-        failbackRwIfStatementAllows();
+        failback.beforePrepare();
         if (!cacheable(sql)) {
             ps.prepareEagerly();
             trackStatement(ps);
@@ -2274,8 +2274,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                 label,
                 new SqlExecution<CallableStatement>() {
                     public CallableStatement run() throws SQLException {
-                        // Before the prepare, which opens a transaction that would hold it.
-                        failbackRwIfStatementAllows();
+                        failback.beforePrepare();
                         final LBCallableStatement cs =
                                 new LBCallableStatement(LoadBalanceConnection.this, sql, writeLeg);
                         trackStatement(cs); // the URL query timeout, closed with the connection
@@ -2835,6 +2834,16 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     /**
      * Drops cached DatabaseMetaData bound to a physical connection replaced by failover/restore.
      */
+    /** A failback moved {@code leg} home to {@code endpoint}. */
+    void legMovedHome(final SessionLeg leg, final Endpoint endpoint) {
+        invalidateMetaDataCache();
+        if (leg == SessionLeg.RW) {
+            routingMetrics.recordRwFailback(endpoint);
+        } else {
+            routingMetrics.recordRoFailback(endpoint);
+        }
+    }
+
     private void invalidateMetaDataCache() {
         rwMetaForCmd = null;
     }
@@ -3327,11 +3336,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         if (!SqlFacts.of(sql).sessionSet().changesSession()) {
             return;
         }
-        final List<Statement> open;
-        synchronized (openStatements) {
-            open = new ArrayList<Statement>(openStatements);
-        }
-        for (Statement each : open) {
+        for (Statement each : openStatementsSnapshot()) {
             if (each instanceof LBPreparedStatement) {
                 final LBPreparedStatement prepared = (LBPreparedStatement) each;
                 prepared.prepareOnWriteLeg();
@@ -3815,154 +3820,6 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         }
 
         return new EndpointSelection(logicalRoEndpoint, physicalFallback);
-    }
-
-    /**
-     * Lazy RO self-healing on the read path. When reads have fallen back to the RW physical
-     * connection and the bound RO endpoint has recovered, reconnect to a real RO connection so
-     * subsequent reads are routed back to RO. No-op unless this is an RO read served outside a
-     * transaction (when {@code shouldRouteToRw()} is true reads go to RW regardless).
-     */
-    private void maybeRestoreRoBinding(final RouteTarget target) {
-        if (target != RouteTarget.TO_READ_ONLY) {
-            return;
-        }
-        if (!sessionInitialized || sessionState.shouldRouteToRw()) {
-            return;
-        }
-        if (connMgr == null) {
-            return;
-        }
-        if (!config.isReadFailbackEnabled()) {
-            return;
-        }
-
-        // Throttle: a displaced session re-probes for a recovered home at most once per interval.
-        long now = System.nanoTime();
-        if (attemptedWithin(
-                lastReadFailbackAttemptNanos, now, config.getReadFailbackProbeIntervalMs())) {
-            return;
-        }
-        if (!connMgr.isReadDisplaced()) {
-            lastReadFailbackAttemptNanos = Long.valueOf(now);
-            return; // at home: nothing to restore, and no statement to scan for a cursor
-        }
-        if (hasOpenCursorOn(connMgr.boundConnection(SessionLeg.RO))) {
-            return; // retried on a later read, once the cursor is closed
-        }
-        lastReadFailbackAttemptNanos = Long.valueOf(now);
-
-        try {
-            Endpoint restoredRo = connMgr.restoreRoIfRecovered();
-            if (restoredRo != null) {
-                invalidateMetaDataCache();
-                routingMetrics.recordRoFailback(restoredRo);
-            }
-        } catch (SQLException ignored) {
-            // RO still unavailable; keep serving reads on RW and retry on a later read.
-        }
-    }
-
-    /**
-     * RW failback trigger on the statement path. Fires for every statement, a read on its own leg
-     * included: a session that only reads would otherwise keep a CAS of the sibling RW broker until
-     * its next write.
-     *
-     * <p>Only for a session with no transaction in progress. A manual-commit session is
-     * transaction-pinned even between commits (see {@code
-     * SessionRoutingState.onTransactionBoundary}), so for it this is always a no-op and the {@code
-     * commit()}/{@code rollback()} hook does the work.
-     */
-    private void failbackRwIfStatementAllows() {
-        if (sessionState.isTransactionActive()) {
-            return;
-        }
-        attemptRwFailback();
-    }
-
-    /**
-     * Whether a result set the application has not closed lives on {@code physical}. Failback
-     * closes the connection it leaves, and every cursor on it with it.
-     */
-    private boolean hasOpenCursorOn(final Connection physical) {
-        if (physical == null) {
-            return false;
-        }
-
-        List<Statement> snapshot;
-        synchronized (openStatements) {
-            snapshot = new ArrayList<Statement>(openStatements);
-        }
-        for (Statement each : snapshot) {
-            Connection underCursor = null;
-            if (each instanceof LBPreparedStatement) {
-                underCursor = ((LBPreparedStatement) each).openCursorConnection();
-            } else if (each instanceof LBStatement) {
-                underCursor = ((LBStatement) each).openCursorConnection();
-            } else if (each instanceof LBCallableStatement) {
-                underCursor = ((LBCallableStatement) each).openCursorConnection();
-            }
-            if (underCursor == physical) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Whether the attempt at {@code lastNanos} is less than {@code intervalMs} before {@code
-     * nowNanos}. Both are {@code System.nanoTime()} readings: on the wall clock, one set back would
-     * hold the failback until it caught up.
-     */
-    static boolean attemptedWithin(
-            final Long lastNanos, final long nowNanos, final long intervalMs) {
-        return lastNanos != null
-                && nowNanos - lastNanos.longValue() < TimeUnit.MILLISECONDS.toNanos(intervalMs);
-    }
-
-    /**
-     * Attempts RW failback at a caller-verified safe boundary: no statement in flight and no
-     * transaction work since the last commit/rollback. Throttled per session.
-     */
-    private void attemptRwFailback() {
-        if (!sessionInitialized || connMgr == null) {
-            return;
-        }
-        if (!config.isWriteFailbackEnabled()) {
-            return;
-        }
-
-        long now = System.nanoTime();
-        if (attemptedWithin(
-                lastRwFailbackAttemptNanos, now, config.getWriteFailbackProbeIntervalMs())) {
-            return;
-        }
-        if (!connMgr.isRwDisplaced()) {
-            lastRwFailbackAttemptNanos = Long.valueOf(now);
-            return; // on the master: nothing to restore, and no statement to scan for a cursor
-        }
-        // Core ends the autocommit transaction an OID write or a CALL left open when the next
-        // statement on that connection completes. Closing the connection first loses that work.
-        if (connMgr.isRwTxReportedOpen()) {
-            return; // retried at a later trigger, once it has ended
-        }
-        final Connection rw = connMgr.boundConnection(SessionLeg.RW);
-        if (hasOpenCursorOn(rw)) {
-            return; // retried at a later trigger, once the cursor is closed
-        }
-        lastRwFailbackAttemptNanos = Long.valueOf(now);
-
-        try {
-            Endpoint restoredRw = connMgr.restoreRwIfRecovered();
-            if (restoredRw != null) {
-                invalidateMetaDataCache();
-                routingMetrics.recordRwFailback(restoredRw);
-            }
-        } catch (SQLException ignored) {
-            // Master still unavailable; keep writing on the current RW and retry at a later
-            // boundary.
-        }
     }
 
     /**

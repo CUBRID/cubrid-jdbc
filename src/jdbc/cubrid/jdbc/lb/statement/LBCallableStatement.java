@@ -64,7 +64,6 @@ import java.sql.SQLXML;
 import java.sql.Time;
 import java.sql.Timestamp;
 import java.util.Calendar;
-import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -136,11 +135,6 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
         <T> T asCommand(SqlExecution<T> command) throws SQLException;
     }
 
-    /** A statement setting, made again on the statement prepared after the leg was replaced. */
-    private interface Setting {
-        void on(CallableStatement target) throws SQLException;
-    }
-
     private final LoadBalanceConnection lbConnection;
     private final String sql;
     private final WriteLeg writeLeg;
@@ -154,9 +148,9 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
 
     /** Whether the last run took SQL, which statementDelegate ran and answers for. */
     private boolean lastRanSql;
-    // What a statement prepared again is given: IN values, OUT registrations, settings by name.
+    // What a statement prepared again is given: IN values and OUT registrations here, the
+    // statement attributes from statementDelegate, as a Statement and a PreparedStatement get them.
     private final ParameterBinder parameterBinder;
-    private final Map<String, Setting> settings = new LinkedHashMap<String, Setting>();
     // A login given its values with ?: the other legs run it with them.
     private final boolean valuesGoToOtherLegs;
     // Runs nothing itself: it is the execute path this statement's runs go through.
@@ -261,19 +255,11 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
             call = writeLeg.prepare(now);
             leg = now;
             parameterBinder.replay(call);
-            for (Setting each : settings.values()) {
-                each.on(call);
-            }
+            statementDelegate.applyStmtProps(call);
             inStep = true;
         }
 
         return call;
-    }
-
-    /** Makes a setting on the physical statement, where core checks it, and keeps it. */
-    private void keep(final String name, final Setting setting) throws SQLException {
-        setting.on(prepared());
-        settings.put(name, setting);
     }
 
     /** Core's refusal of a closed statement, from the physical one this closed. */
@@ -1536,13 +1522,7 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
     @Override
     public void setMaxFieldSize(final int max) throws SQLException {
         statementDelegate.setMaxFieldSize(max);
-        keep(
-                "maxFieldSize",
-                new Setting() {
-                    public void on(final CallableStatement target) throws SQLException {
-                        target.setMaxFieldSize(max);
-                    }
-                });
+        prepared().setMaxFieldSize(max); // where core checks it
     }
 
     @Override
@@ -1553,13 +1533,7 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
     @Override
     public void setMaxRows(final int max) throws SQLException {
         statementDelegate.setMaxRows(max);
-        keep(
-                "maxRows",
-                new Setting() {
-                    public void on(final CallableStatement target) throws SQLException {
-                        target.setMaxRows(max);
-                    }
-                });
+        prepared().setMaxRows(max); // where core checks it
     }
 
     @Override
@@ -1568,6 +1542,7 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
         if (attached != null) {
             attached.setEscapeProcessing(enable);
         }
+        statementDelegate.setEscapeProcessing(enable);
     }
 
     @Override
@@ -1578,13 +1553,7 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
     @Override
     public void setQueryTimeout(final int seconds) throws SQLException {
         statementDelegate.setQueryTimeout(seconds);
-        keep(
-                "queryTimeout",
-                new Setting() {
-                    public void on(final CallableStatement target) throws SQLException {
-                        target.setQueryTimeout(seconds);
-                    }
-                });
+        prepared().setQueryTimeout(seconds); // where core checks it
     }
 
     @Override
@@ -1636,13 +1605,7 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
     @Override
     public void setFetchDirection(final int direction) throws SQLException {
         statementDelegate.setFetchDirection(direction);
-        keep(
-                "fetchDirection",
-                new Setting() {
-                    public void on(final CallableStatement target) throws SQLException {
-                        target.setFetchDirection(direction);
-                    }
-                });
+        prepared().setFetchDirection(direction); // where core checks it
     }
 
     @Override
@@ -1653,13 +1616,7 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
     @Override
     public void setFetchSize(final int rows) throws SQLException {
         statementDelegate.setFetchSize(rows);
-        keep(
-                "fetchSize",
-                new Setting() {
-                    public void on(final CallableStatement target) throws SQLException {
-                        target.setFetchSize(rows);
-                    }
-                });
+        prepared().setFetchSize(rows); // where core checks it
     }
 
     @Override
@@ -1718,26 +1675,12 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
     public void setQueryInfo(final boolean value) {
         statementDelegate.setQueryInfo(value);
         vendor().setQueryInfo(value);
-        settings.put(
-                "queryInfo",
-                new Setting() {
-                    public void on(final CallableStatement target) {
-                        ((CUBRIDCallableStatement) target).setQueryInfo(value);
-                    }
-                });
     }
 
     @Override
     public void setOnlyQueryPlan(final boolean value) {
         statementDelegate.setOnlyQueryPlan(value);
         vendor().setOnlyQueryPlan(value);
-        settings.put(
-                "onlyQueryPlan",
-                new Setting() {
-                    public void on(final CallableStatement target) {
-                        ((CUBRIDCallableStatement) target).setOnlyQueryPlan(value);
-                    }
-                });
     }
 
     @Override
@@ -1758,6 +1701,7 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
     @Override
     public void setCurrentTransaction(final boolean is_from_current_transaction) {
         vendor().setCurrentTransaction(is_from_current_transaction);
+        statementDelegate.setCurrentTransaction(is_from_current_transaction);
     }
 
     @Override

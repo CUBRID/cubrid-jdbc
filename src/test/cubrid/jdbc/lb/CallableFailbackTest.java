@@ -215,13 +215,30 @@ public final class CallableFailbackTest {
         assertEquals(NODE2, prepared.get(0).node);
         assertEquals(NODE1, prepared.get(1).node);
         assertEquals(
-                Arrays.asList(
-                        "setInt(1, 4)",
-                        "registerOutParameter(2, 4)",
-                        "setQueryTimeout(7)",
-                        "execute()"),
+                calls(Arrays.asList("setInt(1, 4)", "registerOutParameter(2, 4)"), 7, "execute()"),
                 prepared.get(1).asked);
         assertFalse(cs.isClosed());
+    }
+
+    /**
+     * Every statement attribute set on the CALL is on the statement prepared again: escape
+     * processing too, which only the old physical statement used to get.
+     */
+    @Test
+    public void afterAFailbackTheCallKeepsItsEscapeProcessing() throws SQLException {
+        open(true);
+        CallableStatement cs = conn.prepareCall("CALL p(?, ?)");
+        cs.setEscapeProcessing(false);
+        cs.execute();
+        masterComesBack();
+        write();
+
+        cs.execute();
+
+        assertEquals(2, prepared.size());
+        assertTrue(
+                prepared.get(1).asked.toString(),
+                prepared.get(1).asked.contains("setEscapeProcessing(false)"));
     }
 
     @Test
@@ -244,7 +261,7 @@ public final class CallableFailbackTest {
 
         assertEquals(NODE2, prepared.get(1).node);
         assertEquals(
-                Arrays.asList("setInt(1, 4)", "registerOutParameter(2, 4)", "execute()"),
+                calls(Arrays.asList("setInt(1, 4)", "registerOutParameter(2, 4)"), 0, "execute()"),
                 prepared.get(1).asked);
     }
 
@@ -275,7 +292,7 @@ public final class CallableFailbackTest {
         cs.execute();
 
         assertEquals(
-                Arrays.asList("setInt(1, 9)", "registerOutParameter(2, 4)", "execute()"),
+                calls(Arrays.asList("setInt(1, 9)", "registerOutParameter(2, 4)"), 0, "execute()"),
                 prepared.get(1).asked);
     }
 
@@ -292,7 +309,8 @@ public final class CallableFailbackTest {
         assertEquals(2, prepared.size());
         assertEquals(NODE1, prepared.get(1).node);
         assertEquals(
-                Arrays.asList("setQueryTimeout(7)", "getQueryTimeout()"), prepared.get(1).asked);
+                calls(Collections.<String>emptyList(), 7, "getQueryTimeout()"),
+                prepared.get(1).asked);
     }
 
     @Test
@@ -502,5 +520,24 @@ public final class CallableFailbackTest {
             return Integer.valueOf(0);
         }
         return null;
+    }
+
+    /**
+     * What a CALL prepared again is asked: its IN values and OUT registrations, then every
+     * statement attribute as {@code LBStatement.applyStmtProps} gives them (the defaults included,
+     * as a PreparedStatement's physical statement gets them at each run), then {@code next}.
+     */
+    private static List<String> calls(
+            final List<String> parameters, final int queryTimeout, final String next) {
+        final List<String> out = new ArrayList<String>(parameters);
+        out.addAll(
+                Arrays.asList(
+                        "setMaxRows(0)",
+                        "setQueryTimeout(" + queryTimeout + ")",
+                        "setFetchSize(0)",
+                        "setMaxFieldSize(0)",
+                        "setEscapeProcessing(true)"));
+        out.add(next);
+        return out;
     }
 }

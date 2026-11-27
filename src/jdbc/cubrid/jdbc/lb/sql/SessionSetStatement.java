@@ -993,8 +993,8 @@ public final class SessionSetStatement {
 
     /**
      * Whether a statement of {@code sql} prepares a named statement or drops one ({@code PREPARE},
-     * {@code DEALLOCATE PREPARE}, {@code DROP PREPARE}). It lives in the session of the leg that
-     * ran it, as a variable does.
+     * {@code DEALLOCATE PREPARE}, {@code DROP PREPARE}), or drops a variable ({@code DEALLOCATE
+     * VARIABLE}, {@code DROP VARIABLE}). Each lives in the session of the leg that ran it.
      *
      * @param sql the statement string
      * @return whether it does
@@ -1018,10 +1018,11 @@ public final class SessionSetStatement {
                 }
             }
             final String first = wordAt(sql, start);
+            final String second = "DROP".equals(first) ? wordAt(sql, skipWord(sql, start)) : null;
             if ("PREPARE".equals(first)
                     || "DEALLOCATE".equals(first)
-                    || "DROP".equals(first)
-                            && "PREPARE".equals(wordAt(sql, skipWord(sql, start)))) {
+                    || "PREPARE".equals(second)
+                    || "VARIABLE".equals(second)) {
                 return true;
             }
             start = i + 1;

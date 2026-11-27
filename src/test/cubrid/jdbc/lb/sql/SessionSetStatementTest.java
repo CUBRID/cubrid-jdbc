@@ -264,6 +264,15 @@ public class SessionSetStatementTest {
         assertFalse(SessionSetStatement.preparesOrDropsAStatement("EXECUTE s; DROP TABLE t"));
     }
 
+    /** r5 m20: DROP VARIABLE drops a variable of the session, as DEALLOCATE VARIABLE does. */
+    @Test
+    public void droppingAVariableChangesTheSession() {
+        assertTrue(SessionSetStatement.preparesOrDropsAStatement("SELECT 1; DROP VARIABLE @v"));
+        assertTrue(SessionSetStatement.preparesOrDropsAStatement("drop /* c */ variable v1, v2"));
+        assertTrue(SessionSetStatement.preparesOrDropsAStatement("DEALLOCATE VARIABLE @v"));
+        assertFalse(SessionSetStatement.preparesOrDropsAStatement("DROP VIEW v"));
+    }
+
     /**
      * With {@code no_backslash_escapes=no} the server reads {@code 'It\'s'} as one string and runs
      * the SET after it; the parser reads the string both ways, as the classifier does.

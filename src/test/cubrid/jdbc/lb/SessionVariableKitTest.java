@@ -38,7 +38,7 @@ import org.junit.Test;
 
 /**
  * Where a statement naming a variable runs, on the kit cluster: on the write leg when that leg's
- * session may hold the variable, as core's one session would (review r5 m18, m19).
+ * session may hold the variable, as core's one session would (review r5 m18, m19, m20).
  */
 public class SessionVariableKitTest {
     private static final int ER_DUPLICATE_KEY = -670;
@@ -85,5 +85,21 @@ public class SessionVariableKitTest {
         st.executeQuery("SELECT v FROM db_root").close();
 
         assertEquals(1, kit.runs(kit.rw(1), "SELECT v FROM db_root"));
+    }
+
+    /**
+     * r5 m20: {@code DROP VARIABLE @v} changes the session as {@code DEALLOCATE VARIABLE @v} does,
+     * so a TO_RO string holding it runs on the write leg, where {@code @v} lives.
+     */
+    @Test
+    public void droppingASessionVariableIgnoresTheReadHint() throws Exception {
+        final Statement st = kit.open("readWeight=slave:1").createStatement();
+        st.execute("SET @v = 1");
+        final String drop = "SELECT /*+ TO_RO */ 1 FROM db_root; DROP VARIABLE @v";
+
+        st.execute(drop);
+
+        assertEquals(1, kit.runs(kit.rw(1), drop));
+        assertEquals(0, kit.runs(kit.ro(2), drop));
     }
 }

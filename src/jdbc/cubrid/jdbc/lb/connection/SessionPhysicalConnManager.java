@@ -76,6 +76,10 @@ import java.util.logging.Logger;
  * connections, the owner-scoped physical prepared-statement cache, the tiered read ladder used for
  * failover (home &rarr; same-role sibling &rarr; cross-role &rarr; roOnRw), and lazy failback to
  * the home endpoints once they recover.
+ *
+ * <p>Its monitor is the session's lock on the legs: binding, recovery, failback and every dial hold
+ * it, and closing releases the legs under it, after which nothing is dialed. Readers outside the
+ * session, such as metrics and another connection, read {@link #binding()} and take no lock.
  */
 public final class SessionPhysicalConnManager implements EndpointConnManager {
     private static final Logger LOGGER =
@@ -164,6 +168,8 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
     private boolean roOnRw;
     // sessRwEp, sessRoEp and roOnRw as of the last completed change; see publishBinding.
     private volatile LegBinding binding = LegBinding.UNBOUND;
+    // Set when the owning connection closes; see checkNotReleased.
+    private boolean released;
     // The write leg closed under this session (core's network timeout): never reopened, see
     // ensureConn.
     private volatile boolean legClosedUnderneath;
@@ -752,6 +758,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
             final int maxAttemptsPerGroup,
             final boolean dialHeldLast)
             throws SQLException {
+        checkNotReleased(); // before claiming any probe, which other sessions wait on
         SQLException firstFailure = null;
 
         StringBuilder tried = new StringBuilder();
@@ -1086,7 +1093,18 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
     }
 
     public synchronized void releasePhysicalConnections() {
+        released = true;
         releaseBindings();
+    }
+
+    /**
+     * A closed session dials nothing: a recovery or failback that reaches the monitor after the
+     * close would open a leg that nobody closes.
+     */
+    private void checkNotReleased() throws SQLException {
+        if (released) {
+            throw LbExceptions.connectionClosed();
+        }
     }
 
     public synchronized PreparedStatement prepareStatement(
@@ -2390,6 +2408,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
     }
 
     private Connection openConnection(final Endpoint endpoint) throws SQLException {
+        checkNotReleased();
         JdbcPhyConnSpec spec = config.buildPhysicalJdbcSpec(clientInfo, endpoint);
 
         // The physical connect uses the per-broker classic URL (spec.getJdbcUrl()); core reports

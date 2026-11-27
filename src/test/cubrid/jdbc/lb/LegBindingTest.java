@@ -30,6 +30,7 @@ package cubrid.jdbc.lb;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import cubrid.jdbc.driver.KitServer;
 import cubrid.jdbc.lb.metrics.MetricsRegistry;
@@ -37,7 +38,9 @@ import cubrid.jdbc.lb.metrics.MetricsTestAccess;
 import cubrid.jdbc.lb.report.ReportTestAccess;
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -47,8 +50,9 @@ import org.junit.Before;
 import org.junit.Test;
 
 /**
- * Where a session's legs are, as other threads and connections see it (review r5 M1, m5, D5). A
- * core connection holds no lock another connection waits on.
+ * Where a session's legs are, as other threads and connections see it (review r5 M1, m1, m5, D5). A
+ * core connection holds no lock another connection waits on, and once closed it opens no socket
+ * again.
  */
 public class LegBindingTest {
     private static final String DIST = "lbLogDistIntervalSec=1";
@@ -112,6 +116,67 @@ public class LegBindingTest {
             x.interrupt(); // ends the dial
             x.join(10000);
         }
+    }
+
+    /** r5 m1: a read failing over while another thread closes the connection opens no leg. */
+    @Test(timeout = 30000)
+    public void closeDuringReadRecoveryLeavesNoLeg() throws Exception {
+        closeDuringRecovery("readWeight=slave:1", kit.ro(2), "SELECT a FROM t");
+    }
+
+    /** r5 m1: likewise for the write leg. */
+    @Test(timeout = 30000)
+    public void closeDuringWriteRecoveryLeavesNoLeg() throws Exception {
+        closeDuringRecovery("readWeight=slave:1", kit.rw(1), "UPDATE t SET a = 1");
+    }
+
+    /**
+     * The statement fails on {@code failing} and its thread waits for the recovery lock, which this
+     * thread holds while it closes the connection; the recovery then runs on a closed connection.
+     */
+    private void closeDuringRecovery(final String options, final String failing, final String sql)
+            throws Exception {
+        final LoadBalanceConnection conn = kit.open(options);
+        conn.createStatement().executeQuery("SELECT a FROM t").close();
+        kit.server.fault(failing, KitServer.Fault.REFUSE);
+        final Object recoveryLock = LbTestReflection.field(conn, "recoveryLock");
+        final Future<?> statement;
+        synchronized (recoveryLock) {
+            statement =
+                    threads.submit((Callable<Boolean>) () -> conn.createStatement().execute(sql));
+            final Thread.State waiting = waitForBlockedThread();
+            assertEquals(Thread.State.BLOCKED, waiting);
+            conn.close();
+        }
+        try {
+            statement.get(10, TimeUnit.SECONDS);
+            fail("a statement on a closed connection fails");
+        } catch (java.util.concurrent.ExecutionException closed) {
+            assertTrue(
+                    String.valueOf(closed.getCause()), closed.getCause() instanceof SQLException);
+        }
+        assertEquals(Collections.<String>emptyList(), kit.legLeaks());
+    }
+
+    private Thread.State waitForBlockedThread() throws InterruptedException {
+        for (int i = 0; i < 500; i++) {
+            for (Thread t : Thread.getAllStackTraces().keySet()) {
+                if (t.getState() == Thread.State.BLOCKED && isInRecovery(t)) {
+                    return t.getState();
+                }
+            }
+            Thread.sleep(10);
+        }
+        return null;
+    }
+
+    private static boolean isInRecovery(final Thread t) {
+        for (StackTraceElement e : t.getStackTrace()) {
+            if (e.getMethodName().equals("recoverPhyBinding")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

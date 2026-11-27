@@ -2500,15 +2500,7 @@ public class LoadBalanceConnection extends CUBRIDConnection {
         // healthy connections after an idle spell (see isBoundRwSocketOpen). Recovery is the
         // failover machinery's job. False is reserved for a session that is genuinely unusable: its
         // write socket was closed behind LB's back.
-        //
         if (connMgr != null) {
-            // Off: LoadBalanceSettings pins isWriteFailbackOnValidate() to false and no URL option
-            // sets it. When on, the pool probes idle and borrowed connections, so this is a chance
-            // for a displaced RW leg to self-correct without waiting for traffic. Gated on no
-            // active transaction, because the application may also call isValid() mid-transaction.
-            if (config.isWriteFailbackOnValidate() && !sessionState.isTransactionActive()) {
-                attemptRwFailback();
-            }
             return connMgr.isBoundRwSocketOpen();
         }
 

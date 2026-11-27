@@ -88,12 +88,6 @@ public class LoadBalanceSettings {
     private static final int DEFAULT_WRITE_FAILBACK_PROBE_INTERVAL_MS = 3000;
 
     /**
-     * Also try RW failback from the pool health probe ({@code Connection.isValid()}). Off, because
-     * it turns a pure probe into a path that may open a connection.
-     */
-    private static final boolean DEFAULT_WRITE_FAILBACK_ON_VALIDATE = false;
-
-    /**
      * Minimum interval (ms) between recovery probes to an unreachable endpoint. Gates the
      * backoff-bypass paths ({@code recoverRw}/{@code recoverRo}/RO read-path) so a down broker is
      * probed at most once per interval, whatever the session count.
@@ -115,7 +109,6 @@ public class LoadBalanceSettings {
     private final int readFailbackProbeIntervalMs;
     private final boolean writeFailbackEnabled;
     private final int writeFailbackProbeIntervalMs;
-    private final boolean writeFailbackOnValidate;
     private final int recoveryProbeIntervalMs;
 
     private final ResolvedRoleTopology resolvedTopology;
@@ -263,7 +256,6 @@ public class LoadBalanceSettings {
         this.readFailbackProbeIntervalMs = DEFAULT_READ_FAILBACK_PROBE_INTERVAL_MS;
         this.writeFailbackEnabled = DEFAULT_WRITE_FAILBACK_ENABLED;
         this.writeFailbackProbeIntervalMs = DEFAULT_WRITE_FAILBACK_PROBE_INTERVAL_MS;
-        this.writeFailbackOnValidate = DEFAULT_WRITE_FAILBACK_ON_VALIDATE;
         this.recoveryProbeIntervalMs = DEFAULT_RT_RECOVERY_PROBE_INTERVAL_MS;
         this.resolvedTopology = resolvedTopology;
         this.readWeight = readWeight;
@@ -315,10 +307,6 @@ public class LoadBalanceSettings {
 
     public int getWriteFailbackProbeIntervalMs() {
         return writeFailbackProbeIntervalMs;
-    }
-
-    public boolean isWriteFailbackOnValidate() {
-        return writeFailbackOnValidate;
     }
 
     /**

@@ -73,7 +73,7 @@ import org.junit.Test;
  *       own leg included, unless the write leg still holds an open transaction;
  *   <li>transaction boundary — a manual-commit session (transaction-pinned even between commits)
  *       corrects itself on {@code commit()}/{@code rollback()}, never mid-transaction;
- *   <li>pool probe — only with the opt-in {@code write.failback.on.validate};
+ *   <li>pool probe — never: {@code isValid()} only checks the write socket;
  *   <li>throttle — at most one probe per configured interval per session.
  * </ul>
  */
@@ -297,20 +297,6 @@ public class LoadBalanceConnectionRwFailbackTriggerTest {
             markUp(NODE1_RW);
             conn.isValid(0);
             assertEquals(NODE2_RW, conn.getCurrentRwEndpoint());
-        } finally {
-            conn.close();
-        }
-    }
-
-    @Test
-    public void poolProbeFailsBackWhenOptedIn() throws SQLException {
-        Map<String, Object> cfg = tuning(0);
-        cfg.put("writeFailbackOnValidate", Boolean.TRUE);
-        LoadBalanceConnection conn = displacedConnection(cfg);
-        try {
-            markUp(NODE1_RW);
-            conn.isValid(0);
-            assertEquals(NODE1_RW, conn.getCurrentRwEndpoint());
         } finally {
             conn.close();
         }

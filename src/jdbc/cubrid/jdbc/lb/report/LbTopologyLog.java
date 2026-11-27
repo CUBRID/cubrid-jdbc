@@ -220,11 +220,7 @@ public final class LbTopologyLog {
         b.append(" writeFailback=")
                 .append(
                         config.isWriteFailbackEnabled()
-                                ? "on("
-                                        + config.getWriteFailbackProbeIntervalMs()
-                                        + "ms"
-                                        + (config.isWriteFailbackOnValidate() ? ", onValidate" : "")
-                                        + ")"
+                                ? "on(" + config.getWriteFailbackProbeIntervalMs() + "ms)"
                                 : "off");
         b.append(" recoveryProbe=").append(config.getRecoveryProbeIntervalMs()).append("ms");
         b.append(" roFailoverToRw=").append(config.isRoPhysicalFailoverToRw() ? "on" : "off");

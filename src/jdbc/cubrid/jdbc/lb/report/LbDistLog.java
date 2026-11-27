@@ -76,8 +76,8 @@ import java.util.logging.Logger;
  *
  * <p><b>Windows are differences, not totals.</b> {@link MetricsRegistry} counters are cumulative
  * since JVM start, and a cumulative ratio grows less sensitive: hours in, a fresh imbalance barely
- * moves it. So the previous snapshot is kept here and subtracted. {@code RuntimeMetrics.reset()} is
- * not used, because it would corrupt the totals the Prometheus and CSV exporters publish.
+ * moves it. So the previous snapshot is kept here and subtracted; the cumulative counters are never
+ * reset, because the Prometheus and CSV exporters publish them as totals.
  */
 public final class LbDistLog {
     private static final Logger LOGGER = Logger.getLogger(LbDistLog.class.getName());
@@ -133,10 +133,7 @@ public final class LbDistLog {
         LbLog.info(
                 LOGGER,
                 null,
-                "LB DIST: distribution records every "
-                        + sec
-                        + "s (runtime counters enabled; no"
-                        + " metrics exporter started)");
+                "LB DIST: distribution records every " + sec + "s (runtime counters enabled)");
     }
 
     /**

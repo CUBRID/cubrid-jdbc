@@ -32,6 +32,7 @@ package cubrid.jdbc.lb.metrics;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import cubrid.jdbc.jci.UUnreachableHostList;
@@ -39,6 +40,7 @@ import cubrid.jdbc.lb.LbKit;
 import cubrid.jdbc.lb.LbTestReflection;
 import cubrid.jdbc.lb.config.ConfigTestAccess;
 import cubrid.jdbc.lb.config.MetricsConfig;
+import cubrid.jdbc.lb.report.ReportTestAccess;
 import cubrid.jdbc.lb.sql.SqlClassification;
 import java.io.IOException;
 import java.lang.reflect.Field;
@@ -284,6 +286,25 @@ public class MetricsExportersTest {
             exporterLog.removeHandler(hold);
             kit.close();
             MetricsTestAccess.stopExporters();
+        }
+    }
+
+    /** The DIST record wants counters only: a log option opens no port and starts no CSV writer. */
+    @Test
+    public void aConnectionThatOnlyWantsTheDistRecordStartsNoExporter() throws Exception {
+        final int port = freePort();
+        final LbKit kit = new LbKit(2);
+        try {
+            kit.open(
+                    "readWeight=slave:1&lbLogDistIntervalSec=60&metricsExport=prometheus,csv"
+                            + "&metricsPrometheusPort="
+                            + port);
+            assertFalse(accepts(InetAddress.getLoopbackAddress(), port));
+            assertNull(LbTestReflection.staticField(MetricsExporters.class, "csvThread"));
+        } finally {
+            kit.close();
+            MetricsTestAccess.stopExporters();
+            ReportTestAccess.resetDistLog();
         }
     }
 

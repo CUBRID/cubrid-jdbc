@@ -107,15 +107,18 @@ public class LbDistLogTest {
         assertEquals(0, allMatching("LB DIST").size());
     }
 
+    /**
+     * r5 n1: the line says nothing about exporters, since one that metricsExport started may be
+     * running. That DIST starts none is {@code
+     * MetricsExportersTest#aConnectionThatOnlyWantsTheDistRecordStartsNoExporter}.
+     */
     @Test
-    public void armingAnnouncesThatCountersAreOnButNoExporterIs() throws SQLException {
+    public void armingAnnouncesThatCountersAreOn() throws SQLException {
         LbDistLog.configure(settings(1, twoSlaves()));
 
         String line = onlyMatching("LB DIST: distribution records");
         assertTrue(line, line.indexOf("runtime counters enabled") >= 0);
-        assertTrue(
-                "a log option must not be able to open a port or create a CSV: " + line,
-                line.indexOf("no metrics exporter started") >= 0);
+        assertFalse(line, line.indexOf("exporter") >= 0);
     }
 
     @Test

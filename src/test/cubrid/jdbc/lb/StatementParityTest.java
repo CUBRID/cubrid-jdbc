@@ -33,6 +33,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import cubrid.jdbc.driver.CUBRIDJDBCErrorCode;
+import cubrid.jdbc.driver.CUBRIDStatement;
 import cubrid.jdbc.driver.KitServer;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -44,7 +45,8 @@ import org.junit.After;
 import org.junit.Test;
 
 /**
- * A logical statement answers as core's statement does after its connection closes (review r5 m21).
+ * A logical statement answers as core's statement does after its connection closes or another
+ * statement's failover or failback replaces the leg it ran on (review r5 m2, m21, m22).
  */
 public class StatementParityTest {
     private final LbKit kit = new LbKit(2);
@@ -93,6 +95,34 @@ public class StatementParityTest {
         assertFails(
                 CUBRIDJDBCErrorCode.statement_closed, () -> st.executeUpdate("UPDATE t SET a = 2"));
         assertFails(CUBRIDJDBCErrorCode.prepared_statement_closed, () -> ps.executeUpdate());
+    }
+
+    /**
+     * r5 m2, m22: another statement's failover closed the leg this one last ran on. Core's
+     * statement stays open there, so cancel() is an idle cancel and getQueryplan() has no plan.
+     */
+    @Test
+    public void cancelAndPlanAfterTheLegIsReplacedAnswerAsAnIdleCoreStatement() throws Exception {
+        final Connection conn = kit.open("readWeight=slave:1");
+        final Statement read = conn.createStatement();
+        final Statement write = conn.createStatement();
+        read.executeQuery("SELECT a FROM t").close();
+        write.executeUpdate("UPDATE t SET a = 1");
+
+        kit.server.fault(kit.ro(2), KitServer.Fault.REFUSE);
+        conn.createStatement().executeQuery("SELECT a FROM t").close(); // the read leg moves
+        kit.server.fault(kit.rw(1), KitServer.Fault.REFUSE);
+        try {
+            conn.createStatement().executeUpdate("UPDATE t SET a = 2");
+        } catch (SQLException moved) {
+            // the write leg moves; the write is not replayed
+        }
+
+        for (Statement st : new Statement[] {read, write}) {
+            st.cancel();
+            assertEquals("", ((CUBRIDStatement) st).getQueryplan());
+            assertTrue(!st.isClosed());
+        }
     }
 
     interface Call {

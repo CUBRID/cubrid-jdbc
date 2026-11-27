@@ -570,12 +570,13 @@ public class LBStatement extends CUBRIDStatement {
     public void cancel() throws SQLException {
         checkClosed();
         // Prefer the in-flight statement published at execute-start; fall back to the last
-        // completed one when no execution is in progress.
+        // completed one when no execution is in progress. One whose leg was replaced has nothing
+        // to cancel, as core's idle statement.
         Statement target = currentExecStmt;
         if (target == null) {
             target = lastExecStmt;
         }
-        if (target != null) {
+        if (isOpen(target)) {
             target.cancel();
         }
     }
@@ -940,8 +941,9 @@ public class LBStatement extends CUBRIDStatement {
 
     public String getQueryplan() throws SQLException {
         checkClosed();
-        if (lastExecStmt == null) {
-            return super.getQueryplan(); // core's answer before any execution
+        if (!isOpen(lastExecStmt)) {
+            // Core's answer with no server statement: none ran, or the leg it ran on is gone.
+            return super.getQueryplan();
         }
 
         lbConnection.settleReadLegRollback(false);

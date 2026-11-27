@@ -74,6 +74,11 @@ public final class StreamSocket extends UConnection {
         casInfo = new byte[] {CAS_INFO_STATUS_ACTIVE, 0, 0, (byte) additionalFlags};
     }
 
+    /** The CAS info of the last reply: no transaction is open, with these additional flags. */
+    public void reportOutOfTransaction(final int additionalFlags) {
+        casInfo = new byte[] {CAS_INFO_STATUS_INACTIVE, 0, 0, (byte) additionalFlags};
+    }
+
     /** The CAS answers the next request with this server error, and the same CAS info. */
     public void refuseNextRequest(final int serverError, final String message) {
         byte[] text = message.getBytes(StandardCharsets.US_ASCII);
@@ -91,6 +96,21 @@ public final class StreamSocket extends UConnection {
         ByteBuffer reply = ByteBuffer.allocate(8 + 4 + body.length);
         reply.putInt(4 + body.length).put(casInfo).putInt(0).put(body);
         input = new UTimedDataInputStream(new ByteArrayInputStream(reply.array()), "cas", 0);
+    }
+
+    /**
+     * As {@link #replyNext(byte[])}, the reply reporting a transaction open or not with these
+     * additional flags; the last reply's CAS info stays until the request reads it.
+     */
+    public void replyNext(final byte[] body, final boolean active, final int additionalFlags) {
+        byte[] last = casInfo;
+        if (active) {
+            report(additionalFlags);
+        } else {
+            reportOutOfTransaction(additionalFlags);
+        }
+        replyNext(body);
+        casInfo = last;
     }
 
     /** The CAS is gone: the next request reads end of stream where its reply should be. */

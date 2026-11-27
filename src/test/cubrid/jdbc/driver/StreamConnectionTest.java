@@ -39,7 +39,11 @@ import cubrid.jdbc.jci.StreamSocket;
 import cubrid.jdbc.jci.UConnection;
 import cubrid.jdbc.jci.UErrorCode;
 import cubrid.jdbc.jci.UFunctionCode;
+import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import org.junit.Test;
 
 /**
@@ -176,5 +180,55 @@ public final class StreamConnectionTest {
         }
         assertEquals("the open was sent", UFunctionCode.STREAM_INIT.getCode(), socket.sent()[8]);
         assertTrue("the upload is still open", socket.isStreamOpen());
+    }
+
+    /**
+     * An upload opened in a transaction, a download's, that ends out of one was rolled back: the
+     * download was released while the upload was open, and the CAS paid its deferred commit as a
+     * rollback. The driver cleans up as its own rollback does, and completing a statement there
+     * commits nothing.
+     */
+    @Test
+    public void givingUpAnUploadOpenedInATransactionRollsItBack() throws Exception {
+        StreamSocket socket = new StreamSocket(UConnection.PROTOCOL_V13, 0);
+        CUBRIDConnection conn = new CUBRIDConnection(socket, "jdbc:cubrid:stream", "dba");
+        RecordingOwner owner = new RecordingOwner(conn);
+        CUBRIDStatement open = statementLeftOpen(conn);
+
+        socket.replyNext(new byte[0], true, STREAM_OPEN);
+        conn.streamInit(5, new byte[16]);
+        socket.replyNext(new byte[0], false, 0);
+        conn.streamAbort();
+
+        assertEquals(Collections.singletonList("rollback"), owner.ends);
+        assertTrue(open.completed);
+        assertEquals("the CAS ended the transaction", 0, socket.commits() + socket.rollbacks());
+    }
+
+    /* A statement whose execute left it to complete, as one with a result set open does. */
+    private static CUBRIDStatement statementLeftOpen(final CUBRIDConnection conn)
+            throws SQLException {
+        CUBRIDStatement stmt =
+                (CUBRIDStatement)
+                        conn.createStatement(
+                                ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
+        stmt.completed = false;
+        return stmt;
+    }
+
+    /** The connection that owns the leg's value objects: records the ends the leg reports. */
+    private static final class RecordingOwner extends CUBRIDConnection {
+
+        private final List<String> ends = new ArrayList<String>();
+
+        private RecordingOwner(final CUBRIDConnection leg) throws SQLException {
+            super("jdbc:cubrid:owner", "dba");
+            leg.getUConnection().setCUBRIDConnection(this);
+        }
+
+        @Override
+        protected void legTransactionEnding(final CUBRIDConnection leg, final boolean commit) {
+            ends.add(commit ? "commit" : "rollback");
+        }
     }
 }

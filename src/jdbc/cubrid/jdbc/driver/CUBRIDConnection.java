@@ -748,15 +748,20 @@ public class CUBRIDConnection implements Connection {
      * does, so a holdable result set is kept by END as by any other commit.
      */
     private void endedByStream(boolean commit) throws SQLException {
-        if (!auto_commit || u_con.isActive()) {
+        if (ending || !auto_commit || u_con.isActive()) {
             return;
         }
-        if (commit) {
-            completeStatementForCommit();
-        } else {
-            completeAllStatements();
+        ending = true;
+        try {
+            if (commit) {
+                completeStatementForCommit();
+            } else {
+                completeAllStatements();
+            }
+            tellOwnerTransactionEnds(commit);
+        } finally {
+            ending = false;
         }
-        tellOwnerTransactionEnds(commit);
     }
 
     /* A server's refusal can end the stream, and in auto-commit the CAS then rolls back. */

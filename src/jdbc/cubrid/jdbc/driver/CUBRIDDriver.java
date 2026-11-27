@@ -478,10 +478,12 @@ public class CUBRIDDriver implements Driver {
         if (sep < 0 || at < authStart) {
             return maskUriUrlPassword(url, null);
         }
-        int options = url.indexOf('?', at);
+        // Core's rule finds the options after db:user:password:; a '?' before them is a
+        // credential's own.
+        int options = uriOptionsStart(url);
         return url.substring(0, authStart)
                 + "********"
-                + (options < 0 ? "" : url.substring(options));
+                + (options < at ? "" : url.substring(options));
     }
 
     /**

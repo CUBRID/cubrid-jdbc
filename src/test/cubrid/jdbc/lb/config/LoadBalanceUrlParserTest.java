@@ -109,6 +109,31 @@ public class LoadBalanceUrlParserTest {
         }
     }
 
+    /**
+     * r5 m11: an '@' and a '?' in a user or password written after the database, in the right
+     * place, with another mistake elsewhere. The error names that mistake and quotes none of the
+     * password.
+     */
+    @Test
+    public void anAtInTheCredentialsAfterTheDatabaseKeepsTheRealErrorAndHidesThePassword() {
+        final String[][] cases = {
+            {
+                "jdbc:cubrid:loadbalance://h1:99999/demodb:dba:Adm@1n?2024:?readWeight=master:1",
+                "2024"
+            },
+            {"jdbc:cubrid:loadbalance://h1:99999/demodb:app@corp:pa?ss:", "pa?ss"}
+        };
+        for (String[] c : cases) {
+            try {
+                LoadBalanceUrlParser.parse(c[0]);
+                fail("must be refused: " + c[0]);
+            } catch (SQLException e) {
+                assertFalse(e.getMessage(), e.getMessage().contains(c[1]));
+                assertTrue(e.getMessage(), e.getMessage().contains("port out of range"));
+            }
+        }
+    }
+
     @Test
     public void parsesGlobalPortExampleWithCredsAndOptions() throws SQLException {
         ParsedUrl p =

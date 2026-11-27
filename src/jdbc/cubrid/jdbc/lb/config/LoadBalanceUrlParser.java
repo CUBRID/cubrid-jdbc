@@ -124,9 +124,13 @@ public final class LoadBalanceUrlParser {
             parseSubname(subname, hosts, replicas, url);
             dbInfo = parseDbInfo(dbInfoStr, url);
         } catch (SQLException quotesWhatItRead) {
-            // Both quote the part they could not read. With an '@' that may hold a password
-            // written as other drivers' user:password@host, a '/' in it moving some into the db.
-            if (beforeOptions.indexOf('@') >= 0) {
+            // Both quote the part they could not read. Other drivers' user:password@host puts the
+            // '@' among the hosts, or in the database name when a '/' in the password moved some
+            // there; one in the user or password after the database is theirs, and the error
+            // that was found is the one to report.
+            final int dbEnd = dbInfoStr.indexOf(':');
+            final String dbName = dbEnd < 0 ? dbInfoStr : dbInfoStr.substring(0, dbEnd);
+            if (subname.indexOf('@') >= 0 || dbName.indexOf('@') >= 0) {
                 throw LbExceptions.invalidUrl(
                         "the hosts or the database could not be read; the user and password go"
                                 + " after the database (/db:user:password:), not in front of a"

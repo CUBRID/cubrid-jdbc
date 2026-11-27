@@ -529,4 +529,22 @@ public class CUBRIDDriverUrlModeTest {
                 CUBRIDDriver.maskUriUrlPassword(
                         "jdbc:cubrid:loadbalance://node1,node2?rcTime=600", null));
     }
+
+    /**
+     * r5 m11: an invalid single-node URI with an '@' and a '?' in its password quotes none of the
+     * password; the options start where core's rule says, after db:user:password:.
+     */
+    @Test
+    public void anInvalidUriWithAnAtInThePasswordHidesAllOfThePassword() {
+        try {
+            CUBRIDDriver.uriSingleToClassicUrl("jdbc:cubrid://h1:1:2/demodb:dba:Adm@1n?2024:");
+            fail("an authority with two ':' is invalid");
+        } catch (SQLException e) {
+            assertFalse(e.getMessage(), e.getMessage().contains("2024"));
+        }
+        assertEquals(
+                "jdbc:cubrid://********?charSet=utf-8",
+                CUBRIDDriver.maskInvalidUriUrl(
+                        "jdbc:cubrid://h1/db:dba:Adm@1n?2024:?charSet=utf-8"));
+    }
 }

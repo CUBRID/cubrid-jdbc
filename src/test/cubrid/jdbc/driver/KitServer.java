@@ -38,6 +38,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * A fake cluster for LB tests: brokers by {@code host:port}, each up or failing in one of the ways
@@ -145,12 +146,14 @@ public final class KitServer implements JdbcConnectionFactory {
                     }
                     return 0;
                 default:
-                    return 0;
+                    final Integer failed = failing.get(what);
+                    return failed == null ? 0 : failed.intValue();
             }
         }
     }
 
     private final Map<String, Node> nodes = new LinkedHashMap<String, Node>();
+    private final Map<String, Integer> failing = new ConcurrentHashMap<String, Integer>();
     private final List<Request> requests = new ArrayList<Request>();
     private final List<KitConnection> opened = new ArrayList<KitConnection>();
     private volatile long dialTimeoutMillis;
@@ -171,6 +174,14 @@ public final class KitServer implements JdbcConnectionFactory {
 
     public void fault(final String endpointId, final Fault fault) {
         node(endpointId).fault = fault;
+    }
+
+    /**
+     * Executing {@code sql} fails on every node with the server error {@code code}, as a statement
+     * error does: the connection stays.
+     */
+    public void failStatement(final String sql, final int code) {
+        failing.put("EXECUTE " + sql, Integer.valueOf(code));
     }
 
     /** How long a dial to a silent host blocks before ER_TIMEOUT. */

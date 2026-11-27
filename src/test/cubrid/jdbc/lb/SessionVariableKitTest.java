@@ -29,16 +29,19 @@
 package cubrid.jdbc.lb;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.fail;
 
+import java.sql.SQLException;
 import java.sql.Statement;
 import org.junit.After;
 import org.junit.Test;
 
 /**
  * Where a statement naming a variable runs, on the kit cluster: on the write leg when that leg's
- * session may hold the variable, as core's one session would (review r5 m18).
+ * session may hold the variable, as core's one session would (review r5 m18, m19).
  */
 public class SessionVariableKitTest {
+    private static final int ER_DUPLICATE_KEY = -670;
     private final LbKit kit = new LbKit(2);
 
     @After
@@ -61,5 +64,26 @@ public class SessionVariableKitTest {
         st.executeQuery("SELECT id, total FROM orders WHERE id = 7").close();
 
         assertEquals(1, kit.runs(kit.ro(2), "SELECT id, total FROM orders WHERE id = 7"));
+    }
+
+    /**
+     * r5 m19: CUBRID keeps what the statements before a failing one did, so a variable an INTO
+     * there created stays in the write leg's session, where a read naming it then runs.
+     */
+    @Test
+    public void aVariableCreatedBeforeAFailingStatementIsReadOnTheWriteLeg() throws Exception {
+        final String failing = "SELECT 42 INTO v FROM db_root; INSERT INTO t VALUES (1)";
+        kit.server.failStatement(failing, ER_DUPLICATE_KEY);
+        final Statement st = kit.open("readWeight=slave:1").createStatement();
+        try {
+            st.execute(failing);
+            fail("the INSERT fails");
+        } catch (SQLException duplicate) {
+            assertEquals(ER_DUPLICATE_KEY, duplicate.getErrorCode());
+        }
+
+        st.executeQuery("SELECT v FROM db_root").close();
+
+        assertEquals(1, kit.runs(kit.rw(1), "SELECT v FROM db_root"));
     }
 }

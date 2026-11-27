@@ -3433,9 +3433,10 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     }
 
     /**
-     * Records what a statement that failed on RW may have changed. CUBRID keeps the SETs a
-     * multi-statement string ran before the failing statement; which ones ran is not known, so each
-     * setting the string touches keeps reads on RW until a later statement sets it again.
+     * Records what a statement that failed on RW may have changed. CUBRID keeps the SETs and
+     * variables a multi-statement string made before the failing statement; which ones is not
+     * known, so each setting the string touches keeps reads on RW until a later statement sets it
+     * again, and each variable it assigns is read on RW.
      *
      * @param sql the statement as the application issued it
      */
@@ -3445,6 +3446,9 @@ public class LoadBalanceConnection extends CUBRIDConnection {
                 SessionSetStatement.parse(sql).getPinsIfFailed(),
                 "a statement string with a session change failed; the SETs before the failing"
                         + " statement may have run on RW");
+        // Likewise a variable an INTO before the failing statement created. Such a string runs on
+        // RW: an INTO sends it there.
+        sessionState.addSessionVariables(IntoVariables.assignedIfFailed(sql));
     }
 
     /**

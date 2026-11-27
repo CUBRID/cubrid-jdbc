@@ -141,4 +141,15 @@ public class IntoVariablesTest {
                 IntoVariables.droppedBy("CREATE PROCEDURE p() AS BEGIN NULL; END; DROP VARIABLE x")
                         .isEmpty());
     }
+
+    /** r5 m19: CUBRID keeps what ran before a failing statement of the same string. */
+    @Test
+    public void aFailedStringMayHaveAssignedWhatItsStatementsAssign() {
+        assertEquals(
+                Collections.singleton("V"),
+                IntoVariables.assignedIfFailed(
+                        "SELECT 42 INTO v FROM db_root; INSERT INTO t VALUES (1)"));
+        assertTrue(IntoVariables.assignedIfFailed("SELECT 42 INTO v FROM db_root").isEmpty());
+        assertTrue(IntoVariables.assignedIfFailed("SELECT 42 INTO v FROM db_root;").isEmpty());
+    }
 }

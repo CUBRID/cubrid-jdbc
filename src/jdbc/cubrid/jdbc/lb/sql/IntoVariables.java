@@ -219,6 +219,39 @@ public final class IntoVariables {
     }
 
     /**
+     * Names a string that failed may still have assigned: CUBRID keeps what its statements before
+     * the failing one did, and which of them ran is not known. One statement that failed assigned
+     * nothing.
+     *
+     * @param sql the statement text as the application sent it
+     * @return upper-cased names; empty for a single statement
+     */
+    public static Set<String> assignedIfFailed(final String sql) {
+        return sql != null && severalStatements(sql)
+                ? assignedBy(sql)
+                : Collections.<String>emptySet();
+    }
+
+    /** Whether {@code sql} holds more than one statement. */
+    private static boolean severalStatements(final String sql) {
+        final int len = sql.length();
+        int statements = 0;
+        int i = 0;
+        while (i < len) {
+            i = SqlLexer.skipWhitespaceAndComments(sql, i);
+            if (i < len && sql.charAt(i) != ';' && ++statements > 1) {
+                return true;
+            }
+            while (i < len && sql.charAt(i) != ';') {
+                final int after = SqlLexer.skipCommentOrQuoted(sql, i);
+                i = after != i ? after : i + 1;
+            }
+            i++;
+        }
+        return false;
+    }
+
+    /**
      * Whether {@code sql} creates a stored routine. The server compiles its body and runs none of
      * it, so an {@code INTO} or {@code DROP VARIABLE} there touches no session, and the body's
      * {@code ;} do not end the string's statement.

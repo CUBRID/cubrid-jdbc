@@ -359,9 +359,9 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
     }
 
     @Override
+    /** Core's keys result names no statement, so neither does this one. */
     public ResultSet getGeneratedKeys() throws SQLException {
-        return LBStatement.stampProducer(
-                lastRanSql ? statementDelegate.getGeneratedKeys() : call.getGeneratedKeys(), this);
+        return lastRanSql ? statementDelegate.getGeneratedKeys() : call.getGeneratedKeys();
     }
 
     /**

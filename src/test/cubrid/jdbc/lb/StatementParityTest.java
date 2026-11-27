@@ -29,12 +29,14 @@
 package cubrid.jdbc.lb;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import cubrid.jdbc.driver.CUBRIDJDBCErrorCode;
 import cubrid.jdbc.driver.CUBRIDStatement;
 import cubrid.jdbc.driver.KitServer;
+import java.sql.CallableStatement;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
@@ -46,7 +48,7 @@ import org.junit.Test;
 
 /**
  * A logical statement answers as core's statement does after its connection closes or another
- * statement's failover or failback replaces the leg it ran on (review r5 m2, m21, m22).
+ * statement's failover or failback replaces the leg it ran on (review r5 m2, m21, m22, m23).
  */
 public class StatementParityTest {
     private final LbKit kit = new LbKit(2);
@@ -123,6 +125,17 @@ public class StatementParityTest {
             assertEquals("", ((CUBRIDStatement) st).getQueryplan());
             assertTrue(!st.isClosed());
         }
+    }
+
+    /** r5 m23: core's generated-keys result of a CALL has no statement. */
+    @Test
+    public void generatedKeysOfACallHaveNoStatement() throws Exception {
+        final Connection conn = kit.open("readWeight=slave:1");
+        final CallableStatement cs = conn.prepareCall("CALL p(?)");
+        cs.setInt(1, 1);
+        cs.execute();
+
+        assertNull(cs.getGeneratedKeys().getStatement());
     }
 
     interface Call {

@@ -198,11 +198,11 @@ public class LbKitTest {
     }
 
     /**
-     * r5 m16: an open result of a CALL does not hold RW failback. Core's commit leaves it open here
-     * (ISSUE-34 skips the CALL after a removed PreparedStatement), then failback closes it.
+     * r5 m16: an open result of a CALL holds RW failback until it closes. Core's commit leaves it
+     * open here (ISSUE-34 skips the CALL after a removed PreparedStatement).
      */
     @Test
-    public void knownDefect_r5m16_anOpenCallResultDoesNotHoldFailback() throws Exception {
+    public void anOpenCallResultHoldsFailbackUntilItCloses() throws Exception {
         final LoadBalanceConnection conn =
                 kit.open("readWeight=slave:1", "writeFailbackProbeIntervalMs", Integer.valueOf(0));
         final Statement st = conn.createStatement();
@@ -228,14 +228,13 @@ public class LbKitTest {
         final ResultSet call = cs.executeQuery();
         conn.commit();
 
-        knownDefect(
-                "r5 m16",
-                () -> {
-                    assertTrue("core's commit left the cursor open", !call.isClosed());
-                    assertEquals(
-                            "failback waits for the cursor",
-                            kit.rw(2),
-                            conn.getCurrentRwEndpoint().getId());
-                });
+        assertTrue("core's commit left the cursor open", !call.isClosed());
+        assertEquals(
+                "failback waits for the cursor", kit.rw(2), conn.getCurrentRwEndpoint().getId());
+        assertEquals(3, rows(call).size());
+
+        call.close();
+        conn.commit();
+        assertEquals(kit.rw(1), conn.getCurrentRwEndpoint().getId());
     }
 }

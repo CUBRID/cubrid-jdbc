@@ -157,24 +157,10 @@ public final class CallableFailbackTest {
         assertFalse(cs.isClosed());
     }
 
-    /** Failback closes the write connection, and with it a result set of the CALL still open. */
-    @Test
-    public void rwFailbackWaitsWhileAResultSetOfTheCallIsOpen() throws SQLException {
-        open(true);
-        CallableStatement cs = conn.prepareCall("CALL p(?, ?)");
-        ResultSet rs = cs.executeQuery();
-        masterComesBack();
-
-        write();
-        assertEquals(NODE2, conn.getCurrentRwEndpoint());
-        assertFalse(rs.isClosed());
-
-        rs.close();
-        write();
-        assertEquals(NODE1, conn.getCurrentRwEndpoint());
-    }
-
-    /** The same for a result set of SQL the statement ran on the write connection. */
+    /**
+     * Failback closes the write connection, and with it a result set of SQL the statement ran there
+     * (a result set of the CALL: LbKitTest, on core's own statement).
+     */
     @Test
     public void rwFailbackWaitsWhileAResultSetOfSqlItRanIsOpen() throws SQLException {
         open(true);

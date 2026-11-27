@@ -376,8 +376,9 @@ public class LBCallableStatement extends CUBRIDCallableStatement {
             return underSql;
         }
         try {
+            // Not call.getConnection(): the CALL reports this connection as its own.
             final ResultSet rs = call.getResultSet();
-            return rs == null || rs.isClosed() ? null : call.getConnection();
+            return rs == null || rs.isClosed() ? null : leg;
         } catch (SQLException closedOrGone) {
             return null; // a result set that cannot answer cannot be read either
         }

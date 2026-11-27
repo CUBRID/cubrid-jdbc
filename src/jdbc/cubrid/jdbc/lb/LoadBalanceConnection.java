@@ -2822,10 +2822,11 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      * handler.
      *
      * <p>Only the calls that actually send a request need this - {@code getTables}, {@code
-     * getColumns}, the key/index/privilege queries and {@code getDatabaseProductVersion}. The rest
-     * of the 173-method surface answers from local constants, so a broker being down cannot affect
-     * them. The closure resolves the metadata handle <b>and</b> runs the query, because a rebind
-     * must not leave the query on the handle of the failed endpoint.
+     * getColumns}, the key/index/privilege queries and the database version (product version, major
+     * and minor numbers). The rest of the 173-method surface answers from local constants, so a
+     * broker being down cannot affect them. The closure resolves the metadata handle <b>and</b>
+     * runs the query, because a rebind must not leave the query on the handle of the failed
+     * endpoint.
      *
      * <p>Not timed: it is a command, not a statement. Like a write it runs again only when
      * connecting failed; otherwise the leg is rebound, so the caller's retry lands on the new one.

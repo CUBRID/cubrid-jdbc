@@ -342,6 +342,43 @@ public final class BrokerDownOutsideExecuteTest {
         }
     }
 
+    /**
+     * r5 m15: core's getDatabaseMajorVersion and getDatabaseMinorVersion ask the server for the
+     * version the first time, so they rebind the write leg as getDatabaseProductVersion does.
+     */
+    @Test
+    public void databaseVersionNumbersRebindTheWriteLegWhenTheWriteBrokerIsDown()
+            throws SQLException {
+        assertVersionQueryRebinds("getDatabaseMajorVersion");
+        assertVersionQueryRebinds("getDatabaseMinorVersion");
+    }
+
+    private static void assertVersionQueryRebinds(final String method) throws SQLException {
+        final List<String> asked = new ArrayList<String>();
+        LoadBalanceConnection conn =
+                sessionOverTwoWriteEndpoints(catalogQueryFactory("rw1", asked, method));
+
+        try {
+            versionNumber(conn, method);
+            fail("Expected the original write-leg failure to be reported");
+        } catch (SQLException expected) {
+            assertEquals(UErrorCode.ER_COMMUNICATION, expected.getErrorCode());
+        }
+
+        assertTrue(method, hasFailoverEvent(conn));
+        versionNumber(conn, method);
+
+        assertEquals(method, Arrays.asList("rw1", "rw2"), asked);
+        conn.close();
+    }
+
+    private static int versionNumber(final LoadBalanceConnection conn, final String method)
+            throws SQLException {
+        return "getDatabaseMajorVersion".equals(method)
+                ? conn.getMetaData().getDatabaseMajorVersion()
+                : conn.getMetaData().getDatabaseMinorVersion();
+    }
+
     /** Core's stored routine metadata now asks the server, so it rebinds the write leg too. */
     @Test
     public void getProceduresRebindsTheWriteLegWhenTheWriteBrokerIsDown() throws SQLException {

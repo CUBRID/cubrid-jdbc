@@ -34,6 +34,7 @@ import cubrid.jdbc.driver.KitServer;
 import cubrid.jdbc.jci.UUnreachableHostList;
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.config.LoadBalanceUrlParser;
+import cubrid.jdbc.lb.sql.ReplayList;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -171,10 +172,9 @@ public final class LbKit implements AutoCloseable {
     }
 
     /**
-     * I3 — no unrequested execution: a statement that changes data or calls a routine runs no more
-     * often than the application sent it. Reads may run again after a failure, and session SETs and
-     * a user switch ({@code login} on the class db_user) are replayed by design, so they are not
-     * counted.
+     * I3 — no unrequested execution: a statement runs no more often than the application sent it.
+     * Reads may run again after a failure, and the session statements of the closed list ({@link
+     * ReplayList}) are replayed by design, so they are not counted.
      *
      * @param sent the statements the application sent, one entry per execution
      */
@@ -227,10 +227,8 @@ public final class LbKit implements AutoCloseable {
     }
 
     private static boolean isReplayable(final String text) {
-        final String t = text.trim().toUpperCase(java.util.Locale.ROOT);
-        return t.startsWith("SELECT")
-                || t.startsWith("SET ")
-                || (t.startsWith("CALL ") && t.contains("LOGIN") && t.contains("CLASS DB_USER"));
+        return text.trim().toUpperCase(java.util.Locale.ROOT).startsWith("SELECT")
+                || ReplayList.allows(text);
     }
 
     @Override

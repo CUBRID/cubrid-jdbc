@@ -122,10 +122,12 @@ public class MetricsExportersTest {
                                 + "\"} 1"));
     }
 
+    /** A master-role session reads on the RW connection by design and is not counted (r5 m4). */
     @Test
     public void roOnRwGaugeCountsOnlySessionsReadingOverTheRwConnection() {
         register(SLAVE, "slave", false);
-        register(MASTER, "master", true);
+        register(SLAVE, "slave", true); // every read broker failed
+        register(MASTER, "master", false);
 
         assertEquals(1, MetricsRegistry.countRoOnRwSessions());
         assertTrue(MetricsExporters.renderPrometheus().contains("lb_ro_on_rw_sessions 1"));

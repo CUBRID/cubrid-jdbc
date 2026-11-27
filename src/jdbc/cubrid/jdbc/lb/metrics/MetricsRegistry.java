@@ -155,12 +155,12 @@ public final class MetricsRegistry {
     }
 
     /**
-     * Live sessions whose reads are served by the RW physical connection instead of their own read
-     * endpoint ({@code roOnRw}). A gauge, and an early warning: a non-zero value outside a planned
-     * master-role weight means those reads compete with write traffic on one connection, so read
-     * latency degrades before any error is raised.
+     * Live sessions whose read brokers all failed, so their reads run on the RW physical connection
+     * ({@code roOnRw}). A gauge, and an early warning: those reads compete with write traffic on
+     * one connection, so read latency degrades before any error is raised. A master-role session
+     * reads there by design and is not counted, so the healthy value is zero.
      *
-     * @return the number of live sessions reading on their RW connection
+     * @return the number of live sessions whose reads fell back onto their RW connection
      */
     public static int countRoOnRwSessions() {
         int n = 0;

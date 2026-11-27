@@ -164,9 +164,9 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     // recovers the endpoint that was really used, not a recomputed preview.
     private Endpoint lastExecEndpoint = null;
     // Where that statement ran: lastExecEndpoint, except a read on the shared RW connection
-    // (roOnRw) ran on the RW endpoint. Metrics and logs report this one.
+    // (a master read, or roOnRw) ran on the RW endpoint. Metrics and logs report this one.
     private Endpoint lastExecRanOn = null;
-    // Whether that statement was a read on the shared RW connection (roOnRw).
+    // Whether that statement was a read on the shared RW connection (a master read, or roOnRw).
     private boolean lastExecOnRwConn = false;
     // Set only while endLostWriteTx rebinds the write leg: the transaction there is known to be
     // over, although the dead connection's last reply still says it is open.
@@ -1002,8 +1002,8 @@ public class LoadBalanceConnection extends CUBRIDConnection {
      *   <li>when no read role exists (single host, no replica) the session is permanent RW-only;
      *       otherwise the read target is chosen once by {@code readWeight};
      *   <li>the read physical connection is bound via {@link
-     *       EndpointConnManager#bindSessionWithReadTarget}: a master read reuses the RW connection
-     *       (roOnRw), a slave/replica read opens a separate RO/SO connection.
+     *       EndpointConnManager#bindSessionWithReadTarget}: a master read reuses the RW connection,
+     *       a slave/replica read opens a separate RO/SO connection.
      * </ol>
      */
     private void bindFromUrlTopology(final EndpointConnManager mgr, final EndpointTopology topology)

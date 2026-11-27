@@ -53,8 +53,8 @@ import java.util.Map;
  *
  * <p>Every host-list node gets both RW and RO, not just the master: a slave keeps an RW broker so
  * master failover can rebind RW to it, and the master keeps an RO broker even though its reads
- * reuse RW (roOnRw). Every broker kind has a default port, so an omitted port never fails
- * resolution; the throw in {@code decidePort} guards a caller that passes no default.
+ * reuse RW. Every broker kind has a default port, so an omitted port never fails resolution; the
+ * throw in {@code decidePort} guards a caller that passes no default.
  */
 public final class ResolvedRoleTopology {
 

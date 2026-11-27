@@ -53,8 +53,8 @@ import java.util.logging.Logger;
  *   <li><b>Unspecified</b> (no {@code readWeight}): each role that <em>exists</em> in the topology
  *       gets weight {@code 1} (master always exists; slave iff there are non-first hosts; replica
  *       iff a {@code ;replica=} list is present). Master is included by default so reads can reuse
- *       its idle RW connection (roOnRw); a single host with no slave/replica yields master-only,
- *       i.e. RW-only.
+ *       its idle RW connection; a single host with no slave/replica yields master-only, i.e.
+ *       RW-only.
  * </ul>
  *
  * <p>Parsed weights only. {@link cubrid.jdbc.lb.route.RoleReadSelector} uses them as the target

@@ -50,9 +50,9 @@ import org.junit.Before;
 import org.junit.Test;
 
 /**
- * Where a session's legs are, as other threads and connections see it (review r5 M1, m1, m5, D5). A
- * core connection holds no lock another connection waits on, and once closed it opens no socket
- * again.
+ * Where a session's legs are, as other threads and connections see it (review r5 M1, m1, m4, m5,
+ * D5). A core connection holds no lock another connection waits on, and once closed it opens no
+ * socket again.
  */
 public class LegBindingTest {
     private static final String DIST = "lbLogDistIntervalSec=1";
@@ -205,6 +205,21 @@ public class LegBindingTest {
 
         assertTrue(text, text.contains("read=" + kit.rw(1) + " "));
         assertTrue(text, text.contains(kit.ro(2)));
+    }
+
+    /**
+     * r5 m4: {@code lb_ro_on_rw_sessions} counts sessions whose read brokers all failed. A session
+     * whose read weight put it on the master reads on the write connection by design and is not
+     * counted.
+     */
+    @Test
+    public void theRoOnRwGaugeCountsOnlyFallenBackSessions() throws Exception {
+        kit.open("readWeight=master:1&" + DIST);
+        assertEquals(0, MetricsRegistry.countRoOnRwSessions());
+
+        openFallenBackToRw();
+
+        assertEquals(1, MetricsRegistry.countRoOnRwSessions());
     }
 
     /**

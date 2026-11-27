@@ -76,8 +76,6 @@ public final class SimpleEndpointConnManager implements EndpointConnManager {
 
     private Endpoint sessionRoEndpoint;
 
-    private boolean readOnRw;
-
     private final Map<String, PreparedStatement> preparedStatements =
             new HashMap<String, PreparedStatement>();
 
@@ -144,11 +142,11 @@ public final class SimpleEndpointConnManager implements EndpointConnManager {
         } else {
             bindSession(masterRw, readEndpoint, topology);
         }
-        readOnRw = readReusesRw;
     }
 
-    public synchronized boolean isReadOnRwConnection() {
-        return readOnRw;
+    /** This fake has no read broker to fail, so reads never fall back onto RW. */
+    public boolean isReadOnRwConnection() {
+        return false;
     }
 
     public synchronized LegBinding binding() {

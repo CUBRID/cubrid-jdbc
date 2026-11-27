@@ -45,11 +45,11 @@ public interface BindingView {
     String boundReadEndpointId();
 
     /**
-     * Whether this session's reads currently run on its RW physical connection ({@code roOnRw}),
-     * either by design (master-role read weight) or because every read endpoint failed. Read at
-     * export time, for the same reason as the binding.
+     * Whether every read broker of this session failed, so its reads run on its RW physical
+     * connection ({@code roOnRw}). A session whose read weight chose the master reads there by
+     * design and answers false. Read at export time, for the same reason as the binding.
      *
-     * @return {@code true} if reads currently run on the RW connection
+     * @return {@code true} if reads have fallen back onto the RW connection
      */
     boolean readsOnRwConnection();
 }

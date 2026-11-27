@@ -93,14 +93,14 @@ public interface EndpointConnManager extends PhysicalResourceReleaser {
      * Role-model session binding. Writes always run on {@code masterRw}; this logical connection's
      * reads run on {@code readEndpoint} (the single read target chosen once by readWeight).
      *
-     * <p>When the chosen read target is the master ({@code readReusesRw} — roOnRw), no separate
-     * read connection is opened: the RW physical connection serves both read and write, so the
-     * logical connection holds <b>one</b> physical connection. Otherwise a separate RO/SO physical
+     * <p>When the chosen read target is the master ({@code readReusesRw}), no separate read
+     * connection is opened: the RW physical connection serves both read and write, so the logical
+     * connection holds <b>one</b> physical connection. Otherwise a separate RO/SO physical
      * connection is opened for {@code readEndpoint}, giving two physical connections.
      *
      * @param masterRw the master RW broker endpoint that serves writes
      * @param readEndpoint the read target chosen by readWeight
-     * @param readReusesRw true when reads run on the RW physical connection (roOnRw)
+     * @param readReusesRw true when reads run on the RW physical connection
      * @param topology the endpoint topology used for failover
      * @throws SQLException if a physical connection cannot be opened
      */
@@ -130,11 +130,11 @@ public interface EndpointConnManager extends PhysicalResourceReleaser {
     Connection boundConnection(SessionLeg leg);
 
     /**
-     * Whether reads currently run on the RW physical connection instead of one of their own - the
-     * {@code readReusesRw} state of {@link #bindSessionWithReadTarget}, which failover can also
-     * enter when every read endpoint is down. Exported as an operator gauge.
+     * Whether every read broker failed, so reads run on the RW physical connection (roOnRw). A
+     * session whose read target is the master reads there by design and is not counted. Takes no
+     * lock; exported as the {@code lb_ro_on_rw_sessions} gauge.
      *
-     * @return whether reads currently run on the RW physical connection
+     * @return whether reads have fallen back onto the RW physical connection
      */
     boolean isReadOnRwConnection();
 

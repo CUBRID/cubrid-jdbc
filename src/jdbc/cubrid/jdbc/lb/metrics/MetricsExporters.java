@@ -418,10 +418,11 @@ public final class MetricsExporters {
                         + " master, read: the weighted home)",
                 MetricsRegistry.failbacks());
 
-        // Sessions reading over the RW connection (roOnRw) — by design for master-role weight, or
-        // because every read endpoint failed. Either way these reads compete with write traffic.
+        // Sessions whose read brokers all failed (roOnRw): their reads compete with write traffic.
+        // Master-role sessions read on the RW connection by design and are not counted.
         sb.append(
-                "# HELP lb_ro_on_rw_sessions Live sessions whose reads run on the RW physical connection\n");
+                "# HELP lb_ro_on_rw_sessions Live sessions whose reads fell back onto the RW physical"
+                        + " connection because every read broker failed\n");
         sb.append("# TYPE lb_ro_on_rw_sessions gauge\n");
         sb.append("lb_ro_on_rw_sessions ")
                 .append(MetricsRegistry.countRoOnRwSessions())

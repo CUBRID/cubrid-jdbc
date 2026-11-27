@@ -78,15 +78,83 @@ public final class ExecuteFailoverHandler {
     }
 
     /**
-     * Whether core reported a reply it could not read. Core reconnects for one itself where it
-     * does, so when this reaches LB core still holds a connection and its session; one that cannot
-     * reach the broker reports a connection error instead.
+     * Whether core reported a reply it could not read. Core reconnects for one itself where it may;
+     * one that reaches LB came where core does not, a transaction being open, or after its
+     * reconnect. LB keeps the leg as core keeps its connection, though the CAS behind it, and its
+     * session, may be gone. One that cannot reach the broker reports a connection error instead.
      *
      * @param ex the failure to classify
      * @return whether the failure is a malformed reply
      */
     public static boolean isMalformedReply(final SQLException ex) {
         return ex.getErrorCode() == UErrorCode.ER_ILLEGAL_DATA_SIZE;
+    }
+
+    /** Whether the session logs statements as issued: a server error then keeps its message. */
+    private static boolean loggedRaw(final LoadBalanceConnection connection) {
+        return connection.getLbConfig().getLbLogConfig().isSqlRaw();
+    }
+
+    /** What a failed physical call says about the leg it ran on. */
+    public enum LegFailure {
+        /** The broker answered and the call failed: nothing to recover. */
+        STATEMENT,
+        /** The broker went away or could not be reached: rebind the leg. */
+        BROKER_DOWN,
+        /**
+         * A read leg on its own connection is closed or gone under LB: core's network timeout
+         * closed it, a setter dropped it, or reopening it failed. Core never reads from that node,
+         * so the leg moves as a dead broker's does. On the write leg's connection a timeout closes
+         * the session instead, as on core's one connection.
+         */
+        READ_LEG_LOST
+    }
+
+    /**
+     * Classifies a failure on {@code failedLeg}: the one rule for executions, commands and
+     * prepares.
+     *
+     * @param ex the failure
+     * @param failedLeg the leg the call ran on; a read on the write leg's connection ran on RW
+     * @param connection the logical connection, asked whether its read leg's own connection is
+     *     closed
+     * @return what the failure says about the leg
+     */
+    public static LegFailure classify(
+            final SQLException ex,
+            final RouteTarget failedLeg,
+            final LoadBalanceConnection connection) {
+        if (failedLeg == RouteTarget.TO_READ_ONLY
+                && (ex.getErrorCode() == UErrorCode.ER_NETWORK_TIMEOUT
+                        || connection.isOwnReadLegClosed())) {
+            return LegFailure.READ_LEG_LOST;
+        }
+        return isBrokerFailure(ex) ? LegFailure.BROKER_DOWN : LegFailure.STATEMENT;
+    }
+
+    /**
+     * Why the rebound leg does not run the call again, or {@code null} when it does. The decision
+     * and its record come from here, so the record names the reason that applied.
+     */
+    private static String replayWithheld(
+            final LoadBalanceConnection connection,
+            final RouteTarget routeTarget,
+            final boolean retrySafe,
+            final SQLException ex) {
+        if (!connection.getLbConfig().isRuntimeFailoverRetryOnce()) {
+            return "retry disabled";
+        }
+        if (!retrySafe) {
+            return "a CALL, a connection command or a session property is not replayed here";
+        }
+        // Core reports ER_CONNECTION when it could not send, and also when an autocommit
+        // statement lost its answer and the reconnect was refused; with altHosts core sends the
+        // request to the next host either way, and so does this.
+        if (routeTarget == RouteTarget.TO_READ_WRITE
+                && ex.getErrorCode() != UErrorCode.ER_CONNECTION) {
+            return "write may already have been applied";
+        }
+        return null;
     }
 
     <T> T executeWithFailover(
@@ -106,10 +174,9 @@ public final class ExecuteFailoverHandler {
      * @param connection the logical LB connection issuing the statement
      * @param routeTarget the route target the statement was classified to
      * @param sql the SQL being executed, for logging and re-prepare
-     * @param retrySafe whether re-running {@code execution} after a rebind is safe with respect to
-     *     the statement's parameters. Streams/readers bound as parameters are consumed by the first
-     *     execution and cannot be replayed, so the caller passes {@code false} to forbid retry.
-     *     Plain statements with no parameters pass {@code true}.
+     * @param retrySafe whether running {@code execution} again after a rebind is safe. A CALL, a
+     *     connection command and a session property pass {@code false}; a setter applies its value
+     *     again itself. Parameters are no reason: stream and reader values are read when set.
      * @param execution the physical execution to run
      * @return the execution's result
      * @throws SQLException if the execution fails and cannot be recovered/retried
@@ -121,7 +188,10 @@ public final class ExecuteFailoverHandler {
             final boolean retrySafe,
             final SqlExecution<T> execution)
             throws SQLException {
-        return run(connection, routeTarget, sql, retrySafe, true, execution);
+        // One operation at a time on a connection, as core's: recovery rebinds the session's legs.
+        synchronized (requireConnection(connection)) {
+            return run(connection, routeTarget, sql, retrySafe, true, execution);
+        }
     }
 
     /**
@@ -150,7 +220,16 @@ public final class ExecuteFailoverHandler {
             final boolean retrySafe,
             final SqlExecution<T> execution)
             throws SQLException {
-        return run(connection, routeTarget, label, retrySafe, false, execution);
+        synchronized (requireConnection(connection)) {
+            return run(connection, routeTarget, label, retrySafe, false, execution);
+        }
+    }
+
+    private static LoadBalanceConnection requireConnection(final LoadBalanceConnection connection) {
+        if (connection == null) {
+            throw new IllegalArgumentException("connection must not be null");
+        }
+        return connection;
     }
 
     private <T> T run(
@@ -176,7 +255,8 @@ public final class ExecuteFailoverHandler {
         try {
             return timedRun(connection, routeTarget, timed, execution);
         } catch (SQLException ex) {
-            if (!isBrokerFailure(ex)) {
+            RouteTarget failedLeg = connection.failedLegTarget(routeTarget);
+            if (classify(ex, failedLeg, connection) == LegFailure.STATEMENT) {
                 // Not a broker failure: the statement itself failed and no leg is rebound.
                 // Recorded, so a log showing no failover after an error is explained rather than
                 // silent.
@@ -187,15 +267,16 @@ public final class ExecuteFailoverHandler {
                                 + routeTarget
                                 + "]: not a broker failure -> propagating without"
                                 + " failover | cause: "
-                                + LbLog.cause(ex));
+                                + LbLog.cause(ex, loggedRaw(connection)));
                 throw ex;
             }
 
             // Recover the endpoint that was actually used for this execution (captured at execute
             // time), so recomputing the routing preview here cannot mark the wrong node.
+            // Whether to replay is still decided by routeTarget below: a read stays a read.
             try {
-                Endpoint failedEp = connection.resolveFailedExecEndpoint(routeTarget);
-                PhysicalRecoveryContext ctx = connection.buildRecoveryCtx(routeTarget, failedEp);
+                Endpoint failedEp = connection.resolveFailedExecEndpoint(failedLeg);
+                PhysicalRecoveryContext ctx = connection.buildRecoveryCtx(failedLeg, failedEp);
                 connection.recoverPhyBinding(ctx, ex);
             } catch (SQLException recoveryEx) {
                 // Recovery preparation failed. The original execution exception is the meaningful
@@ -211,23 +292,15 @@ public final class ExecuteFailoverHandler {
                                 + routeTarget
                                 + "]: rebinding failed -> propagating the original"
                                 + " execution failure | rebind cause: "
-                                + LbLog.cause(recoveryEx));
+                                + LbLog.cause(recoveryEx, loggedRaw(connection)));
                 throw ex;
             }
 
-            // Rebind the endpoint (done above) but do NOT re-run when re-execution is unsafe:
-            //  - writes (TO_READ_WRITE): the server may have already applied the statement before
-            //    the connection dropped, so replaying risks a duplicate INSERT / double UPDATE.
-            //    Unless connecting failed (ER_CONNECTION): nothing was sent, and core, which
-            //    reconnects before it sends, runs the write on the next host.
-            //  - retrySafe == false: a consumed stream/reader parameter cannot be replayed.
-            // In both cases propagate the original exception so the caller decides.
-            if (!connection.getLbConfig().isRuntimeFailoverRetryOnce()
-                    || (routeTarget == RouteTarget.TO_READ_WRITE
-                            && ex.getErrorCode() != UErrorCode.ER_CONNECTION)
-                    || !retrySafe) {
-                // The leg IS rebound; only the replay is withheld. Naming which of the three
-                // reasons applies separates "failover worked, the caller redoes the statement" from
+            // The leg is rebound (above); a write that may have been applied, and a call that is
+            // not replayed here, still propagate the original exception so the caller decides.
+            final String withheld = replayWithheld(connection, routeTarget, retrySafe, ex);
+            if (withheld != null) {
+                // Naming the reason separates "failover worked, the caller redoes the call" from
                 // "failover did nothing", which look identical from the exception alone.
                 LbLog.fine(
                         LOGGER,
@@ -235,11 +308,7 @@ public final class ExecuteFailoverHandler {
                         "LB RETRY ["
                                 + routeTarget
                                 + "]: leg rebound but not replayed ("
-                                + (!connection.getLbConfig().isRuntimeFailoverRetryOnce()
-                                        ? "retry disabled"
-                                        : routeTarget == RouteTarget.TO_READ_WRITE
-                                                ? "write may already have been applied"
-                                                : "a consumed stream parameter cannot be replayed")
+                                + withheld
                                 + ") -> the caller decides");
                 throw ex;
             }

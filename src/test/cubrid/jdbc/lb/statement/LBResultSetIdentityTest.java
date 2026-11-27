@@ -77,7 +77,7 @@ public final class LBResultSetIdentityTest {
     @Test
     public void statementExecuteQueryReturnsThePhysicalResultSet() throws Exception {
         LBStatement statement = new LBStatement(connection);
-        statement.setStatementProvider(stmtProvider());
+        StatementTestAccess.setStatementProvider(statement, stmtProvider());
 
         assertSame(
                 "LB must not wrap the physical ResultSet",
@@ -88,7 +88,7 @@ public final class LBResultSetIdentityTest {
     @Test
     public void statementGetResultSetReturnsThePhysicalResultSet() throws Exception {
         LBStatement statement = new LBStatement(connection);
-        statement.setStatementProvider(stmtProvider());
+        StatementTestAccess.setStatementProvider(statement, stmtProvider());
 
         statement.execute("SELECT * FROM t");
 
@@ -98,7 +98,7 @@ public final class LBResultSetIdentityTest {
     @Test
     public void statementGetGeneratedKeysReturnsThePhysicalResultSet() throws Exception {
         LBStatement statement = new LBStatement(connection);
-        statement.setStatementProvider(stmtProvider());
+        StatementTestAccess.setStatementProvider(statement, stmtProvider());
 
         statement.executeUpdate("INSERT INTO t(id) VALUES (1)");
 
@@ -126,7 +126,7 @@ public final class LBResultSetIdentityTest {
     @Test
     public void statementExecuteQueryResultSetNamesTheLogicalStatement() throws Exception {
         LBStatement statement = new LBStatement(connection);
-        statement.setStatementProvider(stmtProvider());
+        StatementTestAccess.setStatementProvider(statement, stmtProvider());
 
         ResultSet rs = statement.executeQuery("SELECT * FROM t");
 
@@ -144,7 +144,7 @@ public final class LBResultSetIdentityTest {
     @Test
     public void statementGetResultSetNamesTheLogicalStatement() throws Exception {
         LBStatement statement = new LBStatement(connection);
-        statement.setStatementProvider(stmtProvider());
+        StatementTestAccess.setStatementProvider(statement, stmtProvider());
 
         statement.execute("SELECT * FROM t");
 
@@ -155,7 +155,7 @@ public final class LBResultSetIdentityTest {
     @Test
     public void statementGetGeneratedKeysNamesNoStatementAsInCore() throws Exception {
         LBStatement statement = new LBStatement(connection);
-        statement.setStatementProvider(stmtProvider());
+        StatementTestAccess.setStatementProvider(statement, stmtProvider());
 
         statement.executeUpdate("INSERT INTO t(id) VALUES (1)");
 
@@ -208,7 +208,7 @@ public final class LBResultSetIdentityTest {
     public void aNonCubridResultSetIsReturnedUnchanged() throws Exception {
         physicalRs = resultSetProxy();
         LBStatement statement = new LBStatement(connection);
-        statement.setStatementProvider(stmtProvider());
+        StatementTestAccess.setStatementProvider(statement, stmtProvider());
 
         assertSame(physicalRs, statement.executeQuery("SELECT * FROM t"));
     }

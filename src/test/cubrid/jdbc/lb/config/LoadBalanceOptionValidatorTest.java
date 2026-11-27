@@ -62,10 +62,10 @@ public class LoadBalanceOptionValidatorTest {
                                 "rwPort", "33000",
                                 "readWeight", "slave:1"));
 
-        assertTrue(r.getIgnoredKeys().contains("altHosts"));
-        assertTrue(r.getIgnoredKeys().contains("loadBalance"));
-        assertTrue(r.getIgnoredKeys().contains("useLazyConnection"));
-        assertEquals(3, r.getIgnoredKeys().size());
+        assertTrue(ConfigTestAccess.getIgnoredKeys(r).contains("altHosts"));
+        assertTrue(ConfigTestAccess.getIgnoredKeys(r).contains("loadBalance"));
+        assertTrue(ConfigTestAccess.getIgnoredKeys(r).contains("useLazyConnection"));
+        assertEquals(3, ConfigTestAccess.getIgnoredKeys(r).size());
 
         // common + loadbalance-own options are retained
         assertTrue(r.getRetainedOptions().containsKey("charSet"));
@@ -86,14 +86,18 @@ public class LoadBalanceOptionValidatorTest {
     public void optionKeyMatchingIsCaseInsensitive() {
         Result r = LoadBalanceOptionValidator.validate(opts("ALTHOSTS", "h2:1"));
 
-        assertTrue(r.getIgnoredKeys().contains("ALTHOSTS"));
+        assertTrue(ConfigTestAccess.getIgnoredKeys(r).contains("ALTHOSTS"));
         assertFalse(r.getRetainedOptions().containsKey("ALTHOSTS"));
     }
 
     @Test
     public void nullOrEmptyOptionsYieldEmptyResult() {
-        assertFalse(LoadBalanceOptionValidator.validate(null).hasIgnored());
+        assertTrue(
+                ConfigTestAccess.getIgnoredKeys(LoadBalanceOptionValidator.validate(null))
+                        .isEmpty());
         assertTrue(LoadBalanceOptionValidator.validate(null).getRetainedOptions().isEmpty());
-        assertFalse(LoadBalanceOptionValidator.validate(opts()).hasIgnored());
+        assertTrue(
+                ConfigTestAccess.getIgnoredKeys(LoadBalanceOptionValidator.validate(opts()))
+                        .isEmpty());
     }
 }

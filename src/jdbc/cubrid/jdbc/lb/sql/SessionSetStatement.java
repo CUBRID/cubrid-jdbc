@@ -30,10 +30,14 @@
 
 package cubrid.jdbc.lb.sql;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -43,22 +47,28 @@ import java.util.Set;
  *
  * <p>A {@code SET} changes the server session it runs on, and the RW and read legs are two
  * sessions. Session-scoped settings ({@code SET NAMES}, {@code SET TIMEZONE}, session system
- * parameters) are {@link Action#REPLAY replayed} on the read leg so reads see what the application
- * set. A parameter outside that list may be server- or CAS-wide, so it is not copied to another
- * node; the session's reads {@link Action#PIN_TO_RW stay on RW} instead, as they do after {@code
- * CALL login(...)}, which changes the session's user.
+ * parameters) are {@link #getReplay() replayed} on the read leg so reads see what the application
+ * set, and so are tracing and a login ({@code CALL login(..) ON CLASS db_user}). A change the read
+ * leg cannot be given keeps the session's reads on RW for a {@link #getPins() reason} that a later
+ * statement may {@link #getUnpins() release}, as turning statistics collection off does. A server-
+ * or CAS-wide parameter is neither copied to another node nor pinned: it is {@link
+ * #getNonSessionParams() reported}.
  */
 public final class SessionSetStatement {
 
-    /** What LB does after the statement succeeded on the RW leg. */
-    public enum Action {
-        /** Not a session setting LB tracks. */
-        NONE,
-        /** Re-run {@link #getReplay()} on the read leg and on every leg opened later. */
-        REPLAY,
-        /** Keep this session's reads on RW until the connection closes. */
-        PIN_TO_RW
-    }
+    /** Pin reason of execution statistics collection, released by setting it to 0. */
+    static final String EXEC_STATS_PIN = "EXEC_STATS";
+
+    /** Replay key of {@code login} on the class db_user, which changes the session's user. */
+    static final String LOGIN_KEY = "LOGIN";
+
+    /**
+     * Replay key shared by {@code SET TRACE} and {@code SET SYSTEM PARAMETERS 'query_trace=..'}.
+     */
+    static final String QUERY_TRACE_KEY = "PARAM:QUERY_TRACE";
+
+    /** Pin reason no later statement releases; only closing the connection does. */
+    public static final String UNKNOWN_PIN = "UNKNOWN";
 
     /**
      * Replay key shared by {@code SET TIMEZONE} and {@code SET SYSTEM PARAMETERS 'timezone=..'}.
@@ -76,8 +86,10 @@ public final class SessionSetStatement {
     private static final String OPTIMIZATION_LEVEL_KEY = "PARAM:OPTIMIZATION_LEVEL";
 
     /**
-     * Session parameters (PRM_FOR_SESSION | PRM_USER_CHANGE in the engine's system_parameter.c)
-     * that change what a query parses, plans or returns, or how it waits.
+     * Parameters that are session-scoped (PRM_FOR_SESSION in the engine's system_parameter.c) in
+     * every version from 10.2 to develop that has them, and change what a query parses, plans or
+     * returns, or how it waits. compat_numeric_division_scale is session-scoped in every release
+     * (10.2 to 11.4); develop keeps the name but reads it nowhere.
      */
     private static final Set<String> REPLAYED_PARAMS =
             names(
@@ -87,6 +99,7 @@ public final class SessionSetStatement {
                     "auto_increment_cache_size",
                     "block_ddl_statement",
                     "block_nowhere_statement",
+                    "compat_numeric_division_scale",
                     "compat_primary_key",
                     "create_table_reuseoid",
                     "cte_max_recursions",
@@ -98,7 +111,7 @@ public final class SessionSetStatement {
                     "isolation_level",
                     "lock_timeout",
                     "lock_timeout_in_secs",
-                    "max_hash_list_scan_size",
+                    "max_connect_by_dfs_size",
                     "memoize_memory_limit",
                     "multi_range_optimization_limit",
                     "no_backslash_escapes",
@@ -106,6 +119,7 @@ public final class SessionSetStatement {
                     "optimization_level",
                     "pl_transaction_control",
                     "print_index_detail",
+                    "query_trace",
                     "query_trace_format",
                     "regexp_engine",
                     "return_null_on_function_errors",
@@ -119,12 +133,14 @@ public final class SessionSetStatement {
      * Parameters that change nothing a read returns: an XASL debug dump, how INSERT runs, plan
      * choice, index builds, csql and connection settings. They are not copied to the read leg -
      * several live in the CAS process and would outlast the session there - and need no pin.
+     * max_hash_list_scan_size, the memory a hash scan may use, is server-wide in 11.0 to 11.3.
      */
     private static final Set<String> IGNORED_PARAMS =
             names(
                     "xasl_debug_dump",
                     "insert_execution_mode",
                     "like_term_selectivity",
+                    "max_hash_list_scan_size",
                     "optimizer_enable_merge_join",
                     "deduplicate_key_level",
                     "csql_auto_commit",
@@ -138,39 +154,186 @@ public final class SessionSetStatement {
                     "garbage_collection");
 
     /**
-     * Query tracing pins instead of replaying: {@code SHOW TRACE} reports the last query of the
-     * session it runs on, so the traced query and the {@code SHOW TRACE} must share a leg.
+     * Parameters that are server- or CAS-wide (user-changeable, not PRM_FOR_SESSION) in every
+     * version from 10.2 to develop that has them. One changes the node it runs on for every
+     * session, and HA does not replicate it, so read nodes keep their own value whatever LB does.
      */
-    private static final String QUERY_TRACE = "query_trace";
-
-    private static final Set<String> FALSE_WORDS = names("no", "n", "0", "false", "off");
+    private static final Set<String> NON_SESSION_PARAMS =
+            names(
+                    "access_ip_control",
+                    "access_ip_control_file",
+                    "adaptive_flush_control",
+                    "agg_hash_respect_order",
+                    "async_commit",
+                    "auto_restart_server",
+                    "background_archiving",
+                    "backup_sleep_msecs",
+                    "call_stack_dump_activation_list",
+                    "call_stack_dump_deactivation_list",
+                    "call_stack_dump_on_error",
+                    "checkpoint_every_npages",
+                    "checkpoint_every_size",
+                    "checkpoint_interval",
+                    "checkpoint_interval_in_mins",
+                    "checkpoint_sleep_msecs",
+                    "cost_cpu_tuples_per_page",
+                    "cost_effective_cache_pages",
+                    "cost_heap_fetch_per_oid",
+                    "cost_random_page",
+                    "cost_seq_page",
+                    "data_buffer_flush_ratio",
+                    "data_buffer_neighbor_flush_nondirty",
+                    "data_buffer_neighbor_flush_pages",
+                    "data_buffer_sequential_victim_flush",
+                    "data_file_os_advise",
+                    "deadlock_detection_interval_in_secs",
+                    "debug_autocommit",
+                    "debug_external_storage",
+                    "debug_heap_bestspace",
+                    "debug_log_archives",
+                    "debug_log_writer",
+                    "debug_replication_data",
+                    "default_histogram_bucket_count",
+                    "detailed_checkpoint_logging",
+                    "dl_fork",
+                    "dont_reuse_heap_file",
+                    "double_write_buffer_blocks",
+                    "double_write_buffer_enable_flush_thread",
+                    "double_write_buffer_logging",
+                    "double_write_buffer_size",
+                    "enable_lazy_predicate_read",
+                    "er_btree_debug",
+                    "er_log_debug",
+                    "error_log_level",
+                    "error_log_production_mode",
+                    "error_log_size",
+                    "error_log_warning",
+                    "fault_injection_ids",
+                    "force_remove_log_archives",
+                    "generic_vol_prealloc_size",
+                    "group_commit_interval_in_msecs",
+                    "group_concat_max_len",
+                    "ha_delay_limit",
+                    "ha_delay_limit_delta",
+                    "ha_log_applier_state",
+                    "ha_node_list",
+                    "ha_replica_list",
+                    "hostvar_late_binding",
+                    "hostvar_peeking",
+                    "index_build_buffer_size",
+                    "index_scan_oid_buffer_size",
+                    "index_unfill_factor",
+                    "inquire_on_exit",
+                    "json_max_array_idx",
+                    "load_flush_interval",
+                    "loaddb_worker_count",
+                    "lock_escalation",
+                    "log_max_archives",
+                    "log_pgbuf_victim_flush",
+                    "log_trace_debug",
+                    "log_trace_flush_time",
+                    "max_bestspace_entries",
+                    "max_flush_pages_per_second",
+                    "max_flush_size_per_second",
+                    "max_outer_card_of_idxjoin",
+                    "max_recursion_sql_depth",
+                    "max_request_concurrency",
+                    "max_request_worker",
+                    "max_subquery_cache_size",
+                    "monitor_waiting_thread",
+                    "no_logging",
+                    "optimizer_reserve_01",
+                    "optimizer_reserve_02",
+                    "optimizer_reserve_03",
+                    "optimizer_reserve_04",
+                    "optimizer_reserve_05",
+                    "optimizer_reserve_06",
+                    "optimizer_reserve_07",
+                    "optimizer_reserve_08",
+                    "optimizer_reserve_09",
+                    "optimizer_reserve_10",
+                    "optimizer_reserve_11",
+                    "optimizer_reserve_12",
+                    "optimizer_reserve_13",
+                    "optimizer_reserve_14",
+                    "optimizer_reserve_15",
+                    "optimizer_reserve_16",
+                    "optimizer_reserve_17",
+                    "optimizer_reserve_18",
+                    "optimizer_reserve_19",
+                    "optimizer_reserve_20",
+                    "oracle_style_outerjoin",
+                    "page_flush_interval",
+                    "page_flush_interval_in_msecs",
+                    "page_validation_level",
+                    "plan_cache_bind_sensitivity",
+                    "plan_cache_bind_variants",
+                    "print_key_value_on_unique_error",
+                    "print_object_as_oid",
+                    "qo_dump",
+                    "remove_log_archive_interval_in_secs",
+                    "reset_tr_parser_interval",
+                    "rollback_on_lock_escalation",
+                    "shutdown_wait_time_in_secs",
+                    "sort_buffer_size",
+                    "sql_trace_execution_plan",
+                    "sql_trace_ioread_pages",
+                    "sql_trace_slow",
+                    "sql_trace_slow_msecs",
+                    "statistics_sample_pages",
+                    "statistics_sampling_threshold_pages",
+                    "stats_fullscan_max_pages",
+                    "stop_on_error",
+                    "suppress_fsync",
+                    "sync_on_flush_size",
+                    "sync_on_nflush",
+                    "track_client_requests",
+                    "unfill_factor",
+                    "unload_ignore_error",
+                    "unload_lock_timeout",
+                    "update_statistics_update_histogram",
+                    "use_btree_fence_key",
+                    "use_orderby_sort_limit",
+                    "use_stat_estimation",
+                    "vacuum_master_interval_in_msecs",
+                    "volume_extension_path",
+                    "workspace_memory_report");
 
     /**
-     * Execution statistics pin like tracing: {@code SHOW EXEC STATISTICS} reports what its own
-     * session collected, and a session collects while this variable is set to a value other than 0.
+     * {@code SHOW EXEC STATISTICS} reports what its own session collected so far, and a session
+     * collects while this variable is not 0: split over two legs the totals would differ from
+     * core's, so collecting pins until it is turned off.
      */
     private static final String COLLECT_EXEC_STATS = "@collect_exec_stats";
 
-    private static final SessionSetStatement NONE_RESULT =
-            new SessionSetStatement(Action.NONE, Collections.<String, String>emptyMap());
-    private static final SessionSetStatement PIN_RESULT =
-            new SessionSetStatement(Action.PIN_TO_RW, Collections.<String, String>emptyMap());
+    private static final SessionSetStatement NONE_RESULT = new Builder().build();
 
-    private final Action action;
     private final Map<String, String> replay;
+    private final Set<String> pins;
+    private final Set<String> unpins;
+    private final List<String> nonSessionParams;
+    private final Set<String> pinsIfFailed;
+    private final String boundKey;
 
-    private SessionSetStatement(final Action action, final Map<String, String> replay) {
-        this.action = action;
+    private SessionSetStatement(
+            final Map<String, String> replay,
+            final Set<String> pins,
+            final Set<String> unpins,
+            final List<String> nonSessionParams,
+            final Set<String> pinsIfFailed,
+            final String boundKey) {
         this.replay = replay;
-    }
-
-    public Action getAction() {
-        return action;
+        this.pins = pins;
+        this.unpins = unpins;
+        this.nonSessionParams = nonSessionParams;
+        this.pinsIfFailed = pinsIfFailed;
+        this.boundKey = boundKey;
     }
 
     /**
      * Statements to run on another leg, keyed by the setting they change so a later {@code SET} of
-     * the same setting replaces an earlier one. Empty unless {@link Action#REPLAY}.
+     * the same setting replaces an earlier one. A replay the read leg takes also releases a pin
+     * under the same key.
      *
      * @return key to statement, in statement order
      */
@@ -179,25 +342,115 @@ public final class SessionSetStatement {
     }
 
     /**
-     * Classifies {@code sql}. A {@code SET} inside a multi-statement string pins, since the string
-     * cannot be replayed without its other statements.
+     * Reasons to keep the session's reads on RW: {@link #EXEC_STATS_PIN}, {@link #UNKNOWN_PIN}, or
+     * the replay key of a setting given a bound value, the read leg having rejected it otherwise.
+     *
+     * @return the reasons, in statement order
+     */
+    public Set<String> getPins() {
+        return pins;
+    }
+
+    /**
+     * Reasons this statement made untrue: {@link #EXEC_STATS_PIN} after collection is turned off.
+     *
+     * @return the released reasons
+     */
+    public Set<String> getUnpins() {
+        return unpins;
+    }
+
+    /**
+     * Server- or CAS-wide parameters this statement changed on the node it ran on only.
+     *
+     * @return their lower-cased names
+     */
+    public List<String> getNonSessionParams() {
+        return nonSessionParams;
+    }
+
+    /**
+     * Reasons to keep reads on RW when this string fails. CUBRID keeps what ran before the failing
+     * statement, and which statements those were is not known, so every setting a multi-statement
+     * string touches is one. A single statement that fails changed nothing.
+     *
+     * @return the replay keys and reasons of a multi-statement string, otherwise none
+     */
+    public Set<String> getPinsIfFailed() {
+        return pinsIfFailed;
+    }
+
+    /**
+     * The replay key of a login or a lock timeout that is this whole statement and takes its values
+     * from {@code ?}, the two such forms the server accepts. Run again with the values of the run
+     * it is replayed like one written out; without them it {@link #getPins() pins} under this key.
+     *
+     * @return the key, or null for any other statement
+     */
+    public String getBoundKey() {
+        return boundKey;
+    }
+
+    /**
+     * Whether the statement changed anything LB tracks.
+     *
+     * @return whether it did
+     */
+    public boolean changesSession() {
+        return !replay.isEmpty()
+                || !pins.isEmpty()
+                || !unpins.isEmpty()
+                || !nonSessionParams.isEmpty();
+    }
+
+    /**
+     * Whether a read leg lacking what {@code pinReasons} name compiles a statement differently from
+     * RW. Statistics collection and a lock timeout change nothing a statement is compiled under;
+     * any other reason may.
+     *
+     * @param pinReasons the reasons reads are pinned for
+     * @return whether one of them changes how a statement compiles
+     */
+    public static boolean changesCompilation(final Collection<String> pinReasons) {
+        for (String reason : pinReasons) {
+            if (!EXEC_STATS_PIN.equals(reason) && !LOCK_TIMEOUT_KEY.equals(reason)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Classifies {@code sql}. Each statement of a multi-statement string is classified on its own,
+     * and a later one wins over an earlier one on the same setting.
      *
      * @param sql the statement text as the application sent it
-     * @return the action for it, never {@code null}
+     * @return what it changed, never {@code null}
      */
     public static SessionSetStatement parse(final String sql) {
+        final SessionSetStatement read = parseReading(sql);
+        if (sql == null || sql.indexOf('\\') < 0) {
+            return read;
+        }
+        // As the classifier reads it: no_backslash_escapes is the server's, so both ways.
+        final String escaped = SqlLexer.withBackslashEscapes(sql);
+        if (escaped == null || escaped.equals(sql)) {
+            return read;
+        }
+        return new Builder().then(read).then(parseReading(escaped)).build();
+    }
+
+    private static SessionSetStatement parseReading(final String sql) {
         if (sql == null) {
             return NONE_RESULT;
         }
 
-        final int first = SqlLexer.skipWhitespaceAndComments(sql, 0);
         if (sql.indexOf(';') < 0) {
-            return startsWithSet(sql, first)
-                    ? parseSingle(sql.substring(first))
-                    : callsLogin(sql, first) ? PIN_RESULT : NONE_RESULT;
+            return parseStatement(sql, SqlLexer.skipWhitespaceAndComments(sql, 0));
         }
 
-        SessionSetStatement only = null;
+        final Builder all = new Builder();
+        SessionSetStatement last = NONE_RESULT;
         int statements = 0;
         int start = 0;
         int i = 0;
@@ -218,38 +471,103 @@ public final class SessionSetStatement {
             final int body = SqlLexer.skipWhitespaceAndComments(part, 0);
             if (body < part.length()) {
                 statements++;
-                final SessionSetStatement parsed =
-                        startsWithSet(part, body)
-                                ? parseSingle(part.substring(body))
-                                : callsLogin(part, body) ? PIN_RESULT : NONE_RESULT;
-                if (only == null || parsed.action != Action.NONE) {
-                    only = parsed;
-                }
+                last = parseStatement(part, body);
+                all.then(last);
             }
             start = i + 1;
             i++;
         }
-
-        if (only == null || only.action == Action.NONE) {
-            return NONE_RESULT;
+        if (statements == 1) {
+            return last; // one statement and a ';' after it
         }
-        return statements == 1 ? only : PIN_RESULT;
+        all.severalStatements = statements > 1;
+        return all.build();
+    }
+
+    /** One statement with no top-level ';', its first word at {@code body}. */
+    private static SessionSetStatement parseStatement(final String stmt, final int body) {
+        if (startsWithSet(stmt, body)) {
+            return parseSingle(stmt.substring(body));
+        }
+        return callsLogin(stmt, body)
+                ? replayOrPin(LOGIN_KEY, stmt.substring(body).trim())
+                : parseExecStatistics(stmt, body, false);
     }
 
     private static boolean startsWithSet(final String sql, final int pos) {
         return "SET".equals(wordAt(sql, pos));
     }
 
+    /**
+     * Whether the statement switches the session's user: {@code login}, under any owner, called on
+     * the class db_user, as {@code login(..) ON CLASS db_user} or {@code login(CLASS db_user, ..)}.
+     * Without that target the server runs a stored procedure named login, or fails.
+     */
     private static boolean callsLogin(final String sql, final int pos) {
         if (!"CALL".equals(wordAt(sql, pos))) {
             return false;
         }
-        final int name = skipWord(sql, pos);
-        if (!"LOGIN".equals(wordAt(sql, name))) {
+        int name = SqlLexer.skipWhitespaceAndComments(sql, skipWord(sql, pos));
+        int nameEnd = variableEnd(sql, name);
+        int open = SqlLexer.skipWhitespaceAndComments(sql, nameEnd);
+        if (open < sql.length() && sql.charAt(open) == '.') {
+            // The owner: the server calls the method of the class whatever owner is written.
+            name = SqlLexer.skipWhitespaceAndComments(sql, open + 1);
+            nameEnd = variableEnd(sql, name);
+            open = SqlLexer.skipWhitespaceAndComments(sql, nameEnd);
+        }
+        if (!isName(sql, name, nameEnd, "LOGIN")
+                || open >= sql.length()
+                || sql.charAt(open) != '(') {
             return false;
         }
-        final int after = SqlLexer.skipWhitespaceAndComments(sql, skipWord(sql, name));
-        return after < sql.length() && sql.charAt(after) == '(';
+        if (namesDbUserClass(sql, open + 1)) {
+            return true;
+        }
+        final int close = closingParen(sql, open);
+        return close >= 0
+                && "ON".equals(wordAt(sql, close + 1))
+                && namesDbUserClass(sql, skipWord(sql, close + 1));
+    }
+
+    /** {@code CLASS db_user} at {@code pos}, past white space and comments, quoted or not. */
+    private static boolean namesDbUserClass(final String sql, final int pos) {
+        if (!"CLASS".equals(wordAt(sql, pos))) {
+            return false;
+        }
+        final int start = SqlLexer.skipWhitespaceAndComments(sql, skipWord(sql, pos));
+        return isName(sql, start, variableEnd(sql, start), "DB_USER");
+    }
+
+    /** Whether the name in {@code [start, end)}, quoted or not, is {@code upperName}. */
+    private static boolean isName(
+            final String sql, final int start, final int end, final String upperName) {
+        final String name =
+                start < end && KeywordSqlClassifier.isQuotedIdentifierStart(sql.charAt(start))
+                        ? KeywordSqlClassifier.extractQuotedIdentifierUpper(sql, start, end)
+                        : sql.substring(start, end);
+        return upperName.equalsIgnoreCase(name);
+    }
+
+    /** Position of the {@code )} that closes the {@code (} at {@code open}, or -1. */
+    private static int closingParen(final String sql, final int open) {
+        int depth = 0;
+        int i = open;
+        while (i < sql.length()) {
+            final int after = SqlLexer.skipCommentOrQuoted(sql, i);
+            if (after != i) {
+                i = after;
+                continue;
+            }
+            final char c = sql.charAt(i);
+            if (c == '(') {
+                depth++;
+            } else if (c == ')' && --depth == 0) {
+                return i;
+            }
+            i++;
+        }
+        return -1;
     }
 
     /** {@code stmt} starts with SET and holds a single statement (no top-level ';'). */
@@ -257,17 +575,16 @@ public final class SessionSetStatement {
         int pos = skipWord(stmt, 0);
         final String target = wordAt(stmt, pos);
         final String text = stmt.trim();
-
         if ("NAMES".equals(target)) {
-            return replayable(text) ? replay(NAMES_KEY, text) : PIN_RESULT;
+            return replayOrPin(NAMES_KEY, text);
         }
         if ("TIMEZONE".equals(target)) {
-            return replayable(text) ? replay(TIMEZONE_KEY, text) : PIN_RESULT;
+            return replayOrPin(TIMEZONE_KEY, text);
         }
         if ("TIME".equals(target)) {
             pos = skipWord(stmt, pos);
             if ("ZONE".equals(wordAt(stmt, pos))) {
-                return replayable(text) ? replay(TIMEZONE_KEY, text) : PIN_RESULT;
+                return replayOrPin(TIMEZONE_KEY, text);
             }
             return NONE_RESULT;
         }
@@ -278,130 +595,257 @@ public final class SessionSetStatement {
             }
         }
         if ("OPTIMIZATION".equals(target)) {
+            final String what = wordAt(stmt, skipWord(stmt, pos));
+            if ("COST".equals(what)) {
+                // The cost functions of the CAS process, for every later client of it; no result.
+                return notOfTheSession("optimization cost");
+            }
             // SET OPTIMIZATION LEVEL n sets optimization_level; levels 2/258/514 skip execution.
-            final boolean level = "LEVEL".equals(wordAt(stmt, skipWord(stmt, pos)));
-            return level && replayable(text) ? replay(OPTIMIZATION_LEVEL_KEY, text) : PIN_RESULT;
+            return "LEVEL".equals(what)
+                    ? replayOrPin(OPTIMIZATION_LEVEL_KEY, text)
+                    : pin(UNKNOWN_PIN);
         }
         if ("TRACE".equals(target)) {
-            // SET TRACE ON sets query_trace=y.
-            return "OFF".equals(wordAt(stmt, skipWord(stmt, pos))) ? NONE_RESULT : PIN_RESULT;
+            // SET TRACE ON sets query_trace=y; SHOW TRACE then runs where the traced query ran.
+            return replay(QUERY_TRACE_KEY, text);
         }
         if ("TRANSACTION".equals(target)) {
-            return parseTransaction(text);
+            return parseTransaction(stmt, skipWord(stmt, pos));
         }
-        // SET @collect_exec_stats pins; other SET @var and SET TRIGGER ...: not tracked.
-        return collectsExecStatistics(stmt, pos) ? PIN_RESULT : NONE_RESULT;
-    }
-
-    /** Whether an assignment from {@code pos} sets {@link #COLLECT_EXEC_STATS} to non-zero. */
-    private static boolean collectsExecStatistics(final String stmt, final int pos) {
-        int start = pos;
-        int depth = 0;
-        int i = pos;
-        while (i <= stmt.length()) {
-            if (i < stmt.length()) {
-                final int after = SqlLexer.skipCommentOrQuoted(stmt, i);
-                if (after != i) {
-                    i = after;
-                    continue;
-                }
-                final char c = stmt.charAt(i);
-                if (c == '(') {
-                    depth++;
-                } else if (c == ')') {
-                    depth--;
-                }
-                if (c != ',' || depth != 0) {
-                    i++;
-                    continue;
-                }
-            }
-            if (setsNonZeroExecStats(stmt.substring(start, i))) {
-                return true;
-            }
-            start = i + 1;
-            i++;
-        }
-        return false;
-    }
-
-    private static boolean setsNonZeroExecStats(final String assignment) {
-        final int eq = assignment.indexOf('=');
-        if (eq < 0
-                || !COLLECT_EXEC_STATS.equalsIgnoreCase(
-                        assignment.substring(0, eq).replace(":", "").trim())) {
-            return false;
-        }
-        final int value = SqlLexer.skipWhitespaceAndComments(assignment, eq + 1);
-        return value >= assignment.length()
-                || assignment.charAt(value) != '0'
-                || SqlLexer.skipWhitespaceAndComments(assignment, value + 1) < assignment.length();
+        // SET @collect_exec_stats pins or releases; other SET @var and SET TRIGGER ...: not
+        // tracked.
+        return parseExecStatistics(stmt, pos, true);
     }
 
     /**
-     * {@code SET TRANSACTION ISOLATION LEVEL ...} or {@code SET TRANSACTION LOCK TIMEOUT ...}. A
-     * statement setting both pins, since one replay key cannot hold it.
+     * What a statement's last assignment to {@link #COLLECT_EXEC_STATS} does: a pin, a release, or
+     * nothing when it assigns another variable or none. The variable is read as the server reads
+     * it, past comments and quotes: {@code SET @v = ..} at the top level of a SET, or {@code @v :=
+     * ..} anywhere. Only a bare 0 turns collection off; any other value, a bound one included,
+     * turns it on.
      */
-    private static SessionSetStatement parseTransaction(final String text) {
+    private static SessionSetStatement parseExecStatistics(
+            final String stmt, final int pos, final boolean inSet) {
+        if (stmt.indexOf('@', pos) < 0) {
+            return NONE_RESULT;
+        }
+        Boolean collects = null;
+        int depth = 0;
+        int i = pos;
+        while (i < stmt.length()) {
+            final int after = SqlLexer.skipCommentOrQuoted(stmt, i);
+            if (after != i) {
+                i = after;
+                continue;
+            }
+            final char c = stmt.charAt(i);
+            if (c == '(') {
+                depth++;
+            } else if (c == ')') {
+                depth--;
+            }
+            if (c != '@') {
+                i++;
+                continue;
+            }
+            // '@' is a token of its own: white space or a comment may come before the name.
+            final int nameStart = SqlLexer.skipWhitespaceAndComments(stmt, i + 1);
+            final int nameEnd = variableEnd(stmt, nameStart);
+            final int op = SqlLexer.skipWhitespaceAndComments(stmt, nameEnd);
+            int value = -1;
+            if (stmt.startsWith(":=", op)) {
+                value = op + 2;
+            } else if (inSet && depth == 0 && op < stmt.length() && stmt.charAt(op) == '=') {
+                value = op + 1;
+            }
+            if (value >= 0 && isCollectExecStats(stmt, nameStart, nameEnd)) {
+                collects = Boolean.valueOf(!isBareZero(stmt, value));
+            }
+            i = Math.max(nameEnd, i + 1);
+        }
+        if (collects == null) {
+            return NONE_RESULT;
+        }
+        return collects.booleanValue() ? pin(EXEC_STATS_PIN) : unpin(EXEC_STATS_PIN);
+    }
+
+    private static boolean isCollectExecStats(final String stmt, final int start, final int end) {
+        final String name =
+                start < end && KeywordSqlClassifier.isQuotedIdentifierStart(stmt.charAt(start))
+                        ? KeywordSqlClassifier.extractQuotedIdentifierUpper(stmt, start, end)
+                        : stmt.substring(start, end);
+        return COLLECT_EXEC_STATS.substring(1).equalsIgnoreCase(name);
+    }
+
+    /** A 0 with nothing after it in its assignment. */
+    private static boolean isBareZero(final String stmt, final int pos) {
+        final int value = SqlLexer.skipWhitespaceAndComments(stmt, pos);
+        if (value >= stmt.length() || stmt.charAt(value) != '0') {
+            return false;
+        }
+        final int after = SqlLexer.skipWhitespaceAndComments(stmt, value + 1);
+        return after >= stmt.length() || stmt.charAt(after) == ',';
+    }
+
+    /**
+     * {@code SET TRANSACTION} with its clauses from {@code pos}. ISOLATION LEVEL and LOCK TIMEOUT
+     * are replayed under keys of their own, so a statement setting both is split in two.
+     */
+    private static SessionSetStatement parseTransaction(final String stmt, final int pos) {
+        final int comma = secondClauseComma(stmt, pos);
+        if (comma < 0) {
+            return parseTransactionClause(stmt.trim());
+        }
+        final String head = stmt.substring(0, pos).trim();
+        return new Builder()
+                .then(parseTransactionClause(head + " " + stmt.substring(pos, comma).trim()))
+                .then(parseTransactionClause(head + " " + stmt.substring(comma + 1).trim()))
+                .build();
+    }
+
+    /** A {@code SET TRANSACTION} with one clause. */
+    private static SessionSetStatement parseTransactionClause(final String text) {
         final String upper = text.toUpperCase(Locale.ROOT);
         final boolean isolation = upper.contains("ISOLATION");
         final boolean lockTimeout = upper.contains("TIMEOUT");
         if (!isolation && !lockTimeout) {
             return NONE_RESULT;
         }
-        if ((isolation && lockTimeout) || !replayable(text)) {
-            return PIN_RESULT;
+        if (isolation && lockTimeout) {
+            return pin(UNKNOWN_PIN);
         }
-        return replay(isolation ? ISOLATION_LEVEL_KEY : LOCK_TIMEOUT_KEY, text);
+        return replayOrPin(isolation ? ISOLATION_LEVEL_KEY : LOCK_TIMEOUT_KEY, text);
+    }
+
+    /**
+     * The top-level ',' a LOCK or ISOLATION clause follows, or -1. A comma inside an isolation
+     * level name, as in {@code REPEATABLE READ CLASS, READ UNCOMMITTED INSTANCES}, is not one.
+     */
+    private static int secondClauseComma(final String stmt, final int pos) {
+        int i = pos;
+        while (i < stmt.length()) {
+            final int after = SqlLexer.skipCommentOrQuoted(stmt, i);
+            if (after != i) {
+                i = after;
+                continue;
+            }
+            if (stmt.charAt(i) == ',') {
+                final String next = wordAt(stmt, i + 1);
+                if ("LOCK".equals(next) || "ISOLATION".equals(next)) {
+                    return i;
+                }
+            }
+            i++;
+        }
+        return -1;
     }
 
     /** {@code SET SYSTEM PARAMETERS 'name=value[; name=value...]'} from {@code pos}. */
     private static SessionSetStatement parseParameters(final String stmt, final int pos) {
         final int open = SqlLexer.skipWhitespaceAndComments(stmt, pos);
         if (open >= stmt.length() || stmt.charAt(open) != '\'') {
-            return PIN_RESULT;
+            return pin(UNKNOWN_PIN);
         }
         final int close = SqlLexer.skipCommentOrQuoted(stmt, open);
         if (stmt.charAt(close - 1) != '\'' || close - open < 2) {
-            return PIN_RESULT;
+            return pin(UNKNOWN_PIN);
         }
         if (SqlLexer.skipWhitespaceAndComments(stmt, close) < stmt.length()) {
-            return PIN_RESULT;
+            return pin(UNKNOWN_PIN);
         }
-
         final String list = stmt.substring(open + 1, close - 1).replace("''", "'");
-        final Map<String, String> replay = new LinkedHashMap<String, String>();
-        for (final String assignment : list.split(";")) {
-            final String trimmed = assignment.trim();
-            if (trimmed.length() == 0) {
-                continue;
-            }
-            final int eq = trimmed.indexOf('=');
-            if (eq <= 0) {
-                return PIN_RESULT;
-            }
-            final String name = trimmed.substring(0, eq).trim().toLowerCase(Locale.ROOT);
-            final String value = trimmed.substring(eq + 1).trim();
-            if (QUERY_TRACE.equals(name)) {
-                if (FALSE_WORDS.contains(value.toLowerCase(Locale.ROOT))) {
-                    continue;
-                }
-                return PIN_RESULT;
-            }
-            if (IGNORED_PARAMS.contains(name)) {
-                continue;
-            }
-            if (!REPLAYED_PARAMS.contains(name)) {
-                return PIN_RESULT;
-            }
-            replay.put(
-                    replayKey(name),
-                    "SET SYSTEM PARAMETERS '" + name + "=" + value.replace("'", "''") + "'");
+        final List<String[]> pairs = parameterPairs(list);
+        if (pairs == null) {
+            return pin(UNKNOWN_PIN);
         }
+        final Builder result = new Builder();
+        for (final String[] pair : pairs) {
+            final String name = pair[0].toLowerCase(Locale.ROOT);
+            final String value = asListValue(pair[1]);
+            if (REPLAYED_PARAMS.contains(name)) {
+                result.then(
+                        replay(
+                                replayKey(name),
+                                "SET SYSTEM PARAMETERS '"
+                                        + name
+                                        + "="
+                                        + value.replace("'", "''")
+                                        + "'"));
+            } else if (NON_SESSION_PARAMS.contains(name)) {
+                result.nonSessionParams.add(name);
+            } else if (!IGNORED_PARAMS.contains(name)) {
+                result.then(pin(UNKNOWN_PIN));
+            }
+        }
+        return result.build();
+    }
 
-        return replay.isEmpty()
-                ? NONE_RESULT
-                : new SessionSetStatement(Action.REPLAY, Collections.unmodifiableMap(replay));
+    /**
+     * The name=value pairs of a parameter list as the engine's prm_get_next_param_value() reads
+     * them: a name ends at white space or '=', which may be left out; an unquoted value ends at
+     * white space or ';', which is optional between pairs. Null where the engine refuses the list.
+     */
+    private static List<String[]> parameterPairs(final String list) {
+        final List<String[]> pairs = new ArrayList<String[]>();
+        final int n = list.length();
+        int p = skipSpaces(list, 0);
+        while (p < n) {
+            final int nameStart = p;
+            while (p < n && !Character.isWhitespace(list.charAt(p)) && list.charAt(p) != '=') {
+                p++;
+            }
+            final String name = list.substring(nameStart, p);
+            p = skipSpaces(list, p);
+            if (p < n && list.charAt(p) == '=') {
+                p = skipSpaces(list, p + 1);
+            }
+            if (p >= n || name.length() == 0) {
+                return null;
+            }
+            final StringBuilder value = new StringBuilder();
+            final char quote = list.charAt(p);
+            if (quote == '"' || quote == '\'') {
+                p++;
+                while (p < n && list.charAt(p) != quote) {
+                    if (list.charAt(p) == '\\' && p + 1 < n) {
+                        p++;
+                    }
+                    value.append(list.charAt(p++));
+                }
+                if (p >= n) {
+                    return null;
+                }
+                p++;
+            } else {
+                while (p < n && !Character.isWhitespace(list.charAt(p)) && list.charAt(p) != ';') {
+                    value.append(list.charAt(p++));
+                }
+            }
+            // The engine takes one ';' and white space between pairs; a list it refuses fails on
+            // RW and is not replayed.
+            while (p < n && (Character.isWhitespace(list.charAt(p)) || list.charAt(p) == ';')) {
+                p++;
+            }
+            pairs.add(new String[] {name, value.toString()});
+        }
+        return pairs;
+    }
+
+    private static int skipSpaces(final String text, final int from) {
+        int p = from;
+        while (p < text.length() && Character.isWhitespace(text.charAt(p))) {
+            p++;
+        }
+        return p;
+    }
+
+    /** A value as one token of a parameter list again: quoted when it would not read as one. */
+    private static String asListValue(final String value) {
+        boolean plain = value.length() > 0 && value.charAt(0) != '"' && value.charAt(0) != '\'';
+        for (int i = 0; plain && i < value.length(); i++) {
+            plain = !Character.isWhitespace(value.charAt(i)) && value.charAt(i) != ';';
+        }
+        return plain ? value : '"' + value.replace("\\", "\\\\").replace("\"", "\\\"") + '"';
     }
 
     /**
@@ -430,12 +874,216 @@ public final class SessionSetStatement {
         return true;
     }
 
+    /** Replays {@code stmt}, or pins under {@code key} until a replayable SET of it. */
+    private static SessionSetStatement replayOrPin(final String key, final String stmt) {
+        if (replayable(stmt)) {
+            return replay(key, stmt);
+        }
+        final boolean takesValues = LOGIN_KEY.equals(key) || LOCK_TIMEOUT_KEY.equals(key);
+        return new SessionSetStatement(
+                Collections.<String, String>emptyMap(),
+                Collections.singleton(key),
+                Collections.<String>emptySet(),
+                Collections.<String>emptyList(),
+                Collections.<String>emptySet(),
+                takesValues ? key : null);
+    }
+
     private static SessionSetStatement replay(final String key, final String stmt) {
         String text = stmt;
         while (text.endsWith(";")) {
             text = text.substring(0, text.length() - 1).trim();
         }
-        return new SessionSetStatement(Action.REPLAY, Collections.singletonMap(key, text));
+        return new SessionSetStatement(
+                Collections.singletonMap(key, text),
+                Collections.<String>emptySet(),
+                Collections.<String>emptySet(),
+                Collections.<String>emptyList(),
+                Collections.<String>emptySet(),
+                null);
+    }
+
+    private static SessionSetStatement pin(final String reason) {
+        return new SessionSetStatement(
+                Collections.<String, String>emptyMap(),
+                Collections.singleton(reason),
+                Collections.<String>emptySet(),
+                Collections.<String>emptyList(),
+                Collections.<String>emptySet(),
+                null);
+    }
+
+    private static SessionSetStatement notOfTheSession(final String name) {
+        return new SessionSetStatement(
+                Collections.<String, String>emptyMap(),
+                Collections.<String>emptySet(),
+                Collections.<String>emptySet(),
+                Collections.singletonList(name),
+                Collections.<String>emptySet(),
+                null);
+    }
+
+    private static SessionSetStatement unpin(final String reason) {
+        return new SessionSetStatement(
+                Collections.<String, String>emptyMap(),
+                Collections.<String>emptySet(),
+                Collections.singleton(reason),
+                Collections.<String>emptyList(),
+                Collections.<String>emptySet(),
+                null);
+    }
+
+    /**
+     * The level a {@code SET TRANSACTION ISOLATION LEVEL} statement or the {@code isolation_level}
+     * parameter sets, when a read on another node cannot honour it. Of a CLASS/INSTANCES pair the
+     * engine takes the INSTANCES level.
+     *
+     * @param sql the statement, as kept for replay
+     * @return {@link java.sql.Connection#TRANSACTION_REPEATABLE_READ} or {@link
+     *     java.sql.Connection#TRANSACTION_SERIALIZABLE}, or 0 for any other level
+     */
+    public static int isolationAboveReadCommitted(final String sql) {
+        final String parameter = "SET SYSTEM PARAMETERS 'isolation_level=";
+        if (sql.startsWith(parameter)) {
+            return isolationOfParameter(sql.substring(parameter.length(), sql.lastIndexOf('\'')));
+        }
+        final int levelWord = wordPosition(sql, 0, "LEVEL");
+        if (levelWord < 0) {
+            return 0;
+        }
+        int level = SqlLexer.skipWhitespaceAndComments(sql, skipWord(sql, levelWord));
+        final int instances = wordPosition(sql, level, "INSTANCES");
+        if (instances >= 0 && sql.lastIndexOf(',', instances) > level) {
+            level = SqlLexer.skipWhitespaceAndComments(sql, sql.lastIndexOf(',', instances) + 1);
+        }
+        final String name = wordAt(sql, level);
+        if ("SERIALIZABLE".equals(name) || sql.startsWith("6", level)) {
+            return java.sql.Connection.TRANSACTION_SERIALIZABLE;
+        }
+        if ("REPEATABLE".equals(name) || sql.startsWith("5", level)) {
+            return java.sql.Connection.TRANSACTION_REPEATABLE_READ;
+        }
+        return 0;
+    }
+
+    /** A value of the engine's isolation_level parameter: a number or one of its names. */
+    private static int isolationOfParameter(final String value) {
+        String name = value.toLowerCase(Locale.ROOT);
+        if (name.startsWith("tran_")) {
+            name = name.substring("tran_".length());
+        }
+        if ("6".equals(name) || "serializable".equals(name) || "no_phantom_read".equals(name)) {
+            return java.sql.Connection.TRANSACTION_SERIALIZABLE;
+        }
+        if ("5".equals(name) || "rep_read".equals(name) || "rep_class_rep_instance".equals(name)) {
+            return java.sql.Connection.TRANSACTION_REPEATABLE_READ;
+        }
+        return 0;
+    }
+
+    /** Where the word {@code word} starts at or after {@code from}, or -1. */
+    private static int wordPosition(final String sql, final int from, final String word) {
+        int pos = from;
+        while (pos < sql.length() && !word.equals(wordAt(sql, pos))) {
+            final int next = skipWord(sql, pos);
+            pos = next > pos ? next : pos + 1;
+        }
+        return pos < sql.length() ? pos : -1;
+    }
+
+    /**
+     * Whether a statement of {@code sql} prepares a named statement or drops one ({@code PREPARE},
+     * {@code DEALLOCATE PREPARE}, {@code DROP PREPARE}), or drops a variable ({@code DEALLOCATE
+     * VARIABLE}, {@code DROP VARIABLE}). Each lives in the session of the leg that ran it.
+     *
+     * @param sql the statement string
+     * @return whether it does
+     */
+    public static boolean preparesOrDropsAStatement(final String sql) {
+        if (sql == null) {
+            return false;
+        }
+        int start = 0;
+        int i = 0;
+        while (i <= sql.length()) {
+            if (i < sql.length()) {
+                final int after = SqlLexer.skipCommentOrQuoted(sql, i);
+                if (after != i) {
+                    i = after;
+                    continue;
+                }
+                if (sql.charAt(i) != ';') {
+                    i++;
+                    continue;
+                }
+            }
+            final String first = wordAt(sql, start);
+            final String second = "DROP".equals(first) ? wordAt(sql, skipWord(sql, start)) : null;
+            if ("PREPARE".equals(first)
+                    || "DEALLOCATE".equals(first)
+                    || "PREPARE".equals(second)
+                    || "VARIABLE".equals(second)) {
+                return true;
+            }
+            start = i + 1;
+            i++;
+        }
+        return false;
+    }
+
+    /**
+     * Whether {@code sql} assigns a user variable: {@code SET @v = ..}, or {@code @v := ..} in any
+     * statement. The variable then exists only in the session of the leg that ran the string, and
+     * reads of it go to RW.
+     *
+     * @param sql the statement string
+     * @return whether it assigns one
+     */
+    public static boolean assignsUserVariable(final String sql) {
+        if (sql == null || sql.indexOf('@') < 0) {
+            return false;
+        }
+        boolean atStatementStart = true;
+        boolean inSet = false;
+        int i = 0;
+        while (i < sql.length()) {
+            final int skipped = SqlLexer.skipCommentOrQuoted(sql, i);
+            if (skipped != i) {
+                i = skipped;
+                continue;
+            }
+            final char c = sql.charAt(i);
+            if (c == ';') {
+                atStatementStart = true;
+                inSet = false;
+            } else if (atStatementStart && !Character.isWhitespace(c)) {
+                atStatementStart = false;
+                inSet = startsWithSet(sql, i);
+            }
+            if (c == '@') {
+                final int name = SqlLexer.skipWhitespaceAndComments(sql, i + 1);
+                final int next = SqlLexer.skipWhitespaceAndComments(sql, variableEnd(sql, name));
+                if (sql.startsWith(":=", next)
+                        || (inSet && next < sql.length() && sql.charAt(next) == '=')) {
+                    return true;
+                }
+            }
+            i++;
+        }
+        return false;
+    }
+
+    /** Position just after the variable name that starts at {@code pos}, quoted or not. */
+    private static int variableEnd(final String sql, final int pos) {
+        if (pos < sql.length() && KeywordSqlClassifier.isQuotedIdentifierStart(sql.charAt(pos))) {
+            return SqlLexer.skipCommentOrQuoted(sql, pos);
+        }
+        int end = pos;
+        while (end < sql.length()
+                && (Character.isLetterOrDigit(sql.charAt(end)) || sql.charAt(end) == '_')) {
+            end++;
+        }
+        return end;
     }
 
     /** Upper-cased ASCII word starting at {@code pos} after whitespace/comments, or "". */
@@ -459,5 +1107,49 @@ public final class SessionSetStatement {
 
     private static Set<String> names(final String... names) {
         return Collections.unmodifiableSet(new HashSet<String>(Arrays.asList(names)));
+    }
+
+    /** Statements in the order they ran: on each setting, the later one wins. */
+    private static final class Builder {
+        private final Map<String, String> replay = new LinkedHashMap<String, String>();
+        private final Set<String> pins = new LinkedHashSet<String>();
+        private final Set<String> unpins = new LinkedHashSet<String>();
+        private final List<String> nonSessionParams = new ArrayList<String>();
+        private boolean severalStatements;
+
+        Builder then(final SessionSetStatement next) {
+            for (Map.Entry<String, String> each : next.replay.entrySet()) {
+                replay.remove(each.getKey());
+                replay.put(each.getKey(), each.getValue());
+                pins.remove(each.getKey());
+            }
+            for (String reason : next.pins) {
+                replay.remove(reason);
+                unpins.remove(reason);
+                pins.add(reason);
+            }
+            for (String reason : next.unpins) {
+                pins.remove(reason);
+                unpins.add(reason);
+            }
+            nonSessionParams.addAll(next.nonSessionParams);
+            return this;
+        }
+
+        SessionSetStatement build() {
+            final Set<String> ifFailed = new LinkedHashSet<String>();
+            if (severalStatements) {
+                ifFailed.addAll(replay.keySet());
+                ifFailed.addAll(pins);
+                ifFailed.addAll(unpins);
+            }
+            return new SessionSetStatement(
+                    Collections.unmodifiableMap(replay),
+                    Collections.unmodifiableSet(pins),
+                    Collections.unmodifiableSet(unpins),
+                    Collections.unmodifiableList(nonSessionParams),
+                    Collections.unmodifiableSet(ifFailed),
+                    null);
+        }
     }
 }

@@ -34,22 +34,29 @@ import cubrid.jdbc.driver.CUBRIDResultSet;
 import cubrid.jdbc.driver.CUBRIDStatement;
 import cubrid.jdbc.jci.CUBRIDCommandType;
 import cubrid.jdbc.jci.UBatchResult;
+import cubrid.jdbc.jci.UConnection;
 import cubrid.jdbc.jci.UStatementCacheData;
 import cubrid.jdbc.lb.LbExceptions;
 import cubrid.jdbc.lb.LoadBalanceConnection;
 import cubrid.jdbc.lb.failover.ExecuteFailoverHandler;
 import cubrid.jdbc.lb.failover.ExecuteFailoverHandler.SqlExecution;
+import cubrid.jdbc.lb.route.RoutedSql;
 import cubrid.jdbc.lb.route.Router;
+import cubrid.jdbc.lb.route.Router.RouteDecision;
 import cubrid.jdbc.lb.route.Router.RouteTarget;
-import cubrid.jdbc.lb.sql.SqlClassification;
+import cubrid.jdbc.lb.state.SessionRoutingState;
 import cubrid.sql.CUBRIDOID;
+import java.sql.BatchUpdateException;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.SQLWarning;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
+import java.util.function.BooleanSupplier;
 
 /**
  * Logical Statement that delegates SQL execution to a physical statement on the connection the
@@ -58,11 +65,20 @@ import java.util.List;
  * rebind does not lose them.
  */
 public class LBStatement extends CUBRIDStatement {
+    private static final BooleanSupplier NO_RW_TRANSACTION =
+            new BooleanSupplier() {
+                public boolean getAsBoolean() {
+                    return false;
+                }
+            };
+
     private final LoadBalanceConnection lbConnection;
     private final int resultSetType;
     private final int resultSetConcurrency;
     private final int resultSetHoldability;
     private boolean closed = false;
+    // What runs the statement again with the values of the run under way; see runsWith.
+    private LoadBalanceConnection.BoundRun valuesOfRun;
     private boolean escapeProcessing = true;
     private boolean queryInfo;
     private boolean onlyQueryPlan;
@@ -79,9 +95,34 @@ public class LBStatement extends CUBRIDStatement {
     // them.
     private Statement countStmt;
     private Statement keysStmt;
+    // What those leg statements answered when this statement last ran. A failover or failback
+    // closes the connection it leaves and core closes its statements, while core's own reconnect
+    // keeps its statements and their results; these answer once the leg statement is closed.
+    private int lastUpdateCount = -1;
+    private ResultSet lastKeys;
     private PhysicalStmtProvider stmtProvider = new UnsupportedStmtProvider();
     // True while a READ the read-only broker refused runs again on RW (see executeWithFailover).
     private boolean rejectedReadRetry = false;
+    // Takes the connection manager's lock, so the router asks only for a statement that would
+    // otherwise leave RW.
+    private final BooleanSupplier rwTransactionOpen;
+    // Set for a prepared statement made while a session change that alters compilation pinned
+    // reads to RW; see Router.decide.
+    private boolean preparedUnderReadPin;
+
+    /**
+     * The holdability a statement asking for {@code requested} reports on {@code socket}, by core's
+     * own rule.
+     *
+     * @param socket the socket of an open leg
+     * @param requested the holdability asked for
+     * @return the holdability core's statement would report
+     */
+    public static int holdabilityOn(final UConnection socket, final int requested) {
+        return holdsCursorsOverCommit(socket, requested)
+                ? ResultSet.HOLD_CURSORS_OVER_COMMIT
+                : ResultSet.CLOSE_CURSORS_AT_COMMIT;
+    }
 
     public LBStatement(LoadBalanceConnection lbConnection) throws SQLException {
         this(lbConnection, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
@@ -105,6 +146,12 @@ public class LBStatement extends CUBRIDStatement {
             throws SQLException {
         super(lbConnection, resultSetType, resultSetConcurrency);
         this.lbConnection = lbConnection;
+        this.rwTransactionOpen =
+                new BooleanSupplier() {
+                    public boolean getAsBoolean() {
+                        return lbConnection.isRwTxOpenInAutoCommit();
+                    }
+                };
         this.resultSetType = resultSetType;
         this.resultSetConcurrency = resultSetConcurrency;
         this.resultSetHoldability = lbConnection.statementHoldability(resultSetHoldability);
@@ -113,22 +160,16 @@ public class LBStatement extends CUBRIDStatement {
                         resultSetType, resultSetConcurrency, this.resultSetHoldability);
     }
 
-    void setStatementProvider(final PhysicalStmtProvider provider) {
-        if (provider == null) {
-            throw new IllegalArgumentException("PhysicalStmtProvider must not be null");
-        }
-        this.stmtProvider = provider;
-    }
-
     public ResultSet executeQuery(String sql) throws SQLException {
         checkClosed();
 
         final String executedSql = sql;
-        final RouteTarget target = routeFor(executedSql);
+        final RouteDecision route = routeFor(executedSql);
+        final RouteTarget target = route.getTarget();
         return stampProducer(
                 executeWithFailover(
                         executedSql,
-                        target,
+                        route,
                         new SqlExecution<ResultSet>() {
                             public ResultSet run() throws SQLException {
                                 Statement statement = createPhyStmt(executedSql, target);
@@ -144,10 +185,11 @@ public class LBStatement extends CUBRIDStatement {
         checkClosed();
 
         final String executedSql = sql;
-        final RouteTarget target = routeFor(executedSql);
+        final RouteDecision route = routeFor(executedSql);
+        final RouteTarget target = route.getTarget();
         return executeWithFailover(
                         executedSql,
-                        target,
+                        route,
                         new SqlExecution<Integer>() {
                             public Integer run() throws SQLException {
                                 Statement statement = createPhyStmt(executedSql, target);
@@ -163,10 +205,11 @@ public class LBStatement extends CUBRIDStatement {
         checkClosed();
 
         final String executedSql = sql;
-        final RouteTarget target = routeFor(executedSql);
+        final RouteDecision route = routeFor(executedSql);
+        final RouteTarget target = route.getTarget();
         return executeWithFailover(
                         executedSql,
-                        target,
+                        route,
                         new SqlExecution<Boolean>() {
                             public Boolean run() throws SQLException {
                                 Statement statement = createPhyStmt(executedSql, target);
@@ -185,37 +228,22 @@ public class LBStatement extends CUBRIDStatement {
             return new int[0];
         }
 
-        // Core runs a batch in its one session, where a routine behind a view can write; the read
-        // leg would refuse it and a batch is not run again, so every batch runs on RW.
-        final RouteTarget target = RouteTarget.TO_READ_WRITE;
-
         try {
-            // Under failover like any write: the leg is rebound, and the batch runs again only
-            // when connecting failed, as core sends it to the next host then.
-            int[] result =
-                    lbConnection
-                            .getExecuteFailoverHandler()
-                            .executeWithFailover(
-                                    lbConnection,
-                                    target,
-                                    batchedSql.get(0),
-                                    true,
-                                    new SqlExecution<int[]>() {
-                                        public int[] run() throws SQLException {
-                                            Statement statement =
-                                                    createPhyStmt(batchedSql.get(0), target);
-                                            // The leg's statement keeps a batch core kept after
-                                            // a failed request; this run sends this batch only.
-                                            statement.clearBatch();
-                                            for (int i = 0; i < batchedSql.size(); i++) {
-                                                statement.addBatch(batchedSql.get(i));
-                                            }
-                                            return statement.executeBatch();
-                                        }
-                                    });
-            afterBatchSucceeded(batchedSql, target);
-
-            return result;
+            return executeBatchWithFailover(
+                    batchedSql,
+                    new SqlExecution<int[]>() {
+                        public int[] run() throws SQLException {
+                            Statement statement =
+                                    createPhyStmt(batchedSql.get(0), RouteTarget.TO_READ_WRITE);
+                            // The leg's statement keeps a batch core kept after a failed request;
+                            // this run sends this batch only.
+                            statement.clearBatch();
+                            for (int i = 0; i < batchedSql.size(); i++) {
+                                statement.addBatch(batchedSql.get(i));
+                            }
+                            return statement.executeBatch();
+                        }
+                    });
         } finally {
             // JDBC convention (matching CUBRIDStatement.executeBatch): the batch is consumed by an
             // executeBatch() attempt regardless of outcome, so clear it even when the physical
@@ -240,10 +268,11 @@ public class LBStatement extends CUBRIDStatement {
 
         final String executedSql = sql;
         final int keys = autoGeneratedKeys;
-        final RouteTarget target = routeFor(executedSql);
+        final RouteDecision route = routeFor(executedSql);
+        final RouteTarget target = route.getTarget();
         return executeWithFailover(
                         executedSql,
-                        target,
+                        route,
                         new SqlExecution<Boolean>() {
                             public Boolean run() throws SQLException {
                                 Statement statement = createPhyStmt(executedSql, target);
@@ -261,10 +290,11 @@ public class LBStatement extends CUBRIDStatement {
 
         final String executedSql = sql;
         final int[] indexes = columnIndexes;
-        final RouteTarget target = routeFor(executedSql);
+        final RouteDecision route = routeFor(executedSql);
+        final RouteTarget target = route.getTarget();
         return executeWithFailover(
                         executedSql,
-                        target,
+                        route,
                         new SqlExecution<Boolean>() {
                             public Boolean run() throws SQLException {
                                 Statement statement = createPhyStmt(executedSql, target);
@@ -282,10 +312,11 @@ public class LBStatement extends CUBRIDStatement {
 
         final String executedSql = sql;
         final String[] names = columnNames;
-        final RouteTarget target = routeFor(executedSql);
+        final RouteDecision route = routeFor(executedSql);
+        final RouteTarget target = route.getTarget();
         return executeWithFailover(
                         executedSql,
-                        target,
+                        route,
                         new SqlExecution<Boolean>() {
                             public Boolean run() throws SQLException {
                                 Statement statement = createPhyStmt(executedSql, target);
@@ -303,10 +334,11 @@ public class LBStatement extends CUBRIDStatement {
 
         final String executedSql = sql;
         final int keys = autoGeneratedKeys;
-        final RouteTarget target = routeFor(executedSql);
+        final RouteDecision route = routeFor(executedSql);
+        final RouteTarget target = route.getTarget();
         return executeWithFailover(
                         executedSql,
-                        target,
+                        route,
                         new SqlExecution<Integer>() {
                             public Integer run() throws SQLException {
                                 Statement statement = createPhyStmt(executedSql, target);
@@ -323,10 +355,11 @@ public class LBStatement extends CUBRIDStatement {
 
         final String executedSql = sql;
         final int[] indexes = columnIndexes;
-        final RouteTarget target = routeFor(executedSql);
+        final RouteDecision route = routeFor(executedSql);
+        final RouteTarget target = route.getTarget();
         return executeWithFailover(
                         executedSql,
-                        target,
+                        route,
                         new SqlExecution<Integer>() {
                             public Integer run() throws SQLException {
                                 Statement statement = createPhyStmt(executedSql, target);
@@ -343,10 +376,11 @@ public class LBStatement extends CUBRIDStatement {
 
         final String executedSql = sql;
         final String[] names = columnNames;
-        final RouteTarget target = routeFor(executedSql);
+        final RouteDecision route = routeFor(executedSql);
+        final RouteTarget target = route.getTarget();
         return executeWithFailover(
                         executedSql,
-                        target,
+                        route,
                         new SqlExecution<Integer>() {
                             public Integer run() throws SQLException {
                                 Statement statement = createPhyStmt(executedSql, target);
@@ -362,8 +396,8 @@ public class LBStatement extends CUBRIDStatement {
     /** The leg statement's own answer: core drops a result set that was closed or completed. */
     public ResultSet getResultSet() throws SQLException {
         checkClosed();
-        if (lastExecStmt == null) {
-            return null;
+        if (!isOpen(lastExecStmt)) {
+            return null; // nothing yet, or its leg was replaced and its cursor went with it
         }
 
         return stampProducer(lastExecStmt.getResultSet(), this);
@@ -374,19 +408,35 @@ public class LBStatement extends CUBRIDStatement {
         if (countStmt == null) {
             return -1; // core's before any execution
         }
+        if (!isOpen(countStmt)) {
+            return lastUpdateCount;
+        }
 
         return countStmt.getUpdateCount();
     }
 
     public boolean getMoreResults() throws SQLException {
+        synchronized (lbConnection) {
+            return getMoreResultsLocked();
+        }
+    }
+
+    private boolean getMoreResultsLocked() throws SQLException {
         checkClosed();
         if (lastExecStmt == null) {
+            return false;
+        }
+        countStmt = lastExecStmt;
+        if (!isOpen(lastExecStmt)) {
+            // As core's getMoreResults on a statement whose results are done.
+            lastRs = null;
+            lastUpdateCount = -1;
             return false;
         }
 
         boolean result = lastExecStmt.getMoreResults();
         lastRs = result ? lastExecStmt.getResultSet() : null;
-        countStmt = lastExecStmt;
+        lastUpdateCount = lastExecStmt.getUpdateCount();
 
         return result;
     }
@@ -403,6 +453,9 @@ public class LBStatement extends CUBRIDStatement {
         checkClosed();
         if (keysStmt == null) {
             return super.getGeneratedKeys();
+        }
+        if (!isOpen(keysStmt)) {
+            return lastKeys != null ? lastKeys : super.getGeneratedKeys();
         }
 
         return keysStmt.getGeneratedKeys();
@@ -496,6 +549,12 @@ public class LBStatement extends CUBRIDStatement {
 
     /* ===== close warnings connection =====*/
     public void close() throws SQLException {
+        synchronized (lbConnection) {
+            closeLocked();
+        }
+    }
+
+    private void closeLocked() throws SQLException {
         try {
             closePhyStmts();
         } finally {
@@ -507,6 +566,7 @@ public class LBStatement extends CUBRIDStatement {
             lastRs = null;
             countStmt = null;
             keysStmt = null;
+            lastKeys = null;
             closed = true;
             lbConnection.untrackStatement(this);
             // Core's own close, so the inherited core methods find a closed statement as on core.
@@ -514,27 +574,29 @@ public class LBStatement extends CUBRIDStatement {
         }
     }
 
+    /** Core's rule: closed itself, or its connection is. */
     public boolean isClosed() throws SQLException {
-        return closed;
+        return closed || super.isClosed();
     }
 
     public void cancel() throws SQLException {
         checkClosed();
         // Prefer the in-flight statement published at execute-start; fall back to the last
-        // completed one when no execution is in progress.
+        // completed one when no execution is in progress. One whose leg was replaced has nothing
+        // to cancel, as core's idle statement.
         Statement target = currentExecStmt;
         if (target == null) {
             target = lastExecStmt;
         }
-        if (target != null) {
+        if (isOpen(target)) {
             target.cancel();
         }
     }
 
     public SQLWarning getWarnings() throws SQLException {
         checkClosed();
-        if (lastExecStmt == null) {
-            return null;
+        if (!isOpen(lastExecStmt)) {
+            return null; // core's own answer is always null
         }
 
         return lastExecStmt.getWarnings();
@@ -542,7 +604,7 @@ public class LBStatement extends CUBRIDStatement {
 
     public void clearWarnings() throws SQLException {
         checkClosed();
-        if (lastExecStmt != null) {
+        if (isOpen(lastExecStmt)) {
             lastExecStmt.clearWarnings();
         }
     }
@@ -597,15 +659,15 @@ public class LBStatement extends CUBRIDStatement {
     }
 
     protected void checkClosed() throws SQLException {
-        if (closed) {
+        if (isClosed()) {
             throw LbExceptions.statementClosed();
         }
     }
 
     protected <T> T executeWithFailover(
-            final String sql, final RouteTarget target, final SqlExecution<T> execution)
+            final String sql, final RouteDecision route, final SqlExecution<T> execution)
             throws SQLException {
-        return executeWithFailover(sql, target, true, execution);
+        return executeWithFailover(sql, route, true, execution);
     }
 
     /**
@@ -616,14 +678,32 @@ public class LBStatement extends CUBRIDStatement {
      *
      * @param <T> the execution's result type
      * @param sql the statement as the application issued it
-     * @param target the route target the statement was classified to
-     * @param retrySafe whether re-running {@code execution} is safe with respect to the statement's
-     *     parameters; a consumed stream parameter cannot be replayed
+     * @param route the statement's routing decision, which the routing records name
+     * @param retrySafe whether running {@code execution} again after a rebind is safe; a CALL
+     *     passes {@code false}
      * @param execution the physical execution to run
      * @return the execution's result
      * @throws SQLException if the execution fails and cannot be recovered or retried
      */
     protected <T> T executeWithFailover(
+            final String sql,
+            final RouteDecision route,
+            final boolean retrySafe,
+            final SqlExecution<T> execution)
+            throws SQLException {
+        // One statement at a time on a connection, as core's synchronized (con): a statement of
+        // another thread waits, and what this one records about its leg is its own (r5 D1).
+        synchronized (lbConnection) {
+            lbConnection.beginStatementRoute(route);
+            try {
+                return runStatement(sql, route.getTarget(), retrySafe, execution);
+            } finally {
+                lbConnection.endStatementRoute();
+            }
+        }
+    }
+
+    private <T> T runStatement(
             final String sql,
             final RouteTarget target,
             final boolean retrySafe,
@@ -632,15 +712,26 @@ public class LBStatement extends CUBRIDStatement {
         final ExecuteFailoverHandler handler = lbConnection.getExecuteFailoverHandler();
         T result;
         RouteTarget ranOn = target;
+        valuesOfRun = null;
+        lbConnection.restoreSessionSetsAfterReconnect(target);
         lbConnection.beforeSessionSet(sql);
         lbConnection.settleReadLegRollback(false);
         try {
             result = handler.executeWithFailover(lbConnection, target, sql, retrySafe, execution);
+            // Core reconnected the read leg while the read ran: it ran without the session SETs.
+            if (retrySafe
+                    && target == RouteTarget.TO_READ_ONLY
+                    && lbConnection.restoreSessionSetsAfterReconnect(target)) {
+                result =
+                        handler.executeWithFailover(
+                                lbConnection, target, sql, retrySafe, execution);
+            }
         } catch (SQLException failure) {
             final boolean runAgain =
                     retrySafe && lbConnection.mayRetryRejectedReadOnRw(target, sql, failure);
             lbConnection.settleReadLegRollback(!runAgain);
             if (!runAgain) {
+                lbConnection.afterStatementFailed(sql);
                 throw failure;
             }
             lbConnection.beginRejectedReadRetry(sql, failure);
@@ -656,18 +747,97 @@ public class LBStatement extends CUBRIDStatement {
             }
         }
         lbConnection.settleReadLegRollback(false);
-        lbConnection.afterStatementSucceeded(sql, ranOn);
+        lbConnection.afterStatementSucceeded(sql, ranOn, valuesOfRun);
         return result;
     }
 
     /**
-     * Records a batch that ran outside {@link #executeWithFailover}: a {@code SET} in it changed
-     * the session just as a single statement would.
+     * A prepared or callable statement tells, as it binds a run, what runs it again with the values
+     * of that run. Only for a statement whose values the other legs need: a login or a lock timeout
+     * that takes them from {@code ?}.
      */
-    void afterBatchSucceeded(final List<String> sqls, final RouteTarget ranOn) {
-        for (String each : sqls) {
-            lbConnection.afterStatementSucceeded(each, ranOn);
+    void runsWith(final LoadBalanceConnection.BoundRun values) {
+        valuesOfRun = values;
+    }
+
+    /**
+     * Runs a {@code Statement} batch through the steps of {@link #executeWithFailover}.
+     *
+     * @param sqls the batch's statements, in order
+     * @param execution the physical execution to run
+     * @return the update counts
+     * @throws SQLException if the batch fails and cannot be recovered or retried
+     */
+    int[] executeBatchWithFailover(final List<String> sqls, final SqlExecution<int[]> execution)
+            throws SQLException {
+        synchronized (lbConnection) {
+            return runBatch(sqls, 0, execution);
         }
+    }
+
+    /**
+     * Runs a {@code PreparedStatement} batch through the steps of {@link #executeWithFailover}.
+     *
+     * @param sql the prepared statement, which every row of the batch runs
+     * @param rows the number of rows in the batch
+     * @param execution the physical execution to run
+     * @return the update counts
+     * @throws SQLException if the batch fails and cannot be recovered or retried
+     */
+    int[] executeBatchWithFailover(
+            final String sql, final int rows, final SqlExecution<int[]> execution)
+            throws SQLException {
+        synchronized (lbConnection) {
+            return runBatch(Collections.singletonList(sql), rows, execution);
+        }
+    }
+
+    /**
+     * Core runs a batch in its one session, where a routine behind a view can write; the read leg
+     * would refuse it and a batch is not run again, so every batch runs on RW. Under failover like
+     * any write: the leg is rebound, and the batch runs again only when connecting failed, as core
+     * sends it to the next host then. A prepared batch has one statement and {@code rows} rows that
+     * all answer for it; {@code rows} is 0 otherwise.
+     */
+    private int[] runBatch(
+            final List<String> sqls, final int rows, final SqlExecution<int[]> execution)
+            throws SQLException {
+        final RouteTarget target = RouteTarget.TO_READ_WRITE;
+        lbConnection.restoreSessionSetsAfterReconnect(target);
+        for (String each : sqls) {
+            lbConnection.beforeSessionSet(each);
+        }
+        lbConnection.settleReadLegRollback(false);
+        final int[] counts;
+        lbConnection.beginStatementRoute(
+                Router.batch(RoutedSql.of(sqls.get(0), lbConnection.sqlClassifier())));
+        try {
+            counts =
+                    lbConnection
+                            .getExecuteFailoverHandler()
+                            .executeWithFailover(
+                                    lbConnection, target, sqls.get(0), true, execution);
+        } catch (BatchUpdateException answered) {
+            lbConnection.settleReadLegRollback(true);
+            lbConnection.afterBatchAnswered(
+                    rows > 0 ? Collections.nCopies(rows, sqls.get(0)) : sqls,
+                    answered.getUpdateCounts(),
+                    target);
+            throw answered;
+        } catch (SQLException failure) {
+            lbConnection.settleReadLegRollback(true);
+            throw failure;
+        } finally {
+            lbConnection.endStatementRoute();
+        }
+        lbConnection.settleReadLegRollback(false);
+        // Core sends no batch for a prepared statement without parameters: no counts, nothing ran.
+        if (counts.length > 0) {
+            for (String each : sqls) {
+                lbConnection.afterStatementSucceeded(each, target);
+            }
+        }
+        return counts;
     }
 
     /**
@@ -718,6 +888,12 @@ public class LBStatement extends CUBRIDStatement {
                 return result;
             }
         }
+        // A new one means a leg was replaced: the statements on its connection closed with it.
+        for (Iterator<Statement> held = phyStmts.iterator(); held.hasNext(); ) {
+            if (held.next().isClosed()) {
+                held.remove();
+            }
+        }
         phyStmts.add(result);
 
         return result;
@@ -748,13 +924,16 @@ public class LBStatement extends CUBRIDStatement {
             return super.executeInsert(sql); // what core does on a closed statement
         }
 
-        final RouteTarget target = routeFor(sql);
-        Statement statement = createPhyStmt(sql, target);
-
-        CUBRIDOID result = invokeExecInsert(statement, sql);
-        lbConnection.afterStatementSucceeded(sql, target);
-
-        return result;
+        final RouteDecision route = routeFor(sql);
+        final RouteTarget target = route.getTarget();
+        return executeWithFailover(
+                sql,
+                route,
+                new SqlExecution<CUBRIDOID>() {
+                    public CUBRIDOID run() throws SQLException {
+                        return invokeExecInsert(createPhyStmt(sql, target), sql);
+                    }
+                });
     }
 
     private CUBRIDOID invokeExecInsert(final Statement statement, final String sql)
@@ -766,7 +945,7 @@ public class LBStatement extends CUBRIDStatement {
     public String getQueryplan(final String sql) throws SQLException {
         checkClosed();
 
-        Statement statement = legStmt(sql, routeFor(sql));
+        Statement statement = legStmt(sql, routeFor(sql).getTarget());
 
         String result;
         lbConnection.settleReadLegRollback(false);
@@ -782,8 +961,9 @@ public class LBStatement extends CUBRIDStatement {
 
     public String getQueryplan() throws SQLException {
         checkClosed();
-        if (lastExecStmt == null) {
-            return super.getQueryplan(); // core's answer before any execution
+        if (!isOpen(lastExecStmt)) {
+            // Core's answer with no server statement: none ran, or the leg it ran on is gone.
+            return super.getQueryplan();
         }
 
         lbConnection.settleReadLegRollback(false);
@@ -880,6 +1060,10 @@ public class LBStatement extends CUBRIDStatement {
     /**
      * An execution on {@code stmt} succeeded: it now answers for the update count, and for the
      * generated keys when it was an update, as core's executeUpdate/execute remake them.
+     *
+     * @param stmt the physical statement that ran
+     * @param rs its result set, or null
+     * @param update whether it was an update
      */
     protected void recordExec(final Statement stmt, final ResultSet rs, final boolean update) {
         lastRs = rs;
@@ -887,11 +1071,30 @@ public class LBStatement extends CUBRIDStatement {
         if (update) {
             keysStmt = stmt;
         }
+        // Read now, while the leg statement is open; the execution already succeeded, so a failed
+        // read leaves the value unknown instead of failing it.
+        try {
+            lastUpdateCount = stmt.getUpdateCount();
+            if (update) {
+                lastKeys = stmt.getGeneratedKeys();
+            }
+        } catch (SQLException unknown) {
+            lastUpdateCount = -1;
+            if (update) {
+                lastKeys = null;
+            }
+        }
+    }
+
+    private static boolean isOpen(final Statement stmt) throws SQLException {
+        return stmt != null && !stmt.isClosed();
     }
 
     /**
      * An execution starts on {@code next}. Core completes the previous one first, closing its
      * result set even when this one then fails.
+     *
+     * @param next the physical statement about to run
      */
     protected void beginExecution(final Statement next) {
         closeResultOfAnotherStatement(next);
@@ -974,31 +1177,39 @@ public class LBStatement extends CUBRIDStatement {
         return resultSetConcurrency == ResultSet.CONCUR_UPDATABLE;
     }
 
-    private RouteTarget routeFor(final String sql) {
-        return lbConnection.keepReadOnRwWhileTxOpen(
-                Router.decide(
-                                sql,
-                                lbConnection.getSessionState(),
-                                new Router.DefaultRouteAdvisor() {
-                                    public RouteTarget defaultTarget(final String rawSql) {
-                                        if (producesUpdatableResults()) {
-                                            return RouteTarget.TO_READ_WRITE;
-                                        }
-                                        SqlClassification classification =
-                                                lbConnection.sqlClassifier().classify(rawSql);
-                                        if (SqlClassification.READ == classification) {
-                                            return RouteTarget.TO_READ_ONLY;
-                                        }
-                                        if (SqlClassification.READ_ON_PREVIOUS_LEG
-                                                == classification) {
-                                            return Router.previousStatementLeg(
-                                                    lbConnection.getSessionState());
-                                        }
+    private RouteDecision routeFor(final String sql) {
+        return routeFor(RoutedSql.of(sql, lbConnection.sqlClassifier()));
+    }
 
-                                        return RouteTarget.TO_READ_WRITE;
-                                    }
-                                })
-                        .getTarget());
+    /** The leg of a statement whose SQL is already read, as a prepared statement's is. */
+    RouteDecision routeFor(final RoutedSql sql) {
+        return Router.decide(
+                sql,
+                producesUpdatableResults(),
+                preparedUnderReadPin,
+                lbConnection.getSessionState(),
+                rwTransactionOpen);
+    }
+
+    void markPreparedUnderReadPin() {
+        preparedUnderReadPin = true;
+    }
+
+    /**
+     * Whether {@code sql} runs on the read leg when nothing in the session holds it on RW: what the
+     * router decides for a session with no transaction, pin or variable.
+     */
+    boolean mayRunOnReadLeg(final RoutedSql sql) {
+        final SessionRoutingState free = new SessionRoutingState();
+        free.setLastStatementOnReadLeg(true);
+        return Router.decide(
+                                sql,
+                                producesUpdatableResults(),
+                                preparedUnderReadPin,
+                                free,
+                                NO_RW_TRANSACTION)
+                        .getTarget()
+                == RouteTarget.TO_READ_ONLY;
     }
 
     private void closePhyStmts() throws SQLException {
@@ -1081,8 +1292,8 @@ public class LBStatement extends CUBRIDStatement {
     }
 
     /**
-     * Meaningless here, so refused. The redirect exists for the physical statements LB hands out
-     * unwrapped; a logical statement already reports the logical connection from {@code
+     * Meaningless here, so refused. The redirect exists for a physical statement whose result sets
+     * reach the application; a logical statement already reports the logical connection from {@code
      * getConnection()}. Accepting it would let a caller make this statement claim an owner it does
      * not have. {@code CUBRIDStatement} declares it without a {@code throws} clause, so the refusal
      * is unchecked.

@@ -32,8 +32,11 @@ package cubrid.jdbc.lb;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import cubrid.jdbc.driver.CUBRIDCallableStatement;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.connection.SimpleEndpointConnManager;
@@ -67,6 +70,22 @@ public final class LoadBalanceConnectionCallableDelegationTest {
         assertNotNull(actual);
         assertEquals(1, masterPrepareCallCount.get());
         assertEquals(0, readOnlyPrepareCallCount.get());
+    }
+
+    /** An application written against {@code (CUBRIDCallableStatement) cs} runs unmodified. */
+    @Test
+    public void assertPrepareCallReturnsCoresCallableStatementClass() throws Exception {
+        LoadBalanceConnection connection = createBoundConnection();
+        Connection master = newConnectionProxy(new AtomicInteger(), new AtomicInteger(), false);
+        Connection readOnly = newConnectionProxy(new AtomicInteger(), new AtomicInteger(), false);
+        bindPhysicalConnections(connection, master, readOnly);
+
+        CallableStatement actual = connection.prepareCall("{call p()}");
+
+        assertTrue(actual instanceof CUBRIDCallableStatement);
+        assertTrue(actual.isWrapperFor(CUBRIDCallableStatement.class));
+        assertSame(actual, actual.unwrap(CUBRIDCallableStatement.class));
+        assertSame(connection, actual.getConnection());
     }
 
     @Test

@@ -47,7 +47,7 @@ import java.sql.DatabaseMetaData;
 import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import org.junit.Test;
@@ -58,12 +58,6 @@ import org.junit.Test;
  * called on a core object built without its constructor - so there is no list to maintain.
  */
 public class CoreUnsupportedApiParityTest {
-
-    /** Core supports these since APIS-1123; LB does not yet. */
-    private static final List<String> LB_ONLY_REFUSALS =
-            Arrays.asList(
-                    "CUBRIDConnection.getNetworkTimeout()",
-                    "CUBRIDConnection.setNetworkTimeout(Executor,int)");
 
     @Test
     public void connectionRefusesWhatCoreRefuses() throws Exception {
@@ -115,7 +109,7 @@ public class CoreUnsupportedApiParityTest {
         lbOnly.addAll(refusedByLbOnly(CUBRIDPreparedStatement.class, ps));
         lbOnly.addAll(refusedByLbOnly(CUBRIDDatabaseMetaData.class, meta));
 
-        assertEquals(LB_ONLY_REFUSALS, lbOnly);
+        assertEquals(Collections.<String>emptyList(), lbOnly);
     }
 
     private static List<String> refusedByLbOnly(final Class<?> coreClass, final Object lbClosed)

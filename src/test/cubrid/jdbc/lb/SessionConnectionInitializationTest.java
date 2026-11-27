@@ -42,7 +42,6 @@ import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.connection.SimpleEndpointConnManager;
 import cubrid.jdbc.lb.state.SharedSelectorState;
-import cubrid.jdbc.lb.state.StateTestAccess;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
@@ -61,10 +60,6 @@ public final class SessionConnectionInitializationTest {
         assertTrue(connection.isSessionInitialized());
         assertEquals("rw-host", connection.getCurrentEp(SessionLeg.RW).getHost());
         assertNotNull(connection.getCurrentEp(SessionLeg.RO));
-        assertTrue(StateTestAccess.isBound(connection.getBoundReadEndpoint()));
-        assertSame(
-                connection.getCurrentEp(SessionLeg.RO),
-                connection.getBoundReadEndpoint().getCurrentRoEndpoint());
     }
 
     @Test
@@ -73,8 +68,8 @@ public final class SessionConnectionInitializationTest {
         connection.setSharedSelectorState(new SharedSelectorState());
         EndpointTopology topology = createTopology("rw-host", 33000, "ro-a", 33100, "ro-b", 33101);
 
-        Endpoint first = connection.resolveReadEndpoint(topology);
-        Endpoint second = connection.resolveReadEndpoint(topology);
+        Endpoint first = LbTestAccess.resolveReadEndpoint(connection, topology);
+        Endpoint second = LbTestAccess.resolveReadEndpoint(connection, topology);
 
         assertNotNull(first);
         assertSame(first, second);
@@ -129,7 +124,6 @@ public final class SessionConnectionInitializationTest {
         assertFalse(connection.isSessionInitialized());
         assertEquals(null, connection.getCurrentEp(SessionLeg.RW));
         assertEquals(null, connection.getCurrentEp(SessionLeg.RO));
-        assertFalse(StateTestAccess.isBound(connection.getBoundReadEndpoint()));
     }
 
     @Test
@@ -139,15 +133,15 @@ public final class SessionConnectionInitializationTest {
         connection.setSharedSelectorState(new SharedSelectorState());
         EndpointTopology topology = createTopology("rw-host", 33000, "ro-a", 33100, "ro-b", 33101);
 
-        Endpoint sessionRo = connection.resolveReadEndpoint(topology);
+        Endpoint sessionRo = LbTestAccess.resolveReadEndpoint(connection, topology);
         connection.setAutoCommit(false);
-        Endpoint duringTransaction = connection.resolveReadEndpoint(topology);
+        Endpoint duringTransaction = LbTestAccess.resolveReadEndpoint(connection, topology);
         connection.commit();
         // CR-6/04 §C-1: manual-commit re-arms after commit, so reads stay RW-pinned until
         // auto-commit is restored; only then does the session return to the pinned RO.
-        Endpoint afterCommitStillManual = connection.resolveReadEndpoint(topology);
+        Endpoint afterCommitStillManual = LbTestAccess.resolveReadEndpoint(connection, topology);
         connection.setAutoCommit(true);
-        Endpoint afterAutoCommitRestored = connection.resolveReadEndpoint(topology);
+        Endpoint afterAutoCommitRestored = LbTestAccess.resolveReadEndpoint(connection, topology);
 
         assertEquals("rw-host", duringTransaction.getHost());
         assertEquals("rw-host", afterCommitStillManual.getHost());

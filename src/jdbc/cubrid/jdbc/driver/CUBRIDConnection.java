@@ -484,7 +484,14 @@ public class CUBRIDConnection implements Connection {
         return prepare(sql, type, concur, holdable, Statement.NO_GENERATED_KEYS);
     }
 
-    /** A holdable cursor can be neither sensitive nor updatable. */
+    /**
+     * A holdable cursor can be neither sensitive nor updatable.
+     *
+     * @param type the result set type asked for
+     * @param concur the result set concurrency asked for
+     * @param holdable the holdability asked for
+     * @throws SQLException if a holdable cursor is asked to be sensitive or updatable
+     */
     protected static void checkHoldableResultType(int type, int concur, int holdable)
             throws SQLException {
         if (holdable == ResultSet.HOLD_CURSORS_OVER_COMMIT) {

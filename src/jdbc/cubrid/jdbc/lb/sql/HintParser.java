@@ -40,10 +40,12 @@ import java.util.StringTokenizer;
  * Extracts LB routing hints from a SQL string.
  *
  * <p>LB hints are recognized only when {@code /*+ ... * /} immediately follows the top-level {@code
- * SELECT} keyword. Two top-level shapes are supported:
+ * SELECT} keyword. Three top-level shapes are supported:
  *
  * <ul>
  *   <li>Plain {@code SELECT ...}
+ *   <li>{@code (SELECT ...) UNION (SELECT ...)} — the first SELECT after the leading parentheses,
+ *       as KeywordSqlClassifier reads it
  *   <li>{@code WITH [RECURSIVE] <cte_list> SELECT ...} — only the SELECT at paren depth 0 after the
  *       CTE list is treated as the top-level SELECT. Hints inside CTE bodies are ignored.
  * </ul>
@@ -141,12 +143,18 @@ public final class HintParser {
     }
 
     static int findAfterTopLevelSelect(String trimmed) {
-        if (matchesKeywordAt(trimmed, 0, "SELECT")) {
-            return "SELECT".length();
-        }
-
         if (matchesKeywordAt(trimmed, 0, "WITH")) {
             return scanForTopLevelSelect(trimmed, "WITH".length());
+        }
+
+        // A query may open with "(", as in "(SELECT ...) UNION (SELECT ...)". KeywordSqlClassifier
+        // skips it and reads a SELECT, so the hint after that first SELECT counts here too.
+        int pos = 0;
+        while (pos < trimmed.length() && trimmed.charAt(pos) == '(') {
+            pos = SqlLexer.skipWhitespaceAndComments(trimmed, pos + 1);
+        }
+        if (matchesKeywordAt(trimmed, pos, "SELECT")) {
+            return pos + "SELECT".length();
         }
 
         return -1;

@@ -30,95 +30,29 @@
 
 package cubrid.jdbc.lb.sql;
 
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
-
 /**
  * Thread-safe cache of {@link SqlClassification} keyed by the exact SQL string passed to {@link
- * #classify(String)}.
- *
- * <p>Eviction rotates two generations instead of wiping the cache. New entries go into the
- * <em>hot</em> generation; when it reaches {@code maxEntries} it becomes <em>cold</em> and an empty
- * hot generation takes over. Lookups try hot, then cold, and a cold hit is promoted back to hot, so
- * a frequently used entry survives rotations. Each rotation drops at most one generation, and the
- * cache holds roughly {@code 2 * maxEntries} entries at most.
- *
- * <p>The hot fill level is an {@link AtomicInteger}, so a miss needs no {@code size()} scan of the
- * map. Under concurrency the count is approximate: it only decides when to rotate, never what a
- * lookup returns.
+ * #classify(String)}. Eviction and the length limit are {@link SqlTextCache}'s.
  */
 final class CachingSqlClassifier implements SqlClassifier {
-    private static final int MIN_MAP_INITIAL_CAPACITY = 16;
-    private static final int MAX_MAP_INITIAL_CAPACITY = 4096;
-    // Longer statements are classified each time: the cache is JVM-wide and keyed by the full text,
-    // so keeping distinct bulk INSERTs would hold megabytes of SQL each. One scan costs little
-    // next to sending that much.
-    private static final int MAX_CACHED_SQL_LENGTH = 4096;
-    private final SqlClassifier delegate;
-    private final int maxEntries;
-    private final int initialCapacity;
-    private final AtomicInteger hotCount = new AtomicInteger();
-    private volatile ConcurrentHashMap<String, SqlClassification> hot;
-    private volatile ConcurrentHashMap<String, SqlClassification> cold;
+    private final SqlTextCache<SqlClassification> cache;
+    private final SqlTextCache.Source<SqlClassification> source;
 
     CachingSqlClassifier(final SqlClassifier delegate, final int maxEntries) {
         if (delegate == null) {
             throw new IllegalArgumentException("delegate must not be null");
         }
-        if (maxEntries <= 0) {
-            throw new IllegalArgumentException("maxEntries must be positive");
-        }
-        this.delegate = delegate;
-        this.maxEntries = maxEntries;
-        this.initialCapacity = mapInitialCapacity(maxEntries);
-        this.hot = new ConcurrentHashMap<String, SqlClassification>(initialCapacity);
-        this.cold = new ConcurrentHashMap<String, SqlClassification>(initialCapacity);
-    }
-
-    private static int mapInitialCapacity(final int maxEntries) {
-        int initial = maxEntries < MIN_MAP_INITIAL_CAPACITY ? MIN_MAP_INITIAL_CAPACITY : maxEntries;
-        if (initial > MAX_MAP_INITIAL_CAPACITY) {
-            initial = MAX_MAP_INITIAL_CAPACITY;
-        }
-
-        return initial;
+        this.cache = new SqlTextCache<SqlClassification>(maxEntries);
+        this.source =
+                new SqlTextCache.Source<SqlClassification>() {
+                    public SqlClassification of(final String sql) {
+                        return delegate.classify(sql);
+                    }
+                };
     }
 
     @Override
     public SqlClassification classify(final String sql) {
-        if (sql == null || sql.length() > MAX_CACHED_SQL_LENGTH) {
-            return delegate.classify(sql);
-        }
-
-        SqlClassification hit = hot.get(sql);
-        if (hit != null) {
-            return hit;
-        }
-
-        hit = cold.get(sql);
-        if (hit != null) {
-            store(sql, hit); // promote into hot so it survives the next rotation
-            return hit;
-        }
-
-        SqlClassification computed = delegate.classify(sql);
-        store(sql, computed);
-
-        return computed;
-    }
-
-    private void store(final String sql, final SqlClassification value) {
-        if (hot.putIfAbsent(sql, value) == null && hotCount.incrementAndGet() > maxEntries) {
-            rotate();
-        }
-    }
-
-    private synchronized void rotate() {
-        if (hotCount.get() <= maxEntries) {
-            return; // another thread already rotated
-        }
-        cold = hot;
-        hot = new ConcurrentHashMap<String, SqlClassification>(initialCapacity);
-        hotCount.set(0);
+        return cache.get(sql, source);
     }
 }

@@ -41,9 +41,7 @@ public final class FallbackReason {
     /** No fallback: the request bound to its intended endpoint. */
     public static final String NONE = "NONE";
 
-    /**
-     * Read was pinned to RW because a transaction is active and no master read endpoint applies.
-     */
+    /** Read was pinned to RW because a transaction is active. */
     static final String TX_ACTIVE_RW_LOCK = "TX_ACTIVE_RW_LOCK";
 
     /** Physical binding was recovered after a runtime failover. */

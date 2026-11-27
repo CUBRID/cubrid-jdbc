@@ -63,8 +63,11 @@ import java.util.Set;
  *       conservatively.
  *   <li>{@code db_ha_apply_info} - each HA node writes its own rows, so a read node would answer
  *       about itself.
- *   <li>the node's clock and configuration, called ({@code NOW()}, {@code VERSION()}) or bare
- *       ({@code SYSDATE}) - a read node would answer from its own.
+ *   <li>the node's configuration, called ({@code VERSION()}) or bare ({@code DBTIMEZONE}) - a read
+ *       node would answer from its own. Its clock ({@code SYSDATE}, {@code NOW()}) is not here:
+ *       reads using the current time are distributed.
+ *   <li>{@code SHOW TRACE} - it reports the last query of its own session, so it runs where that
+ *       query ran: {@link SqlClassification#READ_ON_PREVIOUS_LEG}.
  * </ul>
  *
  * <p>An explicit {@code TO_RO} hint still wins, because the {@code Router} resolves hints before it
@@ -232,9 +235,22 @@ final class KeywordSqlClassifier implements SqlClassifier {
             return classifyCte(normalized);
         }
 
+        if ("SHOW".equals(first) && "TRACE".equals(wordAt(normalized, first.length()))) {
+            return SqlClassification.READ_ON_PREVIOUS_LEG;
+        }
+
         final SqlClassification classified = LEADING_WRITE_KEYWORDS.get(first);
 
         return classified != null ? classified : SqlClassification.UNKNOWN;
+    }
+
+    /** The upper-cased word after whitespace and comments from {@code pos}, or "". */
+    private static String wordAt(final String sql, final int pos) {
+        final int start = SqlLexer.skipWhitespaceAndComments(sql, pos);
+        if (start >= sql.length() || !isIdentifierStart(sql.charAt(start))) {
+            return "";
+        }
+        return extractUpperAscii(sql, start, scanIdentifierEnd(sql, start));
     }
 
     /**
@@ -755,8 +771,7 @@ final class KeywordSqlClassifier implements SqlClassifier {
      * delimiter, end one past the closing delimiter), uppercased ASCII. Collapses {@code ""}
      * escapes for the double-quote form; brackets/backticks have no escape in this scanner.
      */
-    private static String extractQuotedIdentifierUpper(
-            final String sql, final int start, final int end) {
+    static String extractQuotedIdentifierUpper(final String sql, final int start, final int end) {
         if (end - start < 2) {
             return "";
         }

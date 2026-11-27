@@ -27,37 +27,32 @@
  * OF SUCH DAMAGE.
  *
  */
+package cubrid.jdbc.lb.report;
 
-package cubrid.jdbc.lb.state;
+import cubrid.jdbc.lb.LbTestReflection;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.concurrent.atomic.AtomicLong;
 
-import cubrid.jdbc.lb.config.Endpoint;
+/** Test-side access to the state of {@code cubrid.jdbc.lb.report}. It lives in the test tree. */
+public final class ReportTestAccess {
+    private ReportTestAccess() {}
 
-/**
- * Holds the RO (read) endpoint this connection is currently bound to. The endpoint is picked when
- * the session binds and is replaced when the read leg fails over or fails back, so this tracks the
- * <em>current</em> binding — not the session's weighted home, which the connection manager keeps.
- * It is a simple nullable holder, not an execution tracker.
- *
- * <p>Thread contract: {@code currentRoEndpoint} is non-volatile and follows the same contract as
- * the owning {@link cubrid.jdbc.lb.LoadBalanceConnection}. A JDBC connection is not used
- * concurrently, and a pool handing it between threads establishes the happens-before edge.
- */
-public class CurrentReadEndpointHolder {
-    private Endpoint currentRoEndpoint = null;
-
-    public Endpoint getCurrentRoEndpoint() {
-        return currentRoEndpoint;
+    /** Disarms the distribution record and forgets its window. */
+    public static void resetDistLog() {
+        synchronized (LbDistLog.class) {
+            LbTestReflection.setStatic(LbDistLog.class, "armed", Boolean.FALSE);
+            LbTestReflection.setStatic(LbDistLog.class, "intervalNanos", Long.valueOf(0L));
+            LbTestReflection.setStatic(LbDistLog.class, "target", null);
+            LbTestReflection.setStatic(LbDistLog.class, "previous", Collections.emptyMap());
+            ((AtomicLong) LbTestReflection.staticField(LbDistLog.class, "lastEmitNanos")).set(0L);
+        }
     }
 
-    public void setCurrentRoEndpoint(Endpoint endpoint) {
-        this.currentRoEndpoint = endpoint;
-    }
-
-    boolean isBound() {
-        return currentRoEndpoint != null;
-    }
-
-    public void clear() {
-        this.currentRoEndpoint = null;
+    /** Forgets the configurations already declared. */
+    public static void resetTopologyLog() {
+        synchronized (LbTopologyLog.class) {
+            ((Collection<?>) LbTestReflection.staticField(LbTopologyLog.class, "SEEN")).clear();
+        }
     }
 }

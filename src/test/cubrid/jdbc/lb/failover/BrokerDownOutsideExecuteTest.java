@@ -132,6 +132,99 @@ public final class BrokerDownOutsideExecuteTest {
         conn.close();
     }
 
+    /**
+     * Core reports a broker failure while its transaction is open, in autocommit too (after an OID
+     * write, a CALL, a LOB it created): the work in it is lost. Deferred, the execution would run
+     * on another node and report nothing.
+     */
+    @Test
+    public void eagerPrepareReportsABrokerFailureWhileTheWriteLegHasAnOpenTransaction()
+            throws SQLException {
+        final List<OpenTxLeg> legs = new ArrayList<OpenTxLeg>();
+        JdbcConnectionFactory factory =
+                new JdbcConnectionFactory() {
+                    public Connection getConnection(final String url, final Properties info) {
+                        OpenTxLeg leg = new OpenTxLeg(url);
+                        legs.add(leg);
+                        return leg;
+                    }
+                };
+        LoadBalanceConnection conn = sessionOverTwoWriteEndpoints(factory);
+        OpenTxLeg rw = null;
+        for (OpenTxLeg leg : legs) {
+            if (leg.url.contains(":rw1:")) {
+                rw = leg;
+            }
+        }
+        assertNotNull(rw);
+        rw.brokerDown = true;
+
+        // Nothing open on the write leg: core reconnects for this one itself, so LB defers it.
+        conn.prepareStatement("UPDATE t SET a = 1").close();
+
+        rw.server.report(true);
+        try {
+            conn.prepareStatement("UPDATE t SET a = 2");
+            fail("the lost transaction is reported, as on core");
+        } catch (SQLException reported) {
+            assertEquals(UErrorCode.ER_COMMUNICATION, reported.getErrorCode());
+        }
+        conn.close();
+    }
+
+    /** What the server last reported on a connection: whether a transaction is open there. */
+    private static final class ServerTxStatus extends cubrid.jdbc.jci.UConnection {
+        void report(final boolean txOpen) {
+            casInfo = new byte[] {(byte) (txOpen ? 1 : 0), 0, 0, 0};
+        }
+
+        public void endTransaction(final boolean type) {}
+
+        protected void closeInternal() {}
+
+        public void setAutoCommit(final boolean autoCommit) {}
+
+        public boolean getAutoCommit() {
+            return true;
+        }
+    }
+
+    /** A leg that reports its server's transaction status and whose broker can go down. */
+    private static final class OpenTxLeg extends cubrid.jdbc.lb.FakePhysicalConnection {
+        final String url;
+        final ServerTxStatus server = new ServerTxStatus();
+        boolean brokerDown;
+        boolean closed;
+
+        OpenTxLeg(final String url) {
+            this.url = url;
+            server.report(false);
+        }
+
+        @Override
+        protected Object dispatch(final String name, final Object[] args) throws SQLException {
+            if ("getUConnection".equals(name)) {
+                return server;
+            }
+            if ("close".equals(name)) {
+                closed = true;
+            }
+            if ("isClosed".equals(name)) {
+                return Boolean.valueOf(closed);
+            }
+            if ("isValid".equals(name)) {
+                return Boolean.valueOf(!closed);
+            }
+            if ("getAutoCommit".equals(name)) {
+                return Boolean.TRUE;
+            }
+            if ("prepareStatement".equals(name) && brokerDown) {
+                throw new SQLException("comm fail", null, UErrorCode.ER_COMMUNICATION);
+            }
+            return null;
+        }
+    }
+
     /** Core's prepareStatement reports a malformed reply and keeps its connection. */
     @Test
     public void eagerPrepareReportsAMalformedReplyWithoutFailover() throws SQLException {
@@ -247,6 +340,43 @@ public final class BrokerDownOutsideExecuteTest {
         } else {
             conn.getMetaData().getSchemas();
         }
+    }
+
+    /**
+     * r5 m15: core's getDatabaseMajorVersion and getDatabaseMinorVersion ask the server for the
+     * version the first time, so they rebind the write leg as getDatabaseProductVersion does.
+     */
+    @Test
+    public void databaseVersionNumbersRebindTheWriteLegWhenTheWriteBrokerIsDown()
+            throws SQLException {
+        assertVersionQueryRebinds("getDatabaseMajorVersion");
+        assertVersionQueryRebinds("getDatabaseMinorVersion");
+    }
+
+    private static void assertVersionQueryRebinds(final String method) throws SQLException {
+        final List<String> asked = new ArrayList<String>();
+        LoadBalanceConnection conn =
+                sessionOverTwoWriteEndpoints(catalogQueryFactory("rw1", asked, method));
+
+        try {
+            versionNumber(conn, method);
+            fail("Expected the original write-leg failure to be reported");
+        } catch (SQLException expected) {
+            assertEquals(UErrorCode.ER_COMMUNICATION, expected.getErrorCode());
+        }
+
+        assertTrue(method, hasFailoverEvent(conn));
+        versionNumber(conn, method);
+
+        assertEquals(method, Arrays.asList("rw1", "rw2"), asked);
+        conn.close();
+    }
+
+    private static int versionNumber(final LoadBalanceConnection conn, final String method)
+            throws SQLException {
+        return "getDatabaseMajorVersion".equals(method)
+                ? conn.getMetaData().getDatabaseMajorVersion()
+                : conn.getMetaData().getDatabaseMinorVersion();
     }
 
     /** Core's stored routine metadata now asks the server, so it rebinds the write leg too. */

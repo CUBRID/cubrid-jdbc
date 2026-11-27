@@ -37,6 +37,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import cubrid.jdbc.jci.UErrorCode;
+import cubrid.jdbc.lb.FakePhysicalConnection;
 import cubrid.jdbc.lb.LbTestAccess;
 import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.LoadBalanceConnection;
@@ -93,7 +94,7 @@ public class LBStatementExecuteFailoverTest {
         LbTestAccess.initSessionBindings(conn, topo);
 
         LBStatement stmt = new LBStatement(conn);
-        stmt.setStatementProvider(conn.createStatementProvider(0, 0, 0));
+        StatementTestAccess.setStatementProvider(stmt, conn.createStatementProvider(0, 0, 0));
 
         ResultSet rs = stmt.executeQuery("SELECT 1");
         assertNotNull(rs);
@@ -140,7 +141,7 @@ public class LBStatementExecuteFailoverTest {
         LbTestAccess.initSessionBindings(conn, topo);
 
         LBStatement stmt = new LBStatement(conn);
-        stmt.setStatementProvider(conn.createStatementProvider(0, 0, 0));
+        StatementTestAccess.setStatementProvider(stmt, conn.createStatementProvider(0, 0, 0));
 
         stmt.executeQuery("SELECT 1");
         assertEquals(2, executeCalls.get());
@@ -188,7 +189,7 @@ public class LBStatementExecuteFailoverTest {
                         Collections.<Endpoint>emptyList()));
 
         LBStatement stmt = new LBStatement(conn);
-        stmt.setStatementProvider(conn.createStatementProvider(0, 0, 0));
+        StatementTestAccess.setStatementProvider(stmt, conn.createStatementProvider(0, 0, 0));
         stmt.addBatch("SELECT 1");
 
         try {
@@ -207,6 +208,73 @@ public class LBStatementExecuteFailoverTest {
         assertEquals(1, failoverEvents);
         stmt.close();
         conn.close();
+    }
+
+    /** The vendor executeInsert is a write like any other: rebound, and not run again. */
+    @Test
+    public void executeInsertRebindsButDoesNotRunAgainAfterACommunicationFailure()
+            throws SQLException {
+        final AtomicInteger executeCalls = new AtomicInteger();
+        JdbcConnectionFactory factory =
+                new JdbcConnectionFactory() {
+                    public Connection getConnection(final String url, final Properties info) {
+                        return new FakePhysicalConnection() {
+                            @Override
+                            protected Object dispatch(final String name, final Object[] args) {
+                                return "createStatement".equals(name)
+                                        ? insertFailingOnce(executeCalls)
+                                        : null;
+                            }
+                        };
+                    }
+                };
+
+        LoadBalanceConnection conn =
+                LbTestAccess.newLoadBalanceConnection(LbTestSettings.defaults());
+        LbTestAccess.getRuntimeMetrics(conn).setEnabled(true);
+        LbTestAccess.setConnectionManager(
+                conn,
+                ConnectionTestAccess.newSessionPhysicalConnManager(
+                        LOGICAL_URL, new Properties(), LbTestSettings.defaults(), factory));
+        LbTestAccess.setSharedSelectorState(conn, new SharedSelectorState());
+        LbTestAccess.initSessionBindings(
+                conn,
+                new EndpointTopology(
+                        new Endpoint("rw", 33000),
+                        Arrays.asList(new Endpoint("ro1", 33000)),
+                        Collections.<Endpoint>emptyList()));
+
+        LBStatement stmt = new LBStatement(conn);
+        StatementTestAccess.setStatementProvider(stmt, conn.createStatementProvider(0, 0, 0));
+
+        try {
+            stmt.executeInsert("INSERT INTO t VALUES (1)");
+            fail("Expected SQLException");
+        } catch (SQLException e) {
+            assertEquals(UErrorCode.ER_COMMUNICATION, e.getErrorCode());
+        }
+        assertEquals(1, executeCalls.get());
+        int failoverEvents = 0;
+        for (String event : MetricsTestAccess.getEvents(LbTestAccess.getRuntimeMetrics(conn))) {
+            if (event.contains("event=RUNTIME_FAILOVER")) {
+                failoverEvents++;
+            }
+        }
+        assertEquals(1, failoverEvents);
+        stmt.close();
+        conn.close();
+    }
+
+    private static Statement insertFailingOnce(final AtomicInteger executeCalls) {
+        return new FakePhysicalStatement() {
+            @Override
+            protected Object dispatch(final String name, final Object[] args) throws SQLException {
+                if ("executeInsert".equals(name) && executeCalls.incrementAndGet() == 1) {
+                    throw new SQLException("comm fail", null, UErrorCode.ER_COMMUNICATION);
+                }
+                return null;
+            }
+        };
     }
 
     /**
@@ -240,7 +308,7 @@ public class LBStatementExecuteFailoverTest {
                         Collections.<Endpoint>emptyList()));
 
         LBStatement stmt = new LBStatement(conn);
-        stmt.setStatementProvider(conn.createStatementProvider(0, 0, 0));
+        StatementTestAccess.setStatementProvider(stmt, conn.createStatementProvider(0, 0, 0));
         stmt.addBatch("SELECT 1");
 
         try {
@@ -289,7 +357,7 @@ public class LBStatementExecuteFailoverTest {
         LbTestAccess.initSessionBindings(conn, topo);
 
         LBStatement stmt = new LBStatement(conn);
-        stmt.setStatementProvider(conn.createStatementProvider(0, 0, 0));
+        StatementTestAccess.setStatementProvider(stmt, conn.createStatementProvider(0, 0, 0));
 
         try {
             stmt.executeQuery("SELECT 1");

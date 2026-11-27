@@ -54,12 +54,12 @@ public class MetricsRegistryConcurrentFoldTest {
 
     @Before
     public void setUp() {
-        MetricsRegistry.clearForTests();
+        MetricsTestAccess.clearForTests();
     }
 
     @After
     public void tearDown() {
-        MetricsRegistry.clearForTests();
+        MetricsTestAccess.clearForTests();
     }
 
     @Test

@@ -113,7 +113,7 @@ public class SessionPhysicalConnManagerLadderSpreadTest {
                 mgrs.add(mgr);
                 // Home is node2 (the weighted assignment); it is down, so the bind already falls
                 // over.
-                mgr.bindSession(NODE1_RW, NODE2_RO, topology());
+                mgr.bindSessionWithReadTarget(NODE1_RW, NODE2_RO, false, topology());
                 Endpoint ro = mgr.getSessionEndpoint(SessionLeg.RO);
                 bump(landedOn, ro.getId());
             }
@@ -162,7 +162,7 @@ public class SessionPhysicalConnManagerLadderSpreadTest {
                 Endpoint home = homePattern[i % homePattern.length];
                 SessionPhysicalConnManager mgr = newManager(down);
                 mgrs.add(mgr);
-                mgr.bindSession(NODE1_RW, home, onlyOneSlaveTopology());
+                mgr.bindSessionWithReadTarget(NODE1_RW, home, false, onlyOneSlaveTopology());
                 if (!home.equals(NODE2_RO)) {
                     continue; // replica-homed sessions are not displaced; ignore them
                 }
@@ -196,7 +196,7 @@ public class SessionPhysicalConnManagerLadderSpreadTest {
             for (int i = 0; i < sessions; i++) {
                 SessionPhysicalConnManager mgr = newManager(down);
                 mgrs.add(mgr);
-                mgr.bindSession(NODE1_RW, REP1_SO, topology());
+                mgr.bindSessionWithReadTarget(NODE1_RW, REP1_SO, false, topology());
                 bump(landedOn, mgr.getSessionEndpoint(SessionLeg.RO).getId());
             }
             assertEquals(
@@ -229,7 +229,7 @@ public class SessionPhysicalConnManagerLadderSpreadTest {
         try {
             SessionPhysicalConnManager mgr = newManager(down);
             mgrs.add(mgr);
-            mgr.bindSession(NODE1_RW, REP1_SO, topology());
+            mgr.bindSessionWithReadTarget(NODE1_RW, REP1_SO, false, topology());
             assertEquals(REP1_SO, mgr.getSessionEndpoint(SessionLeg.RO));
 
             // Both replicas unreachable, but only as CONNECT failures — no unreachable-list
@@ -258,7 +258,7 @@ public class SessionPhysicalConnManagerLadderSpreadTest {
         try {
             SessionPhysicalConnManager mgr = newManager(down);
             mgrs.add(mgr);
-            mgr.bindSession(NODE1_RW, NODE3_RO, topology());
+            mgr.bindSessionWithReadTarget(NODE1_RW, NODE3_RO, false, topology());
             assertEquals(NODE3_RO, mgr.getSessionEndpoint(SessionLeg.RO));
 
             // node3 fails: recovery may pick any surviving sibling, but never the home itself.
@@ -349,7 +349,8 @@ public class SessionPhysicalConnManagerLadderSpreadTest {
                     }
                 };
 
-        return new SessionPhysicalConnManager(LOGICAL_URL, new Properties(), config, factory);
+        return ConnectionTestAccess.newSessionPhysicalConnManager(
+                LOGICAL_URL, new Properties(), config, factory);
     }
 
     private static Connection connectionProxy() {

@@ -32,6 +32,8 @@ package cubrid.jdbc.lb.statement;
 
 import static org.junit.Assert.*;
 
+import cubrid.jdbc.driver.CUBRIDException;
+import cubrid.jdbc.driver.CUBRIDJDBCErrorCode;
 import cubrid.jdbc.driver.CUBRIDPreparedStatement;
 import cubrid.jdbc.driver.CUBRIDStatement;
 import cubrid.jdbc.lb.LbTestAccess;
@@ -41,6 +43,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.SQLType;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -65,9 +68,8 @@ public class LBPreparedStatementTest {
         LBPreparedStatement ps =
                 (LBPreparedStatement) conn.prepareStatement("SELECT id FROM t WHERE id = ?");
         assertEquals("SELECT id FROM t WHERE id = ?", ps.getSql());
-        assertSame(conn, ps.getOwnerConn());
-        assertNotNull(ps.getSessState());
-        assertNotNull(ps.getParameterBinder());
+        assertSame(conn, StatementTestAccess.getOwnerConn(ps));
+        assertNotNull(StatementTestAccess.getParameterBinder(ps));
     }
 
     @Test
@@ -179,6 +181,29 @@ public class LBPreparedStatementTest {
         }
     }
 
+    /** The check of the SQLType is core's own, so its answer is core's too. */
+    @Test
+    public void setObjectRefusesANullSqlTypeAsCoreDoes() throws Exception {
+        PreparedStatement ps = conn.prepareStatement("SELECT ? FROM db_root");
+        SQLException core =
+                new CUBRIDException(
+                        CUBRIDJDBCErrorCode.invalid_value, " - targetSqlType is null", null);
+
+        for (int form = 0; form < 2; form++) {
+            try {
+                if (form == 0) {
+                    ps.setObject(1, Integer.valueOf(5), (SQLType) null);
+                } else {
+                    ps.setObject(1, Integer.valueOf(5), (SQLType) null, 0);
+                }
+                fail("a null SQLType is refused");
+            } catch (SQLException refused) {
+                assertEquals(core.getErrorCode(), refused.getErrorCode());
+                assertEquals(core.getMessage(), refused.getMessage());
+            }
+        }
+    }
+
     @Test
     public void assertClearParametersWhenOpen() throws Exception {
         PreparedStatement ps = conn.prepareStatement("SELECT ?");
@@ -189,21 +214,21 @@ public class LBPreparedStatementTest {
     public void assertSetIntDoesNotThrow() throws Exception {
         LBPreparedStatement ps = (LBPreparedStatement) conn.prepareStatement("SELECT ?");
         ps.setInt(1, 42);
-        assertEquals(1, ps.getParameterBinder().size());
+        assertEquals(1, StatementTestAccess.getParameterBinder(ps).size());
     }
 
     @Test
     public void assertSetStringDoesNotThrow() throws Exception {
         LBPreparedStatement ps = (LBPreparedStatement) conn.prepareStatement("SELECT ?");
         ps.setString(1, "hello");
-        assertEquals(1, ps.getParameterBinder().size());
+        assertEquals(1, StatementTestAccess.getParameterBinder(ps).size());
     }
 
     @Test
     public void assertSetNullDoesNotThrow() throws Exception {
         LBPreparedStatement ps = (LBPreparedStatement) conn.prepareStatement("SELECT ?");
         ps.setNull(1, java.sql.Types.VARCHAR);
-        assertEquals(1, ps.getParameterBinder().size());
+        assertEquals(1, StatementTestAccess.getParameterBinder(ps).size());
     }
 
     @Test
@@ -211,9 +236,9 @@ public class LBPreparedStatementTest {
         LBPreparedStatement ps = (LBPreparedStatement) conn.prepareStatement("SELECT ?");
         ps.setInt(1, 7);
         ps.setString(1, "v");
-        assertEquals(1, ps.getParameterBinder().size());
+        assertEquals(1, StatementTestAccess.getParameterBinder(ps).size());
         ps.clearParameters();
-        assertEquals(0, ps.getParameterBinder().size());
+        assertEquals(0, StatementTestAccess.getParameterBinder(ps).size());
     }
 
     @Test(expected = SQLException.class)

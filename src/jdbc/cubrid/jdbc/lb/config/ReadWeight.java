@@ -53,8 +53,8 @@ import java.util.logging.Logger;
  *   <li><b>Unspecified</b> (no {@code readWeight}): each role that <em>exists</em> in the topology
  *       gets weight {@code 1} (master always exists; slave iff there are non-first hosts; replica
  *       iff a {@code ;replica=} list is present). Master is included by default so reads can reuse
- *       its idle RW connection (roOnRw); a single host with no slave/replica yields master-only,
- *       i.e. RW-only.
+ *       its idle RW connection; a single host with no slave/replica yields master-only, i.e.
+ *       RW-only.
  * </ul>
  *
  * <p>Parsed weights only. {@link cubrid.jdbc.lb.route.RoleReadSelector} uses them as the target
@@ -82,14 +82,16 @@ public final class ReadWeight {
      * Resolve weights: parse {@code spec} when present, otherwise the topology-based default (each
      * existing role gets {@code 1}).
      *
-     * @param spec the {@code readWeight} spec; {@code null}/blank selects the topology default
+     * @param spec the {@code readWeight} spec; {@code null} or empty selects the topology default,
+     *     white space around it is refused
      * @param topology the role topology the weights are validated against
      * @return the resolved weights
      * @throws SQLException if the spec is malformed or inconsistent with the topology
      */
     static ReadWeight resolve(final String spec, final ParsedRoleTopology topology)
             throws SQLException {
-        if (spec == null || spec.trim().length() == 0) {
+        OptionKeys.refuseSurroundingSpace("readWeight", spec);
+        if (spec == null || spec.length() == 0) {
             return defaultsFor(topology);
         }
 
@@ -238,15 +240,6 @@ public final class ReadWeight {
      */
     public int total() {
         return weightOf(NodeRole.MASTER) + weightOf(NodeRole.SLAVE) + weightOf(NodeRole.REPLICA);
-    }
-
-    /**
-     * Whether any role has a non-zero read weight (otherwise reads have no distribution target).
-     *
-     * @return whether any role can serve reads
-     */
-    boolean hasReadTarget() {
-        return total() > 0;
     }
 
     public String toString() {

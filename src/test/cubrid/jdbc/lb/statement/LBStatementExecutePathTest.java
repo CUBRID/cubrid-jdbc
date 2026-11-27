@@ -63,7 +63,7 @@ public final class LBStatementExecutePathTest {
     public void assertExecuteQueryRoutesToReadOnlyForToRoHint() throws Exception {
         LBStatement statement = new LBStatement(connection);
         DelegationContext context = new DelegationContext();
-        statement.setStatementProvider(context);
+        StatementTestAccess.setStatementProvider(statement, context);
 
         statement.executeQuery("SELECT /*+ TO_RO */ id FROM t");
 
@@ -78,7 +78,7 @@ public final class LBStatementExecutePathTest {
                 new LBStatement(
                         connection, ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
         DelegationContext context = new DelegationContext();
-        statement.setStatementProvider(context);
+        StatementTestAccess.setStatementProvider(statement, context);
 
         statement.executeQuery("SELECT id FROM t");
 
@@ -90,7 +90,7 @@ public final class LBStatementExecutePathTest {
     public void assertExecuteQueryRoutesToReadOnlyForReadSql() throws Exception {
         LBStatement statement = new LBStatement(connection);
         DelegationContext context = new DelegationContext();
-        statement.setStatementProvider(context);
+        StatementTestAccess.setStatementProvider(statement, context);
 
         ResultSet result = statement.executeQuery("SELECT * FROM t");
 
@@ -107,7 +107,7 @@ public final class LBStatementExecutePathTest {
     public void assertCloseReleasesEveryPhysicalStatement() throws Exception {
         LBStatement statement = new LBStatement(connection);
         DelegationContext context = new DelegationContext();
-        statement.setStatementProvider(context);
+        StatementTestAccess.setStatementProvider(statement, context);
 
         statement.executeQuery("SELECT * FROM t");
         statement.executeQuery("SELECT * FROM t");
@@ -130,7 +130,7 @@ public final class LBStatementExecutePathTest {
         LBStatement statement = new LBStatement(connection);
         DelegationContext context = new DelegationContext();
         context.cancelTarget = statement;
-        statement.setStatementProvider(context);
+        StatementTestAccess.setStatementProvider(statement, context);
 
         statement.executeQuery("SELECT * FROM t");
 
@@ -142,7 +142,7 @@ public final class LBStatementExecutePathTest {
     public void assertExecuteUpdateRoutesToMasterForWriteSql() throws Exception {
         LBStatement statement = new LBStatement(connection);
         DelegationContext context = new DelegationContext();
-        statement.setStatementProvider(context);
+        StatementTestAccess.setStatementProvider(statement, context);
 
         int result = statement.executeUpdate("UPDATE t SET v = 1");
 
@@ -157,7 +157,7 @@ public final class LBStatementExecutePathTest {
         LBStatement statement = new LBStatement(connection);
         DelegationContext context = new DelegationContext();
         context.nextExecuteResult = true;
-        statement.setStatementProvider(context);
+        StatementTestAccess.setStatementProvider(statement, context);
 
         boolean result = statement.execute("SELECT 1");
 
@@ -169,7 +169,7 @@ public final class LBStatementExecutePathTest {
     public void assertAddBatchStoresSqlInOrder() throws Exception {
         LBStatement statement = new LBStatement(connection);
         DelegationContext context = new DelegationContext();
-        statement.setStatementProvider(context);
+        StatementTestAccess.setStatementProvider(statement, context);
         statement.addBatch("SELECT 1");
         statement.addBatch("SELECT 2");
 
@@ -188,7 +188,7 @@ public final class LBStatementExecutePathTest {
     public void assertExecuteBatchRunsOnMasterEvenWhenAllReadSql() throws Exception {
         LBStatement statement = new LBStatement(connection);
         DelegationContext context = new DelegationContext();
-        statement.setStatementProvider(context);
+        StatementTestAccess.setStatementProvider(statement, context);
         statement.addBatch("SELECT 1");
         statement.addBatch("SELECT /*+ TO_RO */ 2 FROM t");
 
@@ -203,7 +203,7 @@ public final class LBStatementExecutePathTest {
     public void assertExecuteBatchUsesMasterWhenAnyWriteSqlExists() throws Exception {
         LBStatement statement = new LBStatement(connection);
         DelegationContext context = new DelegationContext();
-        statement.setStatementProvider(context);
+        StatementTestAccess.setStatementProvider(statement, context);
         statement.addBatch("SELECT 1");
         statement.addBatch("INSERT INTO t(id) VALUES (1)");
 
@@ -221,7 +221,7 @@ public final class LBStatementExecutePathTest {
     public void assertExecuteBatchUpgradesToMasterWhenTargetsMixed() throws Exception {
         LBStatement statement = new LBStatement(connection);
         DelegationContext context = new DelegationContext();
-        statement.setStatementProvider(context);
+        StatementTestAccess.setStatementProvider(statement, context);
         statement.addBatch("SELECT /*+ TO_RO */ 1 FROM t");
         statement.addBatch("SELECT /*+ TO_RW */ 2 FROM t");
 
@@ -235,14 +235,14 @@ public final class LBStatementExecutePathTest {
     public void assertExecuteWithAutoGeneratedKeysRoutesBySqlClassification() throws Exception {
         LBStatement readStatement = new LBStatement(connection);
         DelegationContext readContext = new DelegationContext();
-        readStatement.setStatementProvider(readContext);
+        StatementTestAccess.setStatementProvider(readStatement, readContext);
         readStatement.execute("SELECT 1", Statement.NO_GENERATED_KEYS);
         assertEquals(1, readContext.readOnlyCreateCount);
         assertEquals(0, readContext.masterCreateCount);
 
         LBStatement writeStatement = new LBStatement(connection);
         DelegationContext writeContext = new DelegationContext();
-        writeStatement.setStatementProvider(writeContext);
+        StatementTestAccess.setStatementProvider(writeStatement, writeContext);
         writeStatement.execute("UPDATE t SET v = 1", Statement.RETURN_GENERATED_KEYS);
         assertEquals(0, writeContext.readOnlyCreateCount);
         assertEquals(1, writeContext.masterCreateCount);
@@ -252,14 +252,14 @@ public final class LBStatementExecutePathTest {
     public void assertExecuteWithColumnIndexesRoutesBySqlClassification() throws Exception {
         LBStatement readStatement = new LBStatement(connection);
         DelegationContext readContext = new DelegationContext();
-        readStatement.setStatementProvider(readContext);
+        StatementTestAccess.setStatementProvider(readStatement, readContext);
         readStatement.execute("SELECT 1", new int[] {1});
         assertEquals(1, readContext.readOnlyCreateCount);
         assertEquals(0, readContext.masterCreateCount);
 
         LBStatement writeStatement = new LBStatement(connection);
         DelegationContext writeContext = new DelegationContext();
-        writeStatement.setStatementProvider(writeContext);
+        StatementTestAccess.setStatementProvider(writeStatement, writeContext);
         writeStatement.execute("INSERT INTO t(id) VALUES (1)", new int[] {1});
         assertEquals(0, writeContext.readOnlyCreateCount);
         assertEquals(1, writeContext.masterCreateCount);
@@ -269,14 +269,14 @@ public final class LBStatementExecutePathTest {
     public void assertExecuteWithColumnNamesRoutesBySqlClassification() throws Exception {
         LBStatement readStatement = new LBStatement(connection);
         DelegationContext readContext = new DelegationContext();
-        readStatement.setStatementProvider(readContext);
+        StatementTestAccess.setStatementProvider(readStatement, readContext);
         readStatement.execute("SELECT 1", new String[] {"id"});
         assertEquals(1, readContext.readOnlyCreateCount);
         assertEquals(0, readContext.masterCreateCount);
 
         LBStatement writeStatement = new LBStatement(connection);
         DelegationContext writeContext = new DelegationContext();
-        writeStatement.setStatementProvider(writeContext);
+        StatementTestAccess.setStatementProvider(writeStatement, writeContext);
         writeStatement.execute("DELETE FROM t WHERE id = 1", new String[] {"id"});
         assertEquals(0, writeContext.readOnlyCreateCount);
         assertEquals(1, writeContext.masterCreateCount);
@@ -286,7 +286,7 @@ public final class LBStatementExecutePathTest {
     public void assertExecuteUpdateOverloadsRouteToMasterForWriteSql() throws Exception {
         LBStatement withGeneratedKeys = new LBStatement(connection);
         DelegationContext generatedKeysContext = new DelegationContext();
-        withGeneratedKeys.setStatementProvider(generatedKeysContext);
+        StatementTestAccess.setStatementProvider(withGeneratedKeys, generatedKeysContext);
         int first =
                 withGeneratedKeys.executeUpdate(
                         "UPDATE t SET v = 1", Statement.RETURN_GENERATED_KEYS);
@@ -296,7 +296,7 @@ public final class LBStatementExecutePathTest {
 
         LBStatement withIndexes = new LBStatement(connection);
         DelegationContext indexesContext = new DelegationContext();
-        withIndexes.setStatementProvider(indexesContext);
+        StatementTestAccess.setStatementProvider(withIndexes, indexesContext);
         int second = withIndexes.executeUpdate("INSERT INTO t(id) VALUES (1)", new int[] {1});
         assertEquals(3, second);
         assertEquals(0, indexesContext.readOnlyCreateCount);
@@ -304,7 +304,7 @@ public final class LBStatementExecutePathTest {
 
         LBStatement withNames = new LBStatement(connection);
         DelegationContext namesContext = new DelegationContext();
-        withNames.setStatementProvider(namesContext);
+        StatementTestAccess.setStatementProvider(withNames, namesContext);
         int third = withNames.executeUpdate("DELETE FROM t WHERE id = 1", new String[] {"id"});
         assertEquals(3, third);
         assertEquals(0, namesContext.readOnlyCreateCount);
@@ -315,7 +315,7 @@ public final class LBStatementExecutePathTest {
     public void assertGetGeneratedKeysDelegatesToLastExecutedPhysicalStatement() throws Exception {
         LBStatement statement = new LBStatement(connection);
         DelegationContext context = new DelegationContext();
-        statement.setStatementProvider(context);
+        StatementTestAccess.setStatementProvider(statement, context);
         statement.executeUpdate("INSERT INTO t(id) VALUES (1)");
 
         ResultSet generatedKeys = statement.getGeneratedKeys();
@@ -328,7 +328,7 @@ public final class LBStatementExecutePathTest {
     public void assertStatementPropertiesArePropagatedBeforeExecution() throws Exception {
         LBStatement statement = new LBStatement(connection);
         DelegationContext context = new DelegationContext();
-        statement.setStatementProvider(context);
+        StatementTestAccess.setStatementProvider(statement, context);
         statement.setFetchSize(64);
         statement.setQueryTimeout(5);
         statement.setMaxRows(100);
@@ -345,7 +345,7 @@ public final class LBStatementExecutePathTest {
     public void assertCancelDelegatesToLastExecutionPhysicalStatement() throws Exception {
         LBStatement statement = new LBStatement(connection);
         DelegationContext context = new DelegationContext();
-        statement.setStatementProvider(context);
+        StatementTestAccess.setStatementProvider(statement, context);
 
         statement.executeQuery("SELECT 1");
         statement.cancel();
@@ -358,7 +358,7 @@ public final class LBStatementExecutePathTest {
             throws Exception {
         LBStatement statement = new LBStatement(connection);
         DelegationContext context = new DelegationContext();
-        statement.setStatementProvider(context);
+        StatementTestAccess.setStatementProvider(statement, context);
 
         statement.setEscapeProcessing(false);
         statement.executeQuery("SELECT 1");
@@ -375,7 +375,7 @@ public final class LBStatementExecutePathTest {
     public void assertExecuteInsertDelegatesToPhysicalStatementPaths() throws Exception {
         LBStatement statement = new LBStatement(connection);
         DelegationContext context = new DelegationContext();
-        statement.setStatementProvider(context);
+        StatementTestAccess.setStatementProvider(statement, context);
 
         Object oid = statement.executeInsert("INSERT INTO t(id) VALUES (1)");
 
@@ -387,7 +387,7 @@ public final class LBStatementExecutePathTest {
     public void assertStatementQueryPlanApisDelegateToPhysicalStatement() throws Exception {
         LBStatement statement = new LBStatement(connection);
         DelegationContext context = new DelegationContext();
-        statement.setStatementProvider(context);
+        StatementTestAccess.setStatementProvider(statement, context);
 
         statement.setQueryInfo(true);
         statement.setOnlyQueryPlan(true);

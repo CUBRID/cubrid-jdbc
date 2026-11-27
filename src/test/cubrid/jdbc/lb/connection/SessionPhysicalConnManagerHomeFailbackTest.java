@@ -90,7 +90,7 @@ public class SessionPhysicalConnManagerHomeFailbackTest {
         SessionPhysicalConnManager mgr = newManager(down);
         try {
             // home = node2 RO (slave), reads served there.
-            mgr.bindSession(NODE1_RW, NODE2_RO, topology());
+            mgr.bindSessionWithReadTarget(NODE1_RW, NODE2_RO, false, topology());
             assertEquals(NODE2_RO, mgr.getSessionEndpoint(SessionLeg.RO));
             assertEquals(NODE2_RO, mgr.getHomeReadEndpoint());
 
@@ -117,7 +117,7 @@ public class SessionPhysicalConnManagerHomeFailbackTest {
         Set<String> down = new HashSet<String>();
         SessionPhysicalConnManager mgr = newManager(down);
         try {
-            mgr.bindSession(NODE1_RW, NODE2_RO, topology());
+            mgr.bindSessionWithReadTarget(NODE1_RW, NODE2_RO, false, topology());
 
             // every real read endpoint down -> reads absorbed by RW (roOnRw).
             markDown(down, NODE2_RO);
@@ -149,7 +149,7 @@ public class SessionPhysicalConnManagerHomeFailbackTest {
         Set<String> down = new HashSet<String>();
         SessionPhysicalConnManager mgr = newManager(down);
         try {
-            mgr.bindSession(NODE1_RW, NODE2_RO, topology());
+            mgr.bindSessionWithReadTarget(NODE1_RW, NODE2_RO, false, topology());
             assertFalse(mgr.getSessionEndpoint(SessionLeg.RO) == null);
             // At home and nothing failed -> nothing to do.
             assertEquals(null, mgr.restoreRoIfRecovered());
@@ -170,8 +170,9 @@ public class SessionPhysicalConnManagerHomeFailbackTest {
         Set<String> down = new HashSet<String>();
         SessionPhysicalConnManager mgr = newManagerTrackingNode2Closes(down, node2Closes);
         try {
-            mgr.bindSession(NODE1_RW, NODE2_RO, topology()); // home = node2, live
-            PreparedStatement psOld = mgr.prepareStatement(NODE2_RO, "SELECT 1");
+            mgr.bindSessionWithReadTarget(
+                    NODE1_RW, NODE2_RO, false, topology()); // home = node2, live
+            PreparedStatement psOld = mgr.prepareStatement(NODE2_RO, "SELECT 1", null);
 
             // A replica SO read fails; recovery's home-first order re-binds to node2 by opening a
             // second connection -> the old node2 connection is displaced and must be reclaimed.
@@ -181,7 +182,7 @@ public class SessionPhysicalConnManagerHomeFailbackTest {
             // Displaced connection closed (no leak)...
             assertEquals("displaced home connection must be closed", 1, node2Closes.get());
             // ...and its prep cache dropped, so re-prepare binds to the new connection.
-            PreparedStatement psNew = mgr.prepareStatement(NODE2_RO, "SELECT 1");
+            PreparedStatement psNew = mgr.prepareStatement(NODE2_RO, "SELECT 1", null);
             assertNotSame(
                     "stale prep bound to the displaced connection must be dropped", psOld, psNew);
         } finally {
@@ -208,7 +209,8 @@ public class SessionPhysicalConnManagerHomeFailbackTest {
                     }
                 };
 
-        return new SessionPhysicalConnManager(LOGICAL_URL, new Properties(), config, factory);
+        return ConnectionTestAccess.newSessionPhysicalConnManager(
+                LOGICAL_URL, new Properties(), config, factory);
     }
 
     private static Connection closeTrackingProxy(final AtomicInteger closeCount) {
@@ -327,7 +329,8 @@ public class SessionPhysicalConnManagerHomeFailbackTest {
                     }
                 };
 
-        return new SessionPhysicalConnManager(LOGICAL_URL, new Properties(), config, factory);
+        return ConnectionTestAccess.newSessionPhysicalConnManager(
+                LOGICAL_URL, new Properties(), config, factory);
     }
 
     private static Connection connectionProxy() {

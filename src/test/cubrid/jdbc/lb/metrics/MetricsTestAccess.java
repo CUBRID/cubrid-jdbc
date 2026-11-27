@@ -30,7 +30,10 @@
 
 package cubrid.jdbc.lb.metrics;
 
+import cubrid.jdbc.lb.LbTestReflection;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 
 /**
  * The package-private members of {@code cubrid.jdbc.lb.metrics} that tests in other packages use.
@@ -39,8 +42,54 @@ import java.util.List;
 public final class MetricsTestAccess {
     private MetricsTestAccess() {}
 
+    /**
+     * Stops both exporters and forgets them, as the driver does once no LB connection has been live
+     * for a while, so the next {@code configure} starts fresh.
+     */
+    public static void stopExporters() {
+        synchronized (LbTestReflection.staticField(MetricsExporters.class, "LOCK")) {
+            final com.sun.net.httpserver.HttpServer server =
+                    (com.sun.net.httpserver.HttpServer)
+                            LbTestReflection.staticField(
+                                    MetricsExporters.class, "prometheusServer");
+            if (server != null) {
+                server.stop(0);
+                ((java.util.concurrent.ExecutorService) server.getExecutor()).shutdown();
+            }
+            for (String thread : new String[] {"prometheusWatch", "csvThread"}) {
+                final Thread t =
+                        (Thread) LbTestReflection.staticField(MetricsExporters.class, thread);
+                if (t != null) {
+                    t.interrupt();
+                }
+                LbTestReflection.setStatic(MetricsExporters.class, thread, null);
+            }
+            LbTestReflection.setStatic(MetricsExporters.class, "prometheusServer", null);
+            LbTestReflection.setStatic(MetricsExporters.class, "prometheusStarted", Boolean.FALSE);
+            LbTestReflection.setStatic(MetricsExporters.class, "csvStarted", Boolean.FALSE);
+        }
+    }
+
+    /** Empties the registry, each collection under the lock the registry itself takes for it. */
     public static void clearForTests() {
-        MetricsRegistry.clearForTests();
+        collection("LIVE").clear();
+        map("PROBES").clear();
+        for (String guarded :
+                new String[] {"CUMULATIVE", "CUMULATIVE_LAT", "FAILOVERS", "FAILBACKS"}) {
+            final Map<?, ?> each = map(guarded);
+            synchronized (each) {
+                each.clear();
+            }
+        }
+        map("ROLE").clear();
+    }
+
+    private static Collection<?> collection(final String field) {
+        return (Collection<?>) LbTestReflection.staticField(MetricsRegistry.class, field);
+    }
+
+    private static Map<?, ?> map(final String field) {
+        return (Map<?, ?>) LbTestReflection.staticField(MetricsRegistry.class, field);
     }
 
     public static long getRwFallbackCount(final RuntimeMetrics metrics) {
@@ -60,7 +109,7 @@ public final class MetricsTestAccess {
     }
 
     public static boolean isEventsEnabled(final RuntimeMetrics metrics) {
-        return metrics.isEventsEnabled();
+        return ((Boolean) LbTestReflection.field(metrics, "eventsEnabled")).booleanValue();
     }
 
     /** {@code {read, write}} as {@code lb_endpoint_exec_total} reports them for one endpoint. */
@@ -71,5 +120,15 @@ public final class MetricsTestAccess {
             }
         }
         return new long[] {0L, 0L};
+    }
+
+    /** The distinct (role, from, to) movements behind {@code lb_failover_total}. */
+    public static int getFailoverTransitions() {
+        return MetricsRegistry.failovers().size();
+    }
+
+    /** The distinct (role, from, to) movements behind {@code lb_failback_total}. */
+    public static int getFailbackTransitions() {
+        return MetricsRegistry.failbacks().size();
     }
 }

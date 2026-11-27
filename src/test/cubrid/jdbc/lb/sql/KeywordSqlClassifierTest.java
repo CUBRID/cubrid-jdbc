@@ -319,6 +319,21 @@ public class KeywordSqlClassifierTest {
     }
 
     /**
+     * A backslash is an escape inside a string only. In a double-quoted identifier the server reads
+     * it as a plain character whatever no_backslash_escapes is, so the identifier closes at its
+     * quote and what follows it is live.
+     */
+    @Test
+    public void assertBackslashInAQuotedIdentifierDoesNotHideWhatFollows() {
+        final String sql = "SELECT 1 AS \"a\\\", 'b\\'', LAST_INSERT_ID() FROM db_root";
+        assertEquals(SqlClassification.UNKNOWN, classifier.classify(sql + " -- \""));
+        assertEquals(SqlClassification.UNKNOWN, classifier.classify(sql));
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify("SELECT 1 AS \"a\\\", 'b' FROM db_root"));
+    }
+
+    /**
      * Spring Data JPA writes {@code like ? escape '\'}. With backslash escapes that literal never
      * closes, which is a syntax error on such a server, so the default reading decides.
      */
@@ -653,6 +668,16 @@ public class KeywordSqlClassifierTest {
      * {@code ROW_COUNT()} reports on the statement before it in its own session, so it runs on the
      * leg that statement ran on; anything else that keeps a statement off the read leg still does.
      */
+    /** SHOW TRACE reports the last query of its own session, so it runs where that query ran. */
+    @Test
+    public void assertShowTraceFollowsThePreviousStatement() {
+        final SqlClassification previous = SqlClassification.READ_ON_PREVIOUS_LEG;
+        assertEquals(previous, classifier.classify("SHOW TRACE"));
+        assertEquals(previous, classifier.classify("  show /* c */ trace;"));
+        assertEquals(SqlClassification.UNKNOWN, classifier.classify("SHOW TABLES"));
+        assertEquals(SqlClassification.UNKNOWN, classifier.classify("SHOW TRACES"));
+    }
+
     @Test
     public void assertRowCountReadFollowsThePreviousStatement() {
         final SqlClassification previous = SqlClassification.READ_ON_PREVIOUS_LEG;
@@ -1093,13 +1118,12 @@ public class KeywordSqlClassifierTest {
     }
 
     /**
-     * SHOW, DESC, EXPLAIN and VALUES stay on RW: SHOW TRACE reports the session's last query, and
-     * SHOW LOG HEADER and the like report the node they run on.
+     * SHOW, DESC, EXPLAIN and VALUES stay on RW: SHOW LOG HEADER and the like report the node they
+     * run on. SHOW TRACE follows the previous statement instead.
      */
     @Test
     public void assertShowDescExplainValuesAreNotReadOnly() {
         String[] sqls = {
-            "SHOW TRACE",
             "SHOW LOG HEADER",
             "SHOW COLUMNS FROM t",
             "DESC t",
@@ -1193,19 +1217,21 @@ public class KeywordSqlClassifierTest {
         assertEquals(SqlClassification.READ, classifier.classify("SELECT * FROM db_class"));
     }
 
-    /** Each node answers these from its own clock or configuration. */
+    /** The current transaction's id is the node's: a read node answers with one of its own. */
     @Test
-    public void nodeClockAndConfigurationRunOnRw() {
+    public void localTransactionIdRunsOnRw() {
+        assertEquals(
+                SqlClassification.UNKNOWN,
+                classifier.classify("SELECT LOCAL_TRANSACTION_ID FROM db_root"));
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify("SELECT 'LOCAL_TRANSACTION_ID' FROM t"));
+    }
+
+    /** Each node answers these from its own configuration. */
+    @Test
+    public void nodeConfigurationRunsOnRw() {
         String[] rw = {
-            "SELECT NOW() FROM db_root",
-            "SELECT SYSDATE FROM db_root",
-            "select sys_datetime from db_root",
-            "SELECT CURRENT_TIMESTAMP FROM db_root",
-            "SELECT CURRENT_DATE() FROM db_root",
-            "SELECT LOCALTIMESTAMP FROM db_root",
-            "SELECT UNIX_TIMESTAMP() FROM db_root",
-            "SELECT UTC_TIMESTAMP() FROM db_root",
-            "SELECT * FROM t WHERE reg_date > SYSDATE - 7",
             "SELECT LIST_DBS() FROM db_root",
             "SELECT DBTIMEZONE() FROM db_root",
             "SELECT DBTIMEZONE FROM db_root",
@@ -1214,17 +1240,47 @@ public class KeywordSqlClassifierTest {
         for (String sql : rw) {
             assertEquals(sql, SqlClassification.UNKNOWN, classifier.classify(sql));
         }
-        // NOW is only a call, and quoted names and literals are not the keyword.
+        // Quoted names and literals are not the keyword.
+        String[] read = {"SELECT \"dbtimezone\" FROM t", "SELECT 'DBTIMEZONE' FROM t"};
+        for (String sql : read) {
+            assertEquals(sql, SqlClassification.READ, classifier.classify(sql));
+        }
+    }
+
+    /**
+     * A read node answers from its own clock, which is off by less than its replication lag: reads
+     * that use the current time are distributed like any other.
+     */
+    @Test
+    public void nodeClockRunsOnTheReadLeg() {
         String[] read = {
-            "SELECT now FROM t",
-            "SELECT \"sysdate\" FROM t",
-            "SELECT [current_timestamp] FROM t",
-            "SELECT 'SYSDATE' FROM t",
-            "SELECT CURRENT_USER FROM db_root"
+            "SELECT NOW() FROM db_root",
+            "SELECT SYSDATE FROM db_root",
+            "select sys_datetime from db_root",
+            "SELECT CURRENT_TIMESTAMP FROM db_root",
+            "SELECT CURRENT_DATE() FROM db_root",
+            "SELECT LOCALTIMESTAMP FROM db_root",
+            "SELECT UTC_TIMESTAMP() FROM db_root",
+            "SELECT UNIX_TIMESTAMP() FROM db_root",
+            "SELECT UNIX_TIMESTAMP ( ) FROM db_root",
+            "SELECT UNIX_TIMESTAMP(SYSDATE) FROM db_root",
+            "SELECT UNIX_TIMESTAMP(created_at) FROM t",
+            "SELECT * FROM t WHERE reg_date > SYSDATE - 7",
+            "SELECT COUNT(*) FROM t WHERE dt < CURRENT_TIMESTAMP AND d >= CURDATE()"
         };
         for (String sql : read) {
             assertEquals(sql, SqlClassification.READ, classifier.classify(sql));
         }
+    }
+
+    /** A column default that differs by node is a clock expression; USER there has no host. */
+    @Test
+    public void defaultOfAColumnRunsOnTheReadLeg() {
+        assertEquals(
+                SqlClassification.READ, classifier.classify("SELECT DEFAULT(created_at) FROM t"));
+        assertEquals(
+                SqlClassification.READ,
+                classifier.classify("select a from t where b = default(b)"));
     }
 
     /** No released server has these built-ins, so the name can only be a user routine. */

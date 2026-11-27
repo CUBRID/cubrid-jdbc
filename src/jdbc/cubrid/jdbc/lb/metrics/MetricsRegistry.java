@@ -76,8 +76,9 @@ public final class MetricsRegistry {
     private static final ConcurrentHashMap<String, String> ROLE =
             new ConcurrentHashMap<String, String>();
 
-    // Read-leg movements, keyed "role|from|to". Failover = displaced off the weighted home;
-    // failback = climbed back towards it. JVM-wide rather than per-connection: these are rare
+    // Leg movements, RW and read, keyed "role|from|to". Failover = displaced off the home (RW: the
+    // master, read: the weighted home); failback = moved back towards it. JVM-wide rather than
+    // per-connection: these are rare
     // events an operator correlates with an incident, and they must outlive the connection that
     // saw them. Guarded by each map's own monitor.
     private static final Map<String, long[]> FAILOVERS = new LinkedHashMap<String, long[]>();
@@ -154,12 +155,12 @@ public final class MetricsRegistry {
     }
 
     /**
-     * Live sessions whose reads are served by the RW physical connection instead of their own read
-     * endpoint ({@code roOnRw}). A gauge, and an early warning: a non-zero value outside a planned
-     * master-role weight means those reads compete with write traffic on one connection, so read
-     * latency degrades before any error is raised.
+     * Live sessions whose read brokers all failed, so their reads run on the RW physical connection
+     * ({@code roOnRw}). A gauge, and an early warning: those reads compete with write traffic on
+     * one connection, so read latency degrades before any error is raised. A master-role session
+     * reads there by design and is not counted, so the healthy value is zero.
      *
-     * @return the number of live sessions reading on their RW connection
+     * @return the number of live sessions whose reads fell back onto their RW connection
      */
     public static int countRoOnRwSessions() {
         int n = 0;
@@ -194,13 +195,13 @@ public final class MetricsRegistry {
     }
 
     /**
-     * Records that a session's read leg moved <em>away</em> from its intended endpoint — a
-     * same-role sibling, a cross-role endpoint, or the RW connection. {@code toEndpointId} is where
-     * it landed.
+     * Records that a session's RW or read leg moved <em>away</em> from its intended endpoint — a
+     * sibling, a cross-role endpoint, or, for a read leg, the RW connection. The caller counts only
+     * a connection with metricsEnabled.
      *
-     * @param role the role of the read leg's home endpoint
-     * @param fromEndpointId the endpoint the read leg left
-     * @param toEndpointId the endpoint the read leg landed on
+     * @param role the leg that moved, {@code RW} or {@code RO}
+     * @param fromEndpointId the endpoint the leg left
+     * @param toEndpointId the endpoint the leg landed on
      */
     public static void recordFailover(
             final String role, final String fromEndpointId, final String toEndpointId) {
@@ -208,11 +209,11 @@ public final class MetricsRegistry {
     }
 
     /**
-     * Records that a displaced read leg climbed back towards its weighted home endpoint.
+     * Records that a displaced RW or read leg climbed back towards its home endpoint.
      *
-     * @param role the role of the read leg's home endpoint
-     * @param fromEndpointId the endpoint the read leg left
-     * @param toEndpointId the endpoint the read leg landed on
+     * @param role the leg that moved, {@code RW} or {@code RO}
+     * @param fromEndpointId the endpoint the leg left
+     * @param toEndpointId the endpoint the leg landed on
      */
     public static void recordFailback(
             final String role, final String fromEndpointId, final String toEndpointId) {
@@ -301,25 +302,6 @@ public final class MetricsRegistry {
             }
         }
         return out;
-    }
-
-    /** Clears the whole registry; for the export harness / unit tests only. */
-    static void clearForTests() {
-        LIVE.clear();
-        PROBES.clear();
-        synchronized (CUMULATIVE) {
-            CUMULATIVE.clear();
-        }
-        synchronized (CUMULATIVE_LAT) {
-            CUMULATIVE_LAT.clear();
-        }
-        synchronized (FAILOVERS) {
-            FAILOVERS.clear();
-        }
-        synchronized (FAILBACKS) {
-            FAILBACKS.clear();
-        }
-        ROLE.clear();
     }
 
     /**
@@ -452,7 +434,8 @@ public final class MetricsRegistry {
     }
 
     /**
-     * Immutable count of one distinct read-leg movement: {@code role}, {@code from} to {@code to}.
+     * Immutable count of one distinct leg movement (read or write): {@code role}, {@code from} to
+     * {@code to}.
      */
     static final class Transition {
         private final String role;

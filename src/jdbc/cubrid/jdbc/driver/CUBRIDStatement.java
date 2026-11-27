@@ -124,10 +124,7 @@ public class CUBRIDStatement implements Statement {
         is_scrollable = t != ResultSet.TYPE_FORWARD_ONLY;
         is_updatable = concur == ResultSet.CONCUR_UPDATABLE;
 
-        is_holdable = false;
-        if (hold == ResultSet.HOLD_CURSORS_OVER_COMMIT && u_con.supportHoldableResult()) {
-            is_holdable = true;
-        }
+        is_holdable = holdsCursorsOverCommit(u_con, hold);
 
         is_sensitive = t == ResultSet.TYPE_SCROLL_SENSITIVE;
         fetch_direction = ResultSet.FETCH_FORWARD;
@@ -139,6 +136,19 @@ public class CUBRIDStatement implements Statement {
         only_query_plan = false;
         is_from_current_transaction = true;
         lastShardId = UShardInfo.SHARD_ID_INVALID;
+    }
+
+    /**
+     * Whether a statement asking for {@code hold} keeps its cursors over commit: only when the
+     * server behind {@code u_con} does. A logical statement reports its holdability by this rule
+     * too, before it has a socket statement.
+     *
+     * @param u_con the connection's socket
+     * @param hold the holdability asked for
+     * @return whether the cursors are kept over commit
+     */
+    protected static boolean holdsCursorsOverCommit(UConnection u_con, int hold) {
+        return hold == ResultSet.HOLD_CURSORS_OVER_COMMIT && u_con.supportHoldableResult();
     }
 
     /**
@@ -190,7 +200,11 @@ public class CUBRIDStatement implements Statement {
         lastShardId = UShardInfo.SHARD_ID_INVALID;
     }
 
-    /** The logical-statement constructor for a forward-only, read-only statement. */
+    /**
+     * The logical-statement constructor for a forward-only, read-only statement.
+     *
+     * @param c the connection the statement reports
+     */
     protected CUBRIDStatement(CUBRIDConnection c) {
         this(c, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
     }

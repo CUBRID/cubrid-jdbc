@@ -62,7 +62,7 @@ public final class LBStatementAffinityCommandTest {
     public void assertGetGeneratedKeysUsesLastPhysicalStatementAffinity() throws Exception {
         LBStatement statement = new LBStatement(connection);
         AffinityContext context = new AffinityContext();
-        statement.setStatementProvider(context);
+        StatementTestAccess.setStatementProvider(statement, context);
 
         statement.executeUpdate("INSERT INTO t(id) VALUES (1)");
         statement.executeUpdate("INSERT INTO t(id) VALUES (2)");
@@ -77,7 +77,7 @@ public final class LBStatementAffinityCommandTest {
         AffinityContext context = new AffinityContext();
         context.nextExecuteResult = true;
         context.nextMoreResultsResult = true;
-        statement.setStatementProvider(context);
+        StatementTestAccess.setStatementProvider(statement, context);
 
         statement.execute("SELECT 1");
         boolean actual = statement.getMoreResults();
@@ -90,7 +90,7 @@ public final class LBStatementAffinityCommandTest {
     public void assertGetQueryplanWithoutSqlUsesLastPhysicalStatementAffinity() throws Exception {
         LBStatement statement = new LBStatement(connection);
         AffinityContext context = new AffinityContext();
-        statement.setStatementProvider(context);
+        StatementTestAccess.setStatementProvider(statement, context);
 
         String bySql = statement.getQueryplan("SELECT 1");
         statement.executeQuery("SELECT 1");
@@ -104,7 +104,7 @@ public final class LBStatementAffinityCommandTest {
     public void assertResultSetOperationsStayOnReturnedPhysicalResultSet() throws Exception {
         LBStatement statement = new LBStatement(connection);
         AffinityContext context = new AffinityContext();
-        statement.setStatementProvider(context);
+        StatementTestAccess.setStatementProvider(statement, context);
 
         statement.executeQuery("SELECT * FROM t");
         ResultSet resultSet = statement.getResultSet();
@@ -119,7 +119,7 @@ public final class LBStatementAffinityCommandTest {
     public void assertCloseClosesAllCreatedPhysicalStatements() throws Exception {
         LBStatement statement = new LBStatement(connection);
         AffinityContext context = new AffinityContext();
-        statement.setStatementProvider(context);
+        StatementTestAccess.setStatementProvider(statement, context);
 
         statement.executeQuery("SELECT 1");
         statement.executeUpdate("UPDATE t SET v = 1");
@@ -133,7 +133,7 @@ public final class LBStatementAffinityCommandTest {
     public void assertExecutionOnAnotherStatementClosesThePreviousResultSet() throws Exception {
         LBStatement statement = new LBStatement(connection);
         AffinityContext context = new AffinityContext();
-        statement.setStatementProvider(context);
+        StatementTestAccess.setStatementProvider(statement, context);
 
         statement.executeQuery("SELECT * FROM t");
         statement.executeQuery("SELECT * FROM t");
@@ -146,7 +146,7 @@ public final class LBStatementAffinityCommandTest {
     public void assertFailedExecutionKeepsTheUpdateCountOfTheLastSuccess() throws Exception {
         LBStatement statement = new LBStatement(connection);
         AffinityContext context = new AffinityContext();
-        statement.setStatementProvider(context);
+        StatementTestAccess.setStatementProvider(statement, context);
 
         statement.executeUpdate("UPDATE t SET v = 1");
         context.failNextExecute = true;
@@ -164,7 +164,7 @@ public final class LBStatementAffinityCommandTest {
     public void assertQueryKeepsTheGeneratedKeysOfTheLastUpdate() throws Exception {
         LBStatement statement = new LBStatement(connection);
         AffinityContext context = new AffinityContext();
-        statement.setStatementProvider(context);
+        StatementTestAccess.setStatementProvider(statement, context);
 
         statement.executeUpdate("INSERT INTO t(id) VALUES (1)", Statement.RETURN_GENERATED_KEYS);
         statement.executeQuery("SELECT * FROM t");

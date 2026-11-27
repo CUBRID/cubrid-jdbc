@@ -46,7 +46,7 @@ import java.sql.SQLException;
 import java.util.HashMap;
 import java.util.Map;
 
-public final class SimpleEndpointConnManager implements EndpointConnManager {
+public class SimpleEndpointConnManager implements EndpointConnManager {
 
     /** No real server behind this fake, so the conservative answer: work may be open. */
     public boolean isRwTxOpenOnServer() {
@@ -76,8 +76,6 @@ public final class SimpleEndpointConnManager implements EndpointConnManager {
 
     private Endpoint sessionRoEndpoint;
 
-    private boolean readOnRw;
-
     private final Map<String, PreparedStatement> preparedStatements =
             new HashMap<String, PreparedStatement>();
 
@@ -92,16 +90,6 @@ public final class SimpleEndpointConnManager implements EndpointConnManager {
     private int commitPhysicalTransactionCallCount;
 
     private int rollbackPhysicalTransactionCallCount;
-
-    private String logicalJdbcUrl;
-
-    public synchronized void setLogicalJdbcUrl(final String logicalJdbcUrl) {
-        this.logicalJdbcUrl = logicalJdbcUrl;
-    }
-
-    public synchronized String getLogicalJdbcUrl() {
-        return logicalJdbcUrl;
-    }
 
     public synchronized void bindSession(final Endpoint rwEndpoint, final Endpoint roEndpoint)
             throws SQLException {
@@ -144,11 +132,17 @@ public final class SimpleEndpointConnManager implements EndpointConnManager {
         } else {
             bindSession(masterRw, readEndpoint, topology);
         }
-        readOnRw = readReusesRw;
     }
 
-    public synchronized boolean isReadOnRwConnection() {
-        return readOnRw;
+    /** This fake has no read broker to fail, so reads never fall back onto RW. */
+    public boolean isReadOnRwConnection() {
+        return false;
+    }
+
+    public synchronized LegBinding binding() {
+        return sessionRwEndpoint == null
+                ? LegBinding.UNBOUND
+                : new LegBinding(sessionRwEndpoint, sessionRoEndpoint, false);
     }
 
     public synchronized Endpoint getSessionEndpoint(final SessionLeg role) {
@@ -244,13 +238,9 @@ public final class SimpleEndpointConnManager implements EndpointConnManager {
         return prepareStatement(endpoint, sql);
     }
 
-    public synchronized void closePrepStmts() throws SQLException {
+    public synchronized void closePrepForOwner(final String ownerId) throws SQLException {
         preparedStatements.clear();
         closePreparedStatementsCallCount++;
-    }
-
-    public synchronized void closePrepForOwner(final String ownerId) throws SQLException {
-        closePrepStmts();
     }
 
     public synchronized Connection getPhyConn(final Endpoint endpoint) throws SQLException {
@@ -288,8 +278,21 @@ public final class SimpleEndpointConnManager implements EndpointConnManager {
         this.failNextApplyPhyAutoCommit = true;
     }
 
-    // Keeps no separate read leg, so there is nothing to apply a session SET to.
-    public void applyToOpenReadLeg(final String opDesc, final SessionStateApplier op) {}
+    // Applies to the read leg's own connection, if it has one; a failure reaches the caller.
+    public synchronized void applyToOpenReadLeg(final String opDesc, final SessionStateApplier op)
+            throws SQLException {
+        Connection rw =
+                sessionRwEndpoint == null
+                        ? null
+                        : physicalConnections.get(sessionRwEndpoint.getId());
+        Connection ro =
+                sessionRoEndpoint == null
+                        ? null
+                        : physicalConnections.get(sessionRoEndpoint.getId());
+        if (ro != null && ro != rw) {
+            op.applyTo(ro);
+        }
+    }
 
     public synchronized void commitPhyTx() throws SQLException {
         commitPhysicalTransactionCallCount++;
@@ -351,6 +354,18 @@ public final class SimpleEndpointConnManager implements EndpointConnManager {
 
     public boolean isBoundRwSocketOpen() {
         return true;
+    }
+
+    public boolean isLegClosedUnderneath() {
+        return false;
+    }
+
+    public boolean isReadDisplaced() {
+        return false;
+    }
+
+    public boolean isRwDisplaced() {
+        return false;
     }
 
     public Endpoint restoreRoIfRecovered() throws SQLException {

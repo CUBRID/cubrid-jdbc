@@ -43,6 +43,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -75,8 +76,8 @@ import java.util.logging.Logger;
  *
  * <p><b>Windows are differences, not totals.</b> {@link MetricsRegistry} counters are cumulative
  * since JVM start, and a cumulative ratio grows less sensitive: hours in, a fresh imbalance barely
- * moves it. So the previous snapshot is kept here and subtracted. {@code RuntimeMetrics.reset()} is
- * not used, because it would corrupt the totals the Prometheus and CSV exporters publish.
+ * moves it. So the previous snapshot is kept here and subtracted; the cumulative counters are never
+ * reset, because the Prometheus and CSV exporters publish them as totals.
  */
 public final class LbDistLog {
     private static final Logger LOGGER = Logger.getLogger(LbDistLog.class.getName());
@@ -85,14 +86,12 @@ public final class LbDistLog {
     private static final int WRITE = 1;
     private static final int FALLBACK = 2;
 
-    private static final AtomicLong lastEmitMs = new AtomicLong();
+    // System.nanoTime() readings: a wall clock set back would hold the next record.
+    private static final AtomicLong lastEmitNanos = new AtomicLong();
 
     private static volatile boolean armed;
-    private static volatile long intervalMs;
+    private static volatile long intervalNanos;
     private static volatile LoadBalanceSettings target;
-    // Removed by the drain on the last LB connection close, so it does not keep this driver's
-    // class loader after an undeploy; the next connection installs it again.
-    private static Thread hook;
 
     // Guarded by the class monitor: only the CAS winner reaches emit(), but drainFinal() can run
     // concurrently on the shutdown thread.
@@ -113,7 +112,6 @@ public final class LbDistLog {
             return;
         }
         if (armed) {
-            installShutdownHook();
             return;
         }
         int sec = config.getLbLogConfig().getDistIntervalSec();
@@ -121,20 +119,16 @@ public final class LbDistLog {
             return;
         }
 
-        intervalMs = sec * 1000L;
+        intervalNanos = TimeUnit.SECONDS.toNanos(sec);
         target = config;
-        lastEmitMs.set(System.currentTimeMillis());
+        lastEmitNanos.set(System.nanoTime());
         previous = MetricsRegistry.aggregateByEndpoint();
         armed = true;
 
-        installShutdownHook();
         LbLog.info(
                 LOGGER,
                 null,
-                "LB DIST: distribution records every "
-                        + sec
-                        + "s (runtime counters enabled; no"
-                        + " metrics exporter started)");
+                "LB DIST: distribution records every " + sec + "s (runtime counters enabled)");
     }
 
     /**
@@ -146,18 +140,18 @@ public final class LbDistLog {
             return;
         }
 
-        final long now = System.currentTimeMillis();
-        final long prev = lastEmitMs.get();
-        if (now - prev < intervalMs) {
+        final long now = System.nanoTime();
+        final long prev = lastEmitNanos.get();
+        if (now - prev < intervalNanos) {
             return;
         }
         // Exactly one thread per window gets past this, so concurrent statements cannot each emit a
         // set of records for the same window.
-        if (!lastEmitMs.compareAndSet(prev, now)) {
+        if (!lastEmitNanos.compareAndSet(prev, now)) {
             return;
         }
 
-        emit((now - prev) / 1000L, false);
+        emit(TimeUnit.NANOSECONDS.toSeconds(now - prev), false);
     }
 
     /**
@@ -170,9 +164,8 @@ public final class LbDistLog {
             return;
         }
         // Restart the window: if connections are opened again, the next one starts from here.
-        long now = System.currentTimeMillis();
-        emit((now - lastEmitMs.getAndSet(now)) / 1000L, true);
-        removeShutdownHook();
+        long now = System.nanoTime();
+        emit(TimeUnit.NANOSECONDS.toSeconds(now - lastEmitNanos.getAndSet(now)), true);
     }
 
     private static synchronized void emit(final long windowSec, final boolean isFinal) {
@@ -470,50 +463,5 @@ public final class LbDistLog {
     private static String format1(final double value) {
         long scaled = Math.round(value * 10.0d);
         return (scaled / 10L) + "." + Math.abs(scaled % 10L);
-    }
-
-    private static synchronized void installShutdownHook() {
-        if (hook != null) {
-            return;
-        }
-        Thread t =
-                new Thread("lb-dist-flush") {
-                    @Override
-                    public void run() {
-                        drainFinal();
-                    }
-                };
-        t.setContextClassLoader(null); // as core's own threads: no application loader held
-        try {
-            Runtime.getRuntime().addShutdownHook(t);
-            hook = t;
-        } catch (Exception e) {
-            // A container may forbid shutdown hooks; only the last window is then lost.
-            LOGGER.warning("LB DIST: cannot register the shutdown flush hook: " + e);
-        }
-    }
-
-    private static void removeShutdownHook() {
-        Thread installed;
-        synchronized (LbDistLog.class) {
-            installed = hook;
-            hook = null;
-        }
-        if (installed != null) {
-            try {
-                Runtime.getRuntime().removeShutdownHook(installed);
-            } catch (Exception shuttingDown) {
-                // this drain is the hook itself
-            }
-        }
-    }
-
-    /** Test hook: disarms and forgets the window state. */
-    static synchronized void resetForTests() {
-        armed = false;
-        intervalMs = 0L;
-        target = null;
-        previous = Collections.emptyMap();
-        lastEmitMs.set(0L);
     }
 }

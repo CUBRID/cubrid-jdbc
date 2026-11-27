@@ -41,13 +41,17 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -71,7 +75,8 @@ public final class MetricsExporters {
 
     private static final Object LOCK = new Object();
     private static boolean prometheusStarted;
-    private static int prometheusPort;
+    private static String prometheusAt; // address:port
+    private static int prometheusIntervalSec;
     private static HttpServer prometheusServer;
     private static Thread prometheusWatch;
     private static final int SCRAPE_THREADS = 4;
@@ -84,11 +89,15 @@ public final class MetricsExporters {
                     return t;
                 }
             };
-    // A port that could not be bound is warned about once per JVM and not tried again for a while.
-    private static final long BIND_RETRY_MS = 60000L;
-    private static long prometheusFailedAtMs;
-    private static boolean prometheusFailureWarned;
+    // An address:port that could not be bound is warned about once and not tried again for a
+    // while; another pool's address:port is still tried at once.
+    private static final long BIND_RETRY_NANOS = TimeUnit.SECONDS.toNanos(60L);
+    // System.nanoTime() of the failure: a wall clock set back would put the retry off.
+    private static final Map<String, Long> BIND_FAILED_AT_NANOS = new HashMap<String, Long>();
+    // Every connection configures the exporters, so a conflicting value is warned about once too.
+    private static final Set<String> WARNED_CONFLICTS = new HashSet<String>();
     private static boolean csvStarted;
+    private static int csvIntervalSec;
     private static Thread csvThread;
 
     private MetricsExporters() {}
@@ -116,37 +125,25 @@ public final class MetricsExporters {
     }
 
     /**
-     * Stops both exporters and forgets them, so a following {@link #configure} can start fresh.
+     * Stops the CSV writer {@code self} when still no LB connection is live. Under the lock {@link
+     * #configure} takes, and a connection registers before it configures, so a connection that
+     * opened after the idle check either keeps this writer or finds it stopped and starts another.
      *
-     * <p>For the redeploy case. Both exporters are daemons, so a JVM exit needs nothing from this,
-     * but undeploying a web application is not a JVM exit: the CSV thread keeps running and its
-     * {@code Runnable} holds the webapp's class loader - the classic container-side leak. A
-     * container hook, or the application's own shutdown path, can call this to release both.
+     * @return whether the writer stopped
      */
-    static void stop() {
+    private static boolean csvStoppedIfIdle(final Thread self) {
         synchronized (LOCK) {
-            if (prometheusServer != null) {
-                prometheusServer.stop(0);
-                ((ExecutorService) prometheusServer.getExecutor()).shutdown();
-                prometheusServer = null;
+            if (MetricsRegistry.liveCount() > 0) {
+                return false;
             }
-            if (prometheusWatch != null) {
-                prometheusWatch.interrupt();
-                prometheusWatch = null;
-            }
-            prometheusStarted = false;
-
-            if (csvThread != null) {
-                csvThread.interrupt();
-                csvThread = null;
-            }
-            csvStarted = false;
+            csvStopped(self);
+            return true;
         }
     }
 
     /**
-     * Called by the CSV writer when it stops itself after an idle stretch, so the next {@link
-     * #configure} starts a new one instead of assuming one is already running.
+     * Called by the CSV writer when it stops itself, so the next {@link #configure} starts a new
+     * one instead of assuming one is already running.
      */
     private static void csvStopped(final Thread self) {
         synchronized (LOCK) {
@@ -158,17 +155,26 @@ public final class MetricsExporters {
     }
 
     private static void startPrometheus(final String bind, final int port, final int intervalSec) {
+        final String at =
+                (bind == null ? InetAddress.getLoopbackAddress().getHostAddress() : bind)
+                        + ":"
+                        + port;
         if (prometheusStarted) {
-            if (prometheusPort != port) {
-                LOGGER.warning(
-                        "Prometheus exporter already started on port "
-                                + prometheusPort
-                                + "; ignoring conflicting metricsPrometheusPort="
-                                + port);
+            if (!prometheusAt.equals(at) || prometheusIntervalSec != intervalSec) {
+                warnConflictOnce(
+                        "Prometheus exporter already started on "
+                                + prometheusAt
+                                + " with metricsIntervalSec="
+                                + prometheusIntervalSec
+                                + "; ignoring conflicting "
+                                + at
+                                + " with metricsIntervalSec="
+                                + intervalSec);
             }
             return;
         }
-        if (System.currentTimeMillis() - prometheusFailedAtMs < BIND_RETRY_MS) {
+        Long failedAt = BIND_FAILED_AT_NANOS.get(at);
+        if (failedAt != null && System.nanoTime() - failedAt < BIND_RETRY_NANOS) {
             return;
         }
         try {
@@ -191,7 +197,8 @@ public final class MetricsExporters {
             startAsDaemon(server);
             prometheusServer = server;
             prometheusStarted = true;
-            prometheusPort = port;
+            prometheusAt = at;
+            prometheusIntervalSec = intervalSec;
             watchPrometheusIdle(server, Math.max(1, intervalSec) * 1000L);
             LOGGER.info(
                     "LB metrics: Prometheus /metrics endpoint listening on "
@@ -199,12 +206,10 @@ public final class MetricsExporters {
                             + ":"
                             + port);
         } catch (IOException e) {
-            prometheusFailedAtMs = System.currentTimeMillis();
-            if (!prometheusFailureWarned) {
-                prometheusFailureWarned = true;
+            if (BIND_FAILED_AT_NANOS.put(at, System.nanoTime()) == null) {
                 LOGGER.warning(
-                        "failed to start Prometheus exporter on port "
-                                + port
+                        "failed to start Prometheus exporter on "
+                                + at
                                 + ": "
                                 + e
                                 + "; retried at most once a minute, without another warning");
@@ -252,17 +257,20 @@ public final class MetricsExporters {
                 new Thread(
                         new Runnable() {
                             public void run() {
-                                int idlePeriods = 0;
-                                while (idlePeriods < IDLE_PERIODS_BEFORE_STOP) {
-                                    try {
-                                        Thread.sleep(periodMs);
-                                    } catch (InterruptedException stopped) {
-                                        return;
+                                do {
+                                    int idlePeriods = 0;
+                                    while (idlePeriods < IDLE_PERIODS_BEFORE_STOP) {
+                                        try {
+                                            Thread.sleep(periodMs);
+                                        } catch (InterruptedException stopped) {
+                                            return;
+                                        }
+                                        idlePeriods =
+                                                MetricsRegistry.liveCount() == 0
+                                                        ? idlePeriods + 1
+                                                        : 0;
                                     }
-                                    idlePeriods =
-                                            MetricsRegistry.liveCount() == 0 ? idlePeriods + 1 : 0;
-                                }
-                                prometheusIdle(server);
+                                } while (!prometheusIdle(server));
                             }
                         },
                         "lb-metrics-prometheus-idle");
@@ -272,10 +280,19 @@ public final class MetricsExporters {
         prometheusWatch = watch;
     }
 
-    private static void prometheusIdle(final HttpServer server) {
+    /**
+     * Stops the Prometheus endpoint {@code server} when still no LB connection is live; see {@link
+     * #csvStoppedIfIdle}.
+     *
+     * @return whether the watch is over: the server stopped here or was stopped or replaced
+     */
+    private static boolean prometheusIdle(final HttpServer server) {
         synchronized (LOCK) {
             if (prometheusServer != server) {
-                return; // stopped or replaced meanwhile
+                return true; // stopped or replaced meanwhile
+            }
+            if (MetricsRegistry.liveCount() > 0) {
+                return false;
             }
             server.stop(0);
             ((ExecutorService) server.getExecutor()).shutdown();
@@ -286,10 +303,18 @@ public final class MetricsExporters {
         LOGGER.info(
                 "LB metrics: no live LB connections -> stopping the Prometheus exporter; it"
                         + " restarts with the next connection");
+        return true;
     }
 
     private static void startCsv(final int intervalSec) {
         if (csvStarted) {
+            if (csvIntervalSec != intervalSec) {
+                warnConflictOnce(
+                        "CSV exporter already started with metricsIntervalSec="
+                                + csvIntervalSec
+                                + "; ignoring conflicting metricsIntervalSec="
+                                + intervalSec);
+            }
             return;
         }
         Thread t = new Thread(new CsvWriter(intervalSec), "lb-metrics-csv");
@@ -298,11 +323,18 @@ public final class MetricsExporters {
         t.start();
         csvThread = t;
         csvStarted = true;
+        csvIntervalSec = intervalSec;
         LOGGER.info(
                 "LB metrics: CSV rows every "
                         + intervalSec
                         + "s to the logger "
                         + CsvWriter.CSV_LOGGER.getName());
+    }
+
+    private static void warnConflictOnce(final String warning) {
+        if (WARNED_CONFLICTS.add(warning)) {
+            LOGGER.warning(warning);
+        }
     }
 
     private static String localHost() {
@@ -373,8 +405,8 @@ public final class MetricsExporters {
                     .append('\n');
         }
 
-        // Read-leg movements. failover_total rising = something went down; failback_total catching
-        // up = it recovered and the weighted distribution self-healed.
+        // Leg movements, RW and read. failover_total rising = something went down; failback_total
+        // catching up = it recovered and the legs are back where they belong.
         appendTransitions(
                 sb,
                 "lb_failover_total",
@@ -383,13 +415,15 @@ public final class MetricsExporters {
         appendTransitions(
                 sb,
                 "lb_failback_total",
-                "Displaced read legs that climbed back towards their weighted home endpoint",
+                "Displaced RW or read legs that moved back towards their home endpoint (RW: the"
+                        + " master, read: the weighted home)",
                 MetricsRegistry.failbacks());
 
-        // Sessions reading over the RW connection (roOnRw) — by design for master-role weight, or
-        // because every read endpoint failed. Either way these reads compete with write traffic.
+        // Sessions whose read brokers all failed (roOnRw): their reads compete with write traffic.
+        // Master-role sessions read on the RW connection by design and are not counted.
         sb.append(
-                "# HELP lb_ro_on_rw_sessions Live sessions whose reads run on the RW physical connection\n");
+                "# HELP lb_ro_on_rw_sessions Live sessions whose reads fell back onto the RW physical"
+                        + " connection because every read broker failed\n");
         sb.append("# TYPE lb_ro_on_rw_sessions gauge\n");
         sb.append("lb_ro_on_rw_sessions ")
                 .append(MetricsRegistry.countRoOnRwSessions())
@@ -404,8 +438,8 @@ public final class MetricsExporters {
     }
 
     /**
-     * Emits one counter family for read-leg movements, labelled {@code role}, {@code from}, {@code
-     * to}.
+     * Emits one counter family for leg movements, labelled {@code role} (RW or RO), {@code from},
+     * {@code to}.
      */
     private static void appendTransitions(
             final StringBuilder sb,
@@ -613,8 +647,13 @@ public final class MetricsExporters {
                                         + (IDLE_PERIODS_BEFORE_STOP * periodMs / 1000L)
                                         + "s -> stopping the CSV exporter; it restarts with the next"
                                         + " connection");
-                        csvStopped(Thread.currentThread());
-                        return;
+                        if (csvStoppedIfIdle(Thread.currentThread())) {
+                            return;
+                        }
+                        LOGGER.info(
+                                "LB metrics: a connection opened meanwhile -> the CSV exporter"
+                                        + " keeps running");
+                        idlePeriods = 0;
                     }
                 } else {
                     idlePeriods = 0;

@@ -35,10 +35,13 @@ import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.connection.EndpointConnManager;
 import cubrid.jdbc.lb.metrics.RuntimeMetrics;
+import cubrid.jdbc.lb.route.RoutedSql;
+import cubrid.jdbc.lb.route.Router;
 import cubrid.jdbc.lb.route.Router.RouteTarget;
-import cubrid.jdbc.lb.state.CurrentReadEndpointHolder;
 import cubrid.jdbc.lb.state.SharedSelectorState;
 import java.sql.SQLException;
+import java.util.Collection;
+import java.util.function.BooleanSupplier;
 
 /**
  * The package-private members of {@code cubrid.jdbc.lb} that tests in other packages use. It lives
@@ -58,7 +61,37 @@ public final class LbTestAccess {
     }
 
     public static int getOpenStatementCount(final LoadBalanceConnection connection) {
-        return connection.getOpenStatementCount();
+        final Collection<?> open =
+                (Collection<?>) LbTestReflection.field(connection, "openStatements");
+        synchronized (open) {
+            return open.size();
+        }
+    }
+
+    /**
+     * Where a plain read would run now, by the decision the execute path takes; binds the session
+     * with {@code topology} first if it is not bound.
+     */
+    public static Endpoint resolveReadEndpoint(
+            final LoadBalanceConnection connection, final EndpointTopology topology)
+            throws SQLException {
+        if (!connection.isSessionInitialized()) {
+            connection.initSessionBindings(topology);
+        }
+        final RouteTarget target =
+                Router.decide(
+                                RoutedSql.of("SELECT 1 FROM db_root", connection.sqlClassifier()),
+                                false,
+                                false,
+                                connection.getSessionState(),
+                                new BooleanSupplier() {
+                                    public boolean getAsBoolean() {
+                                        return connection.isRwTxOpenInAutoCommit();
+                                    }
+                                })
+                        .getTarget();
+        return connection.getCurrentEp(
+                target == RouteTarget.TO_READ_ONLY ? SessionLeg.RO : SessionLeg.RW);
     }
 
     public static RuntimeMetrics getRuntimeMetrics(final LoadBalanceConnection connection) {
@@ -79,11 +112,6 @@ public final class LbTestAccess {
             final LoadBalanceConnection connection, final EndpointTopology topology)
             throws SQLException {
         connection.initSessionBindings(topology);
-    }
-
-    public static CurrentReadEndpointHolder getBoundReadEndpoint(
-            final LoadBalanceConnection connection) {
-        return connection.getBoundReadEndpoint();
     }
 
     public static SharedSelectorState getSharedSelectorState(
@@ -110,5 +138,18 @@ public final class LbTestAccess {
 
     public static SessionLeg fromRouteTarget(final RouteTarget target) {
         return SessionLeg.fromRouteTarget(target);
+    }
+
+    /** The JVM's count of open LB connections, which the last close's flush waits for. */
+    public static java.util.concurrent.atomic.AtomicInteger liveConnections() {
+        return (java.util.concurrent.atomic.AtomicInteger)
+                LbTestReflection.staticField(LbRuntime.class, "LIVE");
+    }
+
+    /** The shutdown flush hook LB keeps while a connection is open, or null. */
+    public static Thread exitFlushHook() {
+        synchronized (LbRuntime.class) {
+            return (Thread) LbTestReflection.staticField(LbRuntime.class, "hook");
+        }
     }
 }

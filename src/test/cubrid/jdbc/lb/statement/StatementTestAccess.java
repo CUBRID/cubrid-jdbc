@@ -30,6 +30,9 @@
 
 package cubrid.jdbc.lb.statement;
 
+import cubrid.jdbc.lb.LbTestReflection;
+import cubrid.jdbc.lb.LoadBalanceConnection;
+
 /**
  * The package-private members of {@code cubrid.jdbc.lb.statement} that tests in other packages use.
  * It lives in the test tree, so the driver jar does not carry it.
@@ -43,6 +46,17 @@ public final class StatementTestAccess {
 
     public static void setStatementProvider(
             final LBStatement statement, final LBStatement.PhysicalStmtProvider provider) {
-        statement.setStatementProvider(provider);
+        if (provider == null) {
+            throw new IllegalArgumentException("PhysicalStmtProvider must not be null");
+        }
+        LbTestReflection.setField(statement, "stmtProvider", provider);
+    }
+
+    static ParameterBinder getParameterBinder(final LBPreparedStatement statement) {
+        return (ParameterBinder) LbTestReflection.field(statement, "parameterBinder");
+    }
+
+    static LoadBalanceConnection getOwnerConn(final LBPreparedStatement statement) {
+        return (LoadBalanceConnection) LbTestReflection.field(statement, "ownerConn");
     }
 }

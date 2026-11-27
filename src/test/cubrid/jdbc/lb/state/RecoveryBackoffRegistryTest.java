@@ -43,7 +43,7 @@ public final class RecoveryBackoffRegistryTest {
 
     @After
     public void tearDown() {
-        RecoveryBackoffRegistry.clearForTests();
+        StateTestAccess.clearRecoveryBackoffs();
     }
 
     @Test
@@ -70,14 +70,5 @@ public final class RecoveryBackoffRegistryTest {
         // Still the 3000ms instance: the second claim inside the window is suppressed.
         assertTrue(shared.tryClaimProbe("ep", 42L));
         assertFalse(shared.tryClaimProbe("ep", 42L));
-    }
-
-    @Test
-    public void assertReleaseKeyDropsInstance() {
-        RecoveryBackoff first = RecoveryBackoffRegistry.getOrCreate(KEY, 3000);
-        RecoveryBackoffRegistry.releaseKey(KEY);
-        RecoveryBackoff second = RecoveryBackoffRegistry.getOrCreate(KEY, 3000);
-
-        assertNotSame(first, second);
     }
 }

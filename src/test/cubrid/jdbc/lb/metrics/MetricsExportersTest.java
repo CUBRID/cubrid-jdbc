@@ -32,13 +32,18 @@ package cubrid.jdbc.lb.metrics;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import cubrid.jdbc.jci.UUnreachableHostList;
+import cubrid.jdbc.lb.LbKit;
+import cubrid.jdbc.lb.LbTestReflection;
 import cubrid.jdbc.lb.config.ConfigTestAccess;
 import cubrid.jdbc.lb.config.MetricsConfig;
+import cubrid.jdbc.lb.report.ReportTestAccess;
 import cubrid.jdbc.lb.sql.SqlClassification;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -51,6 +56,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 import java.util.logging.Handler;
 import java.util.logging.LogRecord;
 import java.util.logging.Logger;
@@ -71,13 +77,13 @@ public class MetricsExportersTest {
 
     @Before
     public void setUp() {
-        MetricsRegistry.clearForTests();
+        MetricsTestAccess.clearForTests();
         UUnreachableHostList.getInstance().remove(SLAVE);
     }
 
     @After
     public void tearDown() {
-        MetricsRegistry.clearForTests();
+        MetricsTestAccess.clearForTests();
         UUnreachableHostList.getInstance().remove(SLAVE);
     }
 
@@ -121,10 +127,12 @@ public class MetricsExportersTest {
                                 + "\"} 1"));
     }
 
+    /** A master-role session reads on the RW connection by design and is not counted (r5 m4). */
     @Test
     public void roOnRwGaugeCountsOnlySessionsReadingOverTheRwConnection() {
         register(SLAVE, "slave", false);
-        register(MASTER, "master", true);
+        register(SLAVE, "slave", true); // every read broker failed
+        register(MASTER, "master", false);
 
         assertEquals(1, MetricsRegistry.countRoOnRwSessions());
         assertTrue(MetricsExporters.renderPrometheus().contains("lb_ro_on_rw_sessions 1"));
@@ -141,7 +149,7 @@ public class MetricsExportersTest {
             assertTrue(accepts(InetAddress.getLoopbackAddress(), port));
             assertFalse("reachable from " + external.getHostAddress(), accepts(external, port));
         } finally {
-            MetricsExporters.stop();
+            MetricsTestAccess.stopExporters();
         }
     }
 
@@ -155,7 +163,7 @@ public class MetricsExportersTest {
         try {
             assertTrue(accepts(external, port));
         } finally {
-            MetricsExporters.stop();
+            MetricsTestAccess.stopExporters();
         }
     }
 
@@ -188,7 +196,7 @@ public class MetricsExportersTest {
                     "the next connection starts it again",
                     accepts(InetAddress.getLoopbackAddress(), port));
         } finally {
-            MetricsExporters.stop();
+            MetricsTestAccess.stopExporters();
         }
     }
 
@@ -209,7 +217,7 @@ public class MetricsExportersTest {
             assertEquals(404, status(port, "GET", "/metricsX"));
         } finally {
             stalled.close();
-            MetricsExporters.stop();
+            MetricsTestAccess.stopExporters();
         }
     }
 
@@ -225,6 +233,78 @@ public class MetricsExportersTest {
             return c.getResponseCode();
         } finally {
             c.disconnect();
+        }
+    }
+
+    /**
+     * r5 m9: a connection that opens while the idle CSV writer is stopping keeps a writer running.
+     * The writer is held in its "stopping" record, the window between finding no live connection
+     * and taking the lock, while the pool opens a connection.
+     */
+    @Test(timeout = 60000)
+    public void aConnectionOpenedAsTheIdleCsvWriterStopsKeepsAWriterRunning() throws Exception {
+        final String options =
+                "readWeight=slave:1&metricsEnabled=true&metricsExport=csv&metricsIntervalSec=1";
+        final CountDownLatch deciding = new CountDownLatch(1);
+        final CountDownLatch opened = new CountDownLatch(1);
+        final Logger exporterLog = Logger.getLogger(MetricsExporters.class.getName());
+        final Handler hold =
+                new Handler() {
+                    @Override
+                    public void publish(final LogRecord r) {
+                        if (String.valueOf(r.getMessage()).contains("stopping the CSV exporter")) {
+                            deciding.countDown();
+                            try {
+                                opened.await();
+                            } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                            }
+                        }
+                    }
+
+                    @Override
+                    public void flush() {}
+
+                    @Override
+                    public void close() {}
+                };
+        exporterLog.addHandler(hold);
+        final LbKit kit = new LbKit(2);
+        try {
+            kit.open(options).close(); // starts the writer and leaves no live connection
+            deciding.await(); // the writer found none for five periods
+            kit.open(options);
+            opened.countDown();
+            Thread.sleep(1500L);
+
+            final Thread writer =
+                    (Thread) LbTestReflection.staticField(MetricsExporters.class, "csvThread");
+            assertTrue("a CSV writer runs for the live connection", writer != null);
+            assertTrue(writer.isAlive());
+        } finally {
+            opened.countDown();
+            exporterLog.removeHandler(hold);
+            kit.close();
+            MetricsTestAccess.stopExporters();
+        }
+    }
+
+    /** The DIST record wants counters only: a log option opens no port and starts no CSV writer. */
+    @Test
+    public void aConnectionThatOnlyWantsTheDistRecordStartsNoExporter() throws Exception {
+        final int port = freePort();
+        final LbKit kit = new LbKit(2);
+        try {
+            kit.open(
+                    "readWeight=slave:1&lbLogDistIntervalSec=60&metricsExport=prometheus,csv"
+                            + "&metricsPrometheusPort="
+                            + port);
+            assertFalse(accepts(InetAddress.getLoopbackAddress(), port));
+            assertNull(LbTestReflection.staticField(MetricsExporters.class, "csvThread"));
+        } finally {
+            kit.close();
+            MetricsTestAccess.stopExporters();
+            ReportTestAccess.resetDistLog();
         }
     }
 
@@ -264,7 +344,7 @@ public class MetricsExportersTest {
                 Thread.sleep(50L);
             }
         } finally {
-            MetricsExporters.stop();
+            MetricsTestAccess.stopExporters();
             csv.removeHandler(capture);
             csv.setUseParentHandlers(true);
         }
@@ -273,6 +353,156 @@ public class MetricsExportersTest {
         String row = rows.get(0);
         assertEquals(row, MetricsFormatter.HEADER.trim().split(",").length, row.split(",").length);
         assertTrue(row, row.contains("," + SLAVE + ",slave,1,0,"));
+    }
+
+    /** m27: every connection configures the exporter, so a conflicting port is warned once. */
+    @Test
+    public void aConflictingPrometheusPortIsWarnedAboutOnce() throws Exception {
+        int port = freePort();
+        int other = port + 1;
+        final List<String> warnings = Collections.synchronizedList(new ArrayList<String>());
+        Handler capture =
+                new Handler() {
+                    @Override
+                    public void publish(final LogRecord record) {
+                        warnings.add(record.getMessage());
+                    }
+
+                    @Override
+                    public void flush() {}
+
+                    @Override
+                    public void close() {}
+                };
+        Logger exporters = Logger.getLogger(MetricsExporters.class.getName());
+        exporters.addHandler(capture);
+        exporters.setUseParentHandlers(false);
+        MetricsExporters.configure(prometheus(port, 60));
+        try {
+            for (int i = 0; i < 3; i++) {
+                MetricsExporters.configure(prometheus(other, 60));
+            }
+        } finally {
+            MetricsTestAccess.stopExporters();
+            exporters.removeHandler(capture);
+            exporters.setUseParentHandlers(true);
+        }
+
+        int conflicts = 0;
+        for (String each : warnings) {
+            if (each.contains("conflicting")) {
+                conflicts++;
+            }
+        }
+        assertEquals(warnings.toString(), 1, conflicts);
+    }
+
+    /** m29: a later connection's different bind or interval was ignored without a word. */
+    @Test
+    public void aConflictingBindOrIntervalIsWarnedAboutOnce() throws Exception {
+        int port = freePort();
+        List<String> warnings = Collections.synchronizedList(new ArrayList<String>());
+        Handler capture = capture(warnings);
+        MetricsExporters.configure(prometheus(port, 60));
+        MetricsExporters.configure(csv(600));
+        try {
+            for (int i = 0; i < 2; i++) {
+                MetricsExporters.configure(prometheus(port, 60, "127.0.0.1")); // the same address
+                MetricsExporters.configure(prometheus(port, 60, "0.0.0.0"));
+                MetricsExporters.configure(prometheus(port, 45));
+                MetricsExporters.configure(csv(300));
+            }
+        } finally {
+            MetricsTestAccess.stopExporters();
+            release(capture);
+        }
+
+        assertEquals(warnings.toString(), 3, count(warnings, "conflicting"));
+        assertEquals(warnings.toString(), 1, count(warnings, "0.0.0.0"));
+        assertEquals(warnings.toString(), 1, count(warnings, "metricsIntervalSec=45"));
+        assertEquals(warnings.toString(), 1, count(warnings, "metricsIntervalSec=300"));
+    }
+
+    /**
+     * m29: one busy port silenced every later bind failure and held back every other address for a
+     * minute. Each address is now warned about and retried on its own.
+     */
+    @Test
+    public void aBusyPortHoldsBackOnlyItselfAndEachIsWarnedAboutOnce() throws Exception {
+        InetAddress loopback = InetAddress.getLoopbackAddress();
+        ServerSocket busyA = new ServerSocket(0, 1, loopback);
+        ServerSocket busyB = new ServerSocket(0, 1, loopback);
+        String portA = String.valueOf(busyA.getLocalPort());
+        String portB = String.valueOf(busyB.getLocalPort());
+        int free = freePort();
+        List<String> warnings = Collections.synchronizedList(new ArrayList<String>());
+        Handler capture = capture(warnings);
+        try {
+            for (int i = 0; i < 2; i++) {
+                MetricsExporters.configure(prometheus(busyA.getLocalPort(), 60));
+                MetricsExporters.configure(prometheus(busyB.getLocalPort(), 60));
+            }
+            MetricsExporters.configure(prometheus(free, 60));
+            assertTrue("a free port is bound at once", accepts(loopback, free));
+        } finally {
+            MetricsTestAccess.stopExporters();
+            release(capture);
+            busyA.close();
+            busyB.close();
+        }
+
+        assertEquals(warnings.toString(), 1, count(warnings, "failed", portA));
+        assertEquals(warnings.toString(), 1, count(warnings, "failed", portB));
+        // Closed now, so a later test may be handed the same port numbers.
+        Field failedAt = MetricsExporters.class.getDeclaredField("BIND_FAILED_AT_NANOS");
+        failedAt.setAccessible(true);
+        ((Map<?, ?>) failedAt.get(null)).clear();
+    }
+
+    private static Handler capture(final List<String> messages) {
+        Handler handler =
+                new Handler() {
+                    @Override
+                    public void publish(final LogRecord record) {
+                        messages.add(record.getMessage());
+                    }
+
+                    @Override
+                    public void flush() {}
+
+                    @Override
+                    public void close() {}
+                };
+        Logger exporters = Logger.getLogger(MetricsExporters.class.getName());
+        exporters.addHandler(handler);
+        exporters.setUseParentHandlers(false);
+        return handler;
+    }
+
+    private static void release(final Handler handler) {
+        Logger exporters = Logger.getLogger(MetricsExporters.class.getName());
+        exporters.removeHandler(handler);
+        exporters.setUseParentHandlers(true);
+    }
+
+    private static int count(final List<String> messages, final String... parts) {
+        int n = 0;
+        for (String each : messages) {
+            boolean all = true;
+            for (String part : parts) {
+                all &= each.contains(part);
+            }
+            n += all ? 1 : 0;
+        }
+        return n;
+    }
+
+    private static MetricsConfig csv(final int intervalSec) throws java.sql.SQLException {
+        Map<String, String> options = new HashMap<String, String>();
+        options.put(ConfigTestAccess.OPT_ENABLED, "true");
+        options.put(ConfigTestAccess.OPT_EXPORT, ConfigTestAccess.EXPORT_CSV);
+        options.put(ConfigTestAccess.OPT_INTERVAL_SEC, String.valueOf(intervalSec));
+        return ConfigTestAccess.parseMetricsConfig(options);
     }
 
     private static MetricsConfig prometheus(final int port, final int intervalSec)

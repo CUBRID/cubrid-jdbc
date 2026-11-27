@@ -184,8 +184,9 @@ public class SessionPhysicalConnManagerTxLegsTest {
                 };
 
         SessionPhysicalConnManager mgr =
-                new SessionPhysicalConnManager(LOGICAL_URL, new Properties(), config, factory);
-        mgr.bindSession(rw, ro, topo);
+                ConnectionTestAccess.newSessionPhysicalConnManager(
+                        LOGICAL_URL, new Properties(), config, factory);
+        mgr.bindSessionWithReadTarget(rw, ro, false, topo);
         return mgr;
     }
 

@@ -43,6 +43,7 @@ import cubrid.jdbc.lb.statement.FakePhysicalStatement;
 import cubrid.jdbc.lb.statement.LBPreparedStatement;
 import cubrid.jdbc.lb.statement.LBStatement;
 import cubrid.jdbc.lb.statement.StatementTestAccess;
+import java.sql.BatchUpdateException;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -121,6 +122,157 @@ public final class RowCountRoutingTest {
         assertEquals(Arrays.asList(RW, RO), targets);
     }
 
+    /**
+     * A prepare that did not run leaves an autocommit transaction open on RW, which keeps reads
+     * there. ROW_COUNT() reads no data: it stays with the statement before it, as on core.
+     */
+    @Test
+    public void rowCountStaysOnThePreviousLegWhileRwHoldsAnOpenTransaction() throws SQLException {
+        final SimpleEndpointConnManager manager = new SimpleEndpointConnManager();
+        final List<RouteTarget> targets = new ArrayList<RouteTarget>();
+        LBStatement statement = recordingStatement(createBoundSessionConnection(manager), targets);
+
+        statement.executeUpdate("UPDATE t SET v = v + 1");
+        statement.executeQuery("SELECT v FROM t");
+        manager.setRwTxReportedOpen(true);
+        statement.executeQuery("SELECT ROW_COUNT()");
+        statement.executeQuery("SELECT v FROM t");
+
+        assertEquals(Arrays.asList(RW, RO, RO, RW), targets);
+    }
+
+    /**
+     * m21: a batch whose rows partly failed still ran on RW, where core's ROW_COUNT() reports its
+     * last row. Recorded only on success, the read went to the leg of the statement before it.
+     */
+    @Test
+    public void rowCountFollowsABatchThatEndedInBatchUpdateException() throws SQLException {
+        final List<RouteTarget> targets = new ArrayList<RouteTarget>();
+        LBStatement statement = recordingStatement(createBoundSessionConnection(), targets);
+
+        statement.executeQuery("SELECT v FROM t");
+        statement.addBatch("INSERT INTO t VALUES (1)");
+        statement.addBatch("UPDATE t SET v = v + 1");
+        try {
+            statement.executeBatch();
+            fail("expected the batch's BatchUpdateException");
+        } catch (BatchUpdateException expected) {
+        }
+        statement.executeQuery("SELECT ROW_COUNT()");
+
+        assertEquals(Arrays.asList(RO, RW, RW), targets);
+    }
+
+    @Test
+    public void rowCountFollowsAPreparedBatchThatEndedInBatchUpdateException() throws SQLException {
+        LoadBalanceConnection connection = createBoundSessionConnection();
+        final List<RouteTarget> targets = new ArrayList<RouteTarget>();
+        LBStatement statement = recordingStatement(connection, targets);
+        LBPreparedStatement insert =
+                new LBPreparedStatement(connection, "INSERT INTO t VALUES (?)");
+        insert.setPsProvider(
+                new LBPreparedStatement.PhysicalPsProvider() {
+                    public PreparedStatement getPreparedStatement(
+                            final RouteTarget target, final String rawSql) {
+                        return new FakePhysicalPreparedStatement() {
+                            @Override
+                            protected Object dispatch(final String name, final Object[] args)
+                                    throws SQLException {
+                                if ("executeBatch".equals(name)) {
+                                    throw partlyFailedBatch();
+                                }
+                                return null;
+                            }
+                        };
+                    }
+
+                    public void prepareOnBoundReadEndpoint(final String rawSql) {}
+
+                    public void prepareOnWriteEndpoint(final String rawSql) {}
+
+                    public void closePrepStmts() {}
+                });
+
+        statement.executeQuery("SELECT v FROM t");
+        insert.setInt(1, 1);
+        insert.addBatch();
+        insert.setInt(1, 2);
+        insert.addBatch();
+        try {
+            insert.executeBatch();
+            fail("expected the batch's BatchUpdateException");
+        } catch (BatchUpdateException expected) {
+        }
+        statement.executeQuery("SELECT ROW_COUNT()");
+
+        assertEquals(Arrays.asList(RO, RW), targets);
+    }
+
+    /**
+     * Core's ROW_COUNT() reports the last statement that ran, so a batch in which every entry
+     * failed leaves it with the statement before the batch, on that statement's leg.
+     */
+    @Test
+    public void rowCountDoesNotFollowABatchWhoseEntriesAllFailed() throws SQLException {
+        final List<RouteTarget> targets = new ArrayList<RouteTarget>();
+        LBStatement statement = recordingStatement(createBoundSessionConnection(), targets);
+
+        statement.executeQuery("SELECT v FROM t");
+        statement.addBatch("INSERT INTO no_such VALUES (1)");
+        try {
+            statement.executeBatch();
+            fail("expected the batch's BatchUpdateException");
+        } catch (BatchUpdateException expected) {
+        }
+        statement.executeQuery("SELECT ROW_COUNT()");
+
+        assertEquals(Arrays.asList(RO, RW, RO), targets);
+    }
+
+    /**
+     * Core sends no batch for a prepared statement without parameters and answers no counts, so
+     * that batch is not the statement before a ROW_COUNT().
+     */
+    @Test
+    public void rowCountDoesNotFollowAPreparedBatchCoreDidNotSend() throws SQLException {
+        LoadBalanceConnection connection = createBoundSessionConnection();
+        final List<RouteTarget> targets = new ArrayList<RouteTarget>();
+        LBStatement statement = recordingStatement(connection, targets);
+        LBPreparedStatement insert =
+                new LBPreparedStatement(connection, "INSERT INTO t VALUES (1)");
+        insert.setPsProvider(
+                new LBPreparedStatement.PhysicalPsProvider() {
+                    public PreparedStatement getPreparedStatement(
+                            final RouteTarget target, final String rawSql) {
+                        return new FakePhysicalPreparedStatement() {
+                            @Override
+                            protected Object dispatch(final String name, final Object[] args) {
+                                return "executeBatch".equals(name) ? new int[0] : null;
+                            }
+                        };
+                    }
+
+                    public void prepareOnBoundReadEndpoint(final String rawSql) {}
+
+                    public void prepareOnWriteEndpoint(final String rawSql) {}
+
+                    public void closePrepStmts() {}
+                });
+
+        statement.executeUpdate("UPDATE t SET v = v + 1");
+        statement.executeQuery("SELECT v FROM t");
+        insert.addBatch();
+        assertEquals(0, insert.executeBatch().length);
+        statement.executeQuery("SELECT ROW_COUNT()");
+
+        assertEquals(Arrays.asList(RW, RO, RO), targets);
+    }
+
+    private static BatchUpdateException partlyFailedBatch() {
+        return new BatchUpdateException(
+                "duplicate key", null, -670, new int[] {Statement.EXECUTE_FAILED, 3});
+    }
+
     private static LBStatement recordingStatement(
             final LoadBalanceConnection connection, final List<RouteTarget> targets)
             throws SQLException {
@@ -134,8 +286,17 @@ public final class RowCountRoutingTest {
                             @Override
                             protected Object dispatch(final String name, final Object[] args)
                                     throws SQLException {
-                                if (rawSql.contains("nope")) {
+                                if (rawSql.contains("nope") && name.startsWith("execute")) {
                                     throw new SQLException("nope is not defined", null, -494);
+                                }
+                                if ("executeBatch".equals(name)) {
+                                    throw rawSql.contains("no_such")
+                                            ? new BatchUpdateException(
+                                                    "no such table",
+                                                    null,
+                                                    -493,
+                                                    new int[] {Statement.EXECUTE_FAILED})
+                                            : partlyFailedBatch();
                                 }
                                 return null;
                             }
@@ -146,8 +307,13 @@ public final class RowCountRoutingTest {
     }
 
     private static LoadBalanceConnection createBoundSessionConnection() throws SQLException {
+        return createBoundSessionConnection(new SimpleEndpointConnManager());
+    }
+
+    private static LoadBalanceConnection createBoundSessionConnection(
+            final SimpleEndpointConnManager manager) throws SQLException {
         LoadBalanceConnection connection = new LoadBalanceConnection(LbTestSettings.defaults());
-        connection.setConnectionManager(new SimpleEndpointConnManager());
+        connection.setConnectionManager(manager);
         connection.setSharedSelectorState(new SharedSelectorState());
         List<Endpoint> ro = new ArrayList<Endpoint>();
         ro.add(new Endpoint("ro1", 33000));

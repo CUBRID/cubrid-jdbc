@@ -1513,12 +1513,7 @@ public abstract class UConnection {
     }
 
     public boolean isPrepStmtCache(String sql) {
-        boolean isCacheable = false;
-        if (connectionProperties.getPrepStmtCache()
-                && sql.length() <= connectionProperties.getPrepStmtCacheSqlLimit()) {
-            isCacheable = true;
-        }
-        return isCacheable;
+        return connectionProperties.isPrepStmtCache(sql);
     }
 
     public void setCasIp(String casIp) {
@@ -2058,6 +2053,18 @@ public abstract class UConnection {
 
     public void setNewSessionId(byte[] newSessionId) {
         sessionId = newSessionId;
+    }
+
+    /**
+     * The server session this connection is in; a reconnect that could not keep it changes it.
+     *
+     * <p>For the driver's load-balance path, which is in another package; it is not an API for
+     * applications.
+     *
+     * @return a copy of the session id
+     */
+    public byte[] getSessionId() {
+        return sessionId.clone();
     }
 
     public void setShardId(int shardId) {

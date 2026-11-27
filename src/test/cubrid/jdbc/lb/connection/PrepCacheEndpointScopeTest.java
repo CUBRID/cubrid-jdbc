@@ -72,10 +72,10 @@ public final class PrepCacheEndpointScopeTest {
     public void theSameSqlOnTwoEndpointsPreparesOnBoth() throws SQLException {
         final List<String> prepared = new ArrayList<String>();
         SessionPhysicalConnManager mgr = manager(prepared);
-        mgr.bindSession(RW, RO, topology());
+        mgr.bindSessionWithReadTarget(RW, RO, false, topology());
 
-        PreparedStatement onRead = mgr.prepareStatement(RO, SQL);
-        PreparedStatement onWrite = mgr.prepareStatement(RW, SQL);
+        PreparedStatement onRead = mgr.prepareStatement(RO, SQL, null);
+        PreparedStatement onWrite = mgr.prepareStatement(RW, SQL, null);
 
         assertEquals(Arrays.asList("ronode", "rwnode"), prepared);
         assertNotSame(
@@ -90,10 +90,10 @@ public final class PrepCacheEndpointScopeTest {
     public void theSameSqlOnOneEndpointIsPreparedOnce() throws SQLException {
         final List<String> prepared = new ArrayList<String>();
         SessionPhysicalConnManager mgr = manager(prepared);
-        mgr.bindSession(RW, RO, topology());
+        mgr.bindSessionWithReadTarget(RW, RO, false, topology());
 
-        PreparedStatement first = mgr.prepareStatement(RO, SQL);
-        PreparedStatement second = mgr.prepareStatement(RO, SQL);
+        PreparedStatement first = mgr.prepareStatement(RO, SQL, null);
+        PreparedStatement second = mgr.prepareStatement(RO, SQL, null);
 
         assertEquals(Arrays.asList("ronode"), prepared);
         assertSame("re-executing the same statement must hit the cache", first, second);
@@ -114,7 +114,7 @@ public final class PrepCacheEndpointScopeTest {
                     }
                 };
 
-        return new SessionPhysicalConnManager(
+        return ConnectionTestAccess.newSessionPhysicalConnManager(
                 LOGICAL_URL, new Properties(), LbTestSettings.defaults(), factory);
     }
 

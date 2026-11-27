@@ -30,6 +30,8 @@
 
 package cubrid.jdbc.lb.config;
 
+import cubrid.jdbc.driver.CUBRIDDriver;
+import cubrid.jdbc.driver.ConnectionProperties;
 import cubrid.jdbc.lb.LbExceptions;
 import cubrid.jdbc.lb.config.LoadBalanceUrlParser.ParsedUrl;
 import java.sql.SQLException;
@@ -40,8 +42,9 @@ import java.util.Properties;
 
 /**
  * In-memory LB settings, built from a URI {@code loadbalance://} URL by {@link #fromUrl}: role
- * topology with resolved ports ({@link #getResolvedTopology()}) plus {@link #getReadWeight()}.
- * Every other LB behavior is pinned to the {@code DEFAULT_*} values, which no URL option changes.
+ * topology with resolved ports ({@link #getResolvedTopology()}), {@link #getReadWeight()}, and the
+ * metrics, log and statement-cache options. Every other LB behavior is pinned to the {@code
+ * DEFAULT_*} values, which no URL option changes.
  */
 public class LoadBalanceSettings {
     /**
@@ -54,15 +57,15 @@ public class LoadBalanceSettings {
     private static final boolean DEFAULT_RT_FAILOVER_ENABLED = true;
 
     /**
-     * Re-execute the same SQL once after physical-binding recovery succeeds. Ignored for writes and
-     * for statements whose parameters cannot be replayed.
+     * Re-execute the same SQL once after physical-binding recovery succeeds. A write runs again
+     * only when connecting failed; a CALL, a connection command and a session property never do.
      */
     private static final boolean DEFAULT_RT_FAILOVER_RETRY_ONCE = true;
 
     /**
-     * Max connect dials within each role group while recovering the binding. Counts dials, not
+     * Max connect dials within each role group while recovering the read leg. Counts dials, not
      * candidates — an excluded endpoint is skipped without consuming the budget. {@code 0} means
-     * try the entire group.
+     * try the entire group. RW recovery and binding try every candidate.
      */
     private static final int DEFAULT_RT_FAILOVER_MAX_ATTEMPTS = 1;
 
@@ -83,12 +86,6 @@ public class LoadBalanceSettings {
 
     /** Minimum interval (ms) between RW failback probes while a session is displaced. */
     private static final int DEFAULT_WRITE_FAILBACK_PROBE_INTERVAL_MS = 3000;
-
-    /**
-     * Also try RW failback from the pool health probe ({@code Connection.isValid()}). Off, because
-     * it turns a pure probe into a path that may open a connection.
-     */
-    private static final boolean DEFAULT_WRITE_FAILBACK_ON_VALIDATE = false;
 
     /**
      * Minimum interval (ms) between recovery probes to an unreachable endpoint. Gates the
@@ -112,7 +109,6 @@ public class LoadBalanceSettings {
     private final int readFailbackProbeIntervalMs;
     private final boolean writeFailbackEnabled;
     private final int writeFailbackProbeIntervalMs;
-    private final boolean writeFailbackOnValidate;
     private final int recoveryProbeIntervalMs;
 
     private final ResolvedRoleTopology resolvedTopology;
@@ -125,6 +121,7 @@ public class LoadBalanceSettings {
     // Metrics export settings; DISABLED unless the URL enabled it.
     private final MetricsConfig metricsConfig;
     private final LbLogConfig lbLogConfig;
+    private final ConnectionProperties statementCacheOptions;
 
     /**
      * Build settings from a parsed URI URL. Roles/ports come from {@link ParsedRoleTopology}/{@link
@@ -139,9 +136,9 @@ public class LoadBalanceSettings {
     }
 
     /**
-     * {@link #fromUrl(ParsedUrl)} with the connection properties. An LB or classic-only option in
-     * {@code info} counts as one in the URL, and wins, as a property does over a URL option in
-     * core.
+     * {@link #fromUrl(LoadBalanceUrlParser.ParsedUrl)} with the connection properties. An LB or
+     * classic-only option in {@code info} counts as one in the URL, and wins, as a property does
+     * over a URL option in core.
      *
      * @param parsed the structurally parsed URI URL
      * @param info the connection properties; may be {@code null}
@@ -149,6 +146,17 @@ public class LoadBalanceSettings {
      * @throws SQLException if the URL is null or its topology/weights are invalid
      */
     public static LoadBalanceSettings fromUrl(final ParsedUrl parsed, final Properties info)
+            throws SQLException {
+        return fromUrl(parsed, info, CUBRIDDriver.readPropFile());
+    }
+
+    /**
+     * {@link #fromUrl(ParsedUrl, Properties)} with the {@code CUBRID_JDBC_PROP} file's options, or
+     * {@code null}. As on a core connect, they take the place of the URL's options for the legs and
+     * the statement cache; LB's own options still come from the URL.
+     */
+    static LoadBalanceSettings fromUrl(
+            final ParsedUrl parsed, final Properties info, final Properties propFile)
             throws SQLException {
         if (parsed == null) {
             throw LbExceptions.invalidUrl("parsed URL is null", null);
@@ -158,6 +166,7 @@ public class LoadBalanceSettings {
         if (info != null) {
             for (String name : info.stringPropertyNames()) {
                 if (LoadBalanceOptionValidator.staysOffTheLegs(name)) {
+                    MetricsConfig.refuseEmptyProperty(name, info.getProperty(name));
                     options.remove(OptionKeys.findKeyIgnoreCase(options, name));
                     options.put(name, info.getProperty(name));
                 }
@@ -169,9 +178,19 @@ public class LoadBalanceSettings {
         final ReadWeight weights =
                 ReadWeight.resolve(
                         OptionKeys.findValueIgnoreCase(options, "readWeight"), roleTopology);
-        final Map<String, String> propagated =
+        Map<String, String> propagated =
                 LoadBalanceOptionValidator.validate(options).getRetainedOptions();
-        JdbcEndpointConnSpecFactory.checkPropagatable(propagated);
+        Map<String, String> coreOptions = parsed.getOptions();
+        // Core checks the URL's options before the file takes their place.
+        JdbcEndpointConnSpecFactory.checkPropagatable(coreOptions);
+        if (propFile != null) {
+            coreOptions = new LinkedHashMap<String, String>();
+            for (String name : propFile.stringPropertyNames()) {
+                coreOptions.put(name, propFile.getProperty(name));
+            }
+            propagated = LoadBalanceOptionValidator.validate(coreOptions).getRetainedOptions();
+            JdbcEndpointConnSpecFactory.checkPropagatable(coreOptions);
+        }
         final MetricsConfig metrics = MetricsConfig.parse(options);
         final LbLogConfig lbLog = LbLogConfig.parse(options);
 
@@ -184,7 +203,37 @@ public class LoadBalanceSettings {
                 parsed.getPassword(),
                 propagated,
                 metrics,
-                lbLog);
+                lbLog,
+                statementCacheOptions(coreOptions, info));
+    }
+
+    /**
+     * The statement cache options read as a core connect reads them: the URL's (or the file's in
+     * their place), then {@code info}.
+     */
+    private static ConnectionProperties statementCacheOptions(
+            final Map<String, String> urlOptions, final Properties info) throws SQLException {
+        final StringBuilder fromUrl = new StringBuilder();
+        final Properties fromInfo = new Properties();
+        for (String key : LoadBalanceOptionValidator.STATEMENT_CACHE) {
+            final String value = OptionKeys.findValueIgnoreCase(urlOptions, key);
+            if (value != null) {
+                fromUrl.append('&').append(key).append('=').append(value);
+            }
+        }
+        if (info != null) {
+            for (String name : info.stringPropertyNames()) {
+                if (OptionKeys.containsIgnoreCase(
+                        LoadBalanceOptionValidator.STATEMENT_CACHE, name)) {
+                    fromInfo.setProperty(name, info.getProperty(name));
+                }
+            }
+        }
+
+        final ConnectionProperties props = new ConnectionProperties();
+        props.setProperties(fromUrl.toString());
+        props.setProperties(fromInfo);
+        return props;
     }
 
     private LoadBalanceSettings(
@@ -196,7 +245,8 @@ public class LoadBalanceSettings {
             String urlPassword,
             Map<String, String> propagatedOptions,
             MetricsConfig metricsConfig,
-            LbLogConfig lbLogConfig) {
+            LbLogConfig lbLogConfig,
+            ConnectionProperties statementCacheOptions) {
         this.roPhysicalFailoverToRw = DEFAULT_RO_PHYSICAL_FAILOVER_TO_RW;
         this.sqlClassifyCacheMaxEntries = DEFAULT_SQL_CLASSIFY_CACHE_MAX_ENTRIES;
         this.rtFailoverEnabled = DEFAULT_RT_FAILOVER_ENABLED;
@@ -206,7 +256,6 @@ public class LoadBalanceSettings {
         this.readFailbackProbeIntervalMs = DEFAULT_READ_FAILBACK_PROBE_INTERVAL_MS;
         this.writeFailbackEnabled = DEFAULT_WRITE_FAILBACK_ENABLED;
         this.writeFailbackProbeIntervalMs = DEFAULT_WRITE_FAILBACK_PROBE_INTERVAL_MS;
-        this.writeFailbackOnValidate = DEFAULT_WRITE_FAILBACK_ON_VALIDATE;
         this.recoveryProbeIntervalMs = DEFAULT_RT_RECOVERY_PROBE_INTERVAL_MS;
         this.resolvedTopology = resolvedTopology;
         this.readWeight = readWeight;
@@ -221,6 +270,7 @@ public class LoadBalanceSettings {
                         : Collections.<String, String>emptyMap();
         this.metricsConfig = metricsConfig != null ? metricsConfig : MetricsConfig.DISABLED;
         this.lbLogConfig = lbLogConfig != null ? lbLogConfig : LbLogConfig.DEFAULTS;
+        this.statementCacheOptions = statementCacheOptions;
     }
 
     public int getSqlClassifyCacheMaxEntries() {
@@ -257,10 +307,6 @@ public class LoadBalanceSettings {
 
     public int getWriteFailbackProbeIntervalMs() {
         return writeFailbackProbeIntervalMs;
-    }
-
-    public boolean isWriteFailbackOnValidate() {
-        return writeFailbackOnValidate;
     }
 
     /**
@@ -356,6 +402,15 @@ public class LoadBalanceSettings {
      */
     public MetricsConfig getMetricsConfig() {
         return metricsConfig;
+    }
+
+    /**
+     * Core's prepared-statement cache options. LB keeps the cache; the legs get none of them.
+     *
+     * @return the options, core defaults where neither the URL nor the properties set one
+     */
+    public ConnectionProperties getStatementCacheOptions() {
+        return statementCacheOptions;
     }
 
     /**

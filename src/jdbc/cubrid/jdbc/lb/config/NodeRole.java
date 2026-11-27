@@ -34,8 +34,8 @@ package cubrid.jdbc.lb.config;
  * Read-distribution role of a topology node, the unit over which {@code readWeight} is applied:
  *
  * <ul>
- *   <li>{@link #MASTER} — the first host-list node. Reads reuse the node's RW physical connection
- *       (roOnRw), so its read broker group is {@link ReadBrokerKind#RW}.
+ *   <li>{@link #MASTER} — the first host-list node. Reads reuse the node's RW physical connection,
+ *       so its read broker group is {@link ReadBrokerKind#RW}.
  *   <li>{@link #SLAVE} — the remaining host-list nodes. Reads use the node's RO broker ({@link
  *       ReadBrokerKind#RO}).
  *   <li>{@link #REPLICA} — the {@code ;replica=} nodes. Reads use the node's SO broker ({@link
@@ -103,7 +103,7 @@ public enum NodeRole {
 
     /**
      * Whether reads of this role reuse the master RW connection instead of opening a separate RO/SO
-     * one. True for {@link #MASTER} only (roOnRw).
+     * one. True for {@link #MASTER} only.
      *
      * @return whether reads of this role reuse the RW connection
      */

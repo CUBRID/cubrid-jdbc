@@ -59,6 +59,9 @@ public enum SslMode {
      * The mode written as {@code sslmode=...}, or null when the text names no mode. Case does not
      * matter; surrounding spaces do, as for every other property and in cci. Callers turn null into
      * the error they report; this class does not know about error codes.
+     *
+     * @param label the value of {@code sslmode}
+     * @return the mode, or null
      */
     public static SslMode fromLabel(String label) {
         if (label == null) {
@@ -74,7 +77,12 @@ public enum SslMode {
         return null;
     }
 
-    /** The mode a connection has when only the older {@code useSSL} property was given. */
+    /**
+     * The mode a connection has when only the older {@code useSSL} property was given.
+     *
+     * @param useSSL the value of {@code useSSL}
+     * @return the mode
+     */
     public static SslMode fromUseSSL(boolean useSSL) {
         return useSSL ? REQUIRED : DISABLED;
     }
@@ -83,12 +91,20 @@ public enum SslMode {
         return this != DISABLED;
     }
 
-    /** Whether the server certificate chain is checked against a trust anchor. */
+    /**
+     * Whether the server certificate chain is checked against a trust anchor.
+     *
+     * @return whether it is checked
+     */
     public boolean verifiesCertificate() {
         return compareTo(VERIFY_CA) >= 0;
     }
 
-    /** Whether the certificate must also name the host the client asked for. */
+    /**
+     * Whether the certificate must also name the host the client asked for.
+     *
+     * @return whether it must
+     */
     public boolean verifiesHostname() {
         return this == VERIFY_FULL;
     }

@@ -36,11 +36,9 @@ import static org.junit.Assert.assertTrue;
 import cubrid.jdbc.lb.config.LoadBalanceSettings;
 import cubrid.jdbc.lb.config.LoadBalanceUrlParser;
 import cubrid.jdbc.lb.log.LbLogDedup;
-import java.lang.reflect.Field;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
@@ -80,6 +78,23 @@ public class LoadBalanceConnectionLogFlushTest {
         LbLogDedup.drain();
     }
 
+    /**
+     * One shutdown flush is kept while an LB connection is open, and removed with the last one, so
+     * an undeployed application's class loader is not held by it.
+     */
+    @Test
+    public void theShutdownFlushLivesAsLongAsAConnection() throws SQLException {
+        LoadBalanceConnection first = open();
+        LoadBalanceConnection second = open();
+        assertTrue(
+                "an open connection has the shutdown flush", LbTestAccess.exitFlushHook() != null);
+
+        first.close();
+        assertTrue("the pool is still open", LbTestAccess.exitFlushHook() != null);
+        second.close();
+        assertTrue("the last close removes it", LbTestAccess.exitFlushHook() == null);
+    }
+
     @Test
     public void closingTheLastConnectionWritesTheHeldBackTally() throws SQLException {
         LoadBalanceConnection first = open();
@@ -104,9 +119,7 @@ public class LoadBalanceConnectionLogFlushTest {
 
     /** Other tests leave connections open, which would keep the count above zero. */
     private static void zeroLiveConnections() throws Exception {
-        Field field = LoadBalanceConnection.class.getDeclaredField("LIVE_CONNECTIONS");
-        field.setAccessible(true);
-        ((AtomicInteger) field.get(null)).set(0);
+        LbTestAccess.liveConnections().set(0);
     }
 
     private static LoadBalanceConnection open() throws SQLException {

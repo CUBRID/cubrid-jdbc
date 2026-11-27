@@ -32,9 +32,11 @@ package cubrid.jdbc.lb.config;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import cubrid.jdbc.driver.ConnectionProperties;
 import java.sql.SQLException;
 import org.junit.Test;
 
@@ -82,7 +84,7 @@ public class LoadBalanceSettingsFromUrlTest {
         LoadBalanceSettings c =
                 LoadBalanceSettings.fromUrl(
                         LoadBalanceUrlParser.parse(
-                                "jdbc:cubrid:loadbalance://node1,node2/testdb?readWeight=slave:1"),
+                                "jdbc:cubrid:loadbalance://node1,node2/testdb:::?readWeight=slave:1"),
                         info);
 
         assertEquals(3, c.getReadWeight().weightOf(NodeRole.MASTER));
@@ -97,7 +99,7 @@ public class LoadBalanceSettingsFromUrlTest {
         for (String port : new String[] {"0", "70000", "x"}) {
             try {
                 configOf(
-                        "jdbc:cubrid:loadbalance://node1,node2/testdb?metricsEnabled=true"
+                        "jdbc:cubrid:loadbalance://node1,node2/testdb:::?metricsEnabled=true"
                                 + "&metricsExport=prometheus&metricsPrometheusPort="
                                 + port);
                 fail("port " + port + " must be refused");
@@ -109,11 +111,291 @@ public class LoadBalanceSettingsFromUrlTest {
         }
     }
 
+    /**
+     * m35: a metrics value is checked as core checks its properties - even with metrics off (core
+     * refuses {@code logSlowQueries=false&slowQueryThresholdMillis=-1}) and with no trimming.
+     */
+    @Test
+    public void metricsValuesAreCheckedAsCoreChecksItsProperties() throws SQLException {
+        final String url = "jdbc:cubrid:loadbalance://node1,node2/testdb:::?";
+        final String[][] refused = {
+            {"metricsPrometheusPort=70000", "metricsPrometheusPort"},
+            {
+                "metricsEnabled=true&metricsExport=csv&metricsPrometheusPort=0",
+                "metricsPrometheusPort"
+            },
+            {"metricsPrometheusPort= 9400", "metricsPrometheusPort"},
+            {"metricsIntervalSec=0", "metricsIntervalSec"},
+            {"metricsEnabled=true&metricsIntervalSec=x", "metricsIntervalSec"},
+            {"metricsEnabled=maybe", "metricsEnabled"},
+            {"metricsEnabled=true&metricsExport=prometheus,promethues", "metricsExport"},
+        };
+        for (String[] each : refused) {
+            try {
+                configOf(url + each[0]);
+                fail(each[0] + " must be refused");
+            } catch (SQLException expected) {
+                assertTrue(
+                        expected.getMessage(),
+                        expected.getMessage().contains("uncompitable value for the " + each[1]));
+            }
+        }
+
+        // core takes on/yes and reads them as false: useSSL=on leaves SSL off
+        assertFalse(
+                configOf(url + "metricsEnabled=on&metricsExport=csv")
+                        .getMetricsConfig()
+                        .isEnabled());
+        MetricsConfig m =
+                configOf(url + "metricsEnabled=TRUE&metricsExport=CSV&metricsPrometheusPort=+9401")
+                        .getMetricsConfig();
+        assertTrue(m.isEnabled() && m.exportsCsv());
+        assertEquals(9401, m.getPrometheusPort());
+    }
+
+    /**
+     * The broker ports and the LB log options are checked as core checks its properties too: no
+     * trimming, a bad value refuses the URL instead of a WARN and the default, {@code +n} is taken.
+     */
+    @Test
+    public void portAndLogValuesAreCheckedAsCoreChecksItsProperties() throws SQLException {
+        final String url = "jdbc:cubrid:loadbalance://node1,node2;replica=rep1/testdb:::?";
+        final String[][] refused = {
+            {"rwPort= 33000", "rwPort"},
+            {"roPort=33002 &rwPort=33000", "roPort"},
+            {"soPort= 33004", "soPort"},
+            {"lbLogSql=bogus", "lbLogSql"},
+            {"lbLogSql= raw", "lbLogSql"},
+            {"lbLogSqlMaxLen=-1", "lbLogSqlMaxLen"},
+            {"lbLogSqlMaxLen= 5", "lbLogSqlMaxLen"},
+            {"lbLogDistIntervalSec=x", "lbLogDistIntervalSec"},
+            {"lbLogSqlMaxLen=5 ", "lbLogSqlMaxLen"},
+        };
+        for (String[] each : refused) {
+            try {
+                configOf(url + each[0]);
+                fail(each[0] + " must be refused");
+            } catch (SQLException expected) {
+                assertTrue(
+                        expected.getMessage(),
+                        expected.getMessage().contains("uncompitable value for the " + each[1]));
+            }
+        }
+
+        LoadBalanceSettings c =
+                configOf(
+                        url + "rwPort=+33000&lbLogSql=RAW&lbLogSqlMaxLen=0&lbLogDistIntervalSec=0");
+        assertEquals("node1:33000", c.getResolvedTopology().getMaster().getRw().getId());
+        assertTrue(c.getLbLogConfig().isSqlRaw());
+        assertEquals(0, c.getLbLogConfig().getSqlMaxLen());
+
+        for (String name :
+                new String[] {"rwPort", "lbLogSql", "lbLogSqlMaxLen", "lbLogDistIntervalSec"}) {
+            java.util.Properties info = new java.util.Properties();
+            info.setProperty(name, "");
+            try {
+                LoadBalanceSettings.fromUrl(
+                        LoadBalanceUrlParser.parse(url.substring(0, url.length() - 1)), info);
+                fail("an empty " + name + " property must be refused");
+            } catch (SQLException expected) {
+                assertTrue(
+                        expected.getMessage(),
+                        expected.getMessage().contains("'' uncompitable value for the " + name));
+            }
+        }
+    }
+
+    /**
+     * Core refuses an empty value given as a connection property for a boolean or integer property,
+     * as its URL refuses {@code key=}. A text property takes it.
+     */
+    @Test
+    public void emptyMetricsValueInPropertiesIsRefusedAsCoreRefusesIt() throws SQLException {
+        final String url = "jdbc:cubrid:loadbalance://node1,node2/testdb:::";
+        for (String name :
+                new String[] {"metricsEnabled", "metricsPrometheusPort", "metricsIntervalSec"}) {
+            java.util.Properties info = new java.util.Properties();
+            info.setProperty(name, "");
+            try {
+                LoadBalanceSettings.fromUrl(LoadBalanceUrlParser.parse(url), info);
+                fail("an empty " + name + " property must be refused");
+            } catch (SQLException expected) {
+                assertTrue(
+                        expected.getMessage(),
+                        expected.getMessage().contains("'' uncompitable value for the " + name));
+            }
+        }
+
+        java.util.Properties text = new java.util.Properties();
+        text.setProperty("metricsExport", "");
+        text.setProperty("metricsPrometheusBind", "");
+        assertFalse(
+                LoadBalanceSettings.fromUrl(LoadBalanceUrlParser.parse(url), text)
+                        .getMetricsConfig()
+                        .isEnabled());
+    }
+
+    /** LB keeps the statement cache, so it refuses a bad cache value as a core connect does. */
+    @Test
+    public void statementCacheValuesAreRefusedAsCoreRefusesThem() {
+        for (String bad :
+                new String[] {
+                    "preparedStmtCacheSize=0",
+                    "preparedStmtCacheSqlLimit=x",
+                    "usePreparedStmtCache=maybe"
+                }) {
+            SQLException core = null;
+            try {
+                new ConnectionProperties().setProperties(bad);
+            } catch (SQLException e) {
+                core = e;
+            }
+            assertNotNull(bad, core);
+            try {
+                configOf("jdbc:cubrid:loadbalance://node1,node2/testdb:::?" + bad);
+                fail(bad + " must be refused");
+            } catch (SQLException lb) {
+                assertEquals(bad, core.getErrorCode(), lb.getErrorCode());
+                assertEquals(bad, core.getMessage(), lb.getMessage());
+            }
+        }
+    }
+
+    /** As core reads them: the URL, then the properties, and core's defaults for the rest. */
+    @Test
+    public void statementCacheOptionsInPropertiesWinOverTheUrl() throws SQLException {
+        java.util.Properties info = new java.util.Properties();
+        info.setProperty("preparedStmtCacheSize", "7");
+        ConnectionProperties cache =
+                LoadBalanceSettings.fromUrl(
+                                LoadBalanceUrlParser.parse(
+                                        "jdbc:cubrid:loadbalance://node1,node2/testdb:::"
+                                                + "?usePreparedStmtCache=true&preparedStmtCacheSize=2"),
+                                info)
+                        .getStatementCacheOptions();
+
+        assertTrue(cache.getPrepStmtCache());
+        assertEquals(7, cache.getPrepStmtCacheSize());
+        assertEquals(256, cache.getPrepStmtCacheSqlLimit());
+        assertFalse(
+                configOf("jdbc:cubrid:loadbalance://node1,node2/testdb:::")
+                        .getStatementCacheOptions()
+                        .getPrepStmtCache());
+    }
+
+    /**
+     * As on a core connect, the {@code CUBRID_JDBC_PROP} file's options take the place of the URL's
+     * for the legs and the statement cache, less those LB keeps off the legs; LB's own options
+     * still come from the URL.
+     */
+    @Test
+    public void propFileTakesThePlaceOfTheUrlOptions() throws SQLException {
+        java.util.Properties file = new java.util.Properties();
+        file.setProperty("altHosts", "node3:33000");
+        file.setProperty("loadBalance", "true");
+        file.setProperty("useLazyConnection", "true");
+        file.setProperty("usePreparedStmtCache", "true");
+        file.setProperty("connectTimeout", "5");
+        LoadBalanceSettings c =
+                LoadBalanceSettings.fromUrl(
+                        LoadBalanceUrlParser.parse(
+                                "jdbc:cubrid:loadbalance://node1,node2/testdb:::"
+                                        + "?charSet=utf-8&readWeight=master:1"
+                                        + "&preparedStmtCacheSize=3"),
+                        null,
+                        file);
+
+        String leg = c.buildPhysicalJdbcSpec(null, new Endpoint("node1", 33000)).getJdbcUrl();
+        assertTrue(leg, leg.endsWith("?connectTimeout=5"));
+        assertTrue(c.getStatementCacheOptions().getPrepStmtCache());
+        assertEquals(
+                "the file replaces the URL's options, as in core",
+                25,
+                c.getStatementCacheOptions().getPrepStmtCacheSize());
+        assertEquals(1, c.getReadWeight().weightOf(NodeRole.MASTER));
+    }
+
+    /**
+     * r5 m12: core refuses a URL whose options its grammar cannot read, the statement cache options
+     * included, and does so before CUBRID_JDBC_PROP replaces them. A stray '?' no longer drops the
+     * option after it.
+     */
+    @Test
+    public void optionsCoreRefusesFailTheUrlWithOrWithoutTheFile() throws SQLException {
+        final String base = "jdbc:cubrid:loadbalance://node1,node2/testdb:::";
+        final String[] refused = {
+            "?usePreparedStmtCache=true?charSet=utf-8",
+            "?usePreparedStmtCache=true&preparedStmtCacheSize=5=6",
+            "?connectTimeout=1?2",
+            "?cubrid.lb.mode=x"
+        };
+        final java.util.Properties file = new java.util.Properties();
+        file.setProperty("connectTimeout", "5");
+        for (String options : refused) {
+            for (java.util.Properties propFile : new java.util.Properties[] {null, file}) {
+                try {
+                    LoadBalanceSettings.fromUrl(
+                            LoadBalanceUrlParser.parse(base + options), null, propFile);
+                    fail("core refuses " + options + (propFile == null ? "" : " (with the file)"));
+                } catch (SQLException expected) {
+                    assertTrue(expected.getMessage(), expected.getMessage().contains("option '"));
+                }
+            }
+        }
+    }
+
+    /**
+     * r5 n6: like the other LB options, readWeight, metricsExport and metricsPrometheusBind refuse
+     * a value with white space around it (spec 13.3), in the URL or in the Properties.
+     */
+    @Test
+    public void lbOptionValuesWithWhiteSpaceAroundThemAreRefused() {
+        final String base = "jdbc:cubrid:loadbalance://node1,node2/testdb:::";
+        final String[] urls = {
+            base + "?readWeight=slave:1 ",
+            base + "?metricsEnabled=true&metricsExport=prometheus ",
+            base + "?metricsEnabled=true&metricsExport=prometheus&metricsPrometheusBind=127.0.0.1 "
+        };
+        for (String url : urls) {
+            assertRefused(url, null);
+        }
+        for (String weight : new String[] {" master:1 ", "   "}) {
+            final java.util.Properties info = new java.util.Properties();
+            info.setProperty("readWeight", weight);
+            assertRefused(base, info);
+        }
+    }
+
+    private static void assertRefused(final String url, final java.util.Properties info) {
+        try {
+            LoadBalanceSettings.fromUrl(LoadBalanceUrlParser.parse(url), info, null);
+            fail("refused: '" + url + "' " + info);
+        } catch (SQLException expected) {
+            assertTrue(expected.getMessage(), expected.getMessage().contains("uncompitable value"));
+        }
+    }
+
+    /** A file that only sets keys LB keeps off the legs is still a valid file. */
+    @Test
+    public void propFileWithOnlyClassicOnlyKeysLeavesTheLegsWithoutOptions() throws SQLException {
+        java.util.Properties file = new java.util.Properties();
+        file.setProperty("altHosts", "node3:33000");
+        LoadBalanceSettings c =
+                LoadBalanceSettings.fromUrl(
+                        LoadBalanceUrlParser.parse(
+                                "jdbc:cubrid:loadbalance://node1,node2/testdb:::?charSet=utf-8"),
+                        null,
+                        file);
+
+        String leg = c.buildPhysicalJdbcSpec(null, new Endpoint("node1", 33000)).getJdbcUrl();
+        assertFalse(leg, leg.contains("?"));
+    }
+
     @Test
     public void appliesDefaultReadWeightWhenAbsent() throws SQLException {
         LoadBalanceSettings c =
                 configOf(
-                        "jdbc:cubrid:loadbalance://node1,node2;replica=rep1/testdb?rwPort=33000&roPort=33002&soPort=33004");
+                        "jdbc:cubrid:loadbalance://node1,node2;replica=rep1/testdb:::?rwPort=33000&roPort=33002&soPort=33004");
 
         ReadWeight w = c.getReadWeight();
         assertEquals(1, w.weightOf(NodeRole.MASTER));
@@ -124,7 +406,8 @@ public class LoadBalanceSettingsFromUrlTest {
     @Test
     public void pinsSection52FixedDefaults() throws SQLException {
         LoadBalanceSettings c =
-                configOf("jdbc:cubrid:loadbalance://node1,node2/testdb?rwPort=33000&roPort=33002");
+                configOf(
+                        "jdbc:cubrid:loadbalance://node1,node2/testdb:::?rwPort=33000&roPort=33002");
 
         assertTrue(c.isRoPhysicalFailoverToRw());
         assertTrue(c.isRuntimeFailoverEnabled());
@@ -137,7 +420,7 @@ public class LoadBalanceSettingsFromUrlTest {
     public void retainsCommonOptionsAndDropsModeMismatchedOnes() throws SQLException {
         LoadBalanceSettings c =
                 configOf(
-                        "jdbc:cubrid:loadbalance://node1,node2/testdb"
+                        "jdbc:cubrid:loadbalance://node1,node2/testdb:::"
                                 + "?rwPort=33000&roPort=33002&charSet=utf-8&altHosts=h9:1");
 
         assertTrue(c.getPropagatedOptions().containsKey("charSet"));
@@ -148,7 +431,8 @@ public class LoadBalanceSettingsFromUrlTest {
     @Test
     public void variantIsCarriedThrough() throws SQLException {
         LoadBalanceSettings c =
-                configOf("jdbc:cubrid-mysql:loadbalance://node1/testdb?rwPort=33000&roPort=33002");
+                configOf(
+                        "jdbc:cubrid-mysql:loadbalance://node1/testdb:::?rwPort=33000&roPort=33002");
 
         assertEquals("-mysql", c.getUrlVariant());
     }
@@ -158,7 +442,7 @@ public class LoadBalanceSettingsFromUrlTest {
         // an invalid global port value fails resolution -> the error surfaces through
         // LoadBalanceSettings (omitted ports now default, so a bad value is the resolution error).
         try {
-            configOf("jdbc:cubrid:loadbalance://node1,node2/testdb?rwPort=notaport");
+            configOf("jdbc:cubrid:loadbalance://node1,node2/testdb:::?rwPort=notaport");
             fail("expected SQLException for invalid rwPort value");
         } catch (SQLException expected) {
         }
@@ -172,7 +456,7 @@ public class LoadBalanceSettingsFromUrlTest {
     public void rejectsAnOptionTheBrokerUrlCannotCarry() throws SQLException {
         for (String option : new String[] {"charset=", "charSet=a?b", "log-file=x"}) {
             try {
-                configOf("jdbc:cubrid:loadbalance://node1,node2/testdb?" + option);
+                configOf("jdbc:cubrid:loadbalance://node1,node2/testdb:::?" + option);
                 fail(option + " must be refused while parsing");
             } catch (SQLException expected) {
                 String key = option.substring(0, option.indexOf('='));
@@ -180,6 +464,6 @@ public class LoadBalanceSettingsFromUrlTest {
             }
         }
 
-        configOf("jdbc:cubrid:loadbalance://node1,node2/testdb?charset=utf-8&queryTimeout=10");
+        configOf("jdbc:cubrid:loadbalance://node1,node2/testdb:::?charset=utf-8&queryTimeout=10");
     }
 }

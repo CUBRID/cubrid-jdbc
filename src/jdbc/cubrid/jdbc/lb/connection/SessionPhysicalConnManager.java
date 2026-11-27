@@ -76,6 +76,10 @@ import java.util.logging.Logger;
  * connections, the owner-scoped physical prepared-statement cache, the tiered read ladder used for
  * failover (home &rarr; same-role sibling &rarr; cross-role &rarr; roOnRw), and lazy failback to
  * the home endpoints once they recover.
+ *
+ * <p>Its monitor is the session's lock on the legs: binding, recovery, failback and every dial hold
+ * it, and closing releases the legs under it, after which nothing is dialed. Readers outside the
+ * session, such as metrics and another connection, read {@link #binding()} and take no lock.
  */
 public final class SessionPhysicalConnManager implements EndpointConnManager {
     private static final Logger LOGGER =
@@ -121,8 +125,10 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
                 public Connection getConnection(
                         final String url, final Properties info, final String userUrl)
                         throws SQLException {
+                    // LoadBalanceSettings read the CUBRID_JDBC_PROP file once and put the options a
+                    // leg may take in this URL, so the leg does not read the file again.
                     return ((CUBRIDDriver) DriverManager.getDriver(url))
-                            .connect(url, info, userUrl);
+                            .connect(url, info, userUrl, false);
                 }
             };
 
@@ -148,8 +154,8 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
     private Endpoint sessRwEp;
     private Endpoint sessRoEp;
     // Immutable weighted read assignment (the ratio anchor). Failover moves sessRoEp/roOnRw but
-    // never homeReadEp; failback targets it, so the readWeight distribution self-heals without a
-    // pool recycle.
+    // never homeReadEp, except an RW-only home, which follows the RW leg; failback targets it, so
+    // the readWeight distribution self-heals without a pool recycle.
     private Endpoint homeReadEp;
     // Intended RW anchor: the master RW asked for at bind time, kept even when the bind or a later
     // failover landed on a sibling RW broker. RW failback targets it; RW failover never moves it.
@@ -160,6 +166,13 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
 
     private EndpointTopology sessTopo;
     private boolean roOnRw;
+    // sessRwEp, sessRoEp and roOnRw as of the last completed change; see publishBinding.
+    private volatile LegBinding binding = LegBinding.UNBOUND;
+    // Set when the owning connection closes; see checkNotReleased.
+    private boolean released;
+    // The write leg closed under this session (core's network timeout): never reopened, see
+    // ensureConn.
+    private volatile boolean legClosedUnderneath;
     private final UnreachableEndpoints unreachFilter = new UnreachableEndpoints();
     // Pool-shared probe scheduler for backoff-bypass recovery; injected via openFromSettings.
     private final RecoveryBackoff backoff;
@@ -173,21 +186,6 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
     private enum FailoverGroup {
         RW,
         RO
-    }
-
-    SessionPhysicalConnManager(
-            final String logicalJdbcUrl,
-            final Properties clientInfo,
-            final LoadBalanceSettings loadBalanceSettings,
-            final JdbcConnectionFactory connectionFactory) {
-        // Legacy/test convenience: an unshared backoff at the default interval. The real path
-        // (openFromSettings) injects the pool-shared instance from RecoveryBackoffRegistry.
-        this(
-                logicalJdbcUrl,
-                clientInfo,
-                loadBalanceSettings,
-                connectionFactory,
-                new RecoveryBackoff(LoadBalanceSettings.DEFAULT_RT_RECOVERY_PROBE_INTERVAL_MS));
     }
 
     public SessionPhysicalConnManager(
@@ -276,12 +274,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         roOnRw = false;
     }
 
-    public synchronized void bindSession(final Endpoint rwEndpoint, final Endpoint roEndpoint)
-            throws SQLException {
-        bindSession(rwEndpoint, roEndpoint, null);
-    }
-
-    public synchronized void bindSession(
+    private void bindSessionLocked(
             final Endpoint rwEndpoint, final Endpoint roEndpoint, final EndpointTopology topology)
             throws SQLException {
         if (rwEndpoint == null) {
@@ -305,7 +298,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         try {
             List<Endpoint> rwOrder = failoverOrder(rwEndpoint, topology, FailoverGroup.RW);
 
-            BindResult rwBind = openFirstReachable(rwOrder, "RW", unreachableIds(sessTopo), 0);
+            BindResult rwBind = openRwForBind(rwOrder);
             rwConn = rwBind.connection;
 
             Endpoint boundRw = rwBind.endpoint;
@@ -325,7 +318,8 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
             SQLException lastRoFailure = null;
 
             try {
-                BindResult roBind = openFirstReachable(roOrder, "RO", unreachableIds(sessTopo), 0);
+                BindResult roBind =
+                        openFirstReachable(roOrder, "RO", Collections.<String>emptySet(), 0);
                 roConn = roBind.connection;
                 boundRo = roBind.endpoint;
             } catch (SQLException roFailure) {
@@ -370,8 +364,8 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         }
     }
 
-    public synchronized void bindSessionRwOnly(
-            final Endpoint rwEndpoint, final EndpointTopology topology) throws SQLException {
+    private void bindSessionRwOnlyLocked(final Endpoint rwEndpoint, final EndpointTopology topology)
+            throws SQLException {
         if (rwEndpoint == null) {
             throw LbExceptions.internalState("missing RW endpoint");
         }
@@ -388,7 +382,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         try {
             List<Endpoint> rwOrder = failoverOrder(rwEndpoint, topology, FailoverGroup.RW);
 
-            BindResult rwBind = openFirstReachable(rwOrder, "RW", unreachableIds(sessTopo), 0);
+            BindResult rwBind = openRwForBind(rwOrder);
             rwConn = rwBind.connection;
 
             Endpoint boundRw = rwBind.endpoint;
@@ -437,7 +431,45 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
                         + roOnRw);
     }
 
+    /**
+     * Opens a new session's write leg. A listed endpoint whose probe this call did not win is
+     * dialed last instead of skipped, as core's reconnect() tries every host once more when all are
+     * listed: the write leg has no fallback, so skipping it would fail getConnection() undialed.
+     */
+    private BindResult openRwForBind(final List<Endpoint> rwOrder) throws SQLException {
+        try {
+            return openFirstReachablePerGroup(
+                    Collections.singletonList(rwOrder),
+                    "RW",
+                    Collections.<String>emptySet(),
+                    0,
+                    true);
+        } catch (SQLException exhausted) {
+            // Core reports the error of a broker it could not connect to, with altHosts or not.
+            // The brokers tried go to the log.
+            final Throwable cause = exhausted.getCause();
+            if (LbExceptions.isBrokerGroupExhausted(exhausted) && cause instanceof SQLException) {
+                LbLog.warn(LOGGER, logContext, "LB BIND [RW]: " + exhausted.getMessage());
+                throw (SQLException) cause;
+            }
+            throw exhausted;
+        }
+    }
+
     public synchronized void bindSessionWithReadTarget(
+            final Endpoint masterRw,
+            final Endpoint readEndpoint,
+            final boolean readReusesRw,
+            final EndpointTopology topology)
+            throws SQLException {
+        try {
+            bindSessionWithReadTargetLocked(masterRw, readEndpoint, readReusesRw, topology);
+        } finally {
+            publishBinding();
+        }
+    }
+
+    private void bindSessionWithReadTargetLocked(
             final Endpoint masterRw,
             final Endpoint readEndpoint,
             final boolean readReusesRw,
@@ -449,29 +481,33 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
 
         if (!readReusesRw) {
             // slave/replica read: open a separate RO/SO physical connection.
-            bindSession(masterRw, readEndpoint, topology);
+            bindSessionLocked(masterRw, readEndpoint, topology);
             return;
         }
 
         // master read: reuse the master RW physical connection — one physical connection.
         // Mechanically identical to RW-only: the RO role maps onto the RW endpoint/connection.
-        bindSessionRwOnly(masterRw, topology);
+        bindSessionRwOnlyLocked(masterRw, topology);
+        placeReadRidingRw(masterRw, topology, "BIND");
+    }
 
-        if (sessRwEp == null
-                || sessRwEp.equals(masterRw)
-                || !hasReadEndpointOnAnotherHost(topology, masterRw)) {
+    /**
+     * Places the read leg of a session whose reads ride the RW endpoint (master read, RW-only) once
+     * its RW leg is bound or has failed over: on the RW connection, unless the RW leg is off the
+     * master and a read broker exists on another host. Through a sibling's RW broker, reads would
+     * reach the master DB with an extra hop, so they get their own connection on a real read
+     * broker, and the read home stays the master so failback rejoins the two legs.
+     */
+    private void placeReadRidingRw(
+            final Endpoint masterRw, final EndpointTopology topology, final String phase) {
+        sessRoEp = sessRwEp;
+        if (sessRwEp.equals(masterRw) || !hasReadEndpointOnAnotherHost(topology, masterRw)) {
+            homeReadEp = sessRwEp;
             return;
         }
 
-        // The RW bind was displaced onto a sibling. Sharing that connection would push this
-        // session's READS through the sibling's RW broker, whose CAS forwards them to the master
-        // DB:
-        // an extra hop, no local read, and unlike a session that existed before the outage, whose
-        // read leg fails over to a real read broker. So give the read leg its own connection on the
-        // best real read endpoint, and keep the read home at the master RW, so read failback
-        // collapses both legs back onto one socket once the master returns.
         homeReadEp = masterRw;
-        bindDisplacedMasterReadLeg(masterRw, topology);
+        bindDisplacedMasterReadLeg(masterRw, topology, phase);
     }
 
     /** Whether the topology offers a read endpoint on a host other than the master's. */
@@ -500,14 +536,17 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
     /**
      * Opens a temporary read connection for a master-read session whose RW leg was displaced. The
      * ladder is the normal read order anchored on the master ({@link #readCandidateOrder}) minus
-     * the master RW itself, so the master's OWN read broker is preferred when it is still up (same
-     * node, master-fresh reads, no hop) before a sibling slave RO or a replica SO.
+     * the master RW itself: the slave ROs, rotated per session, then the replica SOs. The master's
+     * own RO broker is not in the topology, so it is never a candidate.
      *
      * <p>Best effort: when no read rung is reachable the session keeps reading on the displaced RW
-     * connection, which is the pre-existing behavior.
+     * connection, which is the pre-existing behavior. Logged per transition, as RW failover moves
+     * every master-read session of a pool at once.
+     *
+     * @param phase {@code BIND} or {@code FAILOVER}, for the log
      */
     private void bindDisplacedMasterReadLeg(
-            final Endpoint masterRw, final EndpointTopology topology) {
+            final Endpoint masterRw, final EndpointTopology topology, final String phase) {
         final List<Endpoint> rungs = readCandidateOrder(masterRw, topology);
         final List<Endpoint> targets = new ArrayList<Endpoint>();
         for (int i = 0; i < rungs.size(); i++) {
@@ -522,13 +561,16 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
 
         BindResult roBind;
         try {
-            roBind = openFirstReachable(targets, "RO", unreachableIds(topology), 0);
+            roBind = openFirstReachable(targets, "RO", Collections.<String>emptySet(), 0);
         } catch (SQLException noReadRung) {
-            LbLog.warn(
+            LbLogDedup.warn(
                     LOGGER,
                     logContext,
-                    "LB BIND [RO]: master read displaced with no reachable read rung -> reads stay on"
-                            + " the RW connection at "
+                    "DISPLACED|" + phase + "|" + masterRw.getId() + "|" + sessRwEp.getId(),
+                    "LB "
+                            + phase
+                            + " [RO]: master read displaced with no reachable read rung -> reads"
+                            + " stay on the RW connection at "
                             + sessRwEp.getId());
             return;
         }
@@ -537,10 +579,13 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
             connsByEpId.put(roBind.endpoint.getId(), roBind.connection);
             sessRoEp = roBind.endpoint;
             setRoOnRw(false, sessRwEp.getId(), "read leg re-bound to " + roBind.endpoint.getId());
-            LbLog.warn(
+            LbLogDedup.warn(
                     LOGGER,
                     logContext,
-                    "LB BIND [RO]: master read displaced -> read leg temporarily on "
+                    "DISPLACED|" + phase + "|" + masterRw.getId() + "|" + roBind.endpoint.getId(),
+                    "LB "
+                            + phase
+                            + " [RO]: master read displaced -> read leg temporarily on "
                             + roBind.endpoint.getId()
                             + " (write leg on "
                             + sessRwEp.getId()
@@ -640,7 +685,11 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         }
 
         return openFirstReachablePerGroup(
-                Collections.singletonList(order), groupLabel, excludeEndpointIds, maxAttempts);
+                Collections.singletonList(order),
+                groupLabel,
+                excludeEndpointIds,
+                maxAttempts,
+                false);
     }
 
     /**
@@ -653,24 +702,37 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
      * <p>Note {@code maxAttemptsPerGroup} counts DIALS, not candidates: an excluded endpoint is
      * skipped for free, which is why an endpoint another session already flagged unreachable does
      * not consume the budget.
+     *
+     * <p>Only a fault ({@link UnreachableEndpoints#shouldMarkUnreachable}) moves the RW group on; a
+     * broker that refuses the session (user, SSL mode, TLS) ends it with that error, as core's
+     * reconnect() does. A refusing read candidate is passed over with a warning: core never dials
+     * it.
+     *
+     * <p>A listed candidate is dialed only by the caller that claims its probe, and the claim is
+     * taken right before that dial: a candidate the loop never reaches keeps its window for another
+     * caller. With {@code dialHeldLast} a held one is dialed after the rest instead of skipped.
      */
     BindResult openFirstReachablePerGroup(
             final List<List<Endpoint>> groups,
             final String groupLabel,
             final Set<String> excludeEndpointIds,
-            final int maxAttemptsPerGroup)
+            final int maxAttemptsPerGroup,
+            final boolean dialHeldLast)
             throws SQLException {
+        checkNotReleased(); // before claiming any probe, which other sessions wait on
         SQLException firstFailure = null;
 
         StringBuilder tried = new StringBuilder();
         // One endpoint can legitimately appear in two tiers (a degenerate topology, or a home that
         // is also listed as a sibling); dialing it twice would burn a second group's budget on a
         // host already known to be failing.
-        // already known to be failing.
         Set<String> dialed = new HashSet<String>();
+        final List<Endpoint> held = new ArrayList<Endpoint>();
 
-        for (int g = 0; g < groups.size(); g++) {
-            final List<Endpoint> group = groups.get(g);
+        // The pass after the last group dials the held candidates, ungated.
+        for (int g = 0; g <= groups.size(); g++) {
+            final boolean heldPass = g == groups.size();
+            final List<Endpoint> group = heldPass ? held : groups.get(g);
             if (group == null || group.isEmpty()) {
                 continue;
             }
@@ -692,10 +754,20 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
                     break;
                 }
 
-                if (!dialed.add(ep.getId())) {
+                if (dialed.contains(ep.getId())) {
                     continue;
                 }
 
+                if (!heldPass
+                        && unreachFilter.isUnreachable(ep)
+                        && !backoff.tryClaimProbe(ep.getId(), System.nanoTime())) {
+                    if (dialHeldLast) {
+                        held.add(ep);
+                    }
+                    continue;
+                }
+
+                dialed.add(ep.getId());
                 attempts++;
 
                 if (tried.length() > 0) {
@@ -708,23 +780,11 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
                     unreachFilter.markReachable(ep);
                     return new BindResult(ep, conn);
                 } catch (SQLException ex) {
-                    unreachFilter.markUnreachable(ep, ex);
-                    // Surface WHY this candidate was skipped (otherwise swallowed unless all fail),
-                    // so a fallback onto a non-master RW is traceable to its root connect failure.
-                    // FINE, not WARNING: skipping a candidate is the ladder working as designed,
-                    // and
-                    // the outcome that matters - which endpoint the session ended up on - is
-                    // already
-                    // a WARNING from the BIND/FAILOVER record.
-                    LbLog.fine(
-                            LOGGER,
-                            logContext,
-                            "LB CONNECT FAILED ["
-                                    + groupLabel
-                                    + "] endpoint="
-                                    + ep.getId()
-                                    + " -> trying next candidate | cause: "
-                                    + LbLog.cause(ex));
+                    if ("RW".equals(groupLabel)
+                            && !UnreachableEndpoints.shouldMarkUnreachable(ex)) {
+                        throw ex;
+                    }
+                    noteDialFailure(ep, ex, groupLabel);
                     if (firstFailure == null) {
                         firstFailure = ex;
                     }
@@ -738,6 +798,47 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         }
 
         throw LbExceptions.brokerGroupExhausted(groupLabel, tried.toString(), firstFailure);
+    }
+
+    /**
+     * Records a failed dial, the ladder's and a read leg's reopen alike. A broker that cannot be
+     * reached joins the unreachable list and starts its probe window, so no session dials it again
+     * before the probe; one that refused the session is up, and is only logged.
+     */
+    private void noteDialFailure(final Endpoint ep, final SQLException ex, final String groupLabel)
+            throws SQLException {
+        if (!UnreachableEndpoints.shouldMarkUnreachable(ex)) {
+            // Per endpoint and code: every new session dials it again.
+            LbLogDedup.warn(
+                    LOGGER,
+                    logContext,
+                    "CONNECT_REFUSED|" + ep.getId() + "|" + ex.getErrorCode(),
+                    "LB CONNECT REFUSED ["
+                            + groupLabel
+                            + "] endpoint="
+                            + ep.getId()
+                            + " is up but refused the session -> trying next"
+                            + " candidate | cause: "
+                            + causeOf(ex));
+            return;
+        }
+        unreachFilter.markUnreachable(ep, ex);
+        unreachFilter.healthCheckConnectsAs(config.buildPhysicalJdbcSpec(clientInfo, ep));
+        backoff.startWindow(ep.getId(), System.nanoTime());
+        // Surface WHY this candidate was skipped (otherwise swallowed unless all fail), so a
+        // fallback onto a non-master RW is traceable to its root connect failure. FINE, not
+        // WARNING: skipping a candidate is the ladder working as designed, and the outcome that
+        // matters - which endpoint the session ended up on - is already a WARNING from the
+        // BIND/FAILOVER record.
+        LbLog.fine(
+                LOGGER,
+                logContext,
+                "LB CONNECT FAILED ["
+                        + groupLabel
+                        + "] endpoint="
+                        + ep.getId()
+                        + " -> trying next candidate | cause: "
+                        + causeOf(ex));
     }
 
     public synchronized Endpoint getSessionEndpoint(final SessionLeg leg) {
@@ -760,9 +861,22 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         return ep == null ? null : connsByEpId.get(ep.getId());
     }
 
+    public LegBinding binding() {
+        return binding;
+    }
+
+    /**
+     * Publishes the legs at the end of every public method that changes them, so a reader without
+     * this monitor never sees a change half done.
+     */
+    private void publishBinding() {
+        binding =
+                sessRwEp == null ? LegBinding.UNBOUND : new LegBinding(sessRwEp, sessRoEp, roOnRw);
+    }
+
     /** {@inheritDoc} */
-    public synchronized boolean isReadOnRwConnection() {
-        return roOnRw;
+    public boolean isReadOnRwConnection() {
+        return binding.isReadOnRwFallback();
     }
 
     public synchronized boolean isRwTxOpenOnServer() {
@@ -819,10 +933,10 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
      * RW is bound yet, so a not-yet-initialized session is not evicted.
      *
      * <p><b>Contention:</b> this method is {@code synchronized} on the session monitor, which
-     * {@code bindSession}/{@code recoverRw}/{@code recoverRo} hold while connecting in {@code
-     * openFirstReachable} (up to the connect timeout). A pool validation thread calling this during
-     * a failover blocks until that connect returns - acceptable under one user per session, but a
-     * known trade-off.
+     * {@code bindSessionWithReadTarget}/{@code recoverRw}/{@code recoverRo} hold while connecting
+     * in {@code openFirstReachable} (up to the connect timeout). A pool validation thread calling
+     * this during a failover blocks until that connect returns - acceptable under one user per
+     * session, but a known trade-off.
      *
      * <p>No timeout parameter: {@code Connection.isValid(int)} has one because a driver is expected
      * to validate over the wire, and this does not. Taking one would advertise a network probe that
@@ -849,6 +963,36 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         } catch (SQLException e) {
             logPoolProbeFailed("isClosed() threw", rw, e);
             return false;
+        }
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Every connection this session closes leaves {@code connsByEpId} first, so a closed one
+     * still there was closed under it. Only the write leg's connection counts, as the one core has;
+     * a read leg on its own connection is replaced instead (see ensureConn).
+     */
+    public boolean isLegClosedUnderneath() {
+        if (legClosedUnderneath) {
+            return true;
+        }
+        synchronized (this) {
+            Connection rwPhysical = sessRwEp == null ? null : connsByEpId.get(sessRwEp.getId());
+            if (rwPhysical != null) {
+                noteIfClosedUnderneath(rwPhysical);
+            }
+        }
+        return legClosedUnderneath;
+    }
+
+    private void noteIfClosedUnderneath(final Connection physical) {
+        try {
+            if (physical.isClosed()) {
+                legClosedUnderneath = true;
+            }
+        } catch (SQLException e) {
+            legClosedUnderneath = true;
         }
     }
 
@@ -905,12 +1049,13 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
                         + " | readLeg="
                         + (sessRoEp == null ? "?" : sessRoEp.getId())
                         + (roOnRw ? " (on the RW connection)" : "")
-                        + (cause == null ? "" : " | cause: " + LbLog.cause(cause)));
+                        + (cause == null ? "" : " | cause: " + causeOf(cause)));
     }
 
-    public synchronized void releaseBindings() {
+    private void releaseBindings() {
         closePrepLocked();
         closeConnsLocked();
+        publishBinding();
     }
 
     public synchronized void releasePreparedStatements() {
@@ -918,12 +1063,18 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
     }
 
     public synchronized void releasePhysicalConnections() {
+        released = true;
         releaseBindings();
     }
 
-    public synchronized PreparedStatement prepareStatement(
-            final Endpoint endpoint, final String sql) throws SQLException {
-        return prepareStatement(endpoint, sql, SHARED_PREP_OWNER);
+    /**
+     * A closed session dials nothing: a recovery or failback that reaches the monitor after the
+     * close would open a leg that nobody closes.
+     */
+    private void checkNotReleased() throws SQLException {
+        if (released) {
+            throw LbExceptions.connectionClosed();
+        }
     }
 
     public synchronized PreparedStatement prepareStatement(
@@ -1055,15 +1206,11 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         return conn == null || !conn.isClosed();
     }
 
-    public synchronized void closePrepStmts() throws SQLException {
-        closePrepLocked();
-    }
-
     /**
      * Closes only the physical prepared statements owned by one logical PreparedStatement. Wired to
      * {@code LBPreparedStatement.close()} so closing one logical PS does not destroy the cached
-     * physical PS (and open ResultSets) of other logical PS on the same connection. The
-     * session-wide {@link #closePrepStmts()} stays reserved for Connection.close().
+     * physical PS (and open ResultSets) of other logical PS on the same connection. Closing the
+     * connection releases all of them ({@link #releasePreparedStatements()}).
      */
     public void closePrepForOwner(final String ownerId) throws SQLException {
         final String owner = owner(ownerId);
@@ -1135,6 +1282,17 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
 
     private Connection ensureConn(final Endpoint endpoint) throws SQLException {
         Connection physical = connsByEpId.get(endpoint.getId());
+        if (physical != null && sessRwEp != null && physical == connsByEpId.get(sessRwEp.getId())) {
+            noteIfClosedUnderneath(physical);
+        }
+        // Core fails every call on a connection its network timeout closed. Reopening the write
+        // leg ran the next statement in a new server session, a transaction seeming to go on
+        // (ISSUE-24).
+        if (legClosedUnderneath) {
+            throw LbExceptions.connectionClosed();
+        }
+        // A read leg on its own connection is on a node core never reads from, and holds no
+        // transaction (one keeps every statement on RW), so a closed one is replaced.
         if (physical != null && physical.isClosed()) {
             connsByEpId.remove(endpoint.getId());
             dropPrepForEp(endpoint.getId());
@@ -1145,7 +1303,16 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         }
 
         if (isSessionLeg(endpoint)) {
-            physical = openConnection(endpoint);
+            try {
+                physical = openConnection(endpoint);
+            } catch (SQLException dialFailed) {
+                // A read leg that cannot be reopened is lost, and the caller moves it. Recorded as
+                // the ladder records a dial, so no session dials the node again before its probe.
+                if (!endpoint.equals(sessRwEp)) {
+                    noteDialFailure(endpoint, dialFailed, "RO");
+                }
+                throw dialFailed;
+            }
             connsByEpId.put(endpoint.getId(), physical);
             return physical;
         }
@@ -1200,7 +1367,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
                             + "; dropped, reopens in the session's mode | readLeg="
                             + sessRoEp.getId()
                             + " | cause: "
-                            + LbLog.cause(refused));
+                            + causeOf(refused));
         }
     }
 
@@ -1219,7 +1386,8 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
             op.applyTo(roPhysical);
         } catch (SQLException refused) {
             if (!UnreachableEndpoints.shouldMarkUnreachable(refused)
-                    && !UnreachableEndpoints.isTimeout(refused)) {
+                    && !UnreachableEndpoints.isTimeout(refused)
+                    && !roPhysical.isClosed()) {
                 throw refused;
             }
             connsByEpId.remove(sessRoEp.getId());
@@ -1239,7 +1407,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
                             + "; dropped, reopens with the session state | readLeg="
                             + sessRoEp.getId()
                             + " | cause: "
-                            + LbLog.cause(refused));
+                            + causeOf(refused));
         }
     }
 
@@ -1298,7 +1466,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
                                     + " dropped, reopens on the next read | readLeg="
                                     + sessRoEp.getId()
                                     + " | cause: "
-                                    + LbLog.cause(roFailure));
+                                    + causeOf(roFailure));
                     return;
                 }
                 if (roFailure != rwFailure) {
@@ -1314,7 +1482,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
                                 + " reporting the write failure | readLeg="
                                 + (sessRoEp == null ? "?" : sessRoEp.getId())
                                 + " | cause: "
-                                + LbLog.cause(roFailure));
+                                + causeOf(roFailure));
             }
         }
 
@@ -1376,8 +1544,8 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         return roPhysical != rwPhysical ? roPhysical : null;
     }
 
-    public synchronized String getRoFallbackReason() {
-        if (roOnRw) {
+    public String getRoFallbackReason() {
+        if (binding.isReadOnRwFallback()) {
             return RO_PHYSICAL_FAILOVER_REASON;
         }
 
@@ -1393,20 +1561,16 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         backoff.reset(endpoint.getId());
     }
 
-    /**
-     * Recovery candidate exclude set: hard excludes ({@code ctx} ids + just-failed) always hold;
-     * the JCI-unreachable set goes through the soft gate ({@link #softExcludedIds}).
-     */
-    private Set<String> recoveryExcludedIds(
-            final PhysicalRecoveryContext ctx,
-            final Endpoint failed,
-            final EndpointTopology topology) {
-        return union(
-                excludedIdsWith(ctx.getExcludeEndpointIds(), failed),
-                softExcludedIds(topology, System.nanoTime()));
+    public synchronized PhysicalRecoveryResult recoverRw(final PhysicalRecoveryContext ctx)
+            throws SQLException {
+        try {
+            return recoverRwLocked(ctx);
+        } finally {
+            publishBinding();
+        }
     }
 
-    public synchronized PhysicalRecoveryResult recoverRw(final PhysicalRecoveryContext ctx)
+    private PhysicalRecoveryResult recoverRwLocked(final PhysicalRecoveryContext ctx)
             throws SQLException {
         if (ctx == null) {
             throw new IllegalArgumentException("PhysicalRecoveryContext must not be null");
@@ -1424,7 +1588,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         Endpoint failed = ctx.getFailedEndpoint();
         EndpointTopology topology = ctx.getTopology();
         List<Endpoint> order = failoverOrder(failed, topology, FailoverGroup.RW);
-        Set<String> exclude = recoveryExcludedIds(ctx, failed, topology);
+        Set<String> exclude = excludedIdsWith(ctx.getExcludeEndpointIds(), failed);
 
         // Single-RW topology: the failed endpoint is the only RW candidate, so hard-excluding it
         // leaves nothing and runtime recovery could never succeed - the session would depend on a
@@ -1445,9 +1609,16 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         // path already dials all RW candidates.
         BindResult bind = openFirstReachable(order, "RW", exclude, 0);
 
+        // A master-read or RW-only read leg shared the failed connection: place it as a bind would.
+        // Left on the failed endpoint, the next read dialed it again.
+        final boolean readRidesOnRwEp =
+                !roOnRw && sessRoEp != null && sessRoEp.getId().equals(failed.getId());
         replaceRwConn(failed, bind.endpoint, bind.connection);
+        if (readRidesOnRwEp) {
+            placeReadRidingRw(homeRwEp, topology, "FAILOVER");
+        }
         markRecovered(bind.endpoint);
-        MetricsRegistry.recordFailover("RW", failed.getId(), bind.endpoint.getId());
+        recordFailover("RW", failed.getId(), bind.endpoint.getId());
 
         return new PhysicalRecoveryResult(bind.endpoint, SessionLeg.RW, null);
     }
@@ -1458,6 +1629,16 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
     }
 
     synchronized PhysicalRecoveryResult recoverRo(
+            final PhysicalRecoveryContext ctx, final String rwFallbackReasonOverride)
+            throws SQLException {
+        try {
+            return recoverRoLocked(ctx, rwFallbackReasonOverride);
+        } finally {
+            publishBinding();
+        }
+    }
+
+    private PhysicalRecoveryResult recoverRoLocked(
             final PhysicalRecoveryContext ctx, final String rwFallbackReasonOverride)
             throws SQLException {
         if (ctx == null) {
@@ -1475,8 +1656,6 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
 
         Endpoint failed = ctx.getFailedEndpoint();
         EndpointTopology topology = ctx.getTopology();
-        // Same soft-gate split as recoverRw; the roOnRw fallback below is unaffected.
-        Set<String> exclude = recoveryExcludedIds(ctx, failed, topology);
         SQLException lastRoFailure = null;
 
         // The read leg always climbs its ladder here: reclaim home first, then same-role siblings,
@@ -1491,13 +1670,14 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
                         ? readCandidateTiers(homeReadEp, topology)
                         : Collections.singletonList(
                                 failoverOrder(failed, topology, FailoverGroup.RO));
+        Set<String> exclude = excludedIdsWith(ctx.getExcludeEndpointIds(), failed);
         try {
             BindResult bind =
                     openFirstReachablePerGroup(
-                            roTiers, "RO", exclude, config.getRuntimeFailoverMaxAttempts());
+                            roTiers, "RO", exclude, config.getRuntimeFailoverMaxAttempts(), false);
             replaceRoConn(failed, bind.endpoint, bind.connection, false);
             markRecovered(bind.endpoint);
-            MetricsRegistry.recordFailover("RO", failed.getId(), bind.endpoint.getId());
+            recordFailover("RO", failed.getId(), bind.endpoint.getId());
             return new PhysicalRecoveryResult(bind.endpoint, SessionLeg.RO, null);
         } catch (SQLException roFailure) {
             lastRoFailure = roFailure;
@@ -1545,13 +1725,11 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
             }
 
             List<Endpoint> rwOrder = failoverOrder(preferredRw, topology, FailoverGroup.RW);
-            // Through the soft gate (softExcludedIds), as recoverRw/recoverRo do. Without it, an
-            // all-RW-listed topology fails immediately even after the backoff window elapses.
             BindResult rwBind =
                     openFirstReachable(
                             rwOrder,
                             "RW",
-                            softExcludedIds(topology, System.nanoTime()),
+                            Collections.<String>emptySet(),
                             config.getRuntimeFailoverMaxAttempts());
             rwEndpoint = rwBind.endpoint;
             rwConn = rwBind.connection;
@@ -1568,7 +1746,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         setRoOnRw(true, rwEndpoint.getId(), "RO ladder exhausted at runtime");
         // Reads now share the RW connection: the last rung of the ladder. Counted as a failover to
         // the RW endpoint so the operator sees where the read went, and the roOnRw gauge rises too.
-        MetricsRegistry.recordFailover("RO", logicalRoKey, rwEndpoint.getId());
+        recordFailover("RO", logicalRoKey, rwEndpoint.getId());
 
         if (previous != null && previous != rwConn && !connInUseElsewhere(previous)) {
             closeQuietly(previous);
@@ -1586,7 +1764,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
      * no pool recycling.
      *
      * <p>LB-JDBC runs no health-check thread, so failback is observed lazily on the read path,
-     * through the soft gate ({@link #softExcludedIds}).
+     * through the probe gate of {@link #openFirstReachablePerGroup}.
      *
      * <p><b>Caller contract:</b> must not be called while a transaction is active - it can replace
      * the read connection and close the old one, destroying any open ResultSet. Unlike {@link
@@ -1598,6 +1776,14 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
      *     already at the best endpoint, none better reachable, or the reconnect failed)
      */
     public synchronized Endpoint restoreRoIfRecovered() throws SQLException {
+        try {
+            return restoreRoIfRecoveredLocked();
+        } finally {
+            publishBinding();
+        }
+    }
+
+    private Endpoint restoreRoIfRecoveredLocked() throws SQLException {
         if (!config.isReadFailbackEnabled() || homeReadEp == null || sessTopo == null) {
             return null;
         }
@@ -1606,31 +1792,25 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         }
 
         final List<Endpoint> order = readCandidateOrder(homeReadEp, sessTopo);
-        // Through the soft gate (softExcludedIds): a backoff-due endpoint is a candidate again.
-        final Set<String> exclude = softExcludedIds(sessTopo, System.nanoTime());
 
         // Current rung index in the ladder; roOnRw ranks below every real read rung.
         final int curIdx = roOnRw ? order.size() : rungRankOf(order, sessRoEp);
 
-        // All endpoints strictly better than the current one that the soft gate lets through. With
-        // the backoff bypass a candidate may still be down (a claimed probe, not a JCI-cleared
-        // recovery), so probe the whole sublist best-first: a single target would let a still-down
-        // higher endpoint starve a genuinely recovered lower one every window.
-        final List<Endpoint> targets = new ArrayList<Endpoint>();
-        for (int i = 0; i < curIdx && i < order.size(); i++) {
-            final Endpoint cand = order.get(i);
-            if (!exclude.contains(cand.getId())) {
-                targets.add(cand);
-            }
-        }
+        // All endpoints strictly better than the current one. With the backoff bypass a candidate
+        // may still be down (a claimed probe, not a JCI-cleared recovery), so probe the whole
+        // sublist best-first: a single target would let a still-down higher endpoint starve a
+        // genuinely recovered lower one every window.
+        final List<Endpoint> targets =
+                new ArrayList<Endpoint>(order.subList(0, Math.min(curIdx, order.size())));
         if (targets.isEmpty()) {
-            return null; // already at the best reachable rung
+            return null; // already at the best rung
         }
 
-        // Master-read session: its read home IS the RW endpoint (see bindSessionRwOnly). Reuse the
-        // live RW connection instead of opening a second one to the same broker - the second would
-        // land on the same connsByEpId key, displace the RW connection and close it, so a read-path
-        // failback would tear down the write leg. Reuse also restores exactly the bind-time state.
+        // Master-read session: its read home IS the RW endpoint (see bindSessionRwOnlyLocked).
+        // Reuse the live RW connection instead of opening a second one to the same broker - the
+        // second would land on the same connsByEpId key, displace the RW connection and close it,
+        // so a read-path failback would tear down the write leg. Reuse also restores exactly the
+        // bind-time state.
         final Endpoint bestRung = targets.get(0);
         if (sessRwEp != null && bestRung.getId().equals(sessRwEp.getId())) {
             final Endpoint reused = rebindReadOntoRwConn(bestRung);
@@ -1654,7 +1834,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         final boolean cameOffRw = roOnRw;
         replaceRoConn(previousReadKey, bind.endpoint, bind.connection, false);
         markRecovered(bind.endpoint);
-        MetricsRegistry.recordFailback("RO", fromId, bind.endpoint.getId());
+        recordFailback("RO", fromId, bind.endpoint.getId());
         // Same visibility as the RW leg (see restoreRwIfRecovered): the read leg moving back is
         // otherwise invisible in the log, leaving metrics as the only way to tell a recovered
         // readWeight distribution from a still-displaced one.
@@ -1690,7 +1870,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
      * for its entire lifetime, and only connection pool recycling ({@code maxLifetime}, evict)
      * could restore it to the primary master.
      *
-     * <p>The reachability gate is the same soft gate as RO failback ({@link #softExcludedIds}).
+     * <p>The reachability gate is the same probe gate as RO failback.
      *
      * <p><b>Caller contract:</b> like {@link #restoreRoIfRecovered()}, this method replaces the
      * active physical connection and closes the previous one, terminating any active resources on
@@ -1703,6 +1883,14 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
      * @throws SQLException if the rebind fails after opening the probe connection
      */
     public synchronized Endpoint restoreRwIfRecovered() throws SQLException {
+        try {
+            return restoreRwIfRecoveredLocked();
+        } finally {
+            publishBinding();
+        }
+    }
+
+    private Endpoint restoreRwIfRecoveredLocked() throws SQLException {
         if (!config.isWriteFailbackEnabled() || homeRwEp == null || sessTopo == null) {
             return null;
         }
@@ -1721,11 +1909,6 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
             if (reused != null) {
                 return reused;
             }
-        }
-
-        // Through the soft gate (softExcludedIds): a backoff-due master is a candidate again.
-        if (softExcludedIds(sessTopo, System.nanoTime()).contains(homeRwEp.getId())) {
-            return null;
         }
 
         final BindResult bind;
@@ -1756,7 +1939,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
             }
         }
         markRecovered(bind.endpoint);
-        MetricsRegistry.recordFailback("RW", from.getId(), bind.endpoint.getId());
+        recordFailback("RW", from.getId(), bind.endpoint.getId());
         LbLogDedup.warn(
                 LOGGER,
                 logContext,
@@ -1794,7 +1977,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
             closeQuietly(previous);
         }
         markRecovered(rwEp);
-        MetricsRegistry.recordFailback("RW", from.getId(), rwEp.getId());
+        recordFailback("RW", from.getId(), rwEp.getId());
         LbLogDedup.warn(
                 LOGGER,
                 logContext,
@@ -1810,8 +1993,8 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
 
     /**
      * Rebinds the read role onto the live RW physical connection — the master-read state {@link
-     * #bindSessionRwOnly} produces — without opening anything. {@code roOnRw} stays {@code false}
-     * because for such a session the RW endpoint IS the weighted home, not a fallback rung.
+     * #bindSessionRwOnlyLocked} produces — without opening anything. {@code roOnRw} stays {@code
+     * false} because for such a session the RW endpoint IS the weighted home, not a fallback rung.
      *
      * @param rwEp the RW endpoint, which is also this session's read home
      * @return {@code rwEp} when the read role was rebound, or {@code null} when there is no usable
@@ -1841,7 +2024,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
             closeQuietly(previous);
         }
         markRecovered(rwEp);
-        MetricsRegistry.recordFailback("RO", fromId, rwEp.getId());
+        recordFailback("RO", fromId, rwEp.getId());
         LbLogDedup.warn(
                 LOGGER,
                 logContext,
@@ -1856,7 +2039,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
     }
 
     /** A session's RW leg is displaced when it is not bound to the master RW endpoint. */
-    private boolean isRwDisplaced() {
+    public synchronized boolean isRwDisplaced() {
         if (sessRwEp == null || homeRwEp == null) {
             return false;
         }
@@ -1873,7 +2056,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
     }
 
     /** A session is displaced when reads are not currently served by the weighted home endpoint. */
-    private boolean isReadDisplaced() {
+    public synchronized boolean isReadDisplaced() {
         if (roOnRw) {
             return true;
         }
@@ -2076,9 +2259,15 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
             final Connection newConn,
             final boolean rwFallback)
             throws SQLException {
-        Connection previous = connsByEpId.get(previousRoEp.getId());
-        connsByEpId.remove(previousRoEp.getId());
-        dropPrepForEp(previousRoEp.getId());
+        // A read leg that rode the write connection leaves it to the write leg: the key and the
+        // connection, with its session, are the write leg's.
+        final boolean leavesTheRwConn =
+                sessRwEp != null && previousRoEp.getId().equals(sessRwEp.getId());
+        Connection previous = leavesTheRwConn ? null : connsByEpId.get(previousRoEp.getId());
+        if (!leavesTheRwConn) {
+            connsByEpId.remove(previousRoEp.getId());
+            dropPrepForEp(previousRoEp.getId());
+        }
 
         setRoOnRw(
                 rwFallback,
@@ -2119,6 +2308,20 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         }
     }
 
+    /** Only with metricsEnabled: the counter is JVM-wide, so another pool's would mix in. */
+    private void recordFailover(final String role, final String fromId, final String toId) {
+        if (config.getMetricsConfig().isEnabled()) {
+            MetricsRegistry.recordFailover(role, fromId, toId);
+        }
+    }
+
+    /** As {@link #recordFailover}. */
+    private void recordFailback(final String role, final String fromId, final String toId) {
+        if (config.getMetricsConfig().isEnabled()) {
+            MetricsRegistry.recordFailback(role, fromId, toId);
+        }
+    }
+
     private static Set<String> excludedIdsWith(
             final Set<String> excludeEndpointIds, final Endpoint failedEndpoint) {
         Set<String> merged = new HashSet<String>();
@@ -2129,49 +2332,6 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         if (failedEndpoint != null) {
             merged.add(failedEndpoint.getId());
         }
-        return merged;
-    }
-
-    private Set<String> unreachableIds(final EndpointTopology topology) {
-        if (topology == null) {
-            return Collections.<String>emptySet();
-        }
-
-        return unreachFilter.collectUnreachableEndpointIds(topology);
-    }
-
-    /**
-     * The soft gate, used by every recovery and failback path: the JCI-unreachable set ({@link
-     * #unreachableIds}) minus endpoints whose backoff window has elapsed AND for which this call
-     * won the pool-wide probe claim. Those re-enter the candidate list, so one session per backoff
-     * interval probes a down broker instead of every session waiting for core's 60s JCI poll, and a
-     * successful probe clears the entry for all sessions ({@link #markRecovered}). Reachable-broker
-     * behavior is unchanged (empty in → empty out).
-     */
-    Set<String> softExcludedIds(final EndpointTopology topology, final long nowNanos) {
-        Set<String> unreachable = unreachableIds(topology);
-        if (unreachable.isEmpty()) {
-            return unreachable;
-        }
-
-        Set<String> soft = new HashSet<String>(unreachable);
-        for (String epId : unreachable) {
-            if (backoff.tryClaimProbe(epId, nowNanos)) {
-                soft.remove(epId); // this session claimed the probe -> allow as candidate
-            }
-        }
-        return soft;
-    }
-
-    /**
-     * A new set holding every id from both inputs; neither input is modified. Nothing here is
-     * specific to soft gating - {@link #recoveryExcludedIds} decides which sets to combine and
-     * {@link #softExcludedIds} does the softening. Package-private so the exclude-set tests can use
-     * it directly.
-     */
-    static Set<String> union(final Set<String> first, final Set<String> second) {
-        Set<String> merged = new HashSet<String>(first);
-        merged.addAll(second);
         return merged;
     }
 
@@ -2214,11 +2374,8 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
         return false;
     }
 
-    public String getLogicalJdbcUrl() {
-        return logicalJdbcUrl;
-    }
-
     private Connection openConnection(final Endpoint endpoint) throws SQLException {
+        checkNotReleased();
         JdbcPhyConnSpec spec = config.buildPhysicalJdbcSpec(clientInfo, endpoint);
 
         // The physical connect uses the per-broker classic URL (spec.getJdbcUrl()); core reports
@@ -2236,7 +2393,7 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
 
         // Single chokepoint for every fresh physical connection (initial bind, recoverRw/recoverRo,
         // failoverRoToRw, restoreRoIfRecovered/restoreRwIfRecovered, ensureConn reopen). Re-apply
-        // the session state (autoCommit/isolation/schema/lockTimeout/casChangeMode/holdability) so
+        // the session state (autoCommit/isolation/lockTimeout/casChangeMode/holdability/SETs) so
         // a connection opened mid-session is not left at the driver defaults.
         if (sessionStateApplier != null) {
             try {
@@ -2333,5 +2490,10 @@ public final class SessionPhysicalConnManager implements EndpointConnManager {
             c.close();
         } catch (SQLException e) {
         }
+    }
+
+    /** A failure for a log line, a server error with its message only under lbLogSql=raw. */
+    private String causeOf(final SQLException failure) {
+        return LbLog.cause(failure, config.getLbLogConfig().isSqlRaw());
     }
 }

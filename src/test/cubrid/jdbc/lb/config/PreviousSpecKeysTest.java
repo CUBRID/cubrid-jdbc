@@ -46,7 +46,7 @@ import org.junit.Test;
 public class PreviousSpecKeysTest {
 
     private static final String BASE =
-            "jdbc:cubrid:loadbalance://node1:30000:33000,node2:30000:33000/testdb";
+            "jdbc:cubrid:loadbalance://node1:30000:33000,node2:30000:33000/testdb:::";
 
     private static final String[] FORMER_KEYS = {
         "haLbMode",
@@ -69,7 +69,7 @@ public class PreviousSpecKeysTest {
         } catch (SQLException e) {
             assertTrue(
                     e.getMessage(), e.getMessage().contains("cubrid.lb.runtime.failover.enabled"));
-            assertTrue(e.getMessage(), e.getMessage().contains("cannot reach the broker"));
+            assertTrue(e.getMessage(), e.getMessage().contains("is not valid in a CUBRID URL"));
         }
     }
 
@@ -78,7 +78,7 @@ public class PreviousSpecKeysTest {
         for (int i = 0; i < FORMER_KEYS.length; i++) {
             String key = FORMER_KEYS[i];
             Result r = LoadBalanceOptionValidator.validate(Collections.singletonMap(key, "x"));
-            assertTrue(key + " was ignored", r.getIgnoredKeys().isEmpty());
+            assertTrue(key + " was ignored", ConfigTestAccess.getIgnoredKeys(r).isEmpty());
             assertEquals(key, "x", r.getRetainedOptions().get(key));
         }
     }

@@ -31,7 +31,6 @@
 package cubrid.jdbc.lb.config;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.sql.SQLException;
@@ -44,7 +43,7 @@ import org.junit.Test;
 public class LoadBalanceSettingsFixedDefaultsTest {
 
     private static final String URL =
-            "jdbc:cubrid:loadbalance://node1:30000:33000,node2:30000:33000/testdb";
+            "jdbc:cubrid:loadbalance://node1:30000:33000,node2:30000:33000/testdb:::";
 
     @Test
     public void everyBehaviorIsPinnedToTheSpecValue() throws SQLException {
@@ -71,7 +70,6 @@ public class LoadBalanceSettingsFixedDefaultsTest {
         assertEquals(3000, c.getReadFailbackProbeIntervalMs());
         assertTrue(c.isWriteFailbackEnabled());
         assertEquals(3000, c.getWriteFailbackProbeIntervalMs());
-        assertFalse(c.isWriteFailbackOnValidate());
         assertEquals(3000, c.getRecoveryProbeIntervalMs());
         assertEquals(8192, c.getSqlClassifyCacheMaxEntries());
     }

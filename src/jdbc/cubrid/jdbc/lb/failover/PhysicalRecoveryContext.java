@@ -90,10 +90,6 @@ public final class PhysicalRecoveryContext {
         return failedEndpoint;
     }
 
-    RouteTarget getRouteTarget() {
-        return routeTarget;
-    }
-
     public EndpointTopology getTopology() {
         return topology;
     }

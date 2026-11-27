@@ -85,7 +85,7 @@ public class LoadBalanceConnectionUriUrlTest {
     public void writeFixedToMasterAndReadBoundToSlave() throws SQLException {
         LoadBalanceConnection conn =
                 openLb(
-                        "jdbc:cubrid:loadbalance://node1,node2/db"
+                        "jdbc:cubrid:loadbalance://node1,node2/db:::"
                                 + "?rwPort=33000&roPort=33002&readWeight=slave:1,master:0");
 
         assertEquals("node1:33000", conn.getCurrentRwEndpoint().getId());
@@ -102,7 +102,7 @@ public class LoadBalanceConnectionUriUrlTest {
     public void masterReadReusesRwAsSinglePhysicalConnection() throws SQLException {
         LoadBalanceConnection conn =
                 openLb(
-                        "jdbc:cubrid:loadbalance://node1,node2/db"
+                        "jdbc:cubrid:loadbalance://node1,node2/db:::"
                                 + "?rwPort=33000&roPort=33002&readWeight=master:1,slave:0");
 
         assertEquals("node1:33000", conn.getCurrentRwEndpoint().getId());
@@ -117,7 +117,7 @@ public class LoadBalanceConnectionUriUrlTest {
     @Test
     public void singleHostBindsRwOnly() throws SQLException {
         LoadBalanceConnection conn =
-                openLb("jdbc:cubrid:loadbalance://node1/db?rwPort=33000&roPort=33002");
+                openLb("jdbc:cubrid:loadbalance://node1/db:::?rwPort=33000&roPort=33002");
 
         assertEquals("node1:33000", conn.getCurrentRwEndpoint().getId());
         assertEquals("node1:33000", conn.getCurrentRoEndpoint().getId());
@@ -125,17 +125,19 @@ public class LoadBalanceConnectionUriUrlTest {
     }
 
     @Test
-    public void credentialsAndCommonOptionsPropagateToPhysicalUrl() throws SQLException {
+    public void physicalUrlCarriesCommonOptionsAndPropertiesCarryCredentials() throws SQLException {
         openLb(
                 "jdbc:cubrid:loadbalance://node1/db:dba:secret:"
                         + "?rwPort=33000&roPort=33002&charSet=utf-8");
 
-        // User and common options propagate into the physical URL; the password does NOT — it is
-        // carried in the connection Properties so it cannot leak via logged/echoed URL strings.
+        // Common options propagate into the physical URL; the user and the password do NOT — they
+        // are carried in the connection Properties, so a password cannot leak via logged/echoed URL
+        // strings and a user name the URL cannot carry still connects.
         assertEquals(
                 requestedUrls.toString(),
-                "jdbc:cubrid:node1:33000:db:dba::?charSet=utf-8",
+                "jdbc:cubrid:node1:33000:db:::?charSet=utf-8",
                 requestedUrls.get(0));
+        assertEquals("dba", requestedProps.get(0).getProperty("user"));
         assertEquals("secret", requestedProps.get(0).getProperty("password"));
     }
 

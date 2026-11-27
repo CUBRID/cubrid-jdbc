@@ -41,7 +41,7 @@ public final class LbExceptions {
 
     private LbExceptions() {}
 
-    static CUBRIDException connectionClosed() {
+    public static CUBRIDException connectionClosed() {
         return new CUBRIDException(CUBRIDJDBCErrorCode.connection_closed);
     }
 
@@ -165,10 +165,6 @@ public final class LbExceptions {
         return withDetail(LbJDBCErrorCode.lb_physical_not_bound, "endpointId=" + endpointId, null);
     }
 
-    public static CUBRIDException noExecutionHistory(final String operation) {
-        return withDetail(LbJDBCErrorCode.lb_stmt_no_execution_history, operation, null);
-    }
-
     public static CUBRIDException delegationNotConfigured() {
         return withDetail(LbJDBCErrorCode.lb_delegation_not_configured, null, null);
     }
@@ -190,6 +186,16 @@ public final class LbExceptions {
             detail = detail + ", " + reason;
         }
         return withDetail(LbJDBCErrorCode.lb_broker_candidates_filtered, detail, null);
+    }
+
+    /**
+     * Whether {@code ex} is {@link #brokerGroupExhausted}'s: every candidate of a group failed.
+     *
+     * @param ex the failure
+     * @return whether it is
+     */
+    public static boolean isBrokerGroupExhausted(final SQLException ex) {
+        return ex.getErrorCode() == LbJDBCErrorCode.lb_broker_group_exhausted;
     }
 
     public static CUBRIDException brokerGroupExhausted(

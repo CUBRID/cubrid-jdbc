@@ -89,24 +89,19 @@ public final class RuntimeMetrics {
     }
 
     /**
-     * Whether the per-execution event log is kept, separately from the counters.
+     * Keeps or drops the per-execution event log, separately from the counters. The log builds a
+     * string for every statement; a consumer of totals alone, the {@code LB DIST} record, turns it
+     * off. It follows {@link #setEnabled} until set.
      *
-     * <p>The two cost very different amounts. The counters are a few atomic increments and a map
-     * update; the event log builds a string for every statement and keeps the last {@link
-     * #DEFAULT_MAX_EVENTS} of them. A consumer that only needs totals - the periodic {@code LB
-     * DIST} record - would pay for strings it never reads.
-     *
-     * <p>Defaults to following {@link #setEnabled}, so a caller that wants everything still gets
-     * it.
-     *
-     * @return whether events are retained
+     * @param eventsEnabled whether events are retained
      */
-    boolean isEventsEnabled() {
-        return eventsEnabled;
-    }
-
     public void setEventsEnabled(final boolean eventsEnabled) {
         this.eventsEnabled = eventsEnabled;
+    }
+
+    /** Whether {@link #recordEvent} keeps events, so a caller can skip building one. */
+    public boolean isEventsEnabled() {
+        return enabled && eventsEnabled;
     }
 
     public void incRoSelectionCount() {

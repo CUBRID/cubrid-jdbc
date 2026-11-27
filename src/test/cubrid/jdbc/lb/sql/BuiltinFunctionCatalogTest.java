@@ -119,23 +119,28 @@ public class BuiltinFunctionCatalogTest {
         assertFalse(BuiltinFunctionCatalog.isWriteBuiltin("MY_PROC"));
     }
 
-    /** Each node answers these from its own clock or configuration, so they run on RW. */
+    /** Each node answers these from its own configuration, so they run on RW. */
     @Test
-    public void nodeClockAndConfigurationBuiltinsAreRw() {
-        String[] names = {
-            "NOW",
-            "SYSDATE",
-            "CURRENT_TIMESTAMP",
-            "UNIX_TIMESTAMP",
-            "UTC_TIMESTAMP",
-            "LIST_DBS",
-            "DBTIMEZONE",
-            "VERSION"
-        };
+    public void nodeConfigurationBuiltinsAreRw() {
+        String[] names = {"LIST_DBS", "DBTIMEZONE", "VERSION"};
         for (String name : names) {
             assertFalse(name, BuiltinFunctionCatalog.isReadOnlyBuiltin(name));
             assertTrue(name, BuiltinFunctionCatalog.isWriteBuiltin(name));
             assertFalse(name, BuiltinFunctionCatalog.isWriteEffectBuiltin(name));
+        }
+        assertTrue(BuiltinFunctionCatalog.isNodeKeyword("DBTIMEZONE"));
+        assertFalse(BuiltinFunctionCatalog.isNodeKeyword("SYSDATE"));
+    }
+
+    /** The clock functions, and DEFAULT(col) that may evaluate one, run on the read leg. */
+    @Test
+    public void clockBuiltinsAreReadOnly() {
+        String[] names = {
+            "NOW", "SYSDATE", "CURRENT_TIMESTAMP", "UTC_TIMESTAMP", "UNIX_TIMESTAMP", "DEFAULT"
+        };
+        for (String name : names) {
+            assertTrue(name, BuiltinFunctionCatalog.isReadOnlyBuiltin(name));
+            assertFalse(name, BuiltinFunctionCatalog.isWriteBuiltin(name));
         }
     }
 

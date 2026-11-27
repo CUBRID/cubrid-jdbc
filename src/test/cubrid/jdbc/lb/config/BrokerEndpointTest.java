@@ -32,98 +32,15 @@ package cubrid.jdbc.lb.config;
 
 import static org.junit.Assert.*;
 
-import java.sql.SQLException;
 import org.junit.Test;
 
 public class BrokerEndpointTest {
 
     @Test
-    public void assertParseValidHostPort() throws Exception {
-        Endpoint ep = Endpoint.parse("rw:33000");
-        assertEquals("rw", ep.getHost());
-        assertEquals(33000, ep.getPort());
-        assertEquals("rw:33000", ep.getId());
-    }
-
-    @Test
-    public void assertParseIpAddress() throws Exception {
-        Endpoint ep = Endpoint.parse("192.168.1.100:33000");
-        assertEquals("192.168.1.100", ep.getHost());
-        assertEquals(33000, ep.getPort());
-    }
-
-    @Test
-    public void assertParseTrimmed() throws Exception {
-        Endpoint ep = Endpoint.parse("  ro1:33001  ");
-        assertEquals("ro1", ep.getHost());
-        assertEquals(33001, ep.getPort());
-    }
-
-    @Test
-    public void assertParseNullThrows() {
-        try {
-            Endpoint.parse(null);
-            fail("Expected SQLException");
-        } catch (SQLException e) {
-            assertTrue(e.getMessage().contains("empty"));
-        }
-    }
-
-    @Test
-    public void assertParseEmptyThrows() {
-        try {
-            Endpoint.parse("");
-            fail("Expected SQLException");
-        } catch (SQLException e) {
-            assertTrue(e.getMessage().contains("empty"));
-        }
-    }
-
-    @Test
-    public void assertParseNoColonThrows() {
-        try {
-            Endpoint.parse("badhostonly");
-            fail("Expected SQLException");
-        } catch (SQLException e) {
-            assertTrue(e.getMessage().contains("host:port"));
-        }
-    }
-
-    @Test
-    public void assertParseNonNumericPortThrows() {
-        try {
-            Endpoint.parse("rw:abc");
-            fail("Expected SQLException");
-        } catch (SQLException e) {
-            assertTrue(e.getMessage().contains("port"));
-        }
-    }
-
-    @Test
-    public void assertParsePortOutOfRangeThrows() {
-        try {
-            Endpoint.parse("rw:70000");
-            fail("Expected SQLException");
-        } catch (SQLException e) {
-            assertTrue(e.getMessage().contains("range"));
-        }
-    }
-
-    @Test
-    public void assertParsePortZeroThrows() {
-        try {
-            Endpoint.parse("rw:0");
-            fail("Expected SQLException");
-        } catch (SQLException e) {
-            assertTrue(e.getMessage().contains("range"));
-        }
-    }
-
-    @Test
     public void assertEqualsAndHashCode() throws Exception {
-        Endpoint a = Endpoint.parse("rw:33000");
+        Endpoint a = new Endpoint("rw", 33000);
         Endpoint b = new Endpoint("rw", 33000);
-        Endpoint c = Endpoint.parse("other:33000");
+        Endpoint c = new Endpoint("other", 33000);
 
         assertEquals(a, b);
         assertEquals(a.hashCode(), b.hashCode());
@@ -133,7 +50,7 @@ public class BrokerEndpointTest {
 
     @Test
     public void assertToString() throws Exception {
-        Endpoint ep = Endpoint.parse("myhost:12345");
+        Endpoint ep = new Endpoint("myhost", 12345);
         assertEquals("myhost:12345", ep.toString());
     }
 }

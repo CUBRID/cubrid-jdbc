@@ -114,6 +114,20 @@ public final class FailoverCoverageArchitectureTest {
                     + " runs inside every execute closure"
         },
         {
+            "LoadBalanceConnection#newCall",
+            "2",
+            "HELPER",
+            "the write leg a CallableStatement prepares and runs on; asked from its"
+                    + " constructor, its run and its describe calls, each inside a handler block"
+        },
+        {
+            "LoadBalanceConnection#commitWhatHoldsTheFailback",
+            "1",
+            "HELPER",
+            "the commit core sends at the start of a CallableStatement's next run; called from"
+                    + " that run, inside its execute closure"
+        },
+        {
             "LBPreparedStatement#physicalPsForTarget", "1",
             "HELPER", "called only from the execute closures"
         },
@@ -139,14 +153,6 @@ public final class FailoverCoverageArchitectureTest {
 
         // --- EXEMPT: session-property propagation, both legs, per-leg error isolation ---
         {
-            "LoadBalanceConnection#forEachSessPhyConn",
-            "1",
-            "EXEMPT",
-            "the READ leg of a property setter: a read-leg failure is isolated and logged rather"
-                    + " than rebound, because the read path self-heals on the next statement. The"
-                    + " write leg goes through applyToWriteLegWithFailover"
-        },
-        {
             "LoadBalanceConnection#applyToWriteLegWithFailover",
             "1",
             "EXEMPT",
@@ -155,12 +161,10 @@ public final class FailoverCoverageArchitectureTest {
                     + " is the point of this method - wrapping it again would recurse"
         },
         {
-            "LoadBalanceConnection#applyCharset", "2",
-            "EXEMPT", "same family as forEachSessPhyConn"
-        },
-        {
-            "LoadBalanceConnection#setCASChangeMode", "2",
-            "EXEMPT", "same family as forEachSessPhyConn"
+            "LoadBalanceConnection#applyCharset",
+            "1",
+            "EXEMPT",
+            "the write leg of a property setter; the read leg goes through applyToOpenReadLeg"
         },
 
         // --- EXEMPT: recovery would be meaningless or self-defeating ---

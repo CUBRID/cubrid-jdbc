@@ -45,7 +45,6 @@ import cubrid.jdbc.lb.connection.JdbcConnectionFactory;
 import cubrid.jdbc.lb.connection.SimpleEndpointConnManager;
 import cubrid.jdbc.lb.state.SharedSelectorState;
 import java.io.UnsupportedEncodingException;
-import java.lang.reflect.Field;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.ArrayList;
@@ -279,11 +278,11 @@ public final class SessionPropertyLegToleranceTest {
         assertEquals(Integer.valueOf(2), logicalField(connection, "casChangeMode"));
     }
 
+    /** The value the connection keeps for a session property: a row of its property table. */
     private static Object logicalField(final LoadBalanceConnection connection, final String name)
             throws Exception {
-        Field field = LoadBalanceConnection.class.getDeclaredField(name);
-        field.setAccessible(true);
-        return field.get(connection);
+        final Object properties = LbTestReflection.field(connection, "properties");
+        return ((SessionProperties.Property<?>) LbTestReflection.field(properties, name)).get();
     }
 
     /**

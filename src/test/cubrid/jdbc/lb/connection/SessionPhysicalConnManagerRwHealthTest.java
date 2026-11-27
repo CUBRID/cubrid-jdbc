@@ -172,7 +172,7 @@ public class SessionPhysicalConnManagerRwHealthTest {
         EndpointTopology topo =
                 new EndpointTopology(rw, Arrays.asList(ro), Collections.<Endpoint>emptyList());
         SessionPhysicalConnManager mgr = newManager(roUp);
-        mgr.bindSession(rw, ro, topo);
+        mgr.bindSessionWithReadTarget(rw, ro, false, topo);
         return mgr;
     }
 
@@ -194,7 +194,8 @@ public class SessionPhysicalConnManagerRwHealthTest {
                     }
                 };
 
-        return new SessionPhysicalConnManager(LOGICAL_URL, new Properties(), config, factory);
+        return ConnectionTestAccess.newSessionPhysicalConnManager(
+                LOGICAL_URL, new Properties(), config, factory);
     }
 
     private Connection rwConn() {

@@ -90,7 +90,7 @@ public class RoleReadSelectorTest {
     public void defaultEqualWeightsPoolOf9() throws SQLException {
         LoadBalanceSettings c =
                 configOf(
-                        "jdbc:cubrid:loadbalance://node1,node2,node3;replica=rep1/db"
+                        "jdbc:cubrid:loadbalance://node1,node2,node3;replica=rep1/db:::"
                                 + "?rwPort=33000&roPort=33002&soPort=33004");
         SharedSelectorState s = new SharedSelectorState();
 
@@ -115,7 +115,7 @@ public class RoleReadSelectorTest {
     public void weightedPoolOf10() throws SQLException {
         LoadBalanceSettings c =
                 configOf(
-                        "jdbc:cubrid:loadbalance://node1,node2,node3;replica=rep1/db"
+                        "jdbc:cubrid:loadbalance://node1,node2,node3;replica=rep1/db:::"
                                 + "?rwPort=33000&roPort=33002&soPort=33004"
                                 + "&readWeight=slave:40,master:10,replica:50");
         SharedSelectorState s = new SharedSelectorState();
@@ -137,7 +137,7 @@ public class RoleReadSelectorTest {
     public void masterZeroExcludesMasterFromReads() throws SQLException {
         LoadBalanceSettings c =
                 configOf(
-                        "jdbc:cubrid:loadbalance://node1,node2;replica=rep1/db"
+                        "jdbc:cubrid:loadbalance://node1,node2;replica=rep1/db:::"
                                 + "?rwPort=33000&roPort=33002&soPort=33004"
                                 + "&readWeight=slave:50,master:0,replica:50");
         SharedSelectorState s = new SharedSelectorState();
@@ -152,7 +152,7 @@ public class RoleReadSelectorTest {
     public void roleWithoutNodesIsIgnored() throws SQLException {
         LoadBalanceSettings c =
                 configOf(
-                        "jdbc:cubrid:loadbalance://node1,node2/db"
+                        "jdbc:cubrid:loadbalance://node1,node2/db:::"
                                 + "?rwPort=33000&roPort=33002&readWeight=slave:1,replica:5");
         SharedSelectorState s = new SharedSelectorState();
 
@@ -165,7 +165,7 @@ public class RoleReadSelectorTest {
     @Test
     public void singleHostFallsBackToMasterRw() throws SQLException {
         LoadBalanceSettings c =
-                configOf("jdbc:cubrid:loadbalance://node1/db?rwPort=33000&roPort=33002");
+                configOf("jdbc:cubrid:loadbalance://node1/db:::?rwPort=33000&roPort=33002");
         SharedSelectorState s = new SharedSelectorState();
 
         Map<String, Integer> eps = runEndpoints(c.getResolvedTopology(), c.getReadWeight(), s, 5);

@@ -56,11 +56,6 @@ public final class SharedSelectorStateRegistry {
         return existing != null ? existing : created;
     }
 
-    /** Clears all registry entries; for unit tests only. */
-    static void clearForTests() {
-        BY_KEY.clear();
-    }
-
     private static String normalizeRegistryKey(final String registryKey) {
         if (registryKey == null || registryKey.trim().isEmpty()) {
             return DEFAULT_KEY;

@@ -30,6 +30,7 @@
 
 package cubrid.jdbc.lb.state;
 
+import cubrid.jdbc.lb.LbTestReflection;
 import java.util.Map;
 
 /**
@@ -38,10 +39,6 @@ import java.util.Map;
  */
 public final class StateTestAccess {
     private StateTestAccess() {}
-
-    public static boolean isBound(final CurrentReadEndpointHolder holder) {
-        return holder.isBound();
-    }
 
     public static Map<String, Integer> getLiveHomeCounts(final SharedSelectorState state) {
         return state.getLiveHomeCounts();
@@ -52,10 +49,18 @@ public final class StateTestAccess {
     }
 
     public static void resetAll(final SharedSelectorState state) {
-        state.resetAll();
+        synchronized (state) {
+            ((Map<?, ?>) LbTestReflection.field(state, "groupRoundRobinIndices")).clear();
+            ((Map<?, ?>) LbTestReflection.field(state, "liveHomeCounts")).clear();
+        }
     }
 
     public static void clearForTests() {
-        SharedSelectorStateRegistry.clearForTests();
+        ((Map<?, ?>) LbTestReflection.staticField(SharedSelectorStateRegistry.class, "BY_KEY"))
+                .clear();
+    }
+
+    public static void clearRecoveryBackoffs() {
+        ((Map<?, ?>) LbTestReflection.staticField(RecoveryBackoffRegistry.class, "BY_KEY")).clear();
     }
 }

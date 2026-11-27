@@ -32,7 +32,6 @@ package cubrid.jdbc.lb;
 
 import static org.junit.Assert.assertEquals;
 
-import cubrid.jdbc.lb.LoadBalanceConnection.PhysicalResourceReleaser;
 import cubrid.jdbc.lb.connection.SimpleEndpointConnManager;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
@@ -48,31 +47,26 @@ public final class SessionConnChecklistTest {
     @Test
     public void assertSC05CloseOrderLegsThenStatements() throws Exception {
         final List<String> events = new ArrayList<String>();
-        LoadBalanceConnection connection = createSessionConnection("round_robin", null);
-        connection.trackStatement(createTrackingStatement(events));
-        connection.setPhysicalResourceReleaser(
-                new PhysicalResourceReleaser() {
-                    public void releasePreparedStatements() {
+        LoadBalanceConnection connection = new LoadBalanceConnection(LbTestSettings.defaults());
+        connection.setConnectionManager(
+                new SimpleEndpointConnManager() {
+                    @Override
+                    public synchronized void releasePreparedStatements() {
                         events.add("releasePrepared");
                     }
 
-                    public void releasePhysicalConnections() {
+                    @Override
+                    public synchronized void releasePhysicalConnections() {
                         events.add("releasePhysical");
                     }
                 });
+        connection.trackStatement(createTrackingStatement(events));
 
         connection.close();
 
         assertEquals("releasePhysical", events.get(0));
         assertEquals("statementClosed", events.get(1));
         assertEquals("releasePrepared", events.get(2));
-    }
-
-    private static LoadBalanceConnection createSessionConnection(
-            final String algorithm, final String weights) {
-        LoadBalanceConnection connection = new LoadBalanceConnection(LbTestSettings.defaults());
-        connection.setConnectionManager(new SimpleEndpointConnManager());
-        return connection;
     }
 
     private static Statement createTrackingStatement(final List<String> events) {

@@ -30,10 +30,11 @@
 
 package cubrid.jdbc.lb.failover;
 
+import cubrid.jdbc.driver.ConnectionProperties;
 import cubrid.jdbc.jci.UErrorCode;
 import cubrid.jdbc.jci.UUnreachableHostList;
 import cubrid.jdbc.lb.config.Endpoint;
-import cubrid.jdbc.lb.config.EndpointTopology;
+import cubrid.jdbc.lb.config.JdbcPhyConnSpec;
 import cubrid.jdbc.lb.log.LbLog;
 import cubrid.jdbc.lb.log.LbLogDedup;
 import java.io.IOException;
@@ -42,9 +43,7 @@ import java.sql.SQLException;
 import java.util.ArrayDeque;
 import java.util.Collections;
 import java.util.Deque;
-import java.util.HashSet;
 import java.util.IdentityHashMap;
-import java.util.List;
 import java.util.Set;
 import java.util.logging.Logger;
 
@@ -91,7 +90,14 @@ public final class UnreachableEndpoints {
         this.unreachableHostList = unreachableHostList;
     }
 
-    boolean isUnreachable(final Endpoint endpoint) {
+    /**
+     * Whether {@code endpoint} is on the JVM-wide unreachable list, so a dial to it needs the
+     * probe.
+     *
+     * @param endpoint the endpoint to check; may be {@code null}
+     * @return whether it is listed
+     */
+    public boolean isUnreachable(final Endpoint endpoint) {
         if (endpoint == null) {
             return false;
         }
@@ -129,8 +135,9 @@ public final class UnreachableEndpoints {
     }
 
     /**
-     * Whether {@code ex} is a timeout: the statement ran out of time, which says nothing about the
-     * broker. A failed connect never looks like this - the core reports it as ER_CONNECTION.
+     * Whether {@code ex} is a timeout: on an open connection the statement ran out of time, which
+     * says nothing about the broker. A dial that times out reports ER_TIMEOUT too (a leg's URL has
+     * no altHosts), so the dial paths judge it by {@link #shouldMarkUnreachable} instead.
      *
      * @param ex the failure to classify
      * @return whether a timeout appears anywhere in the chain
@@ -227,6 +234,29 @@ public final class UnreachableEndpoints {
     }
 
     /**
+     * Tells core's health check, which takes a host off the list once it answers, how the legs of
+     * the session that listed one connect. Core tells it at its altHosts reconnect, which a leg
+     * never takes; untold it connects in plain, and a TLS-only broker that is back refuses that
+     * every time. The check is JVM-wide and keeps what it was told last, as with core.
+     *
+     * @param leg the connection spec of the leg whose connect failed
+     */
+    public void healthCheckConnectsAs(final JdbcPhyConnSpec leg) {
+        try {
+            final ConnectionProperties properties = new ConnectionProperties();
+            final String url = leg.getJdbcUrl();
+            final int options = url.indexOf('?');
+            if (options >= 0) {
+                properties.setProperties(url.substring(options));
+            }
+            properties.setProperties(leg.getConnectionProperties());
+            unreachableHostList.setSslConfig(properties.getSslMode(), properties.getTrustStore());
+        } catch (SQLException unreadable) {
+            // Settings no leg connects with: the connect reports them. The check stays as it was.
+        }
+    }
+
+    /**
      * Drops {@code endpoint} from the unreachable set after a successful reconnect, recording the
      * exit so the window during which the node was skipped is bounded on both sides.
      *
@@ -250,18 +280,6 @@ public final class UnreachableEndpoints {
                             + id
                             + " left the unreachable set -- it is a candidate again");
         }
-    }
-
-    public Set<String> collectUnreachableEndpointIds(final EndpointTopology topology) {
-        Set<String> exclude = new HashSet<String>();
-        if (topology == null) {
-            return exclude;
-        }
-
-        collectFromList(topology.getRwEndpoints(), exclude);
-        collectFromList(topology.getRoEndpoints(), exclude);
-        collectFromList(topology.getReplEndpoints(), exclude);
-        return exclude;
     }
 
     /**
@@ -310,19 +328,6 @@ public final class UnreachableEndpoints {
                 return true;
             default:
                 return isHandshakeRejection(errorCode);
-        }
-    }
-
-    private void collectFromList(final List<Endpoint> endpoints, final Set<String> exclude) {
-        if (endpoints == null) {
-            return;
-        }
-
-        for (int i = 0; i < endpoints.size(); i++) {
-            Endpoint endpoint = endpoints.get(i);
-            if (isUnreachable(endpoint)) {
-                exclude.add(endpoint.getId());
-            }
         }
     }
 }

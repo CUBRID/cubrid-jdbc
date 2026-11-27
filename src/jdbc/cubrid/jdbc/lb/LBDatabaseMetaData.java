@@ -110,7 +110,7 @@ class LBDatabaseMetaData extends CUBRIDDatabaseMetaData {
      * Serve one call that <b>sends a request</b> to the write endpoint, under the failover handler.
      *
      * <p>{@link #rwMeta} resolves the handle inside the closure, so a rebind is followed by a fresh
-     * handle rather than by a query on the connection that just died. Eighteen of the 173 methods
+     * handle rather than by a query on the connection that just died. Twenty of the 173 methods
      * need this - the ones whose physical implementation touches {@code u_con}; the others answer
      * from local constants and are left as plain {@code rwMeta(...)} forwards.
      *
@@ -260,12 +260,25 @@ class LBDatabaseMetaData extends CUBRIDDatabaseMetaData {
 
     @Override
     public int getDatabaseMajorVersion() throws SQLException {
-        return rwMeta("getDatabaseMajorVersion").getDatabaseMajorVersion();
+        // Core asks the server for the version the first time.
+        return rwMetaQuery(
+                "getDatabaseMajorVersion",
+                new SqlExecution<Integer>() {
+                    public Integer run() throws SQLException {
+                        return rwMeta("getDatabaseMajorVersion").getDatabaseMajorVersion();
+                    }
+                });
     }
 
     @Override
     public int getDatabaseMinorVersion() throws SQLException {
-        return rwMeta("getDatabaseMinorVersion").getDatabaseMinorVersion();
+        return rwMetaQuery(
+                "getDatabaseMinorVersion",
+                new SqlExecution<Integer>() {
+                    public Integer run() throws SQLException {
+                        return rwMeta("getDatabaseMinorVersion").getDatabaseMinorVersion();
+                    }
+                });
     }
 
     @Override

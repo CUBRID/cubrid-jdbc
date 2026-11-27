@@ -52,7 +52,7 @@ public class ReadWeightTest {
         assertEquals(10, w.weightOf(NodeRole.MASTER));
         assertEquals(50, w.weightOf(NodeRole.REPLICA));
         assertEquals(100, w.total());
-        assertTrue(w.hasReadTarget());
+        assertTrue(ConfigTestAccess.hasReadTarget(w));
     }
 
     @Test
@@ -83,13 +83,14 @@ public class ReadWeightTest {
 
     @Test
     public void allZeroHasNoReadTarget() throws SQLException {
-        assertFalse(ReadWeight.parse("master:0").hasReadTarget());
+        assertFalse(ConfigTestAccess.hasReadTarget(ReadWeight.parse("master:0")));
     }
 
     @Test
     public void defaultWithMasterSlaveReplicaAllOne() throws SQLException {
         ReadWeight w =
-                ReadWeight.defaultsFor(topologyOf("jdbc:cubrid:loadbalance://n1,n2;replica=r1/db"));
+                ReadWeight.defaultsFor(
+                        topologyOf("jdbc:cubrid:loadbalance://n1,n2;replica=r1/db:::"));
 
         assertEquals(1, w.weightOf(NodeRole.MASTER));
         assertEquals(1, w.weightOf(NodeRole.SLAVE));
@@ -98,7 +99,7 @@ public class ReadWeightTest {
 
     @Test
     public void defaultWithoutReplicaExcludesReplica() throws SQLException {
-        ReadWeight w = ReadWeight.defaultsFor(topologyOf("jdbc:cubrid:loadbalance://n1,n2/db"));
+        ReadWeight w = ReadWeight.defaultsFor(topologyOf("jdbc:cubrid:loadbalance://n1,n2/db:::"));
 
         assertEquals(1, w.weightOf(NodeRole.MASTER));
         assertEquals(1, w.weightOf(NodeRole.SLAVE));
@@ -107,7 +108,7 @@ public class ReadWeightTest {
 
     @Test
     public void defaultSingleHostIsMasterOnly() throws SQLException {
-        ReadWeight w = ReadWeight.defaultsFor(topologyOf("jdbc:cubrid:loadbalance://n1/db"));
+        ReadWeight w = ReadWeight.defaultsFor(topologyOf("jdbc:cubrid:loadbalance://n1/db:::"));
 
         assertEquals(1, w.weightOf(NodeRole.MASTER));
         assertEquals(0, w.weightOf(NodeRole.SLAVE));
@@ -116,15 +117,15 @@ public class ReadWeightTest {
 
     @Test
     public void resolveUsesDefaultsWhenSpecAbsent() throws SQLException {
-        ParsedRoleTopology topo = topologyOf("jdbc:cubrid:loadbalance://n1,n2;replica=r1/db");
+        ParsedRoleTopology topo = topologyOf("jdbc:cubrid:loadbalance://n1,n2;replica=r1/db:::");
 
         assertEquals(1, ReadWeight.resolve(null, topo).weightOf(NodeRole.REPLICA));
-        assertEquals(1, ReadWeight.resolve("   ", topo).weightOf(NodeRole.SLAVE));
+        assertEquals(1, ReadWeight.resolve("", topo).weightOf(NodeRole.SLAVE));
     }
 
     @Test
     public void resolveParsesWhenSpecPresent() throws SQLException {
-        ParsedRoleTopology topo = topologyOf("jdbc:cubrid:loadbalance://n1,n2;replica=r1/db");
+        ParsedRoleTopology topo = topologyOf("jdbc:cubrid:loadbalance://n1,n2;replica=r1/db:::");
         ReadWeight w = ReadWeight.resolve("slave:40,master:10,replica:50", topo);
 
         assertEquals(40, w.weightOf(NodeRole.SLAVE));
@@ -146,7 +147,7 @@ public class ReadWeightTest {
     /** Only roles the topology has can take reads; weights on the others alone are no target. */
     @Test
     public void weightsOnlyOnAbsentRolesAreNoReadTarget() throws SQLException {
-        ParsedRoleTopology topo = topologyOf("jdbc:cubrid:loadbalance://n1,n2/db");
+        ParsedRoleTopology topo = topologyOf("jdbc:cubrid:loadbalance://n1,n2/db:::");
         try {
             ReadWeight.resolve("master:0,replica:5", topo);
             fail("a weight on an absent role leaves no read target");

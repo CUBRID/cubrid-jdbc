@@ -91,7 +91,7 @@ public class LoadBalanceUriIntegrationTest {
     @Test
     public void poolOf9MatchesSpecWorkedExample() throws SQLException {
         String url =
-                "jdbc:cubrid:loadbalance://node1,node2,node3;replica=rep1/db"
+                "jdbc:cubrid:loadbalance://node1,node2,node3;replica=rep1/db:::"
                         + "?rwPort=33000&roPort=33002&soPort=33004";
 
         Map<String, Integer> readEps = new HashMap<String, Integer>();
@@ -123,7 +123,7 @@ public class LoadBalanceUriIntegrationTest {
     @Test
     public void biasedPoolChurnKeepsTheReadWeightRatio() throws SQLException {
         String url =
-                "jdbc:cubrid:loadbalance://node1,node2;replica=rep1/db"
+                "jdbc:cubrid:loadbalance://node1,node2;replica=rep1/db:::"
                         + "?rwPort=33000&roPort=33002&soPort=33004"
                         + "&readWeight=slave:40,master:10,replica:50";
 
@@ -173,7 +173,7 @@ public class LoadBalanceUriIntegrationTest {
     public void writeRoutesToMasterReadRoutesToBoundEndpoint() throws SQLException {
         LoadBalanceConnection conn =
                 openLb(
-                        "jdbc:cubrid:loadbalance://node1,node2/db"
+                        "jdbc:cubrid:loadbalance://node1,node2/db:::"
                                 + "?rwPort=33000&roPort=33002&readWeight=slave:1,master:0");
 
         assertEquals("node1:33000", conn.endpointForTarget(RouteTarget.TO_READ_WRITE).getId());
@@ -183,7 +183,7 @@ public class LoadBalanceUriIntegrationTest {
     @Test
     public void masterZeroNeverBindsReadToMaster() throws SQLException {
         String url =
-                "jdbc:cubrid:loadbalance://node1,node2;replica=rep1/db"
+                "jdbc:cubrid:loadbalance://node1,node2;replica=rep1/db:::"
                         + "?rwPort=33000&roPort=33002&soPort=33004&readWeight=slave:50,master:0,replica:50";
 
         for (int i = 0; i < 10; i++) {
@@ -203,7 +203,7 @@ public class LoadBalanceUriIntegrationTest {
     public void readRoutesToBoundMasterReadWhenRoOnRw() throws SQLException {
         LoadBalanceConnection conn =
                 openLb(
-                        "jdbc:cubrid:loadbalance://node1,node2;replica=rep1/db"
+                        "jdbc:cubrid:loadbalance://node1,node2;replica=rep1/db:::"
                                 + "?rwPort=33000&roPort=33002&soPort=33004"
                                 + "&readWeight=master:1,slave:0,replica:0");
 
@@ -215,7 +215,7 @@ public class LoadBalanceUriIntegrationTest {
     public void readRoutesToBoundSlaveRead() throws SQLException {
         LoadBalanceConnection conn =
                 openLb(
-                        "jdbc:cubrid:loadbalance://node1,node2/db"
+                        "jdbc:cubrid:loadbalance://node1,node2/db:::"
                                 + "?rwPort=33000&roPort=33002&readWeight=slave:1,master:0");
 
         assertEquals("node2:33002", conn.getCurrentRoEndpoint().getId());
@@ -227,7 +227,7 @@ public class LoadBalanceUriIntegrationTest {
     public void readInsideTransactionResolvesToRw() throws SQLException {
         LoadBalanceConnection conn =
                 openLb(
-                        "jdbc:cubrid:loadbalance://node1,node2;replica=rep1/db"
+                        "jdbc:cubrid:loadbalance://node1,node2;replica=rep1/db:::"
                                 + "?rwPort=33000&roPort=33002&soPort=33004");
         conn.setAutoCommit(false); // transaction active -> non-master target invalid
 
@@ -292,7 +292,7 @@ public class LoadBalanceUriIntegrationTest {
         // slave:1,master:0 forces the RO binding onto node2 (distinct from the node1 RW), so two
         // physical connections are opened before the post-bind failure.
         String url =
-                "jdbc:cubrid:loadbalance://node1,node2/testdb"
+                "jdbc:cubrid:loadbalance://node1,node2/testdb:::"
                         + "?rwPort=33000&roPort=33002&readWeight=slave:1,master:0";
         LoadBalanceSettings config = LoadBalanceSettings.fromUrl(LoadBalanceUrlParser.parse(url));
 

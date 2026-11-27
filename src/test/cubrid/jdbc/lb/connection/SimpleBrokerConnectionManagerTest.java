@@ -45,7 +45,7 @@ public final class SimpleBrokerConnectionManagerTest {
         Endpoint master = new Endpoint("rw", 33000);
         Endpoint ro = new Endpoint("ro1", 33000);
 
-        manager.bindSession(master, ro);
+        manager.bindSessionWithReadTarget(master, ro, false, null);
 
         assertEquals(master, manager.getSessionEndpoint(SessionLeg.RW));
         assertEquals(ro, manager.getSessionEndpoint(SessionLeg.RO));
@@ -58,7 +58,7 @@ public final class SimpleBrokerConnectionManagerTest {
         SimpleEndpointConnManager manager = new SimpleEndpointConnManager();
         Endpoint master = new Endpoint("rw", 33000);
         Endpoint ro = new Endpoint("ro1", 33000);
-        manager.bindSession(master, ro);
+        manager.bindSessionWithReadTarget(master, ro, false, null);
 
         manager.releaseBindings();
 
@@ -73,7 +73,7 @@ public final class SimpleBrokerConnectionManagerTest {
         SimpleEndpointConnManager manager = new SimpleEndpointConnManager();
         Endpoint master = new Endpoint("rw", 33000);
         Endpoint ro = new Endpoint("ro1", 33000);
-        manager.bindSession(master, ro);
+        manager.bindSessionWithReadTarget(master, ro, false, null);
 
         manager.releasePhysicalConnections();
 

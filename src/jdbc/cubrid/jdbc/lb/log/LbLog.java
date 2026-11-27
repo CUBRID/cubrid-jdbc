@@ -30,6 +30,7 @@
 
 package cubrid.jdbc.lb.log;
 
+import cubrid.jdbc.jci.UErrorCode;
 import java.sql.SQLException;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
@@ -45,9 +46,9 @@ import java.util.logging.Logger;
  * no connection in scope keep using the plain {@code Logger} API and render as {@code -}.
  *
  * <p>Records are built directly and passed to {@link Logger#log(LogRecord)} rather than going
- * through {@code Logger.warning(String)}. That is not only for the parameter: it also leaves the
- * record's source class and method unset, which is what keeps the formatter from ever triggering
- * JUL's stack-walking caller inference.
+ * through {@code Logger.warning(String)}. That is not only for the parameter: it also lets the
+ * record's source class be set to the logger name, which is what keeps the formatter from ever
+ * triggering JUL's stack-walking caller inference.
  */
 public final class LbLog {
     /**
@@ -126,21 +127,39 @@ public final class LbLog {
 
     /**
      * Renders a driver exception for a log line: SQLState, vendor code, and the leading trimmed
-     * part of the message. A {@code null} cause yields {@code ""}.
+     * part of the message. A server error is rendered by its code alone: its message quotes the
+     * statement, values included, which {@code lbLogSql} keeps out of the log. A {@code null} cause
+     * yields {@code ""}.
      *
      * @param cause exception to render, or {@code null}
      * @return the rendered cause, or {@code ""}
      */
     public static String cause(final SQLException cause) {
+        return cause(cause, false);
+    }
+
+    /**
+     * As {@link #cause(SQLException)}, for a session whose {@code lbLogSql} is known. Under {@code
+     * raw} the statements are logged as issued, so a server error keeps its message too.
+     *
+     * @param cause exception to render, or {@code null}
+     * @param statementsLoggedRaw whether the session logs statements with their values
+     * @return the rendered cause, or {@code ""}
+     */
+    public static String cause(final SQLException cause, final boolean statementsLoggedRaw) {
         if (cause == null) {
             return "";
         }
+        final int code = cause.getErrorCode();
+        // The driver's own codes and the CAS's lie at and below CAS_ER_DBMS; the server's above.
+        final boolean fromServer = code < 0 && code > UErrorCode.CAS_ER_DBMS;
         return "SQLState="
                 + cause.getSQLState()
                 + " errorCode="
-                + cause.getErrorCode()
-                + " msg="
-                + shortMessage(cause.getMessage());
+                + code
+                + (fromServer && !statementsLoggedRaw
+                        ? ""
+                        : " msg=" + shortMessage(cause.getMessage()));
     }
 
     /**

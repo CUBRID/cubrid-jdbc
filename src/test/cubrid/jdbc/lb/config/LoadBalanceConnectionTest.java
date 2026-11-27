@@ -68,7 +68,6 @@ public class LoadBalanceConnectionTest {
         LoadBalanceConnection conn = LbTestAccess.newLoadBalanceConnection(emptyConfig());
         assertNotNull(conn.getLbConfig());
         assertNotNull(conn.getSessionState());
-        assertNotNull(LbTestAccess.getBoundReadEndpoint(conn));
     }
 
     @Test

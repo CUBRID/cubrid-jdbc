@@ -41,6 +41,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * the existing instance (same-pool connections share one config in practice).
  */
 public final class RecoveryBackoffRegistry {
+    // One entry per cluster key, kept for the life of the JVM.
     private static final ConcurrentHashMap<String, RecoveryBackoff> BY_KEY =
             new ConcurrentHashMap<String, RecoveryBackoff>();
 
@@ -55,22 +56,5 @@ public final class RecoveryBackoffRegistry {
         RecoveryBackoff created = new RecoveryBackoff(intervalMs);
         existing = BY_KEY.putIfAbsent(registryKey, created);
         return existing != null ? existing : created;
-    }
-
-    /**
-     * Removes the backoff instance for a pool key. Not called from production today: no pool or
-     * driver shutdown hook is wired to it, so entries live for the JVM lifetime. That is bounded at
-     * one entry per distinct pool key, but a deployment that mints logical URLs dynamically would
-     * grow without bound; wire this into a close hook if that appears.
-     *
-     * @param registryKey pool key whose backoff instance is removed
-     */
-    static void releaseKey(final String registryKey) {
-        BY_KEY.remove(registryKey);
-    }
-
-    /** Clears all registry entries; for unit tests only. */
-    static void clearForTests() {
-        BY_KEY.clear();
     }
 }

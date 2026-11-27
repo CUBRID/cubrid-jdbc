@@ -63,7 +63,7 @@ public class LbLogDedupTest {
 
     @Before
     public void setUp() {
-        LbLogDedup.resetForTests();
+        LogTestAccess.resetDedup();
         logger = Logger.getLogger("cubrid.jdbc.lb.LbLogDedupTest");
         logger.setUseParentHandlers(false);
         logger.setLevel(Level.ALL);
@@ -75,7 +75,7 @@ public class LbLogDedupTest {
     public void tearDown() {
         logger.removeHandler(captured);
         logger.setUseParentHandlers(true);
-        LbLogDedup.resetForTests();
+        LogTestAccess.resetDedup();
     }
 
     @Test
@@ -96,8 +96,12 @@ public class LbLogDedupTest {
         assertEquals(3, captured.messages.size());
     }
 
+    /**
+     * r5 m13: what a window held back is reported as that window's, on its own line, before the
+     * next occurrence; the next occurrence, which may come hours later, carries no tally.
+     */
     @Test
-    public void theNextOccurrenceAfterTheWindowReportsWhatWasHeldBack()
+    public void theNextOccurrenceAfterTheWindowFollowsTheTallyOfThatWindow()
             throws InterruptedException {
         long window = 5L;
 
@@ -108,10 +112,32 @@ public class LbLogDedupTest {
         Thread.sleep(window * 2L);
         LbLogDedup.warn(logger, null, KEY, MESSAGE, window);
 
-        assertEquals(2, captured.messages.size());
+        assertEquals(3, captured.messages.size());
         assertTrue(
-                "the tally travels with the next admitted record: " + captured.messages.get(1),
-                captured.messages.get(1).indexOf("(+9 more in the previous") >= 0);
+                captured.messages.get(1),
+                captured.messages.get(1).startsWith("LB SUPPRESSED: 9 further occurrence(s)"));
+        assertEquals(MESSAGE, captured.messages.get(2));
+    }
+
+    /**
+     * r5 m10: keys that carry a statement shape can fill the map. Reaching the cap writes what is
+     * held back before the map is emptied.
+     */
+    @Test
+    public void reachingTheKeyCapWritesWhatWasHeldBack() {
+        LbLogDedup.warn(logger, null, KEY, MESSAGE);
+        LbLogDedup.warn(logger, null, KEY, MESSAGE);
+        for (int i = 0; i < 300; i++) {
+            LbLogDedup.warn(logger, null, "RO REJECTED|-181|SELECT c" + i, "LB RO REJECTED " + i);
+        }
+
+        int summaries = 0;
+        for (String m : captured.messages) {
+            if (m.startsWith("LB SUPPRESSED: 1 further occurrence(s) of [" + KEY + "]")) {
+                summaries++;
+            }
+        }
+        assertEquals("summaries of the held-back burst", 1, summaries);
     }
 
     @Test
@@ -146,6 +172,32 @@ public class LbLogDedupTest {
                 "SQLState=null errorCode=-21019 msg="
                         + "Cannot communicate with the broker or received invalid packet",
                 rendered);
+    }
+
+    /** A server message quotes the statement, values included; the driver's and CAS's do not. */
+    @Test
+    public void aServerErrorIsQuotedByItsCodeAlone() {
+        SQLException syntax =
+                new SQLException(
+                        "Syntax: before '  FROMM t WHERE ssn = '860101-1234567''", null, -493);
+        SQLException cas = new SQLException("Communication error", null, -10003);
+
+        assertEquals("SQLState=null errorCode=-493", LbLog.cause(syntax));
+        assertEquals("SQLState=null errorCode=-10003 msg=Communication error", LbLog.cause(cas));
+    }
+
+    /** Under lbLogSql=raw the statement is in the log as issued, so its error's message is too. */
+    @Test
+    public void aServerErrorKeepsItsMessageWhereStatementsAreLoggedRaw() {
+        SQLException syntax =
+                new SQLException(
+                        "Syntax: before '  FROMM t WHERE ssn = '860101-1234567''", null, -493);
+
+        assertEquals(
+                "SQLState=null errorCode=-493 msg=Syntax: before '  FROMM t WHERE ssn ="
+                        + " '860101-1234567''",
+                LbLog.cause(syntax, true));
+        assertEquals("SQLState=null errorCode=-493", LbLog.cause(syntax, false));
     }
 
     @Test

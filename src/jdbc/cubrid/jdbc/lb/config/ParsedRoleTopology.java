@@ -133,41 +133,4 @@ final class ParsedRoleTopology {
     boolean hasReplicas() {
         return !replicas.isEmpty();
     }
-
-    /**
-     * Master host name.
-     *
-     * @return the master host name
-     */
-    String getMasterHost() {
-        return master.getHost();
-    }
-
-    /**
-     * Slave host names, in URL order.
-     *
-     * @return the slave host names
-     */
-    List<String> getSlaveHosts() {
-        final List<String> hosts = new ArrayList<String>(slaves.size());
-        for (int i = 0; i < slaves.size(); i++) {
-            hosts.add(slaves.get(i).getHost());
-        }
-
-        return hosts;
-    }
-
-    /**
-     * Replica host names, in URL order.
-     *
-     * @return the replica host names
-     */
-    List<String> getReplicaHosts() {
-        final List<String> hosts = new ArrayList<String>(replicas.size());
-        for (int i = 0; i < replicas.size(); i++) {
-            hosts.add(replicas.get(i).getHost());
-        }
-
-        return hosts;
-    }
 }

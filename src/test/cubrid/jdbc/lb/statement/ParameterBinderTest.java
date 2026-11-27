@@ -33,6 +33,7 @@ package cubrid.jdbc.lb.statement;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -46,6 +47,7 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.math.BigDecimal;
 import java.sql.Blob;
+import java.sql.CallableStatement;
 import java.sql.Clob;
 import java.sql.Date;
 import java.sql.PreparedStatement;
@@ -54,6 +56,7 @@ import java.sql.Time;
 import java.sql.Timestamp;
 import java.sql.Types;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Calendar;
 import java.util.List;
 import java.util.TimeZone;
@@ -326,6 +329,55 @@ public class ParameterBinderTest {
     }
 
     /**
+     * Core binds the caller's own array for {@code setObject} too and, under {@code
+     * oracleStyleEmptyString}, changes {@code ""} to null in it. The copy for replay is that array
+     * as core left it.
+     */
+    @Test
+    public void setObjectHandsTheCallersArrayToThePreparedStatement() throws Exception {
+        final PreparedStatement core =
+                new FakePhysicalPreparedStatement() {
+                    @Override
+                    protected Object dispatch(final String name, final Object[] args) {
+                        if ("setObject".equals(name) && args[1] instanceof Object[]) {
+                            final Object[] values = (Object[]) args[1];
+                            for (int i = 0; i < values.length; i++) {
+                                if ("".equals(values[i])) {
+                                    values[i] = null;
+                                }
+                            }
+                        }
+                        return null;
+                    }
+                };
+        ParameterBinder binder =
+                new ParameterBinder(
+                        new ParameterBinder.BindCheck() {
+                            public PreparedStatement statement() {
+                                return core;
+                            }
+                        });
+        String[][] arrays = {{"", "a"}, {"", "b"}, {"", "c"}};
+
+        binder.recordSetObject(1, arrays[0]);
+        binder.recordSetObject(2, arrays[1], Types.OTHER);
+        binder.recordSetObject(3, arrays[2], Types.OTHER, 0);
+
+        ValueCapturingHandler handler = new ValueCapturingHandler();
+        for (String[] array : arrays) {
+            assertNull("the caller's array is the one core changes", array[0]);
+            array[1] = "changed after the setter";
+        }
+        binder.replay(handler.createProxy());
+
+        List<Object[]> replayed = handler.calls("setObject");
+        assertEquals(3, replayed.size());
+        assertArrayEquals(new Object[] {null, "a"}, (Object[]) replayed.get(0)[1]);
+        assertArrayEquals(new Object[] {null, "b"}, (Object[]) replayed.get(1)[1]);
+        assertArrayEquals(new Object[] {null, "c"}, (Object[]) replayed.get(2)[1]);
+    }
+
+    /**
      * Core converts a calendar form's value in the calendar's zone when it is set, so a later
      * change to either does not reach the server. A {@code CUBRIDTimestamptz} it binds as it is.
      */
@@ -407,6 +459,73 @@ public class ParameterBinderTest {
             }
             return list;
         }
+    }
+
+    @Test
+    public void anOutRegistrationIsReplayedWithTheValues() throws Exception {
+        ParameterBinder binder = new ParameterBinder();
+        binder.recordSetInt(1, 4);
+        binder.recordRegisterOutParameter(2, Types.INTEGER);
+        binder.recordRegisterOutParameter(3, Types.NUMERIC, 2);
+        binder.recordRegisterOutParameter(4, Types.OTHER, "t");
+
+        List<String> asked = new ArrayList<String>();
+        binder.replay(recordingCall(asked));
+
+        assertEquals(
+                Arrays.asList(
+                        "setInt[1, 4]",
+                        "registerOutParameter[2, 4]",
+                        "registerOutParameter[3, 2, 2]",
+                        "registerOutParameter[4, 1111, t]"),
+                asked);
+    }
+
+    @Test
+    public void aValueAndAnOutRegistrationAtOneIndexReplayInTheOrderLastMade() throws Exception {
+        ParameterBinder binder = new ParameterBinder();
+        binder.recordRegisterOutParameter(1, Types.INTEGER);
+        binder.recordSetInt(1, 4);
+        binder.recordSetInt(2, 5);
+        binder.recordRegisterOutParameter(2, Types.INTEGER);
+        binder.recordSetInt(2, 6);
+
+        List<String> asked = new ArrayList<String>();
+        binder.replay(recordingCall(asked));
+
+        assertEquals(
+                Arrays.asList(
+                        "registerOutParameter[1, 4]",
+                        "setInt[1, 4]",
+                        "registerOutParameter[2, 4]",
+                        "setInt[2, 6]"),
+                asked);
+    }
+
+    @Test
+    public void clearForgetsOutRegistrationsAsCoreDoes() throws Exception {
+        ParameterBinder binder = new ParameterBinder();
+        binder.recordSetInt(1, 4);
+        binder.recordRegisterOutParameter(2, Types.INTEGER);
+
+        binder.clear();
+
+        List<String> asked = new ArrayList<String>();
+        binder.replay(recordingCall(asked));
+        assertTrue(asked.isEmpty());
+    }
+
+    private static CallableStatement recordingCall(final List<String> asked) {
+        return (CallableStatement)
+                Proxy.newProxyInstance(
+                        CallableStatement.class.getClassLoader(),
+                        new Class<?>[] {CallableStatement.class},
+                        new InvocationHandler() {
+                            public Object invoke(final Object p, final Method m, final Object[] a) {
+                                asked.add(m.getName() + Arrays.toString(a));
+                                return null;
+                            }
+                        });
     }
 
     private static final class RecordingPreparedStatementHandler {

@@ -92,9 +92,7 @@ final class JdbcEndpointConnSpecFactory {
 
         String physicalQuery = buildPropagatedQuery(config.getPropagatedOptions());
 
-        String urlUser = user != null ? user : "";
-
-        String jdbcUrl = buildJdbcUrl(variant, endpoint, db, urlUser, physicalQuery);
+        String jdbcUrl = buildJdbcUrl(variant, endpoint, db, physicalQuery);
 
         return new JdbcPhyConnSpec(jdbcUrl, merged);
     }
@@ -119,23 +117,25 @@ final class JdbcEndpointConnSpecFactory {
     }
 
     /**
-     * Whether the broker URL carries {@code key}. LB-only keys (rwPort/..., metrics*, lbLog*) stay
-     * here: they configure the LB layer, and the broker would only leak them into logs.
+     * Whether the broker URL carries {@code key}. LB-only keys (rwPort/..., metrics*, lbLog*) and
+     * the statement cache options LB keeps stay here, as they do out of the leg Properties.
      */
     private static boolean isPropagated(final String key) {
-        return key != null && key.length() > 0 && !isLbTopologyOption(key);
+        return key != null && key.length() > 0 && !LoadBalanceOptionValidator.staysOffTheLegs(key);
     }
 
     /**
-     * Refuses, while the URL is parsed, an option the broker URL could not carry. The core driver
-     * would refuse the URL on every leg's connect instead, far from the option that caused it.
+     * Refuses, while the URL is parsed, an option core's URL grammar refuses, as core refuses its
+     * URL: the statement cache and classic-only options too, which LB keeps off the legs. LB's own
+     * options follow their own rules.
      *
-     * @param options the options a loadbalance URL propagates
+     * @param options the options of a loadbalance URL, or of its CUBRID_JDBC_PROP file
      * @throws SQLException naming the first option the core URL grammar rejects
      */
     static void checkPropagatable(final Map<String, String> options) throws SQLException {
         for (Map.Entry<String, String> e : options.entrySet()) {
-            if (!isPropagated(e.getKey())) {
+            if (OptionKeys.containsIgnoreCase(
+                    LoadBalanceOptionValidator.LOADBALANCE_ONLY, e.getKey())) {
                 continue;
             }
             final String value = e.getValue() == null ? "" : e.getValue();
@@ -144,29 +144,15 @@ final class JdbcEndpointConnSpecFactory {
                 throw LbExceptions.invalidUrl(
                         "option '"
                                 + e.getKey()
-                                + "' cannot reach the broker: the name takes letters, digits and"
-                                + " '_', the value must be non-empty without '&', '=' or '?'",
+                                + "' is not valid in a CUBRID URL: the name takes letters, digits"
+                                + " and '_', the value must be non-empty without '&', '=' or '?'",
                         null);
             }
         }
     }
 
-    private static boolean isLbTopologyOption(final String name) {
-        for (final String key : LoadBalanceOptionValidator.LOADBALANCE_ONLY) {
-            if (key.equalsIgnoreCase(name)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     private static String buildJdbcUrl(
-            String variant,
-            Endpoint endpoint,
-            String db,
-            String userSegment,
-            String physicalQuery) {
+            String variant, Endpoint endpoint, String db, String physicalQuery) {
         StringBuilder sb = new StringBuilder();
         sb.append("jdbc:cubrid");
         sb.append(variant);
@@ -176,13 +162,11 @@ final class JdbcEndpointConnSpecFactory {
         sb.append(endpoint.getPort());
         sb.append(':');
         sb.append(db);
-        sb.append(':');
-        sb.append(userSegment == null ? "" : userSegment);
-        sb.append(':');
-        // The password is left out of the physical URL on purpose. It travels in the connect
-        // Properties, which the core driver prefers over URL segments, so it cannot leak through
-        // logs or error messages that echo the URL.
-        sb.append(':');
+        // The user and the password are left out of the physical URL on purpose. They travel in
+        // the connect Properties, which the core driver prefers over URL segments: a password
+        // cannot leak through what echoes the URL, and a user name the URL cannot carry (one with
+        // ':') connects as on core.
+        sb.append(":::");
         if (physicalQuery != null && physicalQuery.length() > 0) {
             sb.append(physicalQuery);
         }

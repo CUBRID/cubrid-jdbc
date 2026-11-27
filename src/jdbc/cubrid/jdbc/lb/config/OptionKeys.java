@@ -30,6 +30,8 @@
 
 package cubrid.jdbc.lb.config;
 
+import cubrid.jdbc.lb.LbExceptions;
+import java.sql.SQLException;
 import java.util.Map;
 
 /**
@@ -79,5 +81,19 @@ final class OptionKeys {
         }
 
         return false;
+    }
+
+    /**
+     * Refuses a value with white space around it, as core refuses its own property values and spec
+     * 13.3 says of LB's.
+     *
+     * @param name the option name
+     * @param value its value; {@code null} when the option is not set
+     * @throws SQLException if the value has white space at either end
+     */
+    static void refuseSurroundingSpace(final String name, final String value) throws SQLException {
+        if (value != null && !value.equals(value.trim())) {
+            throw LbExceptions.optionValueIncompatible(name, value);
+        }
     }
 }

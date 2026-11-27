@@ -30,9 +30,12 @@
 
 package cubrid.jdbc.lb.sql;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
@@ -64,6 +67,24 @@ public final class IntoVariables {
      * @return upper-cased names without a leading {@code :}; empty when there are none
      */
     public static Set<String> assignedBy(final String sql) {
+        if (createsARoutine(sql)) {
+            return Collections.emptySet();
+        }
+        final Set<String> read = assignedByReading(sql);
+        if (sql == null || sql.indexOf('\\') < 0) {
+            return read;
+        }
+        // As the classifier reads it: no_backslash_escapes is the server's, so both ways.
+        final String escaped = SqlLexer.withBackslashEscapes(sql);
+        if (escaped == null || escaped.equals(sql)) {
+            return read;
+        }
+        final Set<String> both = new LinkedHashSet<String>(read);
+        both.addAll(assignedByReading(escaped));
+        return both;
+    }
+
+    private static Set<String> assignedByReading(final String sql) {
         if (sql == null) {
             return Collections.emptySet();
         }
@@ -142,7 +163,7 @@ public final class IntoVariables {
      * @return upper-cased names; empty for any other statement
      */
     public static Set<String> droppedBy(final String sql) {
-        if (sql == null) {
+        if (sql == null || createsARoutine(sql)) {
             return Collections.emptySet();
         }
 
@@ -195,6 +216,67 @@ public final class IntoVariables {
         }
 
         return names == null ? Collections.<String>emptySet() : names;
+    }
+
+    /**
+     * Names a string that failed may still have assigned: CUBRID keeps what its statements before
+     * the failing one did, and which of them ran is not known. One statement that failed assigned
+     * nothing.
+     *
+     * @param sql the statement text as the application sent it
+     * @return upper-cased names; empty for a single statement
+     */
+    public static Set<String> assignedIfFailed(final String sql) {
+        return sql != null && severalStatements(sql)
+                ? assignedBy(sql)
+                : Collections.<String>emptySet();
+    }
+
+    /** Whether {@code sql} holds more than one statement. */
+    private static boolean severalStatements(final String sql) {
+        final int len = sql.length();
+        int statements = 0;
+        int i = 0;
+        while (i < len) {
+            i = SqlLexer.skipWhitespaceAndComments(sql, i);
+            if (i < len && sql.charAt(i) != ';' && ++statements > 1) {
+                return true;
+            }
+            while (i < len && sql.charAt(i) != ';') {
+                final int after = SqlLexer.skipCommentOrQuoted(sql, i);
+                i = after != i ? after : i + 1;
+            }
+            i++;
+        }
+        return false;
+    }
+
+    /**
+     * Whether {@code sql} creates a stored routine. The server compiles its body and runs none of
+     * it, so an {@code INTO} or {@code DROP VARIABLE} there touches no session, and the body's
+     * {@code ;} do not end the string's statement.
+     */
+    private static boolean createsARoutine(final String sql) {
+        if (sql == null) {
+            return false;
+        }
+        final List<String> words = new ArrayList<String>(4);
+        int i = SqlLexer.skipWhitespaceAndComments(sql, 0);
+        while (words.size() < 4
+                && i < sql.length()
+                && KeywordSqlClassifier.isIdentifierStart(sql.charAt(i))) {
+            final int end = KeywordSqlClassifier.scanIdentifierEnd(sql, i);
+            words.add(sql.substring(i, end).toUpperCase(Locale.ROOT));
+            i = SqlLexer.skipWhitespaceAndComments(sql, end);
+        }
+        int k = 0;
+        if (words.size() < 2 || !"CREATE".equals(words.get(k++))) {
+            return false;
+        }
+        if (words.size() >= 4 && "OR".equals(words.get(k)) && "REPLACE".equals(words.get(k + 1))) {
+            k += 2;
+        }
+        return "PROCEDURE".equals(words.get(k)) || "FUNCTION".equals(words.get(k));
     }
 
     /**

@@ -34,8 +34,11 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 
 import cubrid.jdbc.lb.route.Router.RouteTarget;
+import cubrid.jdbc.lb.sql.SqlClassification;
+import cubrid.jdbc.lb.sql.SqlClassifier;
 import cubrid.jdbc.lb.state.SessionRoutingState;
 import java.util.Collections;
+import java.util.function.BooleanSupplier;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -53,26 +56,23 @@ public class RouterTransactionPrecedenceTest {
     @Test
     public void assertSessionReadPinSendsReadsToRw() {
         SessionRoutingState pinned = new SessionRoutingState();
-        pinned.pinReadsToRw();
-        Router.RouteDecision d = Router.decide("SELECT * FROM t", pinned, readAdvisor());
+        pinned.pinReadsToRw(Collections.singleton("TRACE"));
+        Router.RouteDecision d = decide("SELECT * FROM t", pinned, readClassifier());
         assertEquals(RouteTarget.TO_READ_WRITE, d.getTarget());
-        assertEquals(
-                RouteTarget.TO_READ_WRITE,
-                Router.decide(null, RouteTarget.TO_READ_ONLY, pinned, "SELECT * FROM t"));
     }
 
     /** Unlike a transaction, the pin yields to an explicit TO_RO hint: the application chose it. */
     @Test
     public void assertToRoHintStillWinsOverSessionReadPin() {
         SessionRoutingState pinned = new SessionRoutingState();
-        pinned.pinReadsToRw();
+        pinned.pinReadsToRw(Collections.singleton("TRACE"));
         Router.RouteDecision d =
-                Router.decide("SELECT /*+ TO_RO */ * FROM t", pinned, failingDefaultAdvisor());
+                decide("SELECT /*+ TO_RO */ * FROM t", pinned, failingClassifier());
         assertEquals(RouteTarget.TO_READ_ONLY, d.getTarget());
         pinned.reset();
         assertEquals(
                 RouteTarget.TO_READ_ONLY,
-                Router.decide("SELECT * FROM t", pinned, readAdvisor()).getTarget());
+                decide("SELECT * FROM t", pinned, readClassifier()).getTarget());
     }
 
     /** Only the reads naming a variable the session created on RW follow it there. */
@@ -82,27 +82,23 @@ public class RouterTransactionPrecedenceTest {
         withVariable.addSessionVariables(Collections.singleton("SET1"));
         assertEquals(
                 RouteTarget.TO_READ_WRITE,
-                Router.decide("SELECT set1 FROM db_root", withVariable, readAdvisor()).getTarget());
-        assertEquals(
-                RouteTarget.TO_READ_WRITE,
-                Router.decide(null, RouteTarget.TO_READ_ONLY, withVariable, "SELECT set1"));
+                decide("SELECT set1 FROM db_root", withVariable, readClassifier()).getTarget());
         assertEquals(
                 RouteTarget.TO_READ_ONLY,
-                Router.decide("SELECT a FROM t", withVariable, readAdvisor()).getTarget());
+                decide("SELECT a FROM t", withVariable, readClassifier()).getTarget());
         assertEquals(
                 RouteTarget.TO_READ_ONLY,
-                Router.decide("SELECT /*+ TO_RO */ set1", withVariable, failingDefaultAdvisor())
-                        .getTarget());
+                decide("SELECT /*+ TO_RO */ set1", withVariable, failingClassifier()).getTarget());
         withVariable.reset();
         assertEquals(
                 RouteTarget.TO_READ_ONLY,
-                Router.decide("SELECT set1 FROM db_root", withVariable, readAdvisor()).getTarget());
+                decide("SELECT set1 FROM db_root", withVariable, readClassifier()).getTarget());
     }
 
-    private static Router.DefaultRouteAdvisor readAdvisor() {
-        return new Router.DefaultRouteAdvisor() {
-            public RouteTarget defaultTarget(final String sql) {
-                return RouteTarget.TO_READ_ONLY;
+    private static SqlClassifier readClassifier() {
+        return new SqlClassifier() {
+            public SqlClassification classify(final String sql) {
+                return SqlClassification.READ;
             }
         };
     }
@@ -110,21 +106,21 @@ public class RouterTransactionPrecedenceTest {
     @Test
     public void assertActiveTransactionInvalidatesToRoHint() {
         final String sql = "SELECT /*+ TO_RO */ * FROM t";
-        Router.RouteDecision d = Router.decide(sql, session, failingDefaultAdvisor());
+        Router.RouteDecision d = decide(sql, session, failingClassifier());
         assertEquals(RouteTarget.TO_READ_WRITE, d.getTarget());
     }
 
     @Test
     public void assertActiveTransactionInvalidatesToSlaveHint() {
         final String sql = "SELECT /*+ TO_SLAVE */ * FROM t";
-        Router.RouteDecision d = Router.decide(sql, session, failingDefaultAdvisor());
+        Router.RouteDecision d = decide(sql, session, failingClassifier());
         assertEquals(RouteTarget.TO_READ_WRITE, d.getTarget());
     }
 
     @Test
     public void assertActiveTransactionPreservesToRwHint() {
         final String sql = "SELECT /*+ TO_RW */ * FROM t";
-        Router.RouteDecision d = Router.decide(sql, session, failingDefaultAdvisor());
+        Router.RouteDecision d = decide(sql, session, failingClassifier());
         assertEquals(RouteTarget.TO_READ_WRITE, d.getTarget());
     }
 
@@ -137,7 +133,7 @@ public class RouterTransactionPrecedenceTest {
     public void assertManualCommitStaysTransactionPinnedAfterCommit() {
         session.onTransactionBoundary();
         final String sql = "SELECT /*+ TO_RO */ * FROM t";
-        Router.RouteDecision d = Router.decide(sql, session, failingDefaultAdvisor());
+        Router.RouteDecision d = decide(sql, session, failingClassifier());
         assertEquals(RouteTarget.TO_READ_WRITE, d.getTarget());
     }
 
@@ -145,17 +141,28 @@ public class RouterTransactionPrecedenceTest {
     public void assertNonTransactionalToRoHonored() {
         SessionRoutingState autoCommit = new SessionRoutingState();
         final String sql = "SELECT /*+ TO_RO */ * FROM t";
-        Router.RouteDecision d = Router.decide(sql, autoCommit, failingDefaultAdvisor());
+        Router.RouteDecision d = decide(sql, autoCommit, failingClassifier());
         assertEquals(RouteTarget.TO_READ_ONLY, d.getTarget());
     }
 
-    private static Router.DefaultRouteAdvisor failingDefaultAdvisor() {
-        return new Router.DefaultRouteAdvisor() {
-            @Override
-            public RouteTarget defaultTarget(final String s) {
-                fail("Default advisor must not run when transaction or hint decides routing");
+    private static SqlClassifier failingClassifier() {
+        return new SqlClassifier() {
+            public SqlClassification classify(final String s) {
+                fail("The classification must not be asked when a transaction or hint decides");
                 return null;
             }
         };
+    }
+
+    private static final BooleanSupplier NOT_OPEN =
+            new BooleanSupplier() {
+                public boolean getAsBoolean() {
+                    return false;
+                }
+            };
+
+    private static Router.RouteDecision decide(
+            final String sql, final SessionRoutingState state, final SqlClassifier classifier) {
+        return Router.decide(RoutedSql.of(sql, classifier), false, false, state, NOT_OPEN);
     }
 }

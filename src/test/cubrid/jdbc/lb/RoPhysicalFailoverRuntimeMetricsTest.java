@@ -172,6 +172,9 @@ public final class RoPhysicalFailoverRuntimeMetricsTest {
                                 if (rt.equals(Boolean.TYPE)) {
                                     return Boolean.FALSE;
                                 }
+                                if (rt.equals(Integer.TYPE)) {
+                                    return Integer.valueOf(0);
+                                }
                                 return null;
                             }
                         });

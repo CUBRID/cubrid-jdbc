@@ -38,6 +38,9 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import cubrid.jdbc.driver.CUBRIDException;
+import cubrid.jdbc.driver.CUBRIDJDBCErrorCode;
+import cubrid.jdbc.jci.UErrorCode;
+import cubrid.jdbc.jci.UUnreachableHostList;
 import cubrid.jdbc.lb.LbTestAccess;
 import cubrid.jdbc.lb.LbTestSettings;
 import cubrid.jdbc.lb.SessionLeg;
@@ -69,6 +72,9 @@ public class JdbcBrokerConnectionManagerTest {
 
     private static final String LOGICAL_URL = "jdbc:cubrid:localhost:30000:testdb:public::";
 
+    /** base/error_code.h: an RW client reached a server that cannot take updates. */
+    private static final int ER_NET_HS_INCOMPAT_RW_MODE = -1139;
+
     @Test
     public void bindSessionOpensTwoConnectionsWithBrokerHostsInUrls() throws SQLException {
         final List<String> urls = new ArrayList<String>();
@@ -82,10 +88,11 @@ public class JdbcBrokerConnectionManagerTest {
                 };
         LoadBalanceSettings cfg = sessionConfig();
         SessionPhysicalConnManager mgr =
-                new SessionPhysicalConnManager(LOGICAL_URL, new Properties(), cfg, factory);
+                ConnectionTestAccess.newSessionPhysicalConnManager(
+                        LOGICAL_URL, new Properties(), cfg, factory);
         Endpoint rw = new Endpoint("rw-b", 33000);
         Endpoint ro = new Endpoint("ro-b", 33001);
-        mgr.bindSession(rw, ro);
+        mgr.bindSessionWithReadTarget(rw, ro, false, null);
         assertEquals(2, urls.size());
         assertTrue(urls.get(0).contains("rw-b:33000"));
         assertTrue(urls.get(1).contains("ro-b:33001"));
@@ -110,18 +117,19 @@ public class JdbcBrokerConnectionManagerTest {
                     public Connection getConnection(final String url, final Properties info)
                             throws SQLException {
                         if (url.contains("bad-rw:30000")) {
-                            throw new SQLException("bad rw down");
+                            throw new SQLException("bad rw down", null, UErrorCode.ER_CONNECTION);
                         }
                         return newConnectionProxy(new AtomicInteger());
                     }
                 };
         SessionPhysicalConnManager mgr =
-                new SessionPhysicalConnManager(
+                ConnectionTestAccess.newSessionPhysicalConnManager(
                         LOGICAL_URL, new Properties(), sessionConfigFailoverTopology(), factory);
-        mgr.bindSession(badRw, ro, topo);
+        mgr.bindSessionWithReadTarget(badRw, ro, false, topo);
         assertEquals(okRw, mgr.getSessionEndpoint(SessionLeg.RW));
         assertEquals(ro, mgr.getSessionEndpoint(SessionLeg.RO));
         mgr.releasePhysicalConnections();
+        UUnreachableHostList.getInstance().remove(badRw.getId());
     }
 
     @Test
@@ -146,9 +154,9 @@ public class JdbcBrokerConnectionManagerTest {
                     }
                 };
         SessionPhysicalConnManager mgr =
-                new SessionPhysicalConnManager(
+                ConnectionTestAccess.newSessionPhysicalConnManager(
                         LOGICAL_URL, new Properties(), sessionConfigFailoverTopology(), factory);
-        mgr.bindSession(rw, badRo, topo);
+        mgr.bindSessionWithReadTarget(rw, badRo, false, topo);
         assertEquals(rw, mgr.getSessionEndpoint(SessionLeg.RW));
         assertEquals(okRo, mgr.getSessionEndpoint(SessionLeg.RO));
         mgr.releasePhysicalConnections();
@@ -169,21 +177,129 @@ public class JdbcBrokerConnectionManagerTest {
                 new JdbcConnectionFactory() {
                     public Connection getConnection(final String url, final Properties info)
                             throws SQLException {
-                        throw new SQLException("unreachable");
+                        throw new SQLException("unreachable", null, UErrorCode.ER_CONNECTION);
                     }
                 };
         SessionPhysicalConnManager mgr =
-                new SessionPhysicalConnManager(
+                ConnectionTestAccess.newSessionPhysicalConnManager(
                         LOGICAL_URL, new Properties(), sessionConfigFailoverTopology(), factory);
         try {
-            mgr.bindSession(rw1, ro, topo);
+            mgr.bindSessionWithReadTarget(rw1, ro, false, topo);
             fail("Expected SQLException");
         } catch (SQLException e) {
-            assertTrue(e instanceof CUBRIDException);
-            assertEquals(LbTestAccess.lb_broker_group_exhausted, e.getErrorCode());
-            assertTrue(e.getMessage().contains("group=RW"));
+            // core's own error, as a core connect reports it whether or not it had altHosts
+            assertEquals(UErrorCode.ER_CONNECTION, e.getErrorCode());
+            assertEquals("unreachable", e.getMessage());
         }
         mgr.releasePhysicalConnections();
+        UUnreachableHostList.getInstance().remove(rw1.getId());
+        UUnreachableHostList.getInstance().remove(rw2.getId());
+    }
+
+    /** Core's reconnect() goes to the next host only when the broker is down, as here for w1. */
+    @Test
+    public void rwBindStopsAtABrokerThatRefusesTheSessionAsCoreDoes() throws SQLException {
+        final Endpoint down = new Endpoint("refuse-w1", 1);
+        Endpoint refusing = new Endpoint("refuse-w2", 2);
+        Endpoint up = new Endpoint("refuse-w3", 3);
+        Endpoint ro = new Endpoint("refuse-r", 4);
+        EndpointTopology topo =
+                new EndpointTopology(
+                        Arrays.asList(down, refusing, up),
+                        Arrays.asList(ro),
+                        new ArrayList<Endpoint>());
+        final SQLException invalidUser = new SQLException("User is invalid", null, -165);
+        final List<String> dialed = new ArrayList<String>();
+        JdbcConnectionFactory factory =
+                new JdbcConnectionFactory() {
+                    public Connection getConnection(final String url, final Properties info)
+                            throws SQLException {
+                        dialed.add(url);
+                        if (url.contains("refuse-w1:1")) {
+                            throw new SQLException("down", null, UErrorCode.ER_CONNECTION);
+                        }
+                        if (url.contains("refuse-w2:2")) {
+                            throw invalidUser;
+                        }
+                        return newConnectionProxy(new AtomicInteger());
+                    }
+                };
+        SessionPhysicalConnManager mgr =
+                ConnectionTestAccess.newSessionPhysicalConnManager(
+                        LOGICAL_URL, new Properties(), sessionConfigFailoverTopology(), factory);
+        try {
+            mgr.bindSessionWithReadTarget(down, ro, false, topo);
+            fail("Expected the refusal");
+        } catch (SQLException e) {
+            assertSame(invalidUser, e);
+        } finally {
+            UUnreachableHostList.getInstance().remove(down.getId());
+            mgr.releasePhysicalConnections();
+        }
+        assertEquals("refuse-w3 is not dialed: " + dialed, 2, dialed.size());
+    }
+
+    /** An RW broker whose CAS cannot attach to an active server is passed over, unlike core. */
+    @Test
+    public void rwBindMovesOnFromAnHaRoleRejection() throws SQLException {
+        final Endpoint rejecting = new Endpoint("role-w1", 1);
+        Endpoint up = new Endpoint("role-w2", 2);
+        Endpoint ro = new Endpoint("role-r", 3);
+        EndpointTopology topo =
+                new EndpointTopology(
+                        Arrays.asList(rejecting, up), Arrays.asList(ro), new ArrayList<Endpoint>());
+        JdbcConnectionFactory factory =
+                new JdbcConnectionFactory() {
+                    public Connection getConnection(final String url, final Properties info)
+                            throws SQLException {
+                        if (url.contains("role-w1:1")) {
+                            throw new SQLException(
+                                    "incompatible rw mode", null, ER_NET_HS_INCOMPAT_RW_MODE);
+                        }
+                        return newConnectionProxy(new AtomicInteger());
+                    }
+                };
+        SessionPhysicalConnManager mgr =
+                ConnectionTestAccess.newSessionPhysicalConnManager(
+                        LOGICAL_URL, new Properties(), sessionConfigFailoverTopology(), factory);
+        try {
+            mgr.bindSessionWithReadTarget(rejecting, ro, false, topo);
+            assertEquals(up, mgr.getSessionEndpoint(SessionLeg.RW));
+        } finally {
+            UUnreachableHostList.getInstance().remove(rejecting.getId());
+            mgr.releasePhysicalConnections();
+        }
+    }
+
+    /** Core never dials a read broker, so one that refuses must not fail or narrow the session. */
+    @Test
+    public void readBindMovesOnFromABrokerThatRefusesTheSession() throws SQLException {
+        Endpoint rw = new Endpoint("ssl-w", 1);
+        Endpoint refusing = new Endpoint("ssl-r1", 2);
+        Endpoint up = new Endpoint("ssl-r2", 3);
+        EndpointTopology topo =
+                new EndpointTopology(
+                        Arrays.asList(rw), Arrays.asList(refusing, up), new ArrayList<Endpoint>());
+        JdbcConnectionFactory factory =
+                new JdbcConnectionFactory() {
+                    public Connection getConnection(final String url, final Properties info)
+                            throws SQLException {
+                        if (url.contains("ssl-r1:2")) {
+                            throw new SQLException(
+                                    "", null, UErrorCode.CAS_ER_SSL_TYPE_NOT_ALLOWED);
+                        }
+                        return newConnectionProxy(new AtomicInteger());
+                    }
+                };
+        SessionPhysicalConnManager mgr =
+                ConnectionTestAccess.newSessionPhysicalConnManager(
+                        LOGICAL_URL, new Properties(), sessionConfigFailoverTopology(), factory);
+        try {
+            mgr.bindSessionWithReadTarget(rw, refusing, false, topo);
+            assertEquals(up, mgr.getSessionEndpoint(SessionLeg.RO));
+        } finally {
+            mgr.releasePhysicalConnections();
+        }
     }
 
     @Test
@@ -197,9 +313,9 @@ public class JdbcBrokerConnectionManagerTest {
                     }
                 };
         SessionPhysicalConnManager mgr =
-                new SessionPhysicalConnManager(
+                ConnectionTestAccess.newSessionPhysicalConnManager(
                         LOGICAL_URL, new Properties(), sessionConfig(), factory);
-        mgr.bindSession(new Endpoint("m", 1), new Endpoint("r", 2));
+        mgr.bindSessionWithReadTarget(new Endpoint("m", 1), new Endpoint("r", 2), false, null);
         mgr.releasePhysicalConnections();
         assertEquals(2, closeCount.get());
     }
@@ -218,11 +334,11 @@ public class JdbcBrokerConnectionManagerTest {
                     }
                 };
         SessionPhysicalConnManager mgr =
-                new SessionPhysicalConnManager(
+                ConnectionTestAccess.newSessionPhysicalConnManager(
                         LOGICAL_URL, new Properties(), sessionConfig(), factory);
         Endpoint m = new Endpoint("m", 3);
         Endpoint r = new Endpoint("r", 4);
-        mgr.bindSession(m, r);
+        mgr.bindSessionWithReadTarget(m, r, false, null);
         assertEquals(
                 SessionPhysicalConnManager.RO_PHYSICAL_FAILOVER_REASON, mgr.getRoFallbackReason());
         mgr.releasePhysicalConnections();
@@ -242,10 +358,10 @@ public class JdbcBrokerConnectionManagerTest {
                     }
                 };
         SessionPhysicalConnManager mgr =
-                new SessionPhysicalConnManager(
+                ConnectionTestAccess.newSessionPhysicalConnManager(
                         LOGICAL_URL, new Properties(), sessionConfigWithRoFailover(false), factory);
         try {
-            mgr.bindSession(new Endpoint("m", 1), new Endpoint("r", 2));
+            mgr.bindSessionWithReadTarget(new Endpoint("m", 1), new Endpoint("r", 2), false, null);
             fail("Expected SQLException");
         } catch (SQLException e) {
             assertTrue(
@@ -273,15 +389,15 @@ public class JdbcBrokerConnectionManagerTest {
                     }
                 };
         SessionPhysicalConnManager mgr =
-                new SessionPhysicalConnManager(
+                ConnectionTestAccess.newSessionPhysicalConnManager(
                         LOGICAL_URL, new Properties(), sessionConfigWithRoFailover(true), factory);
         Endpoint m = new Endpoint("m", 3);
         Endpoint r = new Endpoint("r", 4);
-        mgr.bindSession(m, r);
+        mgr.bindSessionWithReadTarget(m, r, false, null);
         assertEquals(
                 SessionPhysicalConnManager.RO_PHYSICAL_FAILOVER_REASON, mgr.getRoFallbackReason());
-        assertNotNull(mgr.prepareStatement(m, "SELECT 1"));
-        assertNotNull(mgr.prepareStatement(r, "SELECT 1"));
+        assertNotNull(mgr.prepareStatement(m, "SELECT 1", null));
+        assertNotNull(mgr.prepareStatement(r, "SELECT 1", null));
         mgr.releasePhysicalConnections();
     }
 
@@ -301,9 +417,9 @@ public class JdbcBrokerConnectionManagerTest {
                     }
                 };
         SessionPhysicalConnManager mgr =
-                new SessionPhysicalConnManager(
+                ConnectionTestAccess.newSessionPhysicalConnManager(
                         LOGICAL_URL, new Properties(), sessionConfigWithRoFailover(true), factory);
-        mgr.bindSession(new Endpoint("m", 3), new Endpoint("r", 4));
+        mgr.bindSessionWithReadTarget(new Endpoint("m", 3), new Endpoint("r", 4), false, null);
         mgr.releasePhysicalConnections();
         assertEquals(1, closeCount.get());
     }
@@ -324,9 +440,9 @@ public class JdbcBrokerConnectionManagerTest {
                     }
                 };
         SessionPhysicalConnManager mgr =
-                new SessionPhysicalConnManager(
+                ConnectionTestAccess.newSessionPhysicalConnManager(
                         LOGICAL_URL, new Properties(), sessionConfig(), factory);
-        mgr.bindSession(new Endpoint("m", 3), new Endpoint("r", 4));
+        mgr.bindSessionWithReadTarget(new Endpoint("m", 3), new Endpoint("r", 4), false, null);
         mgr.applyPhyAutoCommit(false);
         assertEquals(1, rwAutoCommitCalls.get());
         assertEquals(1, roAutoCommitCalls.get());
@@ -354,9 +470,9 @@ public class JdbcBrokerConnectionManagerTest {
                     }
                 };
         SessionPhysicalConnManager mgr =
-                new SessionPhysicalConnManager(
+                ConnectionTestAccess.newSessionPhysicalConnManager(
                         LOGICAL_URL, new Properties(), sessionConfig(), factory);
-        mgr.bindSession(new Endpoint("m", 3), new Endpoint("r", 4));
+        mgr.bindSessionWithReadTarget(new Endpoint("m", 3), new Endpoint("r", 4), false, null);
         mgr.commitPhyTx();
         assertEquals(1, rwCommitCalls.get());
         assertEquals(1, roCommitCalls.get());
@@ -379,9 +495,9 @@ public class JdbcBrokerConnectionManagerTest {
                     }
                 };
         SessionPhysicalConnManager mgr =
-                new SessionPhysicalConnManager(
+                ConnectionTestAccess.newSessionPhysicalConnManager(
                         LOGICAL_URL, new Properties(), sessionConfig(), factory);
-        mgr.bindSession(new Endpoint("m", 3), new Endpoint("r", 4));
+        mgr.bindSessionWithReadTarget(new Endpoint("m", 3), new Endpoint("r", 4), false, null);
         mgr.rollbackPhyTx();
         assertEquals(1, rwRollbackCalls.get());
         assertEquals(1, roRollbackCalls.get());
@@ -403,17 +519,17 @@ public class JdbcBrokerConnectionManagerTest {
                     }
                 };
         SessionPhysicalConnManager mgr =
-                new SessionPhysicalConnManager(
+                ConnectionTestAccess.newSessionPhysicalConnManager(
                         LOGICAL_URL, new Properties(), sessionConfig(), factory);
         Endpoint m = new Endpoint("m", 3);
         Endpoint r = new Endpoint("r", 4);
-        mgr.bindSession(m, r);
+        mgr.bindSessionWithReadTarget(m, r, false, null);
         // Outer-whitespace-only difference -> same key -> one physical prepare.
-        mgr.prepareStatement(m, "  SELECT 1  ");
-        mgr.prepareStatement(m, "SELECT 1");
+        mgr.prepareStatement(m, "  SELECT 1  ", null);
+        mgr.prepareStatement(m, "SELECT 1", null);
         assertEquals(1, prepareCalls.get());
         // Internal-whitespace difference -> distinct key -> a second physical prepare.
-        mgr.prepareStatement(m, "SELECT  1");
+        mgr.prepareStatement(m, "SELECT  1", null);
         assertEquals(2, prepareCalls.get());
         assertEquals("SELECT 1", PreparedSql.normalizeForCacheKey("  SELECT 1  "));
         assertEquals("SELECT  1", PreparedSql.normalizeForCacheKey("SELECT  1"));
@@ -431,13 +547,13 @@ public class JdbcBrokerConnectionManagerTest {
                     }
                 };
         SessionPhysicalConnManager mgr =
-                new SessionPhysicalConnManager(
+                ConnectionTestAccess.newSessionPhysicalConnManager(
                         LOGICAL_URL, new Properties(), sessionConfig(), factory);
         Endpoint m = new Endpoint("m", 3);
         Endpoint r = new Endpoint("r", 4);
-        mgr.bindSession(m, r);
-        PreparedStatement ps1 = mgr.prepareStatement(m, "SELECT 1");
-        PreparedStatement ps2 = mgr.prepareStatement(m, "SELECT 1");
+        mgr.bindSessionWithReadTarget(m, r, false, null);
+        PreparedStatement ps1 = mgr.prepareStatement(m, "SELECT 1", null);
+        PreparedStatement ps2 = mgr.prepareStatement(m, "SELECT 1", null);
         assertNotNull(ps1);
         assertEquals(1, prepareCalls.get());
         assertSame(ps1, ps2);
@@ -457,10 +573,10 @@ public class JdbcBrokerConnectionManagerTest {
                     }
                 };
         SessionPhysicalConnManager mgr =
-                new SessionPhysicalConnManager(
+                ConnectionTestAccess.newSessionPhysicalConnManager(
                         LOGICAL_URL, new Properties(), sessionConfig(), factory);
         Endpoint m = new Endpoint("m", 3);
-        mgr.bindSession(m, new Endpoint("r", 4));
+        mgr.bindSessionWithReadTarget(m, new Endpoint("r", 4), false, null);
 
         PreparedStatement a1 = mgr.prepareStatement(m, "SELECT 1", "owner-A");
         PreparedStatement b1 = mgr.prepareStatement(m, "SELECT 1", "owner-B");
@@ -484,10 +600,10 @@ public class JdbcBrokerConnectionManagerTest {
                     }
                 };
         SessionPhysicalConnManager mgr =
-                new SessionPhysicalConnManager(
+                ConnectionTestAccess.newSessionPhysicalConnManager(
                         LOGICAL_URL, new Properties(), sessionConfig(), factory);
         Endpoint m = new Endpoint("m", 3);
-        mgr.bindSession(m, new Endpoint("r", 4));
+        mgr.bindSessionWithReadTarget(m, new Endpoint("r", 4), false, null);
 
         PreparedStatement a1 = mgr.prepareStatement(m, "SELECT 1", "owner-A");
         PreparedStatement b1 = mgr.prepareStatement(m, "SELECT 2", "owner-B");
@@ -515,10 +631,10 @@ public class JdbcBrokerConnectionManagerTest {
                     }
                 };
         SessionPhysicalConnManager mgr =
-                new SessionPhysicalConnManager(
+                ConnectionTestAccess.newSessionPhysicalConnManager(
                         LOGICAL_URL, new Properties(), sessionConfig(), factory);
         Endpoint m = new Endpoint("m", 3);
-        mgr.bindSession(m, new Endpoint("r", 4));
+        mgr.bindSessionWithReadTarget(m, new Endpoint("r", 4), false, null);
 
         mgr.prepareStatement(m, "INSERT INTO t VALUES (1)", "gk", Statement.RETURN_GENERATED_KEYS);
         assertEquals(
@@ -572,25 +688,29 @@ public class JdbcBrokerConnectionManagerTest {
                     }
                 };
         SessionPhysicalConnManager mgr =
-                new SessionPhysicalConnManager(
+                ConnectionTestAccess.newSessionPhysicalConnManager(
                         LOGICAL_URL, new Properties(), sessionConfig(), factory);
         Endpoint m = new Endpoint("m", 3);
         Endpoint r = new Endpoint("r", 4);
-        mgr.bindSession(m, r);
+        mgr.bindSessionWithReadTarget(m, r, false, null);
 
-        PreparedStatement ps1 = mgr.prepareStatement(m, "SELECT 1");
+        PreparedStatement ps1 = mgr.prepareStatement(m, "SELECT 1", null);
         assertEquals(1, prepareCalls.get());
 
         ps1.close();
 
-        PreparedStatement ps2 = mgr.prepareStatement(m, "SELECT 1");
+        PreparedStatement ps2 = mgr.prepareStatement(m, "SELECT 1", null);
         assertEquals(2, prepareCalls.get());
         assertNotSame(ps1, ps2);
         mgr.releasePhysicalConnections();
     }
 
+    /**
+     * A leg closed under the session, as core closes one whose network timeout expired, is not
+     * reopened: core fails every later call on it as closed (ISSUE-24).
+     */
     @Test
-    public void prepareStatementEvictsCachedStatementWhenConnectionClosed() throws SQLException {
+    public void aLegClosedUnderTheSessionIsNotReopened() throws SQLException {
         final AtomicInteger prepareCalls = new AtomicInteger();
         final AtomicInteger openCalls = new AtomicInteger();
         JdbcConnectionFactory factory =
@@ -602,21 +722,26 @@ public class JdbcBrokerConnectionManagerTest {
                     }
                 };
         SessionPhysicalConnManager mgr =
-                new SessionPhysicalConnManager(
+                ConnectionTestAccess.newSessionPhysicalConnManager(
                         LOGICAL_URL, new Properties(), sessionConfig(), factory);
         Endpoint m = new Endpoint("m", 3);
         Endpoint r = new Endpoint("r", 4);
-        mgr.bindSession(m, r);
+        mgr.bindSessionWithReadTarget(m, r, false, null);
         assertEquals(2, openCalls.get());
 
-        PreparedStatement ps1 = mgr.prepareStatement(m, "SELECT 1");
+        PreparedStatement ps1 = mgr.prepareStatement(m, "SELECT 1", null);
         assertEquals(1, prepareCalls.get());
         ps1.getConnection().close();
 
-        PreparedStatement ps2 = mgr.prepareStatement(m, "SELECT 1");
-        assertEquals(3, openCalls.get());
-        assertEquals(2, prepareCalls.get());
-        assertNotSame(ps1, ps2);
+        try {
+            mgr.prepareStatement(m, "SELECT 1", null);
+            fail("a leg closed under the session is not reopened");
+        } catch (SQLException e) {
+            assertEquals(CUBRIDJDBCErrorCode.connection_closed, e.getErrorCode());
+        }
+        assertEquals(2, openCalls.get());
+        assertEquals(1, prepareCalls.get());
+        assertTrue(mgr.isLegClosedUnderneath());
         mgr.releasePhysicalConnections();
     }
 
@@ -913,9 +1038,9 @@ public class JdbcBrokerConnectionManagerTest {
                 };
 
         SessionPhysicalConnManager mgr =
-                new SessionPhysicalConnManager(
+                ConnectionTestAccess.newSessionPhysicalConnManager(
                         LOGICAL_URL, new Properties(), sessionConfig(), factory);
-        mgr.bindSession(rw1, ro, topo);
+        mgr.bindSessionWithReadTarget(rw1, ro, false, topo);
 
         PhysicalRecoveryContext ctx =
                 new PhysicalRecoveryContext(
@@ -940,7 +1065,7 @@ public class JdbcBrokerConnectionManagerTest {
         EndpointTopology topo =
                 new EndpointTopology(rw, Arrays.asList(ro), Collections.<Endpoint>emptyList());
         SessionPhysicalConnManager mgr =
-                new SessionPhysicalConnManager(
+                ConnectionTestAccess.newSessionPhysicalConnManager(
                         LOGICAL_URL,
                         new Properties(),
                         sessionConfig(),
@@ -950,7 +1075,7 @@ public class JdbcBrokerConnectionManagerTest {
                                 return newConnectionProxy(new AtomicInteger());
                             }
                         });
-        mgr.bindSession(rw, ro, topo);
+        mgr.bindSessionWithReadTarget(rw, ro, false, topo);
 
         PhysicalRecoveryContext ctx =
                 new PhysicalRecoveryContext(
@@ -995,9 +1120,9 @@ public class JdbcBrokerConnectionManagerTest {
                 };
 
         SessionPhysicalConnManager mgr =
-                new SessionPhysicalConnManager(
+                ConnectionTestAccess.newSessionPhysicalConnManager(
                         LOGICAL_URL, new Properties(), sessionConfig(), factory);
-        mgr.bindSession(rw, ro1, topo);
+        mgr.bindSessionWithReadTarget(rw, ro1, false, topo);
 
         PhysicalRecoveryContext ctx =
                 new PhysicalRecoveryContext(
@@ -1036,9 +1161,9 @@ public class JdbcBrokerConnectionManagerTest {
                 };
 
         SessionPhysicalConnManager mgr =
-                new SessionPhysicalConnManager(
+                ConnectionTestAccess.newSessionPhysicalConnManager(
                         LOGICAL_URL, new Properties(), sessionConfig(), factory);
-        mgr.bindSession(rw, ro1, topo);
+        mgr.bindSessionWithReadTarget(rw, ro1, false, topo);
 
         PhysicalRecoveryContext ctx =
                 new PhysicalRecoveryContext(
@@ -1069,7 +1194,7 @@ public class JdbcBrokerConnectionManagerTest {
                     }
                 };
         SessionPhysicalConnManager mgr =
-                new SessionPhysicalConnManager(
+                ConnectionTestAccess.newSessionPhysicalConnManager(
                         LOGICAL_URL, new Properties(), sessionConfig(), factory);
         List<Endpoint> order = Arrays.asList(new Endpoint("skip", 1), new Endpoint("ok", 2));
         HashSet<String> exclude = new HashSet<String>();
@@ -1087,11 +1212,11 @@ public class JdbcBrokerConnectionManagerTest {
                 new JdbcConnectionFactory() {
                     public Connection getConnection(final String url, final Properties info)
                             throws SQLException {
-                        throw new SQLException("fail");
+                        throw new SQLException("fail", null, UErrorCode.ER_CONNECTION);
                     }
                 };
         SessionPhysicalConnManager mgr =
-                new SessionPhysicalConnManager(
+                ConnectionTestAccess.newSessionPhysicalConnManager(
                         LOGICAL_URL, new Properties(), sessionConfig(), factory);
         List<Endpoint> order =
                 Arrays.asList(new Endpoint("a", 1), new Endpoint("b", 2), new Endpoint("c", 3));
@@ -1105,5 +1230,6 @@ public class JdbcBrokerConnectionManagerTest {
             assertTrue(e.getMessage().indexOf("b:2") < 0);
             assertNotNull(e.getCause());
         }
+        UUnreachableHostList.getInstance().remove("a:1");
     }
 }

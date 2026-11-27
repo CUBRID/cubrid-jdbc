@@ -30,8 +30,6 @@
 
 package cubrid.jdbc.lb.connection;
 
-import cubrid.jdbc.lb.LoadBalanceConnection;
-import cubrid.jdbc.lb.LoadBalanceConnection.PhysicalResourceReleaser;
 import cubrid.jdbc.lb.SessionLeg;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
@@ -45,20 +43,20 @@ import java.sql.SQLException;
  * Session physical JDBC bindings: RW/RO (and failover), prepareStatement, transaction propagation,
  * and standalone physical commands.
  *
- * <p>Implementations: {@link SessionPhysicalConnManager}. {@link #bindSession} may try alternate
- * brokers from {@link cubrid.jdbc.lb.config.EndpointTopology} on connect failure.
+ * <p>Implementations: {@link SessionPhysicalConnManager}. {@link #bindSessionWithReadTarget} may
+ * try alternate brokers from {@link cubrid.jdbc.lb.config.EndpointTopology} on connect failure.
  */
-public interface EndpointConnManager extends PhysicalResourceReleaser {
+public interface EndpointConnManager {
 
-    /** Applies the owning session's state (autoCommit/isolation/schema/...) to a physical conn. */
+    /** Applies the owning session's state (autoCommit/isolation/SETs/...) to a physical conn. */
     interface SessionStateApplier {
         void applyTo(Connection physical) throws SQLException;
     }
 
     /**
      * Registers the hook that re-applies the logical session state to every freshly opened physical
-     * connection; set by the owning {@link LoadBalanceConnection}. Managers without a
-     * re-application concern may ignore it.
+     * connection; set by the owning {@link cubrid.jdbc.lb.LoadBalanceConnection}. Managers without
+     * a re-application concern may ignore it.
      *
      * @param applier the session-state applier to invoke on each new physical connection
      */
@@ -66,41 +64,25 @@ public interface EndpointConnManager extends PhysicalResourceReleaser {
 
     /**
      * Registers the identifier this manager's log records are attributed to ({@code conn#7}), set
-     * by the owning {@link LoadBalanceConnection}. A manager built directly in a unit test never
-     * gets one and its records render with the no-context marker.
+     * by the owning {@link cubrid.jdbc.lb.LoadBalanceConnection}. A manager built directly in a
+     * unit test never gets one and its records render with the no-context marker.
      *
      * @param context the connection context for log records; may be {@code null}
      */
     void setLogContext(String context);
 
-    void bindSession(Endpoint rwEndpoint, Endpoint roEndpoint) throws SQLException;
-
-    void bindSession(Endpoint rwEndpoint, Endpoint roEndpoint, EndpointTopology topology)
-            throws SQLException;
-
-    /**
-     * Binds a session with only an RW endpoint when no RO broker is configured. A single physical
-     * connection is opened and serves both read and write SQL permanently (no RO physical
-     * connection, no RO self-healing).
-     *
-     * @param rwEndpoint the RW broker endpoint serving both reads and writes
-     * @param topology the endpoint topology used for failover
-     * @throws SQLException if the physical connection cannot be opened
-     */
-    void bindSessionRwOnly(Endpoint rwEndpoint, EndpointTopology topology) throws SQLException;
-
     /**
      * Role-model session binding. Writes always run on {@code masterRw}; this logical connection's
      * reads run on {@code readEndpoint} (the single read target chosen once by readWeight).
      *
-     * <p>When the chosen read target is the master ({@code readReusesRw} — roOnRw), no separate
-     * read connection is opened: the RW physical connection serves both read and write, so the
-     * logical connection holds <b>one</b> physical connection. Otherwise a separate RO/SO physical
+     * <p>When the chosen read target is the master ({@code readReusesRw}), no separate read
+     * connection is opened: the RW physical connection serves both read and write, so the logical
+     * connection holds <b>one</b> physical connection. Otherwise a separate RO/SO physical
      * connection is opened for {@code readEndpoint}, giving two physical connections.
      *
      * @param masterRw the master RW broker endpoint that serves writes
      * @param readEndpoint the read target chosen by readWeight
-     * @param readReusesRw true when reads run on the RW physical connection (roOnRw)
+     * @param readReusesRw true when reads run on the RW physical connection
      * @param topology the endpoint topology used for failover
      * @throws SQLException if a physical connection cannot be opened
      */
@@ -110,6 +92,14 @@ public interface EndpointConnManager extends PhysicalResourceReleaser {
             boolean readReusesRw,
             EndpointTopology topology)
             throws SQLException;
+
+    /**
+     * Where this session's legs are now. Takes no lock, so a reader on another thread or connection
+     * does not wait while this session dials a broker.
+     *
+     * @return the current binding, {@link LegBinding#UNBOUND} before binding and after release
+     */
+    LegBinding binding();
 
     Endpoint getSessionEndpoint(SessionLeg leg);
 
@@ -122,17 +112,19 @@ public interface EndpointConnManager extends PhysicalResourceReleaser {
     Connection boundConnection(SessionLeg leg);
 
     /**
-     * Whether reads currently run on the RW physical connection instead of one of their own - the
-     * {@code readReusesRw} state of {@link #bindSessionWithReadTarget}, which failover can also
-     * enter when every read endpoint is down. Exported as an operator gauge.
+     * Whether every read broker failed, so reads run on the RW physical connection (roOnRw). A
+     * session whose read target is the master reads there by design and is not counted. Takes no
+     * lock; exported as the {@code lb_ro_on_rw_sessions} gauge.
      *
-     * @return whether reads currently run on the RW physical connection
+     * @return whether reads have fallen back onto the RW physical connection
      */
     boolean isReadOnRwConnection();
 
-    void releaseBindings();
+    /** Closes the session's physical prepared statements, as {@code Connection.close()} does. */
+    void releasePreparedStatements();
 
-    PreparedStatement prepareStatement(Endpoint endpoint, String sql) throws SQLException;
+    /** Closes the session's physical connections; no leg is opened after this. */
+    void releasePhysicalConnections();
 
     /**
      * Prepare owned by a specific logical PreparedStatement (ownerId), so its physical PS is not
@@ -185,8 +177,6 @@ public interface EndpointConnManager extends PhysicalResourceReleaser {
             int resultSetHoldability)
             throws SQLException;
 
-    void closePrepStmts() throws SQLException;
-
     /**
      * Close only the physical prepared statements owned by one logical PreparedStatement.
      *
@@ -216,8 +206,6 @@ public interface EndpointConnManager extends PhysicalResourceReleaser {
     void rollbackPhyTx() throws SQLException;
 
     String getRoFallbackReason();
-
-    String getLogicalJdbcUrl();
 
     /**
      * Runtime failover of the bound RW physical connection. Managers that do not support physical
@@ -250,10 +238,18 @@ public interface EndpointConnManager extends PhysicalResourceReleaser {
     boolean isBoundRwSocketOpen();
 
     /**
+     * Whether the write leg was closed under this session rather than by it: core closes a
+     * connection whose network timeout expired, and then reports it closed. Once seen, it stays so.
+     *
+     * @return whether the write leg of this session was closed under it
+     */
+    boolean isLegClosedUnderneath();
+
+    /**
      * Whether the server's last reply on the bound write connection said a transaction is open
-     * there. CUBRID reports it in every reply, so it also covers work LB never saw - a {@code CALL}
-     * on a handed-out CallableStatement, an updatable result set, an OID write. Answers {@code
-     * true} when it cannot be read: guessing "closed" would let failover drop uncommitted work.
+     * there. CUBRID reports it in every reply, so it also covers work LB never saw - an updatable
+     * result set's write, an OID write. Answers {@code true} when it cannot be read: guessing
+     * "closed" would let failover drop uncommitted work.
      *
      * @return whether uncommitted work may exist on the write connection
      */
@@ -266,6 +262,22 @@ public interface EndpointConnManager extends PhysicalResourceReleaser {
      * @return whether the write connection's last reply said a transaction is open
      */
     boolean isRwTxReportedOpen();
+
+    /**
+     * Whether reads are served away from the session's home read endpoint: on a sibling, another
+     * role, or the RW connection. Only then has {@link #restoreRoIfRecovered} anything to do.
+     *
+     * @return whether the read leg is displaced
+     */
+    boolean isReadDisplaced();
+
+    /**
+     * Whether the RW leg is bound away from the master RW endpoint. Only then has {@link
+     * #restoreRwIfRecovered} anything to do.
+     *
+     * @return whether the RW leg is displaced
+     */
+    boolean isRwDisplaced();
 
     /**
      * Lazy RO failback: reconnect to the recovered home read endpoint when reads have been

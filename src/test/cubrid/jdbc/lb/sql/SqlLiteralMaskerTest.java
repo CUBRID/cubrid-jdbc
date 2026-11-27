@@ -91,6 +91,20 @@ public class SqlLiteralMaskerTest {
         assertEquals("SELECT 이름1, #t2 FROM t", mask("SELECT 이름1, #t2 FROM t"));
     }
 
+    /** m32: {@code \KRW5000} is a currency code and an amount; only the amount is a value. */
+    @Test
+    public void aCurrencyAmountIsMaskedAndItsCodeIsKept() {
+        assertEquals(
+                "UPDATE account SET balance = \\KRW? WHERE id = ?",
+                mask("UPDATE account SET balance = \\KRW5000000 WHERE id = 7"));
+        assertEquals(
+                "INSERT INTO pay VALUES (?, \\USD?, -\\JPY?, \\TL?, \\EUR?)",
+                mask("INSERT INTO pay VALUES (1, \\USD12345.67, -\\JPY777, \\TL300, \\EUR99.5e2)"));
+        assertEquals(
+                "SELECT \\KRW ?, \\?, $? FROM t", mask("SELECT \\KRW 5000, \\5000, $678 FROM t"));
+        assertEquals("SELECT KRW5000, t.USD1 FROM t", mask("SELECT KRW5000, t.USD1 FROM t"));
+    }
+
     /** Where a string ends depends on the server's no_backslash_escapes, so nothing is kept. */
     @Test
     public void aStringWithABackslashMasksTheWholeStatement() {

@@ -183,10 +183,17 @@ public final class UStream {
                         });
     }
 
-    /* A handle the server no longer has -- released at eof, on a failed read or with its
-     * transaction -- is not an error. */
+    /* A handle the server no longer has -- released at eof, on a failed read, with its
+     * transaction or with its CAS -- is not an error. A connection that has to reconnect lost
+     * them all, so the release is not sent. */
     // UFunctionCode.STREAM_RELEASE
     public int release(final long handle) {
+        synchronized (conn) {
+            if (conn.needReconnection && !conn.isClosed) {
+                conn.errorHandler = new UError(conn);
+                return 0;
+            }
+        }
         return (int)
                 request(
                         UFunctionCode.STREAM_RELEASE,

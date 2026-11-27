@@ -264,6 +264,23 @@ public final class StreamRequestTest {
         assertFalse("no silent reconnect inside the transaction", socket.reconnects());
     }
 
+    /**
+     * A connection that has to reconnect lost the download handles with its CAS, so a release would
+     * reconnect for nothing: it is not sent, and succeeds as for any handle already gone.
+     */
+    @Test
+    public void aReleaseAfterTheCasIsLostIsNotSent() throws Exception {
+        StreamSocket socket = new StreamSocket(UConnection.PROTOCOL_V13, 0);
+        socket.loseCas();
+        assertEquals(-1, socket.getStream().read(7L, new byte[8], 0, 8, (byte) 0, new int[1]));
+        assertTrue(socket.reconnects());
+        int sent = socket.sent().length;
+
+        assertEquals(0, socket.getStream().release(7L));
+        assertEquals(UErrorCode.ER_NO_ERROR, socket.getRecentError().getErrorCode());
+        assertEquals("nothing was sent", sent, socket.sent().length);
+    }
+
     /** A closed socket has no stream behind it. */
     @Test
     public void closingTheSocketForgetsTheStream() throws Exception {

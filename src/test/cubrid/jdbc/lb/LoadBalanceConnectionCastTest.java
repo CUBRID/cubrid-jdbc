@@ -39,6 +39,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import cubrid.jdbc.driver.CUBRIDConnection;
+import cubrid.jdbc.driver.CUBRIDJDBCErrorCode;
 import cubrid.jdbc.lb.config.Endpoint;
 import cubrid.jdbc.lb.config.EndpointTopology;
 import cubrid.jdbc.lb.connection.SimpleEndpointConnManager;
@@ -187,6 +188,21 @@ public final class LoadBalanceConnectionCastTest {
     }
 
     @Test
+    public void copyLoaderIsRefusedWithANamedError() throws Exception {
+        LoadBalanceConnection conn = boundEx();
+
+        try {
+            conn.getCopyLoader();
+            fail("getCopyLoader() must be refused, not run against the null inherited socket");
+        } catch (SQLException expected) {
+            assertEquals(CUBRIDJDBCErrorCode.not_supported, expected.getErrorCode());
+            assertTrue(
+                    "the message must name the refused API: " + expected.getMessage(),
+                    expected.getMessage().contains("getCopyLoader()"));
+        }
+    }
+
+    @Test
     public void isShardDoesNotReachTheNullInheritedSocket() throws Exception {
         LoadBalanceConnection conn = boundEx();
         try {
@@ -255,6 +271,12 @@ public final class LoadBalanceConnectionCastTest {
      * CUBRIDResultSet}. Pinning the exact list here means a newly added package-private member
      * fails this test and gets that reachability question asked again, rather than being discovered
      * as a NullPointerException in the field.
+     *
+     * <p>The stream calls ({@code streamInit}, {@code streamData}, {@code streamEnd}, {@code
+     * streamAbort}) and {@code executeForStream(String)} are called only by driver-internal code:
+     * the COPY loader, which this connection refuses, and the LOB upload, on the physical
+     * connection {@code createClob()} and {@code createBlob()} hand out, which is the write leg's
+     * here.
      */
     @Test
     public void packagePrivateMembersAreTheKnownUnreachableSet() {
@@ -278,9 +300,10 @@ public final class LoadBalanceConnectionCastTest {
                         + " confirm nothing hands a LoadBalanceConnection to a caller of it",
                 "[closeConnection(), createCUBRIDException(UError),"
                         + " createCUBRIDException(int, String, Throwable),"
-                        + " createCUBRIDException(int, Throwable), isSavepointTopologySupported(),"
-                        + " isSchemaSupported(), prepare(String, byte),"
-                        + " removeStatement(Statement)]",
+                        + " createCUBRIDException(int, Throwable), executeForStream(String),"
+                        + " isSavepointTopologySupported(), isSchemaSupported(), prepare(String, byte),"
+                        + " removeStatement(Statement), streamAbort(), streamData(byte[]),"
+                        + " streamData(byte[], int, int), streamEnd(), streamInit(int, byte[])]",
                 packagePrivate.toString());
     }
 

@@ -94,7 +94,17 @@ public enum UFunctionCode {
     CURSOR_CLOSE(42),
     GET_SHARD_INFO(43),
     SET_CAS_CHANGE_MODE(44),
-    LAST_FUNCTION_CODE(GET_SHARD_INFO);
+
+    /* byte-stream transport, PROTOCOL_V13: uploads 45-48, downloads 49-51 */
+    STREAM_SEND_DATA(45),
+    STREAM_END(46),
+    STREAM_INIT(47),
+    STREAM_ABORT(48),
+    STREAM_READ_OPEN(49),
+    STREAM_READ(50),
+    STREAM_RELEASE(51),
+
+    LAST_FUNCTION_CODE(STREAM_RELEASE);
 
     private byte code;
 
@@ -102,13 +112,13 @@ public enum UFunctionCode {
         this.code = code;
     }
 
+    UFunctionCode(UFunctionCode code) {
+        this.code = code.getCode();
+    }
+
     UFunctionCode(int code) {
         // FIX ME: possibly overflow
         this.code = (byte) code;
-    }
-
-    UFunctionCode(UFunctionCode code) {
-        this.code = code.getCode();
     }
 
     public byte getCode() {

@@ -98,6 +98,7 @@ public class CUBRIDStatement implements Statement {
     private boolean is_scrollable;
     private boolean is_updatable;
     private boolean is_holdable;
+    private boolean streamRequested;
     private boolean is_sensitive;
     private int fetch_direction;
     private int fetch_size;
@@ -248,6 +249,20 @@ public class CUBRIDStatement implements Statement {
         returnvalue = executeUpdate(sql, Statement.NO_GENERATED_KEYS);
 
         return returnvalue;
+    }
+
+    /*
+     * executeUpdate () that asks for the stream the statement opens, as the COPY loader runs COPY ...
+     * FROM STDIN. The CAS gives up a stream an execute opens without asking, so a COPY that an
+     * application runs through executeUpdate () fails and leaves the connection usable.
+     */
+    int executeUpdateForStream(String sql) throws SQLException {
+        streamRequested = true;
+        try {
+            return executeUpdate(sql);
+        } finally {
+            streamRequested = false;
+        }
     }
 
     public void close() throws SQLException {
@@ -968,6 +983,7 @@ public class CUBRIDStatement implements Statement {
 
         if (getResultSetHoldability() == ResultSet.HOLD_CURSORS_OVER_COMMIT) is_holdable = true;
 
+        u_stmt.setStreamRequested(streamRequested);
         u_stmt.execute(
                 false,
                 max_rows,

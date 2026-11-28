@@ -32,6 +32,7 @@ package cubrid.jdbc.lb;
 
 import cubrid.jdbc.driver.CUBRIDConnection;
 import cubrid.jdbc.driver.CUBRIDConnectionKey;
+import cubrid.jdbc.driver.CUBRIDCopyLoader;
 import cubrid.jdbc.driver.CUBRIDDriver;
 import cubrid.jdbc.driver.CUBRIDOutResultSet;
 import cubrid.jdbc.driver.CUBRIDShardMetaData;
@@ -2583,6 +2584,16 @@ public class LoadBalanceConnection extends CUBRIDConnection {
     @Override
     public CUBRIDShardMetaData getShardMetaData() throws SQLException {
         throw LbExceptions.notSupportedApi("getShardMetaData()");
+    }
+
+    /**
+     * The COPY loader, refused. A stream lives on the one physical connection that opened it, and
+     * the work it does would pass this session's record of an open write transaction. COPY runs on a
+     * connection opened without load balancing.
+     */
+    @Override
+    public CUBRIDCopyLoader getCopyLoader() throws SQLException {
+        throw LbExceptions.streamNotSupported("getCopyLoader()");
     }
 
     /**

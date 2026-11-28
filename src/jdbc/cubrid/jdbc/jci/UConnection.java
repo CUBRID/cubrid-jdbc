@@ -110,7 +110,8 @@ public abstract class UConnection {
     public static final int PROTOCOL_V11 = 11;
     public static final int PROTOCOL_V12 = 12;
     /* CAS-issued session id required (not just optionally checked) for QC/X1 query cancel,
-     * see KVE-2026-1827 and engine ticket CBRD-27389. Mirrors src/broker/cas_protocol.h's
+     * see KVE-2026-1827 and engine ticket CBRD-27389, and the byte-stream transport, uploads and
+     * downloads (UFunctionCode.STREAM_*). Mirrors src/broker/cas_protocol.h's
      * PROTOCOL_V13 (engine) and src/cci/broker_cas_protocol.h's PROTOCOL_V13 (CCI). */
     public static final int PROTOCOL_V13 = 13;
 
@@ -172,6 +173,9 @@ public abstract class UConnection {
     protected static final byte CAS_INFO_FLAG_MASK_AUTOCOMMIT = 0x01;
     protected static final byte CAS_INFO_FLAG_MASK_FORCE_OUT_TRAN = 0x02;
     protected static final byte CAS_INFO_FLAG_MASK_NEW_SESSION_ID = 0x04;
+    protected static final byte CAS_INFO_FLAG_MASK_STREAM_OPEN = 0x08;
+    /* 0 in every reply from the stream protocol (CUBRID/cubrid#8019) on; a CAS before it sends 1 */
+    private static final int CAS_INFO_FLAG_MASK_RESERVED = 0xF0;
 
     /* broker info */
     protected static final int BROKER_INFO_SIZE = 8;
@@ -238,6 +242,8 @@ public abstract class UConnection {
     protected UTimedDataInputStream input;
     protected DataOutputStream output;
     protected UOutputBuffer outBuffer;
+
+    private final UStream stream = new UStream(this);
 
     // jci 3.0
 
@@ -1328,7 +1334,9 @@ public abstract class UConnection {
         outBuffer.addByte(flag);
         outBuffer.addByte(getAutoCommit() ? (byte) 1 : (byte) 0);
 
-        while (deferred_close_handle.isEmpty() != true) {
+        /* With a stream open the CAS refuses the whole PREPARE, closes included, so they wait for
+         * the first PREPARE after the stream. */
+        while (!isStreamOpen() && deferred_close_handle.isEmpty() != true) {
             Integer close_handle = (Integer) deferred_close_handle.remove(0);
             outBuffer.addInt(close_handle.intValue());
         }
@@ -1853,6 +1861,7 @@ public abstract class UConnection {
     }
 
     void clientSocketClose() {
+        forgetStreamOpen();
         try {
             needReconnection = true;
             if (client != null) {
@@ -1870,12 +1879,11 @@ public abstract class UConnection {
     UInputBuffer send_recv_msg(boolean recv_result, int timeout) throws UJciException, IOException {
         byte prev_casinfo[] = casInfo;
         UInputBuffer inputBuffer;
-        outBuffer.sendData();
         /* set cas info to UConnection member variable and return InputBuffer */
         if (timeout > 0) {
-            inputBuffer = receive(timeout * 1000 + READ_TIMEOUT);
+            inputBuffer = exchange(timeout * 1000 + READ_TIMEOUT);
         } else {
-            inputBuffer = receive(0);
+            inputBuffer = exchange(0);
         }
 
         if (UJCIUtil.isConsoleDebug()) {
@@ -1893,9 +1901,8 @@ public abstract class UConnection {
 
     UInputBuffer send_recv_msg(boolean recv_result) throws UJciException, IOException {
         byte prev_casinfo[] = casInfo;
-        outBuffer.sendData();
         /* set cas info to UConnection member variable and return InputBuffer */
-        UInputBuffer inputBuffer = receive(0);
+        UInputBuffer inputBuffer = exchange(0);
 
         if (UJCIUtil.isConsoleDebug()) {
             printCasInfo(prev_casinfo, casInfo);
@@ -1908,6 +1915,44 @@ public abstract class UConnection {
             createJciException(UErrorCode.ER_COMMUNICATION);
         }
         return send_recv_msg(true);
+    }
+
+    /*
+     * Sends the request and takes the reply. A request that gets no whole reply clears the
+     * STREAM_OPEN bit of the last one: the CAS that reported the stream may be gone, and the
+     * stream with it. A server error is a reply, and its CAS info is the current one.
+     */
+    private UInputBuffer exchange(int headerTimeout) throws UJciException, IOException {
+        try {
+            outBuffer.sendData();
+            return receive(headerTimeout);
+        } catch (IOException e) {
+            forgetStreamOpen();
+            throw e;
+        } catch (UJciException e) {
+            if (e.getJciError() != UErrorCode.ER_DBMS) {
+                forgetStreamOpen();
+            }
+            throw e;
+        }
+    }
+
+    /*
+     * Did the last reply come from a CAS without the stream protocol? Such a CAS leaves every bit
+     * above the three older masks at 1, and develop builds between CBRD-27389 and CUBRID/cubrid#8019
+     * report PROTOCOL_V13 all the same. From #8019 on the reserved bits are 0, so a CAS that one day
+     * defines one of them still reads as knowing the stream protocol.
+     */
+    boolean casPredatesStreams() {
+        return casInfo != null
+                && (casInfo[CAS_INFO_ADDITIONAL_FLAG] & CAS_INFO_FLAG_MASK_RESERVED)
+                        == CAS_INFO_FLAG_MASK_RESERVED;
+    }
+
+    private void forgetStreamOpen() {
+        if (casInfo != null) {
+            casInfo[CAS_INFO_ADDITIONAL_FLAG] &= ~CAS_INFO_FLAG_MASK_STREAM_OPEN;
+        }
     }
 
     private UInputBuffer receive(int headerTimeout) throws UJciException, IOException {
@@ -1936,6 +1981,29 @@ public abstract class UConnection {
 
     public int brokerProtocolVersion() {
         return protocolVersion;
+    }
+
+    /* The byte-stream requests (UFunctionCode.STREAM_*) on this connection. */
+    public UStream getStream() {
+        return stream;
+    }
+
+    /*
+     * Is a stream open on this connection? The server reports it in every
+     * reply. While it is, the statement that opened it is unfinished: the
+     * bytes are still to come, and in auto-commit the CAS, not the driver,
+     * commits at the stream's END.
+     *
+     * Older servers leave every bit above the three known masks at 1, so the
+     * answer is only meaningful from PROTOCOL_V13 on, and from a CAS that knows
+     * the stream protocol (casPredatesStreams ()). A request that got no reply
+     * clears the bit (exchange ()).
+     */
+    public boolean isStreamOpen() {
+        if (protocolVersion < PROTOCOL_V13 || casInfo == null || casPredatesStreams()) {
+            return false;
+        }
+        return (casInfo[CAS_INFO_ADDITIONAL_FLAG] & CAS_INFO_FLAG_MASK_STREAM_OPEN) != 0;
     }
 
     @Deprecated

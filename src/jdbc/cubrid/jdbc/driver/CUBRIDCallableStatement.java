@@ -31,6 +31,7 @@
 
 package cubrid.jdbc.driver;
 
+import cubrid.jdbc.jci.UConnection;
 import cubrid.jdbc.jci.UErrorCode;
 import cubrid.jdbc.jci.UStatement;
 import cubrid.sql.CUBRIDTimestamptz;
@@ -70,6 +71,47 @@ public class CUBRIDCallableStatement extends CUBRIDPreparedStatement implements 
                 ResultSet.CONCUR_READ_ONLY,
                 ResultSet.CLOSE_CURSORS_AT_COMMIT,
                 Statement.NO_GENERATED_KEYS);
+    }
+
+    private String[] parameterNames;
+
+    private int findParameter(String parameterName) throws SQLException {
+        checkIsOpen();
+        String[] names = parameterNames;
+        if (names == null) {
+            if (u_con.brokerProtocolVersion() < UConnection.PROTOCOL_V13
+                    || u_con.isConnectedToProxy()
+                    || u_con.isConnectedToGateway()) {
+                throw CUBRIDException.notSupported(CUBRIDException.noParameterNamesMessage());
+            }
+
+            synchronized (con) {
+                synchronized (u_stmt) {
+                    names = u_stmt.getParameterNames();
+                    error = u_stmt.getRecentError();
+                }
+            }
+            if (names == null) {
+                throw con.createCUBRIDException(error);
+            }
+
+            boolean named = false;
+            for (String name : names) {
+                named |= !name.isEmpty();
+            }
+            /* The server sends no names when it cannot read the routine, so ask again next time. */
+            if (named) {
+                parameterNames = names;
+            }
+        }
+
+        for (int i = 0; i < names.length; i++) {
+            if (!names[i].isEmpty() && names[i].equalsIgnoreCase(parameterName)) {
+                return i + 1;
+            }
+        }
+        throw con.createCUBRIDException(
+                CUBRIDJDBCErrorCode.invalid_parameter_name, parameterName, null);
     }
 
     /*
@@ -394,161 +436,161 @@ public class CUBRIDCallableStatement extends CUBRIDPreparedStatement implements 
     }
 
     public void setNull(String pName, int sqlType) throws SQLException {
-        throw CUBRIDException.notSupported();
+        setNull(findParameter(pName), sqlType);
     }
 
     public void setBoolean(String pName, boolean x) throws SQLException {
-        throw CUBRIDException.notSupported();
+        setBoolean(findParameter(pName), x);
     }
 
     public void setByte(String pName, byte x) throws SQLException {
-        throw CUBRIDException.notSupported();
+        setByte(findParameter(pName), x);
     }
 
     public void setShort(String pName, short x) throws SQLException {
-        throw CUBRIDException.notSupported();
+        setShort(findParameter(pName), x);
     }
 
     public void setInt(String pName, int x) throws SQLException {
-        throw CUBRIDException.notSupported();
+        setInt(findParameter(pName), x);
     }
 
     public void setLong(String pName, long x) throws SQLException {
-        throw CUBRIDException.notSupported();
+        setLong(findParameter(pName), x);
     }
 
     public void setFloat(String pName, float x) throws SQLException {
-        throw CUBRIDException.notSupported();
+        setFloat(findParameter(pName), x);
     }
 
     public void setDouble(String pName, double x) throws SQLException {
-        throw CUBRIDException.notSupported();
+        setDouble(findParameter(pName), x);
     }
 
     public void setBigDecimal(String pName, BigDecimal x) throws SQLException {
-        throw CUBRIDException.notSupported();
+        setBigDecimal(findParameter(pName), x);
     }
 
     public void setString(String pName, String x) throws SQLException {
-        throw CUBRIDException.notSupported();
+        setString(findParameter(pName), x);
     }
 
     public void setBytes(String pName, byte[] x) throws SQLException {
-        throw CUBRIDException.notSupported();
+        setBytes(findParameter(pName), x);
     }
 
     public void setDate(String pName, Date x) throws SQLException {
-        throw CUBRIDException.notSupported();
+        setDate(findParameter(pName), x);
     }
 
     public void setTime(String pName, Time x) throws SQLException {
-        throw CUBRIDException.notSupported();
+        setTime(findParameter(pName), x);
     }
 
     public void setTimestamp(String pName, Timestamp x) throws SQLException {
-        throw CUBRIDException.notSupported();
+        setTimestamp(findParameter(pName), x);
     }
 
     public void setTimestamptz(String pName, CUBRIDTimestamptz x) throws SQLException {
-        throw CUBRIDException.notSupported();
+        setTimestamptz(findParameter(pName), x);
     }
 
     public void setAsciiStream(String pName, InputStream x, int length) throws SQLException {
-        throw CUBRIDException.notSupported();
+        setAsciiStream(findParameter(pName), x, length);
     }
 
     public void setBinaryStream(String pName, InputStream x, int length) throws SQLException {
-        throw CUBRIDException.notSupported();
+        setBinaryStream(findParameter(pName), x, length);
     }
 
     public void setObject(String pName, Object x, int targetSqlType, int scale)
             throws SQLException {
-        throw CUBRIDException.notSupported();
+        setObject(findParameter(pName), x, targetSqlType, scale);
     }
 
     public void setObject(String pName, Object x, int targetSqlType) throws SQLException {
-        throw CUBRIDException.notSupported();
+        setObject(findParameter(pName), x, targetSqlType);
     }
 
     public void setObject(String pName, Object x) throws SQLException {
-        throw CUBRIDException.notSupported();
+        setObject(findParameter(pName), x);
     }
 
     public void setCharacterStream(String pName, Reader reader, int length) throws SQLException {
-        throw CUBRIDException.notSupported();
+        setCharacterStream(findParameter(pName), reader, length);
     }
 
     public void setDate(String pName, Date x, Calendar cal) throws SQLException {
-        throw CUBRIDException.notSupported();
+        setDate(findParameter(pName), x, cal);
     }
 
     public void setTime(String pName, Time x, Calendar cal) throws SQLException {
-        throw CUBRIDException.notSupported();
+        setTime(findParameter(pName), x, cal);
     }
 
     public void setTimestamp(String pName, Timestamp x, Calendar cal) throws SQLException {
-        throw CUBRIDException.notSupported();
+        setTimestamp(findParameter(pName), x, cal);
     }
 
     public void setTimestamptz(String pName, CUBRIDTimestamptz x, Calendar cal)
             throws SQLException {
-        throw CUBRIDException.notSupported();
+        setTimestamptz(findParameter(pName), x, cal);
     }
 
     public void setNull(String pName, int sqlType, String typeName) throws SQLException {
-        throw CUBRIDException.notSupported();
+        setNull(findParameter(pName), sqlType, typeName);
     }
 
     public String getString(String pName) throws SQLException {
-        throw CUBRIDException.notSupported();
+        return getString(findParameter(pName));
     }
 
     public boolean getBoolean(String pName) throws SQLException {
-        throw CUBRIDException.notSupported();
+        return getBoolean(findParameter(pName));
     }
 
     public byte getByte(String pName) throws SQLException {
-        throw CUBRIDException.notSupported();
+        return getByte(findParameter(pName));
     }
 
     public short getShort(String pName) throws SQLException {
-        throw CUBRIDException.notSupported();
+        return getShort(findParameter(pName));
     }
 
     public int getInt(String pName) throws SQLException {
-        throw CUBRIDException.notSupported();
+        return getInt(findParameter(pName));
     }
 
     public long getLong(String pName) throws SQLException {
-        throw CUBRIDException.notSupported();
+        return getLong(findParameter(pName));
     }
 
     public float getFloat(String pName) throws SQLException {
-        throw CUBRIDException.notSupported();
+        return getFloat(findParameter(pName));
     }
 
     public double getDouble(String pName) throws SQLException {
-        throw CUBRIDException.notSupported();
+        return getDouble(findParameter(pName));
     }
 
     public byte[] getBytes(String pName) throws SQLException {
-        throw CUBRIDException.notSupported();
+        return getBytes(findParameter(pName));
     }
 
     public Date getDate(String pName) throws SQLException {
-        throw CUBRIDException.notSupported();
+        return getDate(findParameter(pName));
     }
 
     public Time getTime(String pName) throws SQLException {
-        throw CUBRIDException.notSupported();
+        return getTime(findParameter(pName));
     }
 
     public Timestamp getTimestamp(String pName) throws SQLException {
-        throw CUBRIDException.notSupported();
+        return getTimestamp(findParameter(pName));
     }
 
     public Object getObject(String pName) throws SQLException {
-        throw CUBRIDException.notSupported();
+        return getObject(findParameter(pName));
     }
 
     public Object getObject(int i, Map<String, Class<?>> map) throws SQLException {
@@ -560,7 +602,7 @@ public class CUBRIDCallableStatement extends CUBRIDPreparedStatement implements 
     }
 
     public BigDecimal getBigDecimal(String pName) throws SQLException {
-        throw CUBRIDException.notSupported();
+        return getBigDecimal(findParameter(pName));
     }
 
     public Ref getRef(String pName) throws SQLException {
@@ -568,11 +610,11 @@ public class CUBRIDCallableStatement extends CUBRIDPreparedStatement implements 
     }
 
     public Blob getBlob(String pName) throws SQLException {
-        throw CUBRIDException.notSupported();
+        return getBlob(findParameter(pName));
     }
 
     public Clob getClob(String pName) throws SQLException {
-        throw CUBRIDException.notSupported();
+        return getClob(findParameter(pName));
     }
 
     public Array getArray(String pName) throws SQLException {
@@ -580,15 +622,15 @@ public class CUBRIDCallableStatement extends CUBRIDPreparedStatement implements 
     }
 
     public Date getDate(String pName, Calendar cal) throws SQLException {
-        throw CUBRIDException.notSupported();
+        return getDate(findParameter(pName), cal);
     }
 
     public Time getTime(String pName, Calendar cal) throws SQLException {
-        throw CUBRIDException.notSupported();
+        return getTime(findParameter(pName), cal);
     }
 
     public Timestamp getTimestamp(String pName, Calendar cal) throws SQLException {
-        throw CUBRIDException.notSupported();
+        return getTimestamp(findParameter(pName), cal);
     }
 
     public URL getURL(String pName) throws SQLException {
@@ -608,16 +650,16 @@ public class CUBRIDCallableStatement extends CUBRIDPreparedStatement implements 
     }
 
     public void registerOutParameter(String pName, int sqlType) throws SQLException {
-        throw CUBRIDException.notSupported();
+        registerOutParameter(findParameter(pName), sqlType);
     }
 
     public void registerOutParameter(String pName, int sqlType, int scale) throws SQLException {
-        throw CUBRIDException.notSupported();
+        registerOutParameter(findParameter(pName), sqlType, scale);
     }
 
     public void registerOutParameter(String pName, int sqlType, String typeName)
             throws SQLException {
-        throw CUBRIDException.notSupported();
+        registerOutParameter(findParameter(pName), sqlType, typeName);
     }
 
     // Batch execution is not supported for CallableStatement, which represents a stored
@@ -802,18 +844,18 @@ public class CUBRIDCallableStatement extends CUBRIDPreparedStatement implements 
 
     /* JDK 1.6 */
     public void setBlob(String parameterName, Blob x) throws SQLException {
-        throw CUBRIDException.notSupported();
+        setBlob(findParameter(parameterName), x);
     }
 
     /* JDK 1.6 */
     public void setBlob(String parameterName, InputStream inputStream) throws SQLException {
-        throw CUBRIDException.notSupported();
+        setBlob(findParameter(parameterName), inputStream);
     }
 
     /* JDK 1.6 */
     public void setBlob(String parameterName, InputStream inputStream, long length)
             throws SQLException {
-        throw CUBRIDException.notSupported();
+        setBlob(findParameter(parameterName), inputStream, length);
     }
 
     /* JDK 1.6 */
@@ -829,17 +871,17 @@ public class CUBRIDCallableStatement extends CUBRIDPreparedStatement implements 
 
     /* JDK 1.6 */
     public void setClob(String parameterName, Clob x) throws SQLException {
-        throw CUBRIDException.notSupported();
+        setClob(findParameter(parameterName), x);
     }
 
     /* JDK 1.6 */
     public void setClob(String parameterName, Reader reader) throws SQLException {
-        throw CUBRIDException.notSupported();
+        setClob(findParameter(parameterName), reader);
     }
 
     /* JDK 1.6 */
     public void setClob(String parameterName, Reader reader, long length) throws SQLException {
-        throw CUBRIDException.notSupported();
+        setClob(findParameter(parameterName), reader, length);
     }
 
     /* JDK 1.6 */
@@ -973,7 +1015,7 @@ public class CUBRIDCallableStatement extends CUBRIDPreparedStatement implements 
 
     /* JDK 1.7 */
     public <T> T getObject(String parameterName, Class<T> type) throws SQLException {
-        throw CUBRIDException.notSupported();
+        return getObject(findParameter(parameterName), type);
     }
 
     // ------------------------- JDBC 4.2 -----------------------------------
@@ -1000,5 +1042,34 @@ public class CUBRIDCallableStatement extends CUBRIDPreparedStatement implements 
     public void registerOutParameter(int parameterIndex, SQLType sqlType, String typeName)
             throws SQLException {
         registerOutParameter(parameterIndex, checkSqlType(sqlType), typeName);
+    }
+
+    @Override
+    public void setObject(String parameterName, Object x, SQLType targetSqlType, int scaleOrLength)
+            throws SQLException {
+        setObject(findParameter(parameterName), x, targetSqlType, scaleOrLength);
+    }
+
+    @Override
+    public void setObject(String parameterName, Object x, SQLType targetSqlType)
+            throws SQLException {
+        setObject(findParameter(parameterName), x, targetSqlType);
+    }
+
+    @Override
+    public void registerOutParameter(String parameterName, SQLType sqlType) throws SQLException {
+        registerOutParameter(findParameter(parameterName), sqlType);
+    }
+
+    @Override
+    public void registerOutParameter(String parameterName, SQLType sqlType, int scale)
+            throws SQLException {
+        registerOutParameter(findParameter(parameterName), sqlType, scale);
+    }
+
+    @Override
+    public void registerOutParameter(String parameterName, SQLType sqlType, String typeName)
+            throws SQLException {
+        registerOutParameter(findParameter(parameterName), sqlType, typeName);
     }
 }

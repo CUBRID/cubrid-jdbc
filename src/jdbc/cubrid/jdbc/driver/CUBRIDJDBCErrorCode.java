@@ -88,6 +88,7 @@ public class CUBRIDJDBCErrorCode {
     public static final int file_not_found_prop = -21143;
     public static final int savepoint_in_auto_commit_mode = -21144;
     public static final int invalid_savepoint = -21145;
+    public static final int invalid_parameter_name = -21146;
 
     private static final Map<Integer, String> messageString = createMessageMap();
 
@@ -159,6 +160,7 @@ public class CUBRIDJDBCErrorCode {
                 savepoint_in_auto_commit_mode,
                 "Savepoint cannot be used while auto-commit is enabled.");
         m.put(invalid_savepoint, "Invalid savepoint - ");
+        m.put(invalid_parameter_name, "Invalid parameter name - ");
 
         return Collections.unmodifiableMap(m);
     }

@@ -55,6 +55,9 @@ import java.util.StringTokenizer;
 
 public class UClientSideConnection extends UConnection {
 
+    /* the server's error for a request that a stream open on this connection does not admit */
+    private static final int ER_STREAM_INVALID_USE = -1220;
+
     private ArrayList<String> altHosts = null;
     private int connectedHostId = 0;
 
@@ -391,7 +394,12 @@ public class UClientSideConnection extends UConnection {
             }
         }
 
-        if (errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR
+        /* A COMMIT inside an open stream: the CAS rolled back and answered, and is still there. */
+        boolean refusedByStream =
+                errorHandler.getErrorCode() == UErrorCode.ER_DBMS
+                        && errorHandler.getJdbcErrorCode() == ER_STREAM_INVALID_USE;
+
+        if ((errorHandler.getErrorCode() != UErrorCode.ER_NO_ERROR && !refusedByStream)
                 || keepConnection == false) // jci 3.0
         {
             if (type == false) {

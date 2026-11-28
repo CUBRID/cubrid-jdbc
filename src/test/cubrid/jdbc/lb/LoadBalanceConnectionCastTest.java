@@ -255,6 +255,11 @@ public final class LoadBalanceConnectionCastTest {
      * CUBRIDResultSet}. Pinning the exact list here means a newly added package-private member
      * fails this test and gets that reachability question asked again, rather than being discovered
      * as a NullPointerException in the field.
+     *
+     * <p>The stream calls ({@code streamInit}, {@code streamData}, {@code streamEnd}, {@code
+     * streamAbort}) are called only by driver-internal code: the COPY loader, which this connection
+     * refuses, and the LOB upload, on the physical connection {@code createClob()} and {@code
+     * createBlob()} hand out, which is the write leg's here.
      */
     @Test
     public void packagePrivateMembersAreTheKnownUnreachableSet() {
@@ -280,7 +285,8 @@ public final class LoadBalanceConnectionCastTest {
                         + " createCUBRIDException(int, String, Throwable),"
                         + " createCUBRIDException(int, Throwable), isSavepointTopologySupported(),"
                         + " isSchemaSupported(), prepare(String, byte),"
-                        + " removeStatement(Statement)]",
+                        + " removeStatement(Statement), streamAbort(), streamData(byte[]),"
+                        + " streamData(byte[], int, int), streamEnd(), streamInit(int, byte[])]",
                 packagePrivate.toString());
     }
 

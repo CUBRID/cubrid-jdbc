@@ -87,6 +87,8 @@ public class CUBRIDConnection implements Connection {
 
     protected UError error;
     private boolean ending;
+    /* streamInit () opened the open stream with no transaction on the CAS */
+    boolean streamOpenedOutOfTransaction;
 
     protected ArrayList<Statement> statements;
     protected CUBRIDDatabaseMetaData mdata;
@@ -663,7 +665,11 @@ public class CUBRIDConnection implements Connection {
         }
 
         checkIsOpen();
-        if (auto_commit) commit();
+        /* A statement that opened a stream session is not finished when execute
+         * returns -- the bytes still have to be sent -- so committing here would
+         * end the stream before the first chunk. The CAS makes this commit itself
+         * at the stream's END, in the mode the statement ran in. */
+        if (auto_commit && !u_con.isStreamOpen()) commit();
     }
 
     protected void autoRollback() throws SQLException {
@@ -673,7 +679,10 @@ public class CUBRIDConnection implements Connection {
         }
 
         checkIsOpen();
-        if (auto_commit) rollback();
+        /* With a stream open the CAS refused this statement and kept the stream, which a
+         * rollback would drop. A statement that got no reply has cleared the bit, so the
+         * rollback that closes a lost connection still runs. */
+        if (auto_commit && !u_con.isStreamOpen()) rollback();
     }
 
     /**
@@ -706,6 +715,7 @@ public class CUBRIDConnection implements Connection {
     }
 
     protected void clear() throws SQLException {
+        abortAbandonedStream();
         closeAllStatements();
         closeAllOutResultSet();
 
@@ -717,6 +727,55 @@ public class CUBRIDConnection implements Connection {
             mdata.close();
             mdata = null;
         }
+    }
+
+    /*
+     * A stream the application left open holds its transaction, and a COPY its table lock, for
+     * whoever uses this UConnection next: a pool hands it on. The abort's result is not needed.
+     */
+    private void abortAbandonedStream() {
+        if (u_con == null) {
+            return;
+        }
+        synchronized (u_con) {
+            if (u_con.isStreamOpen()) {
+                u_con.getStream().abort();
+            }
+        }
+    }
+
+    /*
+     * In auto-commit the CAS ends the transaction itself at END (a commit) and at ABORT or a
+     * refusal (a rollback). The driver then has nothing to send, only the cleanup its own commit or
+     * rollback does, so a holdable result set is kept by END as by any other commit.
+     *
+     * A stream streamInit () opened out of a transaction ends no transaction of the statements: no
+     * statement runs while it is open, and the CAS ends only what the stream began, or takes the
+     * connection back to where it was before the upload.
+     */
+    private void endedByStream(boolean commit) throws SQLException {
+        if (ending || !auto_commit || u_con.isActive() || streamOpenedOutOfTransaction) {
+            return;
+        }
+        ending = true;
+        try {
+            if (commit) {
+                completeStatementForCommit();
+            } else {
+                completeAllStatements();
+            }
+            tellOwnerTransactionEnds(commit);
+        } finally {
+            ending = false;
+        }
+    }
+
+    /* A server's refusal can end the stream, and in auto-commit the CAS then rolls back. */
+    private SQLException streamFailed(UError error) throws SQLException {
+        if (error.getErrorCode() == UErrorCode.ER_DBMS) {
+            endedByStream(false);
+        }
+        return createCUBRIDException(error);
     }
 
     private void checkIsOpen() throws SQLException {
@@ -989,6 +1048,110 @@ public class CUBRIDConnection implements Connection {
         return result;
     }
 
+    /*
+     * Shared client->server byte-stream transport, for the driver's own callers: the COPY loader and
+     * the LOB code. A stream is opened either by a statement that asked for it
+     * (CUBRIDStatement.executeUpdateForStream ()) or by streamInit() for a kind the driver opens
+     * itself. Send the payload with streamData(), then streamEnd() to finish; streamEnd() returns
+     * the 64-bit value the kind defines (the rows loaded for COPY, an upload token for a LOB value).
+     * Until streamEnd() or streamAbort() the connection runs no statement, so a stream given up is
+     * aborted before the connection goes back to a pool.
+     */
+    synchronized int streamInit(int streamKind, byte[] config) throws SQLException {
+        checkIsOpen();
+        int result;
+
+        synchronized (u_con) {
+            /* an open sent with a stream open is refused and leaves that stream as it was */
+            if (!u_con.isStreamOpen()) {
+                streamOpenedOutOfTransaction = !u_con.isActive();
+            }
+            result = u_con.getStream().init(streamKind, config);
+            error = u_con.getRecentError();
+        }
+
+        switch (error.getErrorCode()) {
+            case UErrorCode.ER_NO_ERROR:
+                break;
+            default:
+                throw streamFailed(error);
+        }
+
+        return result;
+    }
+
+    synchronized int streamData(byte[] data) throws SQLException {
+        /* a null chunk is refused below as an invalid argument */
+        return streamData(data, 0, data == null ? 0 : data.length);
+    }
+
+    synchronized int streamData(byte[] data, int start, int len) throws SQLException {
+        checkIsOpen();
+        int result;
+
+        synchronized (u_con) {
+            result = u_con.getStream().sendData(data, start, len);
+            error = u_con.getRecentError();
+        }
+
+        switch (error.getErrorCode()) {
+            case UErrorCode.ER_NO_ERROR:
+                break;
+            default:
+                throw streamFailed(error);
+        }
+
+        return result;
+    }
+
+    synchronized long streamEnd() throws SQLException {
+        checkIsOpen();
+        long result;
+
+        synchronized (u_con) {
+            result = u_con.getStream().end();
+            error = u_con.getRecentError();
+        }
+
+        switch (error.getErrorCode()) {
+            case UErrorCode.ER_NO_ERROR:
+                break;
+            default:
+                throw streamFailed(error);
+        }
+
+        endedByStream(true);
+        return result;
+    }
+
+    /*
+     * Gives up the open stream without ending it. The server drops the
+     * session, and a COPY rolls back to the savepoint it took at open, so it
+     * leaves no row with auto-commit on or off; work done before it in the
+     * same transaction stays. In auto-commit, the CAS ends the transaction
+     * the opening statement left open with a rollback, not the commit it
+     * deferred.
+     */
+    synchronized int streamAbort() throws SQLException {
+        checkIsOpen();
+        int result;
+
+        synchronized (u_con) {
+            result = u_con.getStream().abort();
+            error = u_con.getRecentError();
+        }
+
+        switch (error.getErrorCode()) {
+            case UErrorCode.ER_NO_ERROR:
+                break;
+            default:
+                throw streamFailed(error);
+        }
+
+        endedByStream(false);
+        return result;
+    }
+
     public synchronized int getShardId() {
         int lastShardId;
 
@@ -1118,6 +1281,9 @@ public class CUBRIDConnection implements Connection {
         }
 
         if (isClosedWithoutLock()) return false;
+        /* An upload left open refuses every statement until END or ABORT. A pool that keeps the
+         * physical connection, and sends no rollback in auto-commit, evicts it on this answer. */
+        if (u_con.isStreamOpen()) return false;
 
         return u_con.isValid(timeout * 1000);
     }
